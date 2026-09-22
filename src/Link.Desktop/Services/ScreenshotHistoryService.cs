@@ -8,6 +8,8 @@ public sealed class ScreenshotHistoryService
 {
     private readonly StoragePaths _paths;
     private readonly SettingsService _settings;
+    private readonly HashSet<string> _pinned = new(StringComparer.OrdinalIgnoreCase);
+    private readonly object _sync = new();
 
     public ScreenshotHistoryService(StoragePaths paths, SettingsService settings)
     {
@@ -35,11 +37,33 @@ public sealed class ScreenshotHistoryService
         return path;
     }
 
-    public void Prune()
+    public void Pin(string path)
     {
+        lock (_sync) _pinned.Add(Path.GetFullPath(path));
+    }
+
+    public void Unpin(string path)
+    {
+        lock (_sync) _pinned.Remove(Path.GetFullPath(path));
+    }
+
+    public void Prune(IEnumerable<string>? additionallyProtected = null)
+    {
+        HashSet<string> protectedPaths;
+        lock (_sync)
+        {
+            protectedPaths = new HashSet<string>(_pinned, StringComparer.OrdinalIgnoreCase);
+        }
+
+        if (additionallyProtected is not null)
+        {
+            protectedPaths.UnionWith(additionallyProtected.Select(Path.GetFullPath));
+        }
+
         var files = new DirectoryInfo(_paths.Screenshots)
             .EnumerateFiles("*.png")
             .OrderByDescending(file => file.CreationTimeUtc)
+            .Where(file => !protectedPaths.Contains(file.FullName))
             .Skip(_settings.Current.ScreenshotHistorySize)
             .ToArray();
 

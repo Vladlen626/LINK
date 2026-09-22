@@ -5,6 +5,7 @@ namespace Link.Desktop.Windows;
 public sealed class TrayIconService : IDisposable
 {
     private readonly System.Windows.Forms.NotifyIcon _icon;
+    private readonly Icon _linkIcon;
 
     public TrayIconService(Action show, Action settings, Action exit)
     {
@@ -14,9 +15,10 @@ public sealed class TrayIconService : IDisposable
         menu.Items.Add(new System.Windows.Forms.ToolStripSeparator());
         menu.Items.Add("Exit", null, (_, _) => exit());
 
+        _linkIcon = LinkIconFactory.CreateTrayIcon();
         _icon = new System.Windows.Forms.NotifyIcon
         {
-            Icon = SystemIcons.Application,
+            Icon = _linkIcon,
             Text = "Link",
             Visible = true,
             ContextMenuStrip = menu
@@ -35,6 +37,7 @@ public sealed class TrayIconService : IDisposable
     {
         _icon.Visible = false;
         _icon.Dispose();
+        _linkIcon.Dispose();
         GC.SuppressFinalize(this);
     }
 }

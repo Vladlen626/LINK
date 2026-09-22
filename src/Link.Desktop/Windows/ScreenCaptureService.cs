@@ -22,12 +22,13 @@ public sealed class ScreenCaptureService
 
     public IReadOnlyList<ScreenshotResult> CaptureAllMonitors()
     {
-        _history.Prune();
-        return System.Windows.Forms.Screen.AllScreens
+        var results = System.Windows.Forms.Screen.AllScreens
             .OrderBy(screen => screen.Bounds.Left)
             .ThenBy(screen => screen.Bounds.Top)
             .Select((screen, index) => CaptureRectangle(screen.Bounds, $"monitor-{index + 1}", prune: false))
             .ToArray();
+        _history.Prune(results.Select(result => result.FilePath));
+        return results;
     }
 
     public ScreenshotResult CaptureActiveWindow(IntPtr fallbackWindow = default)

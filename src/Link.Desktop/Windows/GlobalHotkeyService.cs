@@ -1,6 +1,8 @@
 using System.ComponentModel;
 using System.Runtime.InteropServices;
+using System.Windows;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Threading;
 using Link.Desktop.Models;
 
@@ -8,29 +10,45 @@ namespace Link.Desktop.Windows;
 
 public sealed class GlobalHotkeyService : IDisposable
 {
+    private const int FirstHotkeyId = 0x4C10;
     private readonly Dispatcher _dispatcher;
-    private readonly NativeMethods.LowLevelKeyboardProc _callback;
-    private readonly HashSet<int> _pressedKeys = [];
-    private Dictionary<HotkeyAction, HotkeyGesture> _gestures = [];
-    private IntPtr _hook;
+    private readonly IntPtr _windowHandle;
+    private readonly HwndSource _source;
+    private readonly NativeMethods.LowLevelKeyboardProc _keyboardCallback;
+    private readonly Dictionary<int, HotkeyAction> _registeredActions = [];
+    private IntPtr _keyboardHook;
+    private HotkeyGesture? _pushToTalk;
     private bool _pushToTalkActive;
+    private bool _isSuspended;
+    private bool _disposed;
 
-    public GlobalHotkeyService(Dispatcher dispatcher)
+    public GlobalHotkeyService(Window owner, Dispatcher dispatcher)
     {
         _dispatcher = dispatcher;
-        _callback = OnKeyboardEvent;
+        _windowHandle = new WindowInteropHelper(owner).EnsureHandle();
+        _source = HwndSource.FromHwnd(_windowHandle) ?? throw new InvalidOperationException("Link window source is unavailable.");
+        _source.AddHook(WindowProcedure);
+        _keyboardCallback = OnKeyboardEvent;
     }
 
     public event Action<HotkeyAction>? Pressed;
     public event Action? PushToTalkStarted;
     public event Action? PushToTalkEnded;
 
-    public bool IsSuspended { get; set; }
+    public bool IsSuspended
+    {
+        get => _isSuspended;
+        set
+        {
+            _isSuspended = value;
+            if (value) ResetPushToTalk();
+        }
+    }
 
     public void Start(HotkeySettings settings)
     {
         Stop();
-        _gestures = new Dictionary<HotkeyAction, HotkeyGesture>
+        var gestures = new Dictionary<HotkeyAction, HotkeyGesture>
         {
             [HotkeyAction.ShowHide] = HotkeyGesture.Parse(settings.ShowHide),
             [HotkeyAction.PushToTalk] = HotkeyGesture.Parse(settings.PushToTalk),
@@ -39,94 +57,117 @@ public sealed class GlobalHotkeyService : IDisposable
             [HotkeyAction.CaptureRegion] = HotkeyGesture.Parse(settings.CaptureRegion)
         };
 
-        _hook = NativeMethods.SetWindowsHookEx(
-            NativeMethods.WhKeyboardLl,
-            _callback,
-            NativeMethods.GetModuleHandle(null),
-            0);
-
-        if (_hook == IntPtr.Zero)
+        if (gestures.Values.Any(gesture => !gesture.IsSafeGlobalShortcut))
         {
-            throw new Win32Exception(Marshal.GetLastWin32Error(), "Global hotkey hook could not be installed.");
+            throw new InvalidOperationException("Global shortcuts must include a modifier or use a function key.");
+        }
+
+        try
+        {
+            var id = FirstHotkeyId;
+            foreach (var pair in gestures.Where(pair => pair.Key != HotkeyAction.PushToTalk))
+            {
+                var gesture = pair.Value;
+                if (!NativeMethods.RegisterHotKey(
+                        _windowHandle,
+                        id,
+                        gesture.NativeModifiers | NativeMethods.ModNoRepeat,
+                        (uint)gesture.VirtualKey))
+                {
+                    throw new Win32Exception(Marshal.GetLastWin32Error(), $"Shortcut ‘{gesture.DisplayText}’ is already in use.");
+                }
+
+                _registeredActions[id] = pair.Key;
+                id++;
+            }
+
+            _pushToTalk = gestures[HotkeyAction.PushToTalk];
+            _keyboardHook = NativeMethods.SetWindowsHookEx(
+                NativeMethods.WhKeyboardLl,
+                _keyboardCallback,
+                NativeMethods.GetModuleHandle(null),
+                0);
+
+            if (_keyboardHook == IntPtr.Zero)
+            {
+                throw new Win32Exception(Marshal.GetLastWin32Error(), "Push-to-talk hook could not be installed.");
+            }
+        }
+        catch
+        {
+            Stop();
+            throw;
         }
     }
 
     public void Stop()
     {
-        if (_hook != IntPtr.Zero)
+        foreach (var id in _registeredActions.Keys.ToArray())
         {
-            NativeMethods.UnhookWindowsHookEx(_hook);
-            _hook = IntPtr.Zero;
+            NativeMethods.UnregisterHotKey(_windowHandle, id);
+        }
+        _registeredActions.Clear();
+
+        if (_keyboardHook != IntPtr.Zero)
+        {
+            NativeMethods.UnhookWindowsHookEx(_keyboardHook);
+            _keyboardHook = IntPtr.Zero;
         }
 
-        _pressedKeys.Clear();
-        _pushToTalkActive = false;
+        _pushToTalk = null;
+        ResetPushToTalk();
     }
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         Stop();
+        _source.RemoveHook(WindowProcedure);
         GC.SuppressFinalize(this);
+    }
+
+    private IntPtr WindowProcedure(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (message == NativeMethods.WmHotkey && !IsSuspended && _registeredActions.TryGetValue(wParam.ToInt32(), out var action))
+        {
+            handled = true;
+            Pressed?.Invoke(action);
+        }
+
+        return IntPtr.Zero;
     }
 
     private IntPtr OnKeyboardEvent(int code, IntPtr wParam, IntPtr lParam)
     {
-        if (code >= 0 && !IsSuspended)
+        if (code >= 0 && !IsSuspended && _pushToTalk is not null)
         {
             var message = wParam.ToInt32();
             var virtualKey = Marshal.ReadInt32(lParam);
             if (message is NativeMethods.WmKeyDown or NativeMethods.WmSysKeyDown)
             {
-                HandleKeyDown(virtualKey);
+                if (!_pushToTalkActive && _pushToTalk.Matches(virtualKey))
+                {
+                    _pushToTalkActive = true;
+                    _dispatcher.BeginInvoke(() => PushToTalkStarted?.Invoke());
+                }
             }
-            else if (message is NativeMethods.WmKeyUp or NativeMethods.WmSysKeyUp)
+            else if ((message is NativeMethods.WmKeyUp or NativeMethods.WmSysKeyUp) &&
+                     _pushToTalkActive && _pushToTalk.VirtualKey == virtualKey)
             {
-                HandleKeyUp(virtualKey);
+                ResetPushToTalk();
             }
         }
 
-        return NativeMethods.CallNextHookEx(_hook, code, wParam, lParam);
+        return NativeMethods.CallNextHookEx(_keyboardHook, code, wParam, lParam);
     }
 
-    private void HandleKeyDown(int virtualKey)
+    private void ResetPushToTalk()
     {
-        if (!_pressedKeys.Add(virtualKey))
-        {
-            return;
-        }
-
-        foreach (var pair in _gestures)
-        {
-            if (!pair.Value.Matches(virtualKey))
-            {
-                continue;
-            }
-
-            if (pair.Key == HotkeyAction.PushToTalk)
-            {
-                _pushToTalkActive = true;
-                _dispatcher.BeginInvoke(() => PushToTalkStarted?.Invoke());
-            }
-            else
-            {
-                var action = pair.Key;
-                _dispatcher.BeginInvoke(() => Pressed?.Invoke(action));
-            }
-
-            break;
-        }
-    }
-
-    private void HandleKeyUp(int virtualKey)
-    {
-        _pressedKeys.Remove(virtualKey);
-        if (_pushToTalkActive &&
-            _gestures.TryGetValue(HotkeyAction.PushToTalk, out var gesture) &&
-            gesture.VirtualKey == virtualKey)
-        {
-            _pushToTalkActive = false;
-            _dispatcher.BeginInvoke(() => PushToTalkEnded?.Invoke());
-        }
+        if (!_pushToTalkActive) return;
+        _pushToTalkActive = false;
+        if (_dispatcher.CheckAccess()) PushToTalkEnded?.Invoke();
+        else _dispatcher.BeginInvoke(() => PushToTalkEnded?.Invoke());
     }
 }
 
@@ -139,7 +180,7 @@ public enum HotkeyAction
     CaptureRegion
 }
 
-public sealed record HotkeyGesture(int VirtualKey, bool Control, bool Alt, bool Shift, bool Windows)
+public sealed record HotkeyGesture(int VirtualKey, bool Control, bool Alt, bool Shift, bool Windows, string DisplayText)
 {
     public static HotkeyGesture Parse(string value)
     {
@@ -154,8 +195,25 @@ public sealed record HotkeyGesture(int VirtualKey, bool Control, bool Alt, bool 
             parts.Any(part => part.Equals("Ctrl", StringComparison.OrdinalIgnoreCase)),
             parts.Any(part => part.Equals("Alt", StringComparison.OrdinalIgnoreCase)),
             parts.Any(part => part.Equals("Shift", StringComparison.OrdinalIgnoreCase)),
-            parts.Any(part => part.Equals("Win", StringComparison.OrdinalIgnoreCase)));
+            parts.Any(part => part.Equals("Win", StringComparison.OrdinalIgnoreCase)),
+            value);
     }
+
+    public bool IsSafeGlobalShortcut
+    {
+        get
+        {
+            if (Control || Alt || Shift || Windows) return true;
+            var key = KeyInterop.KeyFromVirtualKey(VirtualKey);
+            return key is >= Key.F1 and <= Key.F24 or Key.Pause or Key.Scroll or Key.Insert;
+        }
+    }
+
+    public uint NativeModifiers =>
+        (Control ? NativeMethods.ModControl : 0) |
+        (Alt ? NativeMethods.ModAlt : 0) |
+        (Shift ? NativeMethods.ModShift : 0) |
+        (Windows ? NativeMethods.ModWin : 0);
 
     public bool Matches(int virtualKey) =>
         VirtualKey == virtualKey &&

@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Interop;
 using Link.Desktop.Windows;
 
 namespace Link.Desktop;
@@ -13,14 +14,28 @@ public partial class RegionSelectionWindow : Window
     public RegionSelectionWindow()
     {
         InitializeComponent();
-        Left = SystemParameters.VirtualScreenLeft;
-        Top = SystemParameters.VirtualScreenTop;
-        Width = SystemParameters.VirtualScreenWidth;
-        Height = SystemParameters.VirtualScreenHeight;
+        SourceInitialized += PositionOverPhysicalVirtualDesktop;
         Loaded += (_, _) => Focus();
     }
 
     public System.Drawing.Rectangle? SelectedRegion { get; private set; }
+
+    private void PositionOverPhysicalVirtualDesktop(object? sender, EventArgs e)
+    {
+        var handle = new WindowInteropHelper(this).Handle;
+        var left = NativeMethods.GetSystemMetrics(NativeMethods.SmXVirtualScreen);
+        var top = NativeMethods.GetSystemMetrics(NativeMethods.SmYVirtualScreen);
+        var width = NativeMethods.GetSystemMetrics(NativeMethods.SmCxVirtualScreen);
+        var height = NativeMethods.GetSystemMetrics(NativeMethods.SmCyVirtualScreen);
+        NativeMethods.SetWindowPos(
+            handle,
+            IntPtr.Zero,
+            left,
+            top,
+            width,
+            height,
+            NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow);
+    }
 
     private void Window_OnMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {

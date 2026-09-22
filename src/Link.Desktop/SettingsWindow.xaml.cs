@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
+using Link.Desktop.Windows;
 
 namespace Link.Desktop;
 
@@ -19,7 +20,7 @@ public partial class SettingsWindow : Window
         OpacitySlider.Value = current.Opacity;
         VoiceLanguageCombo.ItemsSource = Enum.GetValues<VoiceLanguage>();
         VoiceLanguageCombo.SelectedItem = current.VoiceLanguage;
-        ClickThroughCombo.ItemsSource = Enum.GetValues<ClickThroughMode>();
+        ClickThroughCombo.ItemsSource = new[] { ClickThroughMode.Off, ClickThroughMode.WhenCollapsed };
         ClickThroughCombo.SelectedItem = current.ClickThrough;
         HistorySizeBox.Text = current.ScreenshotHistorySize.ToString();
         AlwaysOnTopBox.IsChecked = current.AlwaysOnTop;
@@ -42,6 +43,15 @@ public partial class SettingsWindow : Window
         }
 
         var modifiers = Keyboard.Modifiers;
+        var hasModifier = modifiers != ModifierKeys.None;
+        var isFunctionKey = key is >= Key.F1 and <= Key.F24 or Key.Pause or Key.Scroll or Key.Insert;
+        if (!hasModifier && !isFunctionKey)
+        {
+            ErrorText.Text = "Use Ctrl, Alt, Shift or Win with ordinary keys.";
+            return;
+        }
+
+        ErrorText.Text = string.Empty;
         var parts = new List<string>(4);
         if (modifiers.HasFlag(ModifierKeys.Control)) parts.Add("Ctrl");
         if (modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
@@ -63,6 +73,20 @@ public partial class SettingsWindow : Window
         if (hotkeys.Any(string.IsNullOrWhiteSpace) || hotkeys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != hotkeys.Length)
         {
             ErrorText.Text = "Each action must have a unique hotkey.";
+            return;
+        }
+
+        try
+        {
+            if (hotkeys.Select(HotkeyGesture.Parse).Any(gesture => !gesture.IsSafeGlobalShortcut))
+            {
+                ErrorText.Text = "Global shortcuts must include a modifier or use a function key.";
+                return;
+            }
+        }
+        catch (FormatException exception)
+        {
+            ErrorText.Text = exception.Message;
             return;
         }
 

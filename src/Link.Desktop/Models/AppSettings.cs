@@ -2,9 +2,10 @@ namespace Link.Desktop.Models;
 
 public sealed class AppSettings
 {
-    public double Opacity { get; set; } = 0.94;
+    public int SchemaVersion { get; set; } = 2;
+    public double Opacity { get; set; } = 0.72;
     public bool AlwaysOnTop { get; set; } = true;
-    public ClickThroughMode ClickThrough { get; set; } = ClickThroughMode.WhenCollapsed;
+    public ClickThroughMode ClickThrough { get; set; } = ClickThroughMode.Off;
     public VoiceLanguage VoiceLanguage { get; set; } = VoiceLanguage.Auto;
     public int ScreenshotHistorySize { get; set; } = 5;
     public bool LaunchWithWindows { get; set; }
@@ -15,8 +16,15 @@ public sealed class AppSettings
 
     public void Normalize()
     {
+        if (SchemaVersion < 2)
+        {
+            // Earlier builds enabled click-through by default, which made the capsule feel unreachable.
+            ClickThrough = ClickThroughMode.Off;
+            SchemaVersion = 2;
+        }
         Opacity = Math.Clamp(Opacity, 0.45, 1.0);
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);
+        if (ClickThrough == ClickThroughMode.WhenInactive) ClickThrough = ClickThroughMode.Off;
         Window ??= new WindowPlacement();
         Hotkeys ??= new HotkeySettings();
         Hotkeys.Normalize();
@@ -27,8 +35,8 @@ public sealed class WindowPlacement
 {
     public double Left { get; set; } = double.NaN;
     public double Top { get; set; } = double.NaN;
-    public double Width { get; set; } = 420;
-    public double Height { get; set; } = 500;
+    public double Width { get; set; } = 340;
+    public double Height { get; set; } = 240;
 }
 
 public sealed class HotkeySettings
@@ -47,6 +55,15 @@ public sealed class HotkeySettings
         CaptureActiveWindow = DefaultIfEmpty(CaptureActiveWindow, "Ctrl+Alt+W");
         CaptureRegion = DefaultIfEmpty(CaptureRegion, "Ctrl+Alt+R");
     }
+
+    public HotkeySettings Clone() => new()
+    {
+        ShowHide = ShowHide,
+        PushToTalk = PushToTalk,
+        CaptureDesktop = CaptureDesktop,
+        CaptureActiveWindow = CaptureActiveWindow,
+        CaptureRegion = CaptureRegion
+    };
 
     private static string DefaultIfEmpty(string? value, string fallback) =>
         string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();

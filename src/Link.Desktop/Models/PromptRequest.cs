@@ -2,6 +2,7 @@ namespace Link.Desktop.Models;
 
 public sealed class PromptRequest
 {
+    public int SchemaVersion { get; init; } = 1;
     public Guid Id { get; init; } = Guid.NewGuid();
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
     public required Guid ProjectId { get; init; }

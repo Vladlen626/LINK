@@ -28,7 +28,7 @@
 
     <Style x:Key="GlassCardStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource InnerGlassBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassBorderSoftBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource SurfaceRadius}" />
     </Style>
@@ -38,11 +38,6 @@
         <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
         <Setter Property="CornerRadius" Value="{StaticResource ShellRadius}" />
-        <Setter Property="Effect">
-            <Setter.Value>
-                <DropShadowEffect BlurRadius="24" ShadowDepth="5" Direction="270" Color="#24475B" Opacity="0.34" />
-            </Setter.Value>
-        </Setter>
     </Style>
 
     <Style TargetType="Button">
@@ -50,7 +45,7 @@
         <Setter Property="Background" Value="{StaticResource SubtleGlassBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource ControlBorderBrush}" />
         <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="Padding" Value="12,7" />
+        <Setter Property="Padding" Value="10,6" />
         <Setter Property="FontSize" Value="{StaticResource BodyFontSize}" />
         <Setter Property="Cursor" Value="Hand" />
         <Setter Property="FocusVisualStyle" Value="{x:Null}" />
@@ -100,16 +95,27 @@
     </Style>
 
     <Style x:Key="ChipButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-        <Setter Property="Height" Value="31" />
-        <Setter Property="Padding" Value="10,4" />
+        <Setter Property="Height" Value="30" />
+        <Setter Property="Padding" Value="9,4" />
         <Setter Property="FontSize" Value="12" />
     </Style>
 
     <Style x:Key="IconButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-        <Setter Property="Width" Value="32" />
-        <Setter Property="Height" Value="32" />
+        <Setter Property="Width" Value="30" />
+        <Setter Property="Height" Value="30" />
         <Setter Property="Padding" Value="0" />
         <Setter Property="FontSize" Value="15" />
+    </Style>
+
+    <Style x:Key="HeaderIconButtonStyle" TargetType="Button" BasedOn="{StaticResource IconButtonStyle}">
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderBrush" Value="Transparent" />
+    </Style>
+
+    <Style x:Key="CompactActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
+        <Setter Property="Background" Value="#45FFFFFF" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassBorderSoftBrush}" />
+        <Setter Property="Padding" Value="8,4" />
     </Style>
 
     <Style x:Key="TinyIconButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
@@ -179,6 +185,38 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="#8068C7F3" /></Trigger>
                         <Trigger Property="IsSelected" Value="True"><Setter TargetName="ItemBorder" Property="Background" Value="#A872DDE0" /></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <Style TargetType="ContextMenu">
+        <Setter Property="Background" Value="{StaticResource InnerGlassBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="Padding" Value="4" />
+        <Setter Property="HasDropShadow" Value="True" />
+    </Style>
+
+    <Style TargetType="MenuItem">
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="Padding" Value="10,7" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="MenuItem">
+                    <Border x:Name="MenuChrome" Margin="1" Padding="{TemplateBinding Padding}" Background="Transparent" CornerRadius="8">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="18" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Path x:Name="CheckMark" Width="10" Height="10" Data="M2,5 L4.3,7.3 L8.5,2.5" Stroke="{StaticResource AquaBrush}"
+                                  StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" Visibility="Collapsed" />
+                            <ContentPresenter Grid.Column="1" Margin="4,0,4,0" VerticalAlignment="Center" ContentSource="Header" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsHighlighted" Value="True"><Setter TargetName="MenuChrome" Property="Background" Value="#78FFFFFF" /></Trigger>
+                        <Trigger Property="IsChecked" Value="True"><Setter TargetName="CheckMark" Property="Visibility" Value="Visible" /></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="MenuChrome" Property="Opacity" Value="0.45" /></Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

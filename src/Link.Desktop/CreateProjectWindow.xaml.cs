@@ -5,10 +5,22 @@ namespace Link.Desktop;
 
 public partial class CreateProjectWindow : Window
 {
-    public CreateProjectWindow()
+    public CreateProjectWindow(string? initialName = null, bool isRename = false)
     {
         InitializeComponent();
-        Loaded += (_, _) => NameBox.Focus();
+        if (isRename)
+        {
+            Title = "Rename Project";
+            HeadingText.Text = "Rename project";
+            DescriptionText.Text = "Choose a concise name for this workspace.";
+            ConfirmButton.Content = "Save name";
+        }
+        NameBox.Text = initialName ?? string.Empty;
+        Loaded += (_, _) =>
+        {
+            NameBox.Focus();
+            NameBox.SelectAll();
+        };
     }
 
     public string ProjectName => NameBox.Text.Trim();

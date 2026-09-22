@@ -3,6 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         Title="Select Region" AllowsTransparency="True" Background="#260B2430"
         WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
+        WindowStartupLocation="Manual"
         Cursor="Cross" KeyDown="Window_OnKeyDown"
         MouseLeftButtonDown="Window_OnMouseLeftButtonDown"
         MouseMove="Window_OnMouseMove"

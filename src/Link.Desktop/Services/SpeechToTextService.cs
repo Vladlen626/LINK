@@ -4,7 +4,7 @@ using Link.Desktop.Models;
 
 namespace Link.Desktop.Services;
 
-public sealed class SpeechToTextService
+public sealed class SpeechToTextService : ISpeechToText
 {
     public Task<string> TranscribeAsync(string waveFile, VoiceLanguage language, CancellationToken cancellationToken = default) =>
         Task.Run(() => Transcribe(waveFile, language, cancellationToken), cancellationToken);

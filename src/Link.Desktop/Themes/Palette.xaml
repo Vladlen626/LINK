@@ -13,27 +13,27 @@
     <SolidColorBrush x:Key="AquaBrush" Color="{StaticResource AquaColor}" />
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource GreenColor}" />
     <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#FFF1F8FB" />
-    <SolidColorBrush x:Key="SurfaceBrush" Color="#AFFFFFFF" />
-    <SolidColorBrush x:Key="HoverBrush" Color="#D6FFFFFF" />
-    <SolidColorBrush x:Key="GlassBorderBrush" Color="#D9FFFFFF" />
-    <SolidColorBrush x:Key="GlassBorderSoftBrush" Color="#80FFFFFF" />
-    <SolidColorBrush x:Key="ControlBorderBrush" Color="#5C72A9BD" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#70F7FCFE" />
+    <SolidColorBrush x:Key="HoverBrush" Color="#78FFFFFF" />
+    <SolidColorBrush x:Key="GlassBorderBrush" Color="#C8FFFFFF" />
+    <SolidColorBrush x:Key="GlassBorderSoftBrush" Color="#68FFFFFF" />
+    <SolidColorBrush x:Key="ControlBorderBrush" Color="#4772A9BD" />
     <SolidColorBrush x:Key="AccentBorderBrush" Color="#B445BCE9" />
     <SolidColorBrush x:Key="SuccessBorderBrush" Color="#C251C875" />
     <SolidColorBrush x:Key="ErrorBrush" Color="#D9485F" />
 
     <LinearGradientBrush x:Key="PanelBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#E8F8FDFF" />
-        <GradientStop Offset="0.55" Color="#DCF0FAFD" />
-        <GradientStop Offset="1" Color="#D5D7EEF6" />
+        <GradientStop Offset="0" Color="#9CF8FDFF" />
+        <GradientStop Offset="0.52" Color="#7CEAF6FA" />
+        <GradientStop Offset="1" Color="#74CCE6F0" />
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="InnerGlassBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Offset="0" Color="#C9FFFFFF" />
-        <GradientStop Offset="1" Color="#94D9EEF5" />
+        <GradientStop Offset="0" Color="#A8FFFFFF" />
+        <GradientStop Offset="1" Color="#72D9EEF5" />
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="SubtleGlassBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Offset="0" Color="#9FFFFFFF" />
-        <GradientStop Offset="1" Color="#72D4EBF3" />
+        <GradientStop Offset="0" Color="#78FFFFFF" />
+        <GradientStop Offset="1" Color="#55D4EBF3" />
     </LinearGradientBrush>
     <LinearGradientBrush x:Key="AccentActionBrush" StartPoint="0,0" EndPoint="1,1">
         <GradientStop Offset="0" Color="#E9A9EDFA" />
@@ -49,16 +49,18 @@
         <GradientStop Offset="0.62" Color="#18FFFFFF" />
         <GradientStop Offset="1" Color="#00FFFFFF" />
     </LinearGradientBrush>
-    <RadialGradientBrush x:Key="BrandOrbBrush" Center="0.34,0.28" GradientOrigin="0.25,0.18" RadiusX="0.82" RadiusY="0.82">
-        <GradientStop Offset="0" Color="#FFFFFFFF" />
-        <GradientStop Offset="0.28" Color="#FF9AF0ED" />
-        <GradientStop Offset="0.68" Color="#FF68C7F3" />
-        <GradientStop Offset="1" Color="#FF4696D9" />
-    </RadialGradientBrush>
+    <Geometry x:Key="LinkIconGeometry">M10,13 A5,5 0 0 0 17.5,13.5 L20.5,10.5 A5,5 0 0 0 13.5,3.5 L11.7,5.3 M14,11 A5,5 0 0 0 6.5,10.5 L3.5,13.5 A5,5 0 0 0 10.5,20.5 L12.3,18.7</Geometry>
+    <Geometry x:Key="SettingsIconGeometry">M12,8.5 A3.5,3.5 0 1 0 12,15.5 A3.5,3.5 0 1 0 12,8.5 M19.4,15 A8,8 0 0 0 19.5,9 L21,7.8 L19,4.3 L17.1,5 A8,8 0 0 0 12,2 L11.7,4 A8,8 0 0 0 6.8,5 L5,4.3 L3,7.8 L4.5,9 A8,8 0 0 0 4.6,15 L3,16.2 L5,19.7 L6.9,19 A8,8 0 0 0 12,22 L12.3,20 A8,8 0 0 0 17.2,19 L19,19.7 L21,16.2 Z</Geometry>
+    <Geometry x:Key="ScreenIconGeometry">M3,4 L21,4 L21,17 L3,17 Z M8,21 L16,21 M12,17 L12,21</Geometry>
+    <Geometry x:Key="MicrophoneIconGeometry">M12,3 A3,3 0 0 0 9,6 L9,11 A3,3 0 0 0 15,11 L15,6 A3,3 0 0 0 12,3 M6.5,11 A5.5,5.5 0 0 0 17.5,11 M12,16.5 L12,21 M9,21 L15,21</Geometry>
+    <Geometry x:Key="ClipboardIconGeometry">M9,5 L6,5 A2,2 0 0 0 4,7 L4,20 L20,20 L20,7 A2,2 0 0 0 18,5 L15,5 M9,3 L15,3 L15,7 L9,7 Z</Geometry>
+    <Geometry x:Key="SendIconGeometry">M4,12 L20,4 L16,20 L12,13 Z M12,13 L20,4</Geometry>
+    <Geometry x:Key="CloseIconGeometry">M7,7 L17,17 M17,7 L7,17</Geometry>
+    <Geometry x:Key="ChevronIconGeometry">M7,9 L12,14 L17,9</Geometry>
 
-    <CornerRadius x:Key="ShellRadius">22</CornerRadius>
-    <CornerRadius x:Key="SurfaceRadius">15</CornerRadius>
-    <CornerRadius x:Key="ControlRadius">12</CornerRadius>
+    <CornerRadius x:Key="ShellRadius">18</CornerRadius>
+    <CornerRadius x:Key="SurfaceRadius">12</CornerRadius>
+    <CornerRadius x:Key="ControlRadius">10</CornerRadius>
     <Thickness x:Key="PagePadding">20</Thickness>
     <sys:Double x:Key="HeaderFontSize">16</sys:Double>
     <sys:Double x:Key="BodyFontSize">13</sys:Double>

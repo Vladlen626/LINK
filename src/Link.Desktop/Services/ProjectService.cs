@@ -53,8 +53,30 @@ public sealed class ProjectService
         }
     }
 
+    public void Rename(LinkProject project, string name)
+    {
+        var cleanName = string.IsNullOrWhiteSpace(name) ? project.Name : name.Trim();
+        if (!Projects.Any(candidate => candidate.Id == project.Id)) return;
+        project.Name = cleanName;
+        Save();
+    }
+
+    public LinkProject Remove(LinkProject project)
+    {
+        if (Projects.Count <= 1 || !Projects.Remove(project)) return ActiveProject;
+        if (ActiveProject.Id == project.Id)
+        {
+            ActiveProject = Projects[0];
+            _settings.Current.ActiveProjectId = ActiveProject.Id;
+            _settings.Save();
+        }
+
+        Save();
+        return ActiveProject;
+    }
+
     public void Save() =>
-        File.WriteAllText(_paths.ProjectsFile, JsonSerializer.Serialize(Projects, _json));
+        AtomicJsonFile.Write(_paths.ProjectsFile, Projects, _json);
 
     private LinkProject CreateCore(string name)
     {
@@ -66,18 +88,6 @@ public sealed class ProjectService
 
     private List<LinkProject> Load()
     {
-        try
-        {
-            if (File.Exists(_paths.ProjectsFile))
-            {
-                return JsonSerializer.Deserialize<List<LinkProject>>(File.ReadAllText(_paths.ProjectsFile)) ?? [];
-            }
-        }
-        catch (JsonException)
-        {
-            // Invalid project metadata is replaced with a General project.
-        }
-
-        return [];
+        return AtomicJsonFile.Read<List<LinkProject>>(_paths.ProjectsFile, _json) ?? [];
     }
 }

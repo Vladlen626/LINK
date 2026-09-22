@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using Link.Desktop.Models;
 
 namespace Link.Desktop;
@@ -16,13 +17,13 @@ public partial class MainWindow
         {
             ShowPassive();
             _audio.Start();
-            RecordingPanel.Visibility = Visibility.Visible;
             ShellBorder.BorderBrush = (Brush)FindResource("SuccessBorderBrush");
             VoiceButton.Background = (Brush)FindResource("ActiveContextBrush");
             VoiceButton.BorderBrush = (Brush)FindResource("SuccessBorderBrush");
-            VoiceStatusIndicator.Fill = (Brush)FindResource("SuccessBrush");
-            CollapsedStatusIndicator.Fill = (Brush)FindResource("SuccessBrush");
-            StatusText.Text = "Recording voice…";
+            ExpandedLinkGlyph.Foreground = (Brush)FindResource("SuccessBrush");
+            CollapsedLinkGlyph.Foreground = (Brush)FindResource("SuccessBrush");
+            AnimateVoiceGlyphs(start: true);
+            SetStatus("Listening — release to finish", "Listening");
         }
         catch (Exception exception)
         {
@@ -35,38 +36,39 @@ public partial class MainWindow
         if (!_audio.IsRecording || _stoppingVoice) return;
 
         _stoppingVoice = true;
-        RecordingPanel.Visibility = Visibility.Collapsed;
         ShellBorder.BorderBrush = (Brush)FindResource("GlassBorderBrush");
         VoiceButton.Background = (Brush)FindResource("SubtleGlassBrush");
-        VoiceButton.BorderBrush = (Brush)FindResource("ControlBorderBrush");
-        VoiceStatusIndicator.Fill = (Brush)FindResource("AccentBrush");
-        CollapsedStatusIndicator.Fill = (Brush)FindResource("AccentBrush");
+        VoiceButton.BorderBrush = (Brush)FindResource("GlassBorderSoftBrush");
+        ExpandedLinkGlyph.Foreground = (Brush)FindResource("AquaBrush");
+        CollapsedLinkGlyph.Foreground = (Brush)FindResource("AquaBrush");
+        AnimateVoiceGlyphs(start: false);
         string? audioPath = null;
 
         try
         {
             audioPath = _audio.Stop();
             RemoveMissingContextFiles();
-            StatusText.Text = "Transcribing locally…";
+            SetStatus("Transcribing locally…", "Transcribing");
             var transcript = await _speech.TranscribeAsync(audioPath, _settings.Current.VoiceLanguage);
             PromptBox.Text = string.IsNullOrWhiteSpace(PromptBox.Text)
                 ? transcript
                 : $"{PromptBox.Text.TrimEnd()} {transcript}";
-            _context.Add(new ContextItem
+
+            // The transcript has one canonical home: user input. Voice context carries only the audio.
+            AddContext(new ContextItem
             {
                 Type = ContextItemType.Voice,
                 Label = "Voice",
-                Text = transcript,
                 FilePath = audioPath,
                 MimeType = "audio/wav"
             });
-            StatusText.Text = "Voice transcribed";
+            SetStatus("Voice transcribed");
         }
         catch (Exception exception)
         {
             if (audioPath is not null)
             {
-                _context.Add(new ContextItem
+                AddContext(new ContextItem
                 {
                     Type = ContextItemType.Voice,
                     Label = "Voice audio",
@@ -79,6 +81,31 @@ public partial class MainWindow
         finally
         {
             _stoppingVoice = false;
+        }
+    }
+
+    private void AnimateVoiceGlyphs(bool start)
+    {
+        foreach (var glyph in new[] { ExpandedLinkGlyph, CollapsedLinkGlyph })
+        {
+            if (glyph.RenderTransform is not ScaleTransform scale) continue;
+            if (!start)
+            {
+                scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+                scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+                scale.ScaleX = 1;
+                scale.ScaleY = 1;
+                continue;
+            }
+
+            var pulse = new DoubleAnimation(1, 1.09, TimeSpan.FromMilliseconds(620))
+            {
+                AutoReverse = true,
+                RepeatBehavior = RepeatBehavior.Forever,
+                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+            };
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse.Clone());
         }
     }
 

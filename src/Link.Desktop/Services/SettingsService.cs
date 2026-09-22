@@ -29,26 +29,16 @@ public sealed class SettingsService
             ApplyLaunchWithWindows(Current.LaunchWithWindows);
             _savedLaunchWithWindows = Current.LaunchWithWindows;
         }
-        File.WriteAllText(_paths.SettingsFile, JsonSerializer.Serialize(Current, _json));
+        AtomicJsonFile.Write(_paths.SettingsFile, Current, _json);
     }
 
     private AppSettings Load()
     {
-        try
+        var settings = AtomicJsonFile.Read<AppSettings>(_paths.SettingsFile, _json);
+        if (settings is not null)
         {
-            if (File.Exists(_paths.SettingsFile))
-            {
-                var settings = JsonSerializer.Deserialize<AppSettings>(File.ReadAllText(_paths.SettingsFile));
-                if (settings is not null)
-                {
-                    settings.Normalize();
-                    return settings;
-                }
-            }
-        }
-        catch (JsonException)
-        {
-            // Invalid settings are replaced with safe defaults.
+            settings.Normalize();
+            return settings;
         }
 
         return new AppSettings();

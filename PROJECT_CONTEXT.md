@@ -227,11 +227,13 @@ Link может использовать по явному действию ил
 
 Реализована первая используемая локальная версия desktop companion:
 
-- компактный persistent overlay с tray и глобальными hotkeys;
+- компактный auto-height frosted-glass overlay с завершённым collapsed state, tray и глобальными hotkeys;
 - screen capture всех требуемых источников и локальный preview;
 - push-to-talk, WAV и локальный RU/EN STT через установленные Windows recognizers;
 - clipboard, видимый context stack, проекты и current task;
-- подготовка единого `PromptRequest` без AI-интеграции.
+- versioned `PromptRequest` без AI-интеграции;
+- обычные shortcut’ы через `RegisterHotKey`, low-level hook только для key-down/key-up push-to-talk;
+- atomic JSON persistence и защищённый lifecycle активных screenshot attachments.
 
 Локальные данные хранятся в `%LocalAppData%\Link`. Код остаётся в одном WPF assembly и разделён на `Models`, `Services`, `Windows` и Presentation. Следующая крупная задача — provider/chat integration без изменения текущего input/context UI.
 

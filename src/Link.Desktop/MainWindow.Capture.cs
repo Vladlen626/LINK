@@ -35,7 +35,7 @@ public partial class MainWindow
                 var result = _capture.CaptureRegion(region);
                 RemoveMissingContextFiles();
                 AddScreenshot(result);
-                StatusText.Text = "Region captured";
+                SetStatus("Region captured");
             }
         }
         catch (Exception exception)
@@ -59,7 +59,7 @@ public partial class MainWindow
             var results = capture();
             RemoveMissingContextFiles();
             foreach (var result in results) AddScreenshot(result);
-            StatusText.Text = results.Count == 1 ? "Screenshot captured" : $"Captured {results.Count} monitors";
+            SetStatus(results.Count == 1 ? "Screenshot captured" : $"Captured {results.Count} monitors");
         }
         catch (Exception exception)
         {
@@ -95,7 +95,7 @@ public partial class MainWindow
             FilePath = result.FilePath,
             MimeType = "image/png"
         };
-        _context.Add(item);
+        AddContext(item);
         _previewContextId = item.Id;
         ScreenshotPreview.Source = result.Preview;
         PreviewLabel.Text = label;

@@ -23,7 +23,7 @@ public sealed class RequestService
         };
 
         var json = JsonSerializer.Serialize(request, _json);
-        File.WriteAllText(_paths.LastRequestFile, json);
+        AtomicJsonFile.Write(_paths.LastRequestFile, request, _json);
         Debug.WriteLine(json);
         return json;
     }

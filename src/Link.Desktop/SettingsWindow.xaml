@@ -4,21 +4,14 @@
         Title="Link Settings" Width="560" Height="700" MinWidth="500" MinHeight="620"
         WindowStartupLocation="CenterOwner" ResizeMode="CanResize" Background="{StaticResource WindowSurfaceBrush}">
     <Grid>
-        <Ellipse Width="360" Height="260" Margin="-180,-130,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False">
-            <Ellipse.Fill><RadialGradientBrush><GradientStop Offset="0" Color="#6872DDE0" /><GradientStop Offset="1" Color="#0072DDE0" /></RadialGradientBrush></Ellipse.Fill>
-        </Ellipse>
-        <Ellipse Width="320" Height="230" Margin="0,0,-180,-130" HorizontalAlignment="Right" VerticalAlignment="Bottom" IsHitTestVisible="False">
-            <Ellipse.Fill><RadialGradientBrush><GradientStop Offset="0" Color="#5068C7F3" /><GradientStop Offset="1" Color="#0068C7F3" /></RadialGradientBrush></Ellipse.Fill>
-        </Ellipse>
-
         <Grid Margin="28,24,28,22">
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
 
             <StackPanel Orientation="Horizontal">
-                <Grid Width="38" Height="38">
-                    <Ellipse Fill="{StaticResource BrandOrbBrush}" Stroke="White" StrokeThickness="1.5" />
-                    <Ellipse Width="12" Height="8" Margin="6,5,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" Fill="#BFFFFFFF" />
-                </Grid>
+                <Viewbox Width="34" Height="34">
+                    <Path Data="{StaticResource LinkIconGeometry}" Fill="Transparent" Stroke="{StaticResource AquaBrush}"
+                          StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                </Viewbox>
                 <StackPanel Margin="12,-1,0,0">
                     <TextBlock FontSize="20" FontWeight="SemiBold" Text="Settings" />
                     <TextBlock Style="{StaticResource SecondaryTextStyle}" Text="Make Link feel at home on your desktop" />
@@ -35,7 +28,7 @@
                                 <RowDefinition Height="48" /><RowDefinition Height="48" /><RowDefinition Height="48" />
                                 <RowDefinition Height="48" /><RowDefinition Height="40" /><RowDefinition Height="40" />
                             </Grid.RowDefinitions>
-                            <TextBlock VerticalAlignment="Center" Text="Glass opacity" />
+                            <TextBlock VerticalAlignment="Center" Text="Glass tint" />
                             <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
                                 <Slider x:Name="OpacitySlider" Width="190" Minimum="0.45" Maximum="1" TickFrequency="0.05" />
                                 <TextBlock Width="38" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"

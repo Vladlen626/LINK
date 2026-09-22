@@ -4,19 +4,16 @@
         Title="New Project" Width="410" Height="220" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" Background="{StaticResource WindowSurfaceBrush}">
     <Grid Margin="24">
-        <Ellipse Width="220" Height="150" Margin="-120,-90,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False">
-            <Ellipse.Fill><RadialGradientBrush><GradientStop Offset="0" Color="#6072DDE0" /><GradientStop Offset="1" Color="#0072DDE0" /></RadialGradientBrush></Ellipse.Fill>
-        </Ellipse>
         <Grid>
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
             <StackPanel>
-                <TextBlock FontSize="19" FontWeight="SemiBold" Text="Create project" />
-                <TextBlock Margin="0,3,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Give this workspace a clear, memorable name." />
+                <TextBlock x:Name="HeadingText" FontSize="19" FontWeight="SemiBold" Text="Create project" />
+                <TextBlock x:Name="DescriptionText" Margin="0,3,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Give this workspace a clear, memorable name." />
             </StackPanel>
             <TextBox x:Name="NameBox" Grid.Row="1" Height="40" Margin="0,18,0,0" FontSize="14" KeyDown="NameBox_OnKeyDown" />
             <StackPanel Grid.Row="2" Margin="0,18,0,0" HorizontalAlignment="Right" VerticalAlignment="Bottom" Orientation="Horizontal">
                 <Button Margin="0,0,8,0" Click="Cancel_OnClick" Content="Cancel" />
-                <Button Style="{StaticResource PrimaryButtonStyle}" Click="Create_OnClick" Content="Create project" />
+                <Button x:Name="ConfirmButton" Style="{StaticResource PrimaryButtonStyle}" Click="Create_OnClick" Content="Create project" />
             </StackPanel>
         </Grid>
     </Grid>

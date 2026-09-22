@@ -4,16 +4,16 @@ Link — компактный Windows desktop companion на C#/.NET и WPF. Т�
 
 ## Что уже работает
 
-- borderless полупрозрачный always-on-top overlay: drag, resize, collapse, click-through;
+- compact auto-height frosted-glass always-on-top overlay: drag, constrained width, independent collapse/show-hide и optional click-through;
 - сохранение позиции/размера на нескольких мониторах, opacity и остальных настроек;
 - system tray, single-instance и корректное скрытие вместо завершения;
-- переназначаемые глобальные hotkeys, включая push-to-talk по нажатию/отпусканию;
+- переназначаемые глобальные hotkeys через `RegisterHotKey`; low-level hook используется только для push-to-talk по нажатию/отпусканию;
 - захват текущего монитора, всего virtual desktop, каждого монитора, активного окна и выбранной области;
-- preview последнего screenshot и ограниченная локальная история;
+- preview последнего screenshot, attachment chips и ограниченная история, которая не удаляет активные attachments;
 - локальная WAV-запись и Windows Speech-to-Text для RU/EN/Auto;
 - видимый context stack для screenshots, voice и clipboard;
 - проекты с `General` по умолчанию, active project и current task;
-- сборка итогового `PromptRequest`, preview JSON, debug output и сохранение последнего request.
+- сборка versioned `PromptRequest`, preview JSON, debug output и atomic-сохранение последнего request.
 
 ## Запуск
 

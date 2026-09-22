@@ -39,11 +39,12 @@ public partial class App : System.Windows.Application
         _audio = new AudioRecorderService(paths);
         var speech = new SpeechToTextService();
 
-        _mainWindow = new MainWindow(_settings, _projects, requests, capture, clipboard, _audio, speech);
+        _mainWindow = new MainWindow(_settings, _projects, requests, capture, history, clipboard, _audio, speech);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
+        _mainWindow.Show();
 
-        _hotkeys = new GlobalHotkeyService(Dispatcher);
+        _hotkeys = new GlobalHotkeyService(_mainWindow, Dispatcher);
         _hotkeys.Pressed += OnHotkeyPressed;
         _hotkeys.PushToTalkStarted += () => _mainWindow.StartPushToTalk();
         _hotkeys.PushToTalkEnded += async () => await _mainWindow.StopPushToTalkAsync();
@@ -54,7 +55,6 @@ public partial class App : System.Windows.Application
             () => Dispatcher.Invoke(ShowSettings),
             () => Dispatcher.Invoke(ExitApplication));
 
-        _mainWindow.Show();
     }
 
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
@@ -93,6 +93,7 @@ public partial class App : System.Windows.Application
     private void ShowSettings()
     {
         if (_settings is null || _mainWindow is null || _hotkeys is null) return;
+        var previousHotkeys = _settings.Current.Hotkeys.Clone();
         _hotkeys.IsSuspended = true;
         try
         {
@@ -101,7 +102,28 @@ public partial class App : System.Windows.Application
             if (window.ShowDialog() == true)
             {
                 _mainWindow.ApplySettings();
-                TryStartHotkeys();
+                try
+                {
+                    _hotkeys.Start(_settings.Current.Hotkeys);
+                }
+                catch (Exception exception)
+                {
+                    _settings.Current.Hotkeys = previousHotkeys;
+                    _settings.Save();
+                    try
+                    {
+                        _hotkeys.Start(previousHotkeys);
+                    }
+                    catch (Exception)
+                    {
+                        // The original binding may have been claimed while Settings was open.
+                    }
+                    MessageBox.Show(
+                        $"The new shortcut binding could not be registered and was reverted:\n{exception.Message}",
+                        "Link",
+                        MessageBoxButton.OK,
+                        MessageBoxImage.Warning);
+                }
             }
         }
         finally
@@ -153,8 +175,9 @@ public partial class App : System.Windows.Application
     {
         if (_disposed) return;
         _disposed = true;
-        _audio?.Dispose();
+        _audio?.Cancel();
         _hotkeys?.Dispose();
+        _audio?.Dispose();
         _tray?.Dispose();
         _singleInstance?.Dispose();
     }

@@ -1,19 +1,29 @@
 using System.Windows;
 using System.Windows.Interop;
+using System.Windows.Media;
 using System.Runtime.InteropServices;
 
 namespace Link.Desktop.Windows;
 
 public static class WindowStyleService
 {
-    public static void EnableBackdrop(Window window)
+    public static void EnableBackdrop(Window window, double tintOpacity = 0.72)
     {
         var handle = new WindowInteropHelper(window).Handle;
         if (handle == IntPtr.Zero) return;
 
         try
         {
-            var cornerPreference = NativeMethods.DwmWindowCornerPreferenceRound;
+            window.Background = Brushes.Transparent;
+            if (HwndSource.FromHwnd(handle)?.CompositionTarget is { } target)
+            {
+                target.BackgroundColor = Colors.Transparent;
+            }
+
+            var margins = new DwmMargins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
+            NativeMethods.DwmExtendFrameIntoClientArea(handle, ref margins);
+
+            var cornerPreference = NativeMethods.DwmWindowCornerPreferenceRoundSmall;
             NativeMethods.DwmSetWindowAttribute(
                 handle,
                 NativeMethods.DwmwaWindowCornerPreference,
@@ -31,7 +41,7 @@ public static class WindowStyleService
                 if (result == 0) return;
             }
 
-            EnableAcrylicFallback(handle);
+            EnableAcrylicFallback(handle, tintOpacity);
         }
         catch (DllNotFoundException)
         {
@@ -43,14 +53,15 @@ public static class WindowStyleService
         }
     }
 
-    private static void EnableAcrylicFallback(IntPtr handle)
+    private static void EnableAcrylicFallback(IntPtr handle, double tintOpacity)
     {
+        var alpha = (byte)Math.Clamp(42 + (tintOpacity * 82), 42, 124);
         var accent = new AccentPolicy
         {
             AccentState = NativeMethods.AccentEnableAcrylicBlurBehind,
             AccentFlags = 2,
-            // AccentPolicy uses AABBGGRR. This is a pale ice tint with restrained opacity.
-            GradientColor = unchecked((int)0xCCFCFAF0)
+            // AccentPolicy uses AABBGGRR. Keep the native tint translucent so text remains fully opaque.
+            GradientColor = unchecked((int)(((uint)alpha << 24) | 0x00FCF7E8))
         };
         var size = Marshal.SizeOf<AccentPolicy>();
         var accentPointer = Marshal.AllocHGlobal(size);

@@ -3,7 +3,7 @@ using Link.Desktop.Services;
 
 namespace Link.Desktop.Windows;
 
-public sealed class AudioRecorderService : IDisposable
+public sealed class AudioRecorderService : IAudioRecorder
 {
     private const string Alias = "LinkVoiceCapture";
     private readonly StoragePaths _paths;
