@@ -1,0 +1,21 @@
+<Window x:Class="Link.Desktop.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Link"
+        Width="960"
+        Height="640"
+        MinWidth="640"
+        MinHeight="420">
+    <Grid>
+        <StackPanel HorizontalAlignment="Center"
+                    VerticalAlignment="Center">
+            <TextBlock HorizontalAlignment="Center"
+                       FontSize="28"
+                       Text="Link" />
+            <TextBlock Margin="0,12,0,0"
+                       HorizontalAlignment="Center"
+                       Foreground="Gray"
+                       Text="Foundation ready for development" />
+        </StackPanel>
+    </Grid>
+</Window>
