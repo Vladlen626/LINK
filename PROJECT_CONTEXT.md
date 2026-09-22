@@ -134,12 +134,12 @@ Link может использовать по явному действию ил
 - C#;
 - .NET 10;
 - WPF;
-- Windows native APIs по мере необходимости.
+- Windows native APIs;
+- `System.Speech` для локального STT через установленные Windows recognizers.
 
 Позже, когда появится реальная потребность:
 - SQLite для локальной памяти;
 - Windows Graphics Capture для vision;
-- локальный STT;
 - локальный TTS;
 - небольшой browser companion/extension на TypeScript для поддерживаемых пользовательских интеграций.
 
@@ -170,19 +170,18 @@ Link может использовать по явному действию ил
 - README.
 
 ### Milestone 1 — Link Shell
-Следующая цель:
+Статус: выполнен.
 - полупрозрачное borderless окно;
 - always-on-top;
 - drag;
 - click-through inactive mode;
 - global show/hide hotkey;
 - tray icon;
-- базовые настройки;
+- отдельное Settings окно;
 - корректное сохранение/восстановление положения окна и opacity.
 
-Пока без AI, voice и screen capture.
-
 ### Milestone 2 — Vision
+Статус: выполнен.
 - full-screen capture;
 - multi-monitor capture;
 - active-window capture;
@@ -190,20 +189,21 @@ Link может использовать по явному действию ил
 - локальный preview.
 
 ### Milestone 3 — Voice
+Статус: выполнен в первой локальной версии через Windows Speech Recognition.
 - microphone capture;
 - push-to-talk;
 - local transcription;
 - RU/EN/auto.
 
 ### Milestone 4 — Chat/Provider integration
+Следующая цель.
 - абстракция провайдера;
 - подключение пользовательского AI workflow без жёсткой привязки к конкретному сервису;
 - отправка текста + изображений;
 - получение ответа для overlay, если выбранная интеграция это поддерживает корректным способом.
 
 ### Milestone 5 — Projects & Context Brain
-- project selector;
-- current task;
+Статус: базовый project selector, active project, current task и локальная модель `ContextItem` реализованы. Остаются:
 - memory;
 - decisions;
 - summaries;
@@ -225,7 +225,15 @@ Link может использовать по явному действию ил
 
 ## Текущий статус репозитория
 
-Первичный foundation уже создан. Следующая разработческая задача — **Milestone 1: Link Shell**.
+Реализована первая используемая локальная версия desktop companion:
+
+- компактный persistent overlay с tray и глобальными hotkeys;
+- screen capture всех требуемых источников и локальный preview;
+- push-to-talk, WAV и локальный RU/EN STT через установленные Windows recognizers;
+- clipboard, видимый context stack, проекты и current task;
+- подготовка единого `PromptRequest` без AI-интеграции.
+
+Локальные данные хранятся в `%LocalAppData%\Link`. Код остаётся в одном WPF assembly и разделён на `Models`, `Services`, `Windows` и Presentation. Следующая крупная задача — provider/chat integration без изменения текущего input/context UI.
 
 ## Для AI-агентов
 

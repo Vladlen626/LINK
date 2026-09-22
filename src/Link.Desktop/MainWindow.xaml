@@ -1,21 +1,83 @@
 <Window x:Class="Link.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Link"
-        Width="960"
-        Height="640"
-        MinWidth="640"
-        MinHeight="420">
-    <Grid>
-        <StackPanel HorizontalAlignment="Center"
-                    VerticalAlignment="Center">
-            <TextBlock HorizontalAlignment="Center"
-                       FontSize="28"
-                       Text="Link" />
-            <TextBlock Margin="0,12,0,0"
-                       HorizontalAlignment="Center"
-                       Foreground="Gray"
-                       Text="Foundation ready for development" />
-        </StackPanel>
-    </Grid>
+        Title="Link" Width="360" Height="430" MinWidth="310" MinHeight="48"
+        AllowsTransparency="True" Background="Transparent" ResizeMode="CanResizeWithGrip"
+        ShowInTaskbar="False" WindowStyle="None">
+    <Border x:Name="ShellBorder" Background="{StaticResource PanelBrush}" BorderBrush="#663E4658" BorderThickness="1" CornerRadius="12">
+        <Grid>
+            <Grid.RowDefinitions>
+                <RowDefinition Height="48" />
+                <RowDefinition Height="*" />
+            </Grid.RowDefinitions>
+            <Grid x:Name="TitleBar" Margin="8,5" PreviewMouseLeftButtonDown="TitleBar_OnPreviewMouseLeftButtonDown">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                    <ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <ComboBox x:Name="ProjectCombo" Height="34" MinWidth="130" MaxWidth="200" HorizontalAlignment="Left" SelectionChanged="ProjectCombo_OnSelectionChanged" />
+                <Button Grid.Column="1" Width="34" Height="34" Margin="5,0,0,0" Padding="0" Click="AddProject_OnClick" Content="+" ToolTip="Create project" />
+                <Button Grid.Column="2" Width="34" Height="34" Margin="5,0,0,0" Padding="0" Click="Collapse_OnClick" Content="—" ToolTip="Collapse or expand" />
+                <Button Grid.Column="3" Width="34" Height="34" Margin="5,0,0,0" Padding="0" Click="Settings_OnClick" Content="⚙" ToolTip="Settings" />
+            </Grid>
+            <Grid x:Name="ExpandedContent" Grid.Row="1" Margin="12,2,12,12">
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Grid>
+                    <TextBox x:Name="CurrentTaskBox" Height="32" FontSize="12" ToolTip="Current task" LostFocus="CurrentTaskBox_OnLostFocus" TextChanged="CurrentTaskBox_OnTextChanged" />
+                    <TextBlock x:Name="CurrentTaskPlaceholder" Margin="11,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" FontSize="12" IsHitTestVisible="False" Text="Current task..." />
+                </Grid>
+                <Grid Grid.Row="1" Margin="0,8,0,0">
+                    <TextBox x:Name="PromptBox" Height="76" AcceptsReturn="True" FontSize="15" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" TextChanged="PromptBox_OnTextChanged" />
+                    <TextBlock x:Name="PromptPlaceholder" Margin="11,9" Foreground="{StaticResource MutedBrush}" IsHitTestVisible="False" Text="Ask Link..." />
+                </Grid>
+                <WrapPanel Grid.Row="2" Margin="0,8,0,0">
+                    <Button Margin="0,0,5,5" Padding="8,5" Click="CurrentMonitor_OnClick" Content="Monitor" />
+                    <Button Margin="0,0,5,5" Padding="8,5" Click="Desktop_OnClick" Content="Desktop" />
+                    <Button Margin="0,0,5,5" Padding="8,5" Click="AllMonitors_OnClick" Content="All" />
+                    <Button Margin="0,0,5,5" Padding="8,5" Click="ActiveWindow_OnClick" Content="Window" />
+                    <Button Margin="0,0,5,5" Padding="8,5" Click="Region_OnClick" Content="Region" />
+                    <Button Margin="0,0,5,5" Padding="8,5" Click="Clipboard_OnClick" Content="Clipboard" />
+                </WrapPanel>
+                <Border x:Name="RecordingPanel" Grid.Row="3" Margin="0,3,0,6" Padding="8,5" Background="#553D151B" BorderBrush="#FFED6677" BorderThickness="1" CornerRadius="6" Visibility="Collapsed">
+                    <TextBlock Foreground="#FFFF8A98" Text="● Recording — release push-to-talk to finish" />
+                </Border>
+                <Border x:Name="PreviewPanel" Grid.Row="4" MinHeight="48" MaxHeight="112" Margin="0,2,0,6" Background="#AA101218" BorderBrush="#FF343948" BorderThickness="1" CornerRadius="7" Visibility="Collapsed">
+                    <Grid>
+                        <Image x:Name="ScreenshotPreview" Stretch="Uniform" />
+                        <TextBlock x:Name="PreviewLabel" Margin="7" Padding="5,2" HorizontalAlignment="Left" VerticalAlignment="Bottom" Background="#CC111318" />
+                    </Grid>
+                </Border>
+                <ScrollViewer Grid.Row="5" MaxHeight="58" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                    <ItemsControl x:Name="ContextItemsControl">
+                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <Border Margin="0,0,5,5" Padding="7,3" Background="#FF2B3040" CornerRadius="10">
+                                    <StackPanel Orientation="Horizontal">
+                                        <TextBlock VerticalAlignment="Center" Text="{Binding Label}" />
+                                        <Button Margin="5,0,0,0" Padding="1,0" Background="Transparent" BorderThickness="0" Click="RemoveContext_OnClick" CommandParameter="{Binding Id}" Content="×" />
+                                    </StackPanel>
+                                </Border>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                </ScrollViewer>
+                <Grid Grid.Row="6" Margin="0,6,0,0">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock x:Name="StatusText" Margin="2,0,8,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" FontSize="11" Text="Ready" TextTrimming="CharacterEllipsis" />
+                    <Button Grid.Column="1" MinWidth="72" Background="{StaticResource AccentBrush}" BorderBrush="{StaticResource AccentBrush}" Click="Send_OnClick" Content="Send" Foreground="#FF10141B" FontWeight="SemiBold" />
+                </Grid>
+            </Grid>
+        </Grid>
+    </Border>
 </Window>
