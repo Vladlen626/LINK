@@ -1,7 +1,7 @@
 <Window x:Class="Link.Desktop.RegionSelectionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Select Region" AllowsTransparency="True" Background="#22000000"
+        Title="Select Region" AllowsTransparency="True" Background="#260B2430"
         WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
         Cursor="Cross" KeyDown="Window_OnKeyDown"
         MouseLeftButtonDown="Window_OnMouseLeftButtonDown"
@@ -9,10 +9,11 @@
         MouseLeftButtonUp="Window_OnMouseLeftButtonUp">
     <Canvas x:Name="SelectionCanvas">
         <Border x:Name="SelectionBorder"
-                Background="#2276A8FF" BorderBrush="#FF76A8FF" BorderThickness="2"
+                Background="#2872DDE0" BorderBrush="#FF72DDE0" BorderThickness="2"
                 Visibility="Collapsed" />
-        <Border Canvas.Left="20" Canvas.Top="20" Padding="10,6" Background="#DD111318" CornerRadius="6">
-            <TextBlock Text="Drag to select · Esc to cancel" />
+        <Border Canvas.Left="20" Canvas.Top="20" Padding="13,9" Background="#EAF1FAFC" BorderBrush="#CCFFFFFF" BorderThickness="1" CornerRadius="12">
+            <Border.Effect><DropShadowEffect BlurRadius="16" ShadowDepth="3" Color="#193849" Opacity="0.35" /></Border.Effect>
+            <TextBlock Foreground="#FF193849" FontWeight="SemiBold" Text="Drag to select  ·  Esc to cancel" />
         </Border>
     </Canvas>
 </Window>

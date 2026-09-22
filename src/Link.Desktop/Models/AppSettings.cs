@@ -27,8 +27,8 @@ public sealed class WindowPlacement
 {
     public double Left { get; set; } = double.NaN;
     public double Top { get; set; } = double.NaN;
-    public double Width { get; set; } = 360;
-    public double Height { get; set; } = 430;
+    public double Width { get; set; } = 420;
+    public double Height { get; set; } = 500;
 }
 
 public sealed class HotkeySettings

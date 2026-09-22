@@ -1,4 +1,7 @@
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Input;
+using System.Windows.Media;
 using Link.Desktop.Models;
 
 namespace Link.Desktop;
@@ -14,7 +17,11 @@ public partial class MainWindow
             ShowPassive();
             _audio.Start();
             RecordingPanel.Visibility = Visibility.Visible;
-            ShellBorder.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromRgb(237, 102, 119));
+            ShellBorder.BorderBrush = (Brush)FindResource("SuccessBorderBrush");
+            VoiceButton.Background = (Brush)FindResource("ActiveContextBrush");
+            VoiceButton.BorderBrush = (Brush)FindResource("SuccessBorderBrush");
+            VoiceStatusIndicator.Fill = (Brush)FindResource("SuccessBrush");
+            CollapsedStatusIndicator.Fill = (Brush)FindResource("SuccessBrush");
             StatusText.Text = "Recording voice…";
         }
         catch (Exception exception)
@@ -29,7 +36,11 @@ public partial class MainWindow
 
         _stoppingVoice = true;
         RecordingPanel.Visibility = Visibility.Collapsed;
-        ShellBorder.BorderBrush = new System.Windows.Media.SolidColorBrush(System.Windows.Media.Color.FromArgb(102, 62, 70, 88));
+        ShellBorder.BorderBrush = (Brush)FindResource("GlassBorderBrush");
+        VoiceButton.Background = (Brush)FindResource("SubtleGlassBrush");
+        VoiceButton.BorderBrush = (Brush)FindResource("ControlBorderBrush");
+        VoiceStatusIndicator.Fill = (Brush)FindResource("AccentBrush");
+        CollapsedStatusIndicator.Fill = (Brush)FindResource("AccentBrush");
         string? audioPath = null;
 
         try
@@ -69,5 +80,21 @@ public partial class MainWindow
         {
             _stoppingVoice = false;
         }
+    }
+
+    private void Voice_OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left) return;
+        ((Button)sender).CaptureMouse();
+        StartPushToTalk();
+        e.Handled = true;
+    }
+
+    private async void Voice_OnPreviewMouseLeftButtonUp(object sender, MouseButtonEventArgs e)
+    {
+        if (e.ChangedButton != MouseButton.Left) return;
+        ((Button)sender).ReleaseMouseCapture();
+        await StopPushToTalkAsync();
+        e.Handled = true;
     }
 }

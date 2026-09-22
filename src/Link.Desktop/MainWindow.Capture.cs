@@ -88,13 +88,15 @@ public partial class MainWindow
             _ when result.Source.StartsWith("monitor-", StringComparison.Ordinal) => result.Source.Replace("monitor-", "Monitor "),
             _ => "Screenshot"
         };
-        _context.Add(new ContextItem
+        var item = new ContextItem
         {
             Type = ContextItemType.Screenshot,
             Label = label,
             FilePath = result.FilePath,
             MimeType = "image/png"
-        });
+        };
+        _context.Add(item);
+        _previewContextId = item.Id;
         ScreenshotPreview.Source = result.Preview;
         PreviewLabel.Text = label;
         PreviewPanel.Visibility = Visibility.Visible;

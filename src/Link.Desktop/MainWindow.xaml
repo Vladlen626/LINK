@@ -1,83 +1,185 @@
 <Window x:Class="Link.Desktop.MainWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Link" Width="360" Height="430" MinWidth="310" MinHeight="48"
+        Title="Link" Width="420" Height="500" MinWidth="380" MinHeight="54"
         AllowsTransparency="True" Background="Transparent" ResizeMode="CanResizeWithGrip"
         ShowInTaskbar="False" WindowStyle="None">
-    <Border x:Name="ShellBorder" Background="{StaticResource PanelBrush}" BorderBrush="#663E4658" BorderThickness="1" CornerRadius="12">
-        <Grid>
-            <Grid.RowDefinitions>
-                <RowDefinition Height="48" />
-                <RowDefinition Height="*" />
-            </Grid.RowDefinitions>
-            <Grid x:Name="TitleBar" Margin="8,5" PreviewMouseLeftButtonDown="TitleBar_OnPreviewMouseLeftButtonDown">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="*" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                    <ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <ComboBox x:Name="ProjectCombo" Height="34" MinWidth="130" MaxWidth="200" HorizontalAlignment="Left" SelectionChanged="ProjectCombo_OnSelectionChanged" />
-                <Button Grid.Column="1" Width="34" Height="34" Margin="5,0,0,0" Padding="0" Click="AddProject_OnClick" Content="+" ToolTip="Create project" />
-                <Button Grid.Column="2" Width="34" Height="34" Margin="5,0,0,0" Padding="0" Click="Collapse_OnClick" Content="—" ToolTip="Collapse or expand" />
-                <Button Grid.Column="3" Width="34" Height="34" Margin="5,0,0,0" Padding="0" Click="Settings_OnClick" Content="⚙" ToolTip="Settings" />
-            </Grid>
-            <Grid x:Name="ExpandedContent" Grid.Row="1" Margin="12,2,12,12">
-                <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
-                    <RowDefinition Height="Auto" />
-                </Grid.RowDefinitions>
+    <Grid Margin="10">
+        <Border x:Name="ShellBorder" Style="{StaticResource GlassShellStyle}" SnapsToDevicePixels="True">
+            <Grid ClipToBounds="True">
+                <Border Height="105" VerticalAlignment="Top" Background="{StaticResource GlossBrush}" CornerRadius="21,21,12,12" IsHitTestVisible="False" />
+                <Ellipse Width="210" Height="130" Margin="-82,-72,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" IsHitTestVisible="False">
+                    <Ellipse.Fill>
+                        <RadialGradientBrush>
+                            <GradientStop Offset="0" Color="#656DE9EF" />
+                            <GradientStop Offset="1" Color="#006DE9EF" />
+                        </RadialGradientBrush>
+                    </Ellipse.Fill>
+                </Ellipse>
+
                 <Grid>
-                    <TextBox x:Name="CurrentTaskBox" Height="32" FontSize="12" ToolTip="Current task" LostFocus="CurrentTaskBox_OnLostFocus" TextChanged="CurrentTaskBox_OnTextChanged" />
-                    <TextBlock x:Name="CurrentTaskPlaceholder" Margin="11,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" FontSize="12" IsHitTestVisible="False" Text="Current task..." />
-                </Grid>
-                <Grid Grid.Row="1" Margin="0,8,0,0">
-                    <TextBox x:Name="PromptBox" Height="76" AcceptsReturn="True" FontSize="15" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" TextChanged="PromptBox_OnTextChanged" />
-                    <TextBlock x:Name="PromptPlaceholder" Margin="11,9" Foreground="{StaticResource MutedBrush}" IsHitTestVisible="False" Text="Ask Link..." />
-                </Grid>
-                <WrapPanel Grid.Row="2" Margin="0,8,0,0">
-                    <Button Margin="0,0,5,5" Padding="8,5" Click="CurrentMonitor_OnClick" Content="Monitor" />
-                    <Button Margin="0,0,5,5" Padding="8,5" Click="Desktop_OnClick" Content="Desktop" />
-                    <Button Margin="0,0,5,5" Padding="8,5" Click="AllMonitors_OnClick" Content="All" />
-                    <Button Margin="0,0,5,5" Padding="8,5" Click="ActiveWindow_OnClick" Content="Window" />
-                    <Button Margin="0,0,5,5" Padding="8,5" Click="Region_OnClick" Content="Region" />
-                    <Button Margin="0,0,5,5" Padding="8,5" Click="Clipboard_OnClick" Content="Clipboard" />
-                </WrapPanel>
-                <Border x:Name="RecordingPanel" Grid.Row="3" Margin="0,3,0,6" Padding="8,5" Background="#553D151B" BorderBrush="#FFED6677" BorderThickness="1" CornerRadius="6" Visibility="Collapsed">
-                    <TextBlock Foreground="#FFFF8A98" Text="● Recording — release push-to-talk to finish" />
-                </Border>
-                <Border x:Name="PreviewPanel" Grid.Row="4" MinHeight="48" MaxHeight="112" Margin="0,2,0,6" Background="#AA101218" BorderBrush="#FF343948" BorderThickness="1" CornerRadius="7" Visibility="Collapsed">
-                    <Grid>
-                        <Image x:Name="ScreenshotPreview" Stretch="Uniform" />
-                        <TextBlock x:Name="PreviewLabel" Margin="7" Padding="5,2" HorizontalAlignment="Left" VerticalAlignment="Bottom" Background="#CC111318" />
+                    <Grid.RowDefinitions>
+                        <RowDefinition x:Name="HeaderRow" Height="58" />
+                        <RowDefinition Height="*" />
+                    </Grid.RowDefinitions>
+
+                    <Grid x:Name="TitleBar" Margin="16,8,12,4" PreviewMouseLeftButtonDown="TitleBar_OnPreviewMouseLeftButtonDown">
+                        <Grid x:Name="ExpandedHeader">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+
+                            <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                                <Grid Width="30" Height="30">
+                                    <Ellipse Fill="{StaticResource BrandOrbBrush}" Stroke="#EFFFFFFF" StrokeThickness="1.4">
+                                        <Ellipse.Effect><DropShadowEffect BlurRadius="8" ShadowDepth="0" Color="#43BFD8" Opacity="0.42" /></Ellipse.Effect>
+                                    </Ellipse>
+                                    <Ellipse Width="10" Height="7" Margin="5,4,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" Fill="#BFFFFFFF" />
+                                    <Ellipse x:Name="VoiceStatusIndicator" Width="7" Height="7" Margin="0,0,-1,-1" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                             Fill="{StaticResource AccentBrush}" Stroke="White" StrokeThickness="1" />
+                                </Grid>
+                                <TextBlock Margin="9,0,0,0" VerticalAlignment="Center" FontSize="{StaticResource HeaderFontSize}" FontWeight="SemiBold" Text="LINK" />
+                            </StackPanel>
+
+                            <ComboBox x:Name="ProjectCombo" Grid.Column="1" Height="34" MinWidth="118" MaxWidth="156" Margin="14,0,4,0"
+                                      HorizontalAlignment="Right" SelectionChanged="ProjectCombo_OnSelectionChanged" />
+                            <Button Grid.Column="2" Style="{StaticResource IconButtonStyle}" Margin="4,0,0,0" Click="AddProject_OnClick" Content="+" ToolTip="Create project" />
+                            <Button Grid.Column="3" Style="{StaticResource IconButtonStyle}" Margin="4,0,0,0" Click="Collapse_OnClick" Content="−" ToolTip="Collapse Link" />
+                            <Button Grid.Column="4" Style="{StaticResource IconButtonStyle}" Margin="4,0,0,0" Click="Settings_OnClick" Content="⚙" ToolTip="Settings" />
+                        </Grid>
+
+                        <Grid x:Name="CollapsedHeader" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" />
+                                <ColumnDefinition Width="*" />
+                                <ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <Grid Width="30" Height="30" VerticalAlignment="Center">
+                                <Ellipse Fill="{StaticResource BrandOrbBrush}" Stroke="#F5FFFFFF" StrokeThickness="1.4">
+                                    <Ellipse.Effect><DropShadowEffect BlurRadius="9" ShadowDepth="0" Color="#46BED4" Opacity="0.5" /></Ellipse.Effect>
+                                </Ellipse>
+                                <Ellipse Width="10" Height="7" Margin="5,4,0,0" HorizontalAlignment="Left" VerticalAlignment="Top" Fill="#CFFFFFFF" />
+                                <Ellipse x:Name="CollapsedStatusIndicator" Width="7" Height="7" Margin="0,0,-1,-1" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                         Fill="{StaticResource AccentBrush}" Stroke="White" StrokeThickness="1" />
+                            </Grid>
+                            <StackPanel Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center" Orientation="Horizontal">
+                                <TextBlock FontSize="15" FontWeight="SemiBold" Text="LINK" />
+                                <TextBlock Margin="7,1,0,0" Style="{StaticResource SecondaryTextStyle}" Text="ready" />
+                            </StackPanel>
+                            <Button Grid.Column="2" Style="{StaticResource IconButtonStyle}" Click="Collapse_OnClick" Content="⌄" ToolTip="Expand Link" />
+                        </Grid>
                     </Grid>
-                </Border>
-                <ScrollViewer Grid.Row="5" MaxHeight="58" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
-                    <ItemsControl x:Name="ContextItemsControl">
-                        <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Border Margin="0,0,5,5" Padding="7,3" Background="#FF2B3040" CornerRadius="10">
-                                    <StackPanel Orientation="Horizontal">
-                                        <TextBlock VerticalAlignment="Center" Text="{Binding Label}" />
-                                        <Button Margin="5,0,0,0" Padding="1,0" Background="Transparent" BorderThickness="0" Click="RemoveContext_OnClick" CommandParameter="{Binding Id}" Content="×" />
-                                    </StackPanel>
+
+                    <Grid x:Name="ExpandedContent" Grid.Row="1" Margin="18,4,18,18">
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="Auto" />
+                            <RowDefinition Height="*" />
+                            <RowDefinition Height="Auto" />
+                        </Grid.RowDefinitions>
+
+                        <Grid>
+                            <TextBox x:Name="CurrentTaskBox" Height="36" FontSize="12" ToolTip="Current task"
+                                     LostFocus="CurrentTaskBox_OnLostFocus" TextChanged="CurrentTaskBox_OnTextChanged" />
+                            <TextBlock x:Name="CurrentTaskPlaceholder" Margin="12,0" VerticalAlignment="Center"
+                                       Style="{StaticResource SecondaryTextStyle}" IsHitTestVisible="False" Text="Current task…" />
+                        </Grid>
+
+                        <Grid Grid.Row="1" Margin="0,10,0,0">
+                            <TextBox x:Name="PromptBox" Height="86" Padding="12,10" AcceptsReturn="True" FontSize="14"
+                                     TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" TextChanged="PromptBox_OnTextChanged" />
+                            <TextBlock x:Name="PromptPlaceholder" Margin="13,11" VerticalAlignment="Top"
+                                       Foreground="{StaticResource MutedBrush}" FontSize="14" IsHitTestVisible="False" Text="Ask Link…" />
+                        </Grid>
+
+                        <Grid Grid.Row="2" Margin="2,11,2,6">
+                            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="ADD CONTEXT" />
+                            <TextBlock HorizontalAlignment="Right" Style="{StaticResource SecondaryTextStyle}" Text="kept local until send" />
+                        </Grid>
+
+                        <WrapPanel Grid.Row="3">
+                            <Button Style="{StaticResource ChipButtonStyle}" Margin="0,0,6,6" Click="CurrentMonitor_OnClick" Content="◫  Screen" ToolTip="Capture current monitor" />
+                            <Button x:Name="VoiceButton" Style="{StaticResource ChipButtonStyle}" Margin="0,0,6,6"
+                                    PreviewMouseLeftButtonDown="Voice_OnPreviewMouseLeftButtonDown"
+                                    PreviewMouseLeftButtonUp="Voice_OnPreviewMouseLeftButtonUp"
+                                    Content="●  Voice" ToolTip="Hold to talk" />
+                            <Button Style="{StaticResource ChipButtonStyle}" Margin="0,0,6,6" Click="Clipboard_OnClick" Content="▣  Clipboard" />
+                            <Button Style="{StaticResource ChipButtonStyle}" Margin="0,0,6,6" Click="Desktop_OnClick" Content="Desktop" ToolTip="Capture virtual desktop" />
+                            <Button Style="{StaticResource ChipButtonStyle}" Margin="0,0,6,6" Click="AllMonitors_OnClick" Content="All" ToolTip="Capture each monitor" />
+                            <Button Style="{StaticResource ChipButtonStyle}" Margin="0,0,6,6" Click="ActiveWindow_OnClick" Content="Window" ToolTip="Capture active window" />
+                            <Button Style="{StaticResource ChipButtonStyle}" Margin="0,0,6,6" Click="Region_OnClick" Content="Region" ToolTip="Select a region" />
+                        </WrapPanel>
+
+                        <Border x:Name="RecordingPanel" Grid.Row="4" Margin="0,2,0,7" Padding="11,8"
+                                Background="#B8E8FFF2" BorderBrush="{StaticResource SuccessBorderBrush}" BorderThickness="1" CornerRadius="12" Visibility="Collapsed">
+                            <StackPanel Orientation="Horizontal">
+                                <Ellipse x:Name="RecordingDot" Width="8" Height="8" Margin="0,0,8,0" VerticalAlignment="Center" Fill="{StaticResource SuccessBrush}">
+                                    <Ellipse.Effect><DropShadowEffect BlurRadius="9" ShadowDepth="0" Color="#55D985" Opacity="0.72" /></Ellipse.Effect>
+                                    <Ellipse.Triggers>
+                                        <EventTrigger RoutedEvent="Loaded">
+                                            <BeginStoryboard>
+                                                <Storyboard RepeatBehavior="Forever" AutoReverse="True">
+                                                    <DoubleAnimation Storyboard.TargetProperty="Opacity" To="0.35" Duration="0:0:0.65" />
+                                                </Storyboard>
+                                            </BeginStoryboard>
+                                        </EventTrigger>
+                                    </Ellipse.Triggers>
+                                </Ellipse>
+                                <TextBlock VerticalAlignment="Center" Foreground="#2D7650" FontSize="12" FontWeight="SemiBold" Text="Listening — release to finish" />
+                            </StackPanel>
+                        </Border>
+
+                        <Border x:Name="PreviewPanel" Grid.Row="5" Height="102" Margin="0,1,0,7" Style="{StaticResource GlassCardStyle}" Visibility="Collapsed" ClipToBounds="True">
+                            <Grid>
+                                <Image x:Name="ScreenshotPreview" Margin="4" Stretch="UniformToFill" />
+                                <Border Margin="8" Padding="7,3" HorizontalAlignment="Left" VerticalAlignment="Bottom" Background="#DFF5FCFE" BorderBrush="#80FFFFFF" BorderThickness="1" CornerRadius="8">
+                                    <TextBlock x:Name="PreviewLabel" Style="{StaticResource SecondaryTextStyle}" FontWeight="SemiBold" />
                                 </Border>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </ScrollViewer>
-                <Grid Grid.Row="6" Margin="0,6,0,0">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBlock x:Name="StatusText" Margin="2,0,8,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" FontSize="11" Text="Ready" TextTrimming="CharacterEllipsis" />
-                    <Button Grid.Column="1" MinWidth="72" Background="{StaticResource AccentBrush}" BorderBrush="{StaticResource AccentBrush}" Click="Send_OnClick" Content="Send" Foreground="#FF10141B" FontWeight="SemiBold" />
+                                <Button Style="{StaticResource TinyIconButtonStyle}" Margin="7" HorizontalAlignment="Right" VerticalAlignment="Top"
+                                        Click="RemovePreview_OnClick" Content="×" ToolTip="Remove screenshot" />
+                            </Grid>
+                        </Border>
+
+                        <ScrollViewer Grid.Row="6" MaxHeight="68" HorizontalScrollBarVisibility="Disabled" VerticalScrollBarVisibility="Auto">
+                            <ItemsControl x:Name="ContextItemsControl">
+                                <ItemsControl.ItemsPanel><ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate></ItemsControl.ItemsPanel>
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Border Margin="0,0,6,6" Padding="9,4,4,4" Background="{StaticResource ActiveContextBrush}"
+                                                BorderBrush="{StaticResource AccentBorderBrush}" BorderThickness="1" CornerRadius="13">
+                                            <StackPanel Orientation="Horizontal">
+                                                <Ellipse Width="5" Height="5" Margin="0,0,7,0" VerticalAlignment="Center" Fill="{StaticResource AquaBrush}" />
+                                                <TextBlock VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Text="{Binding Label}" />
+                                                <Button Style="{StaticResource TinyIconButtonStyle}" Width="20" Height="20" Margin="5,0,0,0"
+                                                        Background="Transparent" BorderThickness="0" Click="RemoveContext_OnClick"
+                                                        CommandParameter="{Binding Id}" Content="×" ToolTip="Remove context" />
+                                            </StackPanel>
+                                        </Border>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+
+                        <Grid Grid.Row="7" Margin="1,9,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                                <Ellipse Width="6" Height="6" Margin="0,0,7,0" Fill="{StaticResource AccentBrush}" />
+                                <TextBlock x:Name="StatusText" Margin="0,0,10,0" VerticalAlignment="Center"
+                                           Style="{StaticResource SecondaryTextStyle}" Text="Ready" TextTrimming="CharacterEllipsis" />
+                            </StackPanel>
+                            <Button Grid.Column="1" Style="{StaticResource PrimaryButtonStyle}" MinWidth="82" Click="Send_OnClick" Content="Send  ↗" />
+                        </Grid>
+                    </Grid>
                 </Grid>
             </Grid>
-        </Grid>
-    </Border>
+        </Border>
+    </Grid>
 </Window>

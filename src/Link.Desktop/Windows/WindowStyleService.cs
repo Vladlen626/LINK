@@ -1,10 +1,76 @@
 using System.Windows;
 using System.Windows.Interop;
+using System.Runtime.InteropServices;
 
 namespace Link.Desktop.Windows;
 
 public static class WindowStyleService
 {
+    public static void EnableBackdrop(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero) return;
+
+        try
+        {
+            var cornerPreference = NativeMethods.DwmWindowCornerPreferenceRound;
+            NativeMethods.DwmSetWindowAttribute(
+                handle,
+                NativeMethods.DwmwaWindowCornerPreference,
+                ref cornerPreference,
+                Marshal.SizeOf<int>());
+
+            if (Environment.OSVersion.Version.Build >= 22000)
+            {
+                var backdropType = NativeMethods.DwmSystemBackdropTypeTransientWindow;
+                var result = NativeMethods.DwmSetWindowAttribute(
+                    handle,
+                    NativeMethods.DwmwaSystemBackdropType,
+                    ref backdropType,
+                    Marshal.SizeOf<int>());
+                if (result == 0) return;
+            }
+
+            EnableAcrylicFallback(handle);
+        }
+        catch (DllNotFoundException)
+        {
+            // The XAML material remains the compatibility fallback.
+        }
+        catch (EntryPointNotFoundException)
+        {
+            // The XAML material remains the compatibility fallback.
+        }
+    }
+
+    private static void EnableAcrylicFallback(IntPtr handle)
+    {
+        var accent = new AccentPolicy
+        {
+            AccentState = NativeMethods.AccentEnableAcrylicBlurBehind,
+            AccentFlags = 2,
+            // AccentPolicy uses AABBGGRR. This is a pale ice tint with restrained opacity.
+            GradientColor = unchecked((int)0xCCFCFAF0)
+        };
+        var size = Marshal.SizeOf<AccentPolicy>();
+        var accentPointer = Marshal.AllocHGlobal(size);
+        try
+        {
+            Marshal.StructureToPtr(accent, accentPointer, false);
+            var data = new WindowCompositionAttributeData
+            {
+                Attribute = NativeMethods.WcaAccentPolicy,
+                Data = accentPointer,
+                SizeOfData = size
+            };
+            NativeMethods.SetWindowCompositionAttribute(handle, ref data);
+        }
+        finally
+        {
+            Marshal.FreeHGlobal(accentPointer);
+        }
+    }
+
     public static void SetClickThrough(Window window, bool enabled)
     {
         var handle = new WindowInteropHelper(window).Handle;
@@ -41,4 +107,21 @@ public static class WindowStyleService
             window.Top = virtualTop + Math.Max(16, (SystemParameters.VirtualScreenHeight - window.Height) / 2);
         }
     }
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct AccentPolicy
+{
+    public int AccentState;
+    public int AccentFlags;
+    public int GradientColor;
+    public int AnimationId;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct WindowCompositionAttributeData
+{
+    public int Attribute;
+    public IntPtr Data;
+    public int SizeOfData;
 }

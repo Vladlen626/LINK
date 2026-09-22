@@ -4,6 +4,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Interop;
+using System.Windows.Media.Animation;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
@@ -23,8 +25,9 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<ContextItem> _context = [];
     private bool _collapsed;
     private bool _stoppingVoice;
-    private double _expandedWidth = 360;
-    private double _expandedHeight = 430;
+    private double _expandedWidth = 420;
+    private double _expandedHeight = 500;
+    private Guid? _previewContextId;
     private IntPtr _lastExternalWindow;
     private IntPtr _windowHandle;
     private bool _loadingProject = true;
@@ -106,6 +109,7 @@ public partial class MainWindow : Window
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
         _windowHandle = new WindowInteropHelper(this).Handle;
+        WindowStyleService.EnableBackdrop(this);
         ApplySettings();
     }
 
@@ -113,14 +117,14 @@ public partial class MainWindow : Window
     {
         RestoreWindowState();
         if (_settings.Current.IsCollapsed) SetCollapsed(true);
-        else MinHeight = 320;
+        else MinHeight = 440;
     }
 
     private void RestoreWindowState()
     {
         var placement = _settings.Current.Window;
         _expandedWidth = Math.Max(MinWidth, placement.Width);
-        _expandedHeight = Math.Max(300, placement.Height);
+        _expandedHeight = Math.Max(440, placement.Height);
         Width = _expandedWidth;
         Height = _expandedHeight;
         if (!double.IsNaN(placement.Left)) Left = placement.Left;
@@ -188,26 +192,42 @@ public partial class MainWindow : Window
         if (collapsed)
         {
             _expandedWidth = ActualWidth;
-            _expandedHeight = Math.Max(300, ActualHeight);
+            _expandedHeight = Math.Max(440, ActualHeight);
             ExpandedContent.Visibility = Visibility.Collapsed;
+            ExpandedHeader.Visibility = Visibility.Collapsed;
+            CollapsedHeader.Visibility = Visibility.Visible;
+            HeaderRow.Height = new GridLength(46);
             ResizeMode = ResizeMode.NoResize;
-            MinWidth = 240;
-            MinHeight = 48;
-            Width = 250;
-            Height = 48;
+            MinWidth = 176;
+            MinHeight = 66;
+            Width = 196;
+            Height = 66;
+            FadeIn(CollapsedHeader);
         }
         else
         {
             ExpandedContent.Visibility = Visibility.Visible;
+            ExpandedHeader.Visibility = Visibility.Visible;
+            CollapsedHeader.Visibility = Visibility.Collapsed;
+            HeaderRow.Height = new GridLength(58);
             ResizeMode = ResizeMode.CanResizeWithGrip;
-            MinWidth = 310;
-            MinHeight = 320;
+            MinWidth = 380;
+            MinHeight = 440;
             Width = _expandedWidth;
             Height = _expandedHeight;
+            FadeIn(ExpandedContent);
         }
 
         _settings.Current.IsCollapsed = collapsed;
         ApplyClickThrough();
+    }
+
+    private static void FadeIn(UIElement element)
+    {
+        element.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(160))
+        {
+            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
+        });
     }
 
     private void SetError(string message) => StatusText.Text = $"Error: {message}";
@@ -267,8 +287,44 @@ public partial class MainWindow : Window
         if (sender is Button { CommandParameter: Guid id })
         {
             var item = _context.FirstOrDefault(candidate => candidate.Id == id);
-            if (item is not null) _context.Remove(item);
+            if (item is not null)
+            {
+                _context.Remove(item);
+                if (item.Type == ContextItemType.Screenshot) RefreshScreenshotPreview();
+            }
         }
+    }
+
+    private void RemovePreview_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_previewContextId is not { } id) return;
+        var item = _context.FirstOrDefault(candidate => candidate.Id == id);
+        if (item is not null) _context.Remove(item);
+        RefreshScreenshotPreview();
+    }
+
+    private void RefreshScreenshotPreview()
+    {
+        var item = _context.LastOrDefault(candidate => candidate.Type == ContextItemType.Screenshot &&
+                                                       candidate.FilePath is not null && File.Exists(candidate.FilePath));
+        if (item?.FilePath is null)
+        {
+            _previewContextId = null;
+            ScreenshotPreview.Source = null;
+            PreviewPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var image = new BitmapImage();
+        image.BeginInit();
+        image.CacheOption = BitmapCacheOption.OnLoad;
+        image.UriSource = new Uri(item.FilePath, UriKind.Absolute);
+        image.EndInit();
+        image.Freeze();
+        _previewContextId = item.Id;
+        ScreenshotPreview.Source = image;
+        PreviewLabel.Text = item.Label;
+        PreviewPanel.Visibility = Visibility.Visible;
     }
 
     private void ProjectCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)

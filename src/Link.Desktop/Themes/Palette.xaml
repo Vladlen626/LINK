@@ -1,0 +1,66 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+                    xmlns:sys="clr-namespace:System;assembly=System.Runtime">
+    <Color x:Key="InkColor">#193849</Color>
+    <Color x:Key="MutedInkColor">#6A8492</Color>
+    <Color x:Key="SkyColor">#68C7F3</Color>
+    <Color x:Key="AquaColor">#72DDE0</Color>
+    <Color x:Key="GreenColor">#79D889</Color>
+
+    <SolidColorBrush x:Key="TextBrush" Color="{StaticResource InkColor}" />
+    <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedInkColor}" />
+    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource SkyColor}" />
+    <SolidColorBrush x:Key="AquaBrush" Color="{StaticResource AquaColor}" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource GreenColor}" />
+    <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#FFF1F8FB" />
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#AFFFFFFF" />
+    <SolidColorBrush x:Key="HoverBrush" Color="#D6FFFFFF" />
+    <SolidColorBrush x:Key="GlassBorderBrush" Color="#D9FFFFFF" />
+    <SolidColorBrush x:Key="GlassBorderSoftBrush" Color="#80FFFFFF" />
+    <SolidColorBrush x:Key="ControlBorderBrush" Color="#5C72A9BD" />
+    <SolidColorBrush x:Key="AccentBorderBrush" Color="#B445BCE9" />
+    <SolidColorBrush x:Key="SuccessBorderBrush" Color="#C251C875" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="#D9485F" />
+
+    <LinearGradientBrush x:Key="PanelBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#E8F8FDFF" />
+        <GradientStop Offset="0.55" Color="#DCF0FAFD" />
+        <GradientStop Offset="1" Color="#D5D7EEF6" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="InnerGlassBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#C9FFFFFF" />
+        <GradientStop Offset="1" Color="#94D9EEF5" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="SubtleGlassBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#9FFFFFFF" />
+        <GradientStop Offset="1" Color="#72D4EBF3" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="AccentActionBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#E9A9EDFA" />
+        <GradientStop Offset="0.52" Color="#E772DDE0" />
+        <GradientStop Offset="1" Color="#E768C7F3" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="ActiveContextBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#BDE8FCFF" />
+        <GradientStop Offset="1" Color="#AD9EEAF2" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="GlossBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#73FFFFFF" />
+        <GradientStop Offset="0.62" Color="#18FFFFFF" />
+        <GradientStop Offset="1" Color="#00FFFFFF" />
+    </LinearGradientBrush>
+    <RadialGradientBrush x:Key="BrandOrbBrush" Center="0.34,0.28" GradientOrigin="0.25,0.18" RadiusX="0.82" RadiusY="0.82">
+        <GradientStop Offset="0" Color="#FFFFFFFF" />
+        <GradientStop Offset="0.28" Color="#FF9AF0ED" />
+        <GradientStop Offset="0.68" Color="#FF68C7F3" />
+        <GradientStop Offset="1" Color="#FF4696D9" />
+    </RadialGradientBrush>
+
+    <CornerRadius x:Key="ShellRadius">22</CornerRadius>
+    <CornerRadius x:Key="SurfaceRadius">15</CornerRadius>
+    <CornerRadius x:Key="ControlRadius">12</CornerRadius>
+    <Thickness x:Key="PagePadding">20</Thickness>
+    <sys:Double x:Key="HeaderFontSize">16</sys:Double>
+    <sys:Double x:Key="BodyFontSize">13</sys:Double>
+    <sys:Double x:Key="SecondaryFontSize">11.5</sys:Double>
+</ResourceDictionary>

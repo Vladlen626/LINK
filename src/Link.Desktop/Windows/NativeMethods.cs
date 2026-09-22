@@ -12,6 +12,12 @@ internal static class NativeMethods
     internal const int WmSysKeyDown = 0x0104;
     internal const int WmSysKeyUp = 0x0105;
     internal const int DwmwaExtendedFrameBounds = 9;
+    internal const int DwmwaWindowCornerPreference = 33;
+    internal const int DwmwaSystemBackdropType = 38;
+    internal const int DwmWindowCornerPreferenceRound = 2;
+    internal const int DwmSystemBackdropTypeTransientWindow = 3;
+    internal const int WcaAccentPolicy = 19;
+    internal const int AccentEnableAcrylicBlurBehind = 4;
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     internal static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
@@ -21,6 +27,13 @@ internal static class NativeMethods
 
     [DllImport("user32.dll")]
     internal static extern IntPtr GetForegroundWindow();
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
+
+    [DllImport("dwmapi.dll")]
+    internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int valueSize);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
