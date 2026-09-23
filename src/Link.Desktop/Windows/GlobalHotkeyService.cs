@@ -45,9 +45,10 @@ public sealed class GlobalHotkeyService : IDisposable
         }
     }
 
-    public void Start(HotkeySettings settings)
+    public IReadOnlyList<string> Start(HotkeySettings settings)
     {
         Stop();
+        var failures = new List<string>();
         var gestures = new Dictionary<HotkeyAction, HotkeyGesture>
         {
             [HotkeyAction.ShowHide] = HotkeyGesture.Parse(settings.ShowHide),
@@ -74,7 +75,9 @@ public sealed class GlobalHotkeyService : IDisposable
                         gesture.NativeModifiers | NativeMethods.ModNoRepeat,
                         (uint)gesture.VirtualKey))
                 {
-                    throw new Win32Exception(Marshal.GetLastWin32Error(), $"Shortcut ‘{gesture.DisplayText}’ is already in use.");
+                    failures.Add($"{GetActionName(pair.Key)} ({gesture.DisplayText}) is already in use");
+                    id++;
+                    continue;
                 }
 
                 _registeredActions[id] = pair.Key;
@@ -90,8 +93,10 @@ public sealed class GlobalHotkeyService : IDisposable
 
             if (_keyboardHook == IntPtr.Zero)
             {
-                throw new Win32Exception(Marshal.GetLastWin32Error(), "Push-to-talk hook could not be installed.");
+                failures.Add(new Win32Exception(Marshal.GetLastWin32Error(), "Push-to-talk hook could not be installed.").Message);
             }
+
+            return failures;
         }
         catch
         {
@@ -99,6 +104,15 @@ public sealed class GlobalHotkeyService : IDisposable
             throw;
         }
     }
+
+    private static string GetActionName(HotkeyAction action) => action switch
+    {
+        HotkeyAction.ShowHide => "Show/hide",
+        HotkeyAction.CaptureDesktop => "Desktop capture",
+        HotkeyAction.CaptureActiveWindow => "Window capture",
+        HotkeyAction.CaptureRegion => "Region capture",
+        _ => action.ToString()
+    };
 
     public void Stop()
     {

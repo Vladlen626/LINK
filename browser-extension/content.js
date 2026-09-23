@@ -1,24 +1,32 @@
+(() => {
 const ANNOUNCE_INTERVAL_MS = 2500;
 const RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;
 let processingRequestId = null;
 
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type !== "link-request") return;
-  sendResponse({ accepted: true });
-  void handleRequest(message.request);
+  if (message?.type === "link-discover") {
+    sendResponse({ conversation: getConversation() });
+    announceConversation();
+    return;
+  }
+  if (message?.type === "link-request") {
+    sendResponse({ accepted: true });
+    void handleRequest(message.request);
+  }
 });
 
 function announceConversation() {
-  const conversationId = getConversationId();
-  if (!conversationId) return;
+  const conversation = getConversation();
+  if (!conversation) return;
   void chrome.runtime.sendMessage({
     type: "link-announce",
-    conversation: {
-      conversationId,
-      title: getConversationTitle(),
-      url: location.href
-    }
+    conversation
   }).catch(() => {});
+}
+
+function getConversation() {
+  const conversationId = getConversationId();
+  return conversationId ? { conversationId, title: getConversationTitle(), url: location.href } : null;
 }
 
 async function handleRequest(request) {
@@ -204,3 +212,4 @@ function delay(milliseconds) {
 
 announceConversation();
 setInterval(announceConversation, ANNOUNCE_INTERVAL_MS);
+})();

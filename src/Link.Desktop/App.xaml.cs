@@ -106,7 +106,11 @@ public partial class App : System.Windows.Application
                 _mainWindow.ApplySettings();
                 try
                 {
-                    _hotkeys.Start(_settings.Current.Hotkeys);
+                    var failures = _hotkeys.Start(_settings.Current.Hotkeys);
+                    if (failures.Count > 0)
+                    {
+                        _mainWindow.ShowNonBlockingWarning($"Hotkey unavailable: {string.Join("; ", failures)}.");
+                    }
                 }
                 catch (Exception exception)
                 {
@@ -139,7 +143,11 @@ public partial class App : System.Windows.Application
         if (_hotkeys is null || _settings is null) return;
         try
         {
-            _hotkeys.Start(_settings.Current.Hotkeys);
+            var failures = _hotkeys.Start(_settings.Current.Hotkeys);
+            if (failures.Count > 0)
+            {
+                _mainWindow?.ShowNonBlockingWarning($"Hotkey unavailable: {string.Join("; ", failures)}.");
+            }
         }
         catch (Exception exception)
         {

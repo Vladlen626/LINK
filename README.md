@@ -85,7 +85,7 @@ dotnet run --project src/Link.Desktop/Link.Desktop.csproj
 | Push-to-talk | `Ctrl+Alt+V` |
 | Весь desktop | `Ctrl+Alt+D` |
 | Активное окно | `Ctrl+Alt+W` |
-| Выбор области | `Ctrl+Alt+R` |
+| Выбор области | `Ctrl+Alt+Shift+R` |
 
 Все сочетания меняются в Settings.
 

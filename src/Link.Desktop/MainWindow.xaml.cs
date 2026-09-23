@@ -111,6 +111,8 @@ public partial class MainWindow : Window
 
     public void ToggleCollapsed() => SetCollapsed(!_collapsed);
 
+    public void ShowNonBlockingWarning(string message) => SetStatus(message, "Attention");
+
     public void SaveWindowState()
     {
         if (WindowState == WindowState.Normal)
@@ -454,6 +456,11 @@ public partial class MainWindow : Window
         {
             var item = _clipboard.Read();
             RemoveMissingContextFiles();
+            foreach (var previous in _context.Where(context => context.Type == ContextItemType.Clipboard).ToArray())
+            {
+                ReleaseContext(previous);
+                _context.Remove(previous);
+            }
             AddContext(item);
             SetStatus("Clipboard attached");
         }

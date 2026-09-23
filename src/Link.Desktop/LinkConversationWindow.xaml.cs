@@ -45,7 +45,7 @@ public partial class LinkConversationWindow : Window
 
         LinkButton.IsEnabled = ConversationList.SelectedItem is not null;
         StatusText.Text = conversations.Count == 0
-            ? "No conversations detected. Start LINK, enable the browser companion, and open a ChatGPT conversation."
+            ? "No conversations detected. Reload the companion on the Extensions page, then reload an open ChatGPT conversation."
             : "Select the conversation this project should use.";
     }
 

@@ -1,15 +1,13 @@
 const BRIDGE = "http://127.0.0.1:43127/link";
 const HEADER = { "X-Link-Bridge": "1" };
+const CHAT_URLS = ["https://chatgpt.com/*", "https://chat.openai.com/*"];
 const conversations = new Map();
 const pollingTabs = new Set();
 let loopStarted = false;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message?.type === "link-announce" && sender.tab?.id != null) {
-    const conversation = { ...message.conversation, tabId: sender.tab.id };
-    conversations.set(sender.tab.id, conversation);
-    void announce(conversation);
-    void pollConversation(conversation);
+    registerConversation(sender.tab.id, message.conversation);
     startLoop();
     sendResponse({ ok: true });
     return;
@@ -24,11 +22,50 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 });
 
 chrome.tabs.onRemoved.addListener((tabId) => conversations.delete(tabId));
-chrome.tabs.onUpdated.addListener((tabId, changeInfo) => {
+chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
   if (changeInfo.url) conversations.delete(tabId);
+  if (changeInfo.status === "complete" && isChatUrl(tab.url)) void discoverTab(tab, false);
 });
-chrome.runtime.onStartup.addListener(startLoop);
-chrome.runtime.onInstalled.addListener(startLoop);
+chrome.runtime.onStartup.addListener(() => {
+  startLoop();
+  void discoverTabs(true);
+});
+chrome.runtime.onInstalled.addListener(() => {
+  startLoop();
+  void discoverTabs(true);
+});
+
+function registerConversation(tabId, details) {
+  if (!details?.conversationId) return;
+  const conversation = { ...details, tabId };
+  conversations.set(tabId, conversation);
+  void announce(conversation);
+  void pollConversation(conversation);
+}
+
+async function discoverTabs(injectMissing) {
+  const tabs = await chrome.tabs.query({ url: CHAT_URLS });
+  await Promise.allSettled(tabs.map(tab => discoverTab(tab, injectMissing)));
+}
+
+async function discoverTab(tab, injectMissing) {
+  if (tab.id == null || !isChatUrl(tab.url)) return;
+  let result;
+  try {
+    result = await chrome.tabs.sendMessage(tab.id, { type: "link-discover" });
+  } catch {
+    if (!injectMissing) return;
+    await chrome.scripting.executeScript({ target: { tabId: tab.id }, files: ["content.js"] });
+    await delay(100);
+    result = await chrome.tabs.sendMessage(tab.id, { type: "link-discover" });
+  }
+  registerConversation(tab.id, result?.conversation);
+}
+
+function isChatUrl(url) {
+  return typeof url === "string" &&
+    (url.startsWith("https://chatgpt.com/") || url.startsWith("https://chat.openai.com/"));
+}
 
 function startLoop() {
   if (loopStarted) return;
@@ -105,3 +142,4 @@ function delay(milliseconds) {
 }
 
 startLoop();
+void discoverTabs(true);

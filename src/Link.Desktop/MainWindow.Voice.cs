@@ -3,7 +3,6 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using Link.Desktop.Models;
 
 namespace Link.Desktop;
 
@@ -54,29 +53,14 @@ public partial class MainWindow
                 ? transcript
                 : $"{PromptBox.Text.TrimEnd()} {transcript}";
 
-            // The transcript has one canonical home: user input. Voice context carries only the audio.
-            AddContext(new ContextItem
-            {
-                Type = ContextItemType.Voice,
-                Label = "Voice",
-                FilePath = audioPath,
-                MimeType = "audio/wav"
-            });
+            // The transcript has one canonical home: user input. The browser transport does not send raw audio.
             SetStatus("Voice transcribed");
         }
         catch (Exception exception)
         {
-            if (audioPath is not null)
-            {
-                AddContext(new ContextItem
-                {
-                    Type = ContextItemType.Voice,
-                    Label = "Voice audio",
-                    FilePath = audioPath,
-                    MimeType = "audio/wav"
-                });
-            }
-            SetError(exception.Message);
+            SetError(audioPath is null
+                ? exception.Message
+                : $"{exception.Message} Recording was kept locally.");
         }
         finally
         {

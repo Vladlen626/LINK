@@ -2,7 +2,7 @@ namespace Link.Desktop.Models;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 2;
+    public int SchemaVersion { get; set; } = 3;
     public double Opacity { get; set; } = 0.72;
     public bool AlwaysOnTop { get; set; } = true;
     public ClickThroughMode ClickThrough { get; set; } = ClickThroughMode.Off;
@@ -16,17 +16,24 @@ public sealed class AppSettings
 
     public void Normalize()
     {
+        Window ??= new WindowPlacement();
+        Hotkeys ??= new HotkeySettings();
         if (SchemaVersion < 2)
         {
             // Earlier builds enabled click-through by default, which made the capsule feel unreachable.
             ClickThrough = ClickThroughMode.Off;
-            SchemaVersion = 2;
         }
+        if (SchemaVersion < 3)
+        {
+            if (string.Equals(Hotkeys.CaptureRegion, "Ctrl+Alt+R", StringComparison.OrdinalIgnoreCase))
+            {
+                Hotkeys.CaptureRegion = "Ctrl+Alt+Shift+R";
+            }
+        }
+        SchemaVersion = 3;
         Opacity = Math.Clamp(Opacity, 0.45, 1.0);
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);
         if (ClickThrough == ClickThroughMode.WhenInactive) ClickThrough = ClickThroughMode.Off;
-        Window ??= new WindowPlacement();
-        Hotkeys ??= new HotkeySettings();
         Hotkeys.Normalize();
     }
 }
@@ -45,7 +52,7 @@ public sealed class HotkeySettings
     public string PushToTalk { get; set; } = "Ctrl+Alt+V";
     public string CaptureDesktop { get; set; } = "Ctrl+Alt+D";
     public string CaptureActiveWindow { get; set; } = "Ctrl+Alt+W";
-    public string CaptureRegion { get; set; } = "Ctrl+Alt+R";
+    public string CaptureRegion { get; set; } = "Ctrl+Alt+Shift+R";
 
     public void Normalize()
     {
@@ -53,7 +60,7 @@ public sealed class HotkeySettings
         PushToTalk = DefaultIfEmpty(PushToTalk, "Ctrl+Alt+V");
         CaptureDesktop = DefaultIfEmpty(CaptureDesktop, "Ctrl+Alt+D");
         CaptureActiveWindow = DefaultIfEmpty(CaptureActiveWindow, "Ctrl+Alt+W");
-        CaptureRegion = DefaultIfEmpty(CaptureRegion, "Ctrl+Alt+R");
+        CaptureRegion = DefaultIfEmpty(CaptureRegion, "Ctrl+Alt+Shift+R");
     }
 
     public HotkeySettings Clone() => new()

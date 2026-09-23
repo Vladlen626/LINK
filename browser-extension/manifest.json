@@ -1,9 +1,9 @@
 {
   "manifest_version": 3,
   "name": "LINK ChatGPT Companion",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "description": "Connects LINK desktop requests to an existing ChatGPT conversation.",
-  "permissions": ["tabs"],
+  "permissions": ["tabs", "scripting"],
   "host_permissions": [
     "http://127.0.0.1:43127/*",
     "https://chatgpt.com/*",
@@ -11,6 +11,9 @@
   ],
   "background": {
     "service_worker": "background.js"
+  },
+  "action": {
+    "default_title": "LINK ChatGPT Companion"
   },
   "content_scripts": [
     {
