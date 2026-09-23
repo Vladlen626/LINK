@@ -2,13 +2,14 @@ namespace Link.Desktop.Models;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 4;
+    public int SchemaVersion { get; set; } = 5;
     public double Opacity { get; set; } = 0.72;
     public bool AlwaysOnTop { get; set; } = true;
     public ClickThroughMode ClickThrough { get; set; } = ClickThroughMode.Off;
     public VoiceLanguage VoiceLanguage { get; set; } = VoiceLanguage.Auto;
     public int ScreenshotHistorySize { get; set; } = 5;
     public bool LaunchWithWindows { get; set; }
+    public bool AutoCaptureActiveWindowOnSend { get; set; }
     public bool IsCollapsed { get; set; }
     public Guid? ActiveProjectId { get; set; }
     public WindowPlacement Window { get; set; } = new();
@@ -30,7 +31,7 @@ public sealed class AppSettings
                 Hotkeys.CaptureRegion = "Ctrl+Alt+Shift+R";
             }
         }
-        SchemaVersion = 4;
+        SchemaVersion = 5;
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.45, 1.0) : 0.72;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);
         if (ClickThrough == ClickThroughMode.WhenInactive) ClickThrough = ClickThroughMode.Off;

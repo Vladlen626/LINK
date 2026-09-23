@@ -59,7 +59,23 @@ public sealed class BrowserChatIntegration : IChatIntegration, IDisposable
         if (!string.IsNullOrWhiteSpace(request.Text)) result.Append(request.Text.Trim());
         else result.Append("Please use the attached context.");
 
-        var contextLines = new List<string> { $"Project: {request.ProjectName}" };
+        var contextLines = new List<string>();
+        if (!string.IsNullOrWhiteSpace(request.ProjectName) &&
+            !string.Equals(request.ProjectName.Trim(), "General", StringComparison.OrdinalIgnoreCase))
+        {
+            contextLines.Add($"Project: {request.ProjectName.Trim()}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.CurrentApplication?.ProcessName))
+        {
+            contextLines.Add($"Application: {request.CurrentApplication.ProcessName.Trim()}");
+        }
+
+        if (!string.IsNullOrWhiteSpace(request.CurrentApplication?.WindowTitle))
+        {
+            contextLines.Add($"Window: {request.CurrentApplication.WindowTitle.Trim()}");
+        }
+
         if (!string.IsNullOrWhiteSpace(request.CurrentTask))
         {
             contextLines.Add($"Current task: {request.CurrentTask.Trim()}");
@@ -72,7 +88,7 @@ public sealed class BrowserChatIntegration : IChatIntegration, IDisposable
 
         if (contextLines.Count > 0)
         {
-            result.Append("\n\n---\nLINK context\n");
+            result.Append("\n\n---\nContext\n");
             result.Append(string.Join("\n\n", contextLines));
         }
 

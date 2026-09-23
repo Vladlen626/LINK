@@ -59,11 +59,21 @@
                             <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Capture desktop" />
                             <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Capture active window" />
                             <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Select region" />
-                            <TextBox x:Name="ShowHideHotkey" Grid.Column="1" Height="34" Cursor="Hand" PreviewMouseLeftButtonDown="HotkeyBox_OnPreviewMouseLeftButtonDown" IsReadOnly="True" />
-                            <TextBox x:Name="PushToTalkHotkey" Grid.Row="1" Grid.Column="1" Height="34" Cursor="Hand" PreviewMouseLeftButtonDown="HotkeyBox_OnPreviewMouseLeftButtonDown" IsReadOnly="True" />
-                            <TextBox x:Name="DesktopHotkey" Grid.Row="2" Grid.Column="1" Height="34" Cursor="Hand" PreviewMouseLeftButtonDown="HotkeyBox_OnPreviewMouseLeftButtonDown" IsReadOnly="True" />
-                            <TextBox x:Name="WindowHotkey" Grid.Row="3" Grid.Column="1" Height="34" Cursor="Hand" PreviewMouseLeftButtonDown="HotkeyBox_OnPreviewMouseLeftButtonDown" IsReadOnly="True" />
-                            <TextBox x:Name="RegionHotkey" Grid.Row="4" Grid.Column="1" Height="34" Cursor="Hand" PreviewMouseLeftButtonDown="HotkeyBox_OnPreviewMouseLeftButtonDown" IsReadOnly="True" />
+                            <Button x:Name="ShowHideHotkey" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                <TextBlock Text="Ctrl+Alt+Space" />
+                            </Button>
+                            <Button x:Name="PushToTalkHotkey" Grid.Row="1" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                <TextBlock Text="Ctrl+Alt+V" />
+                            </Button>
+                            <Button x:Name="DesktopHotkey" Grid.Row="2" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                <TextBlock Text="Ctrl+Alt+D" />
+                            </Button>
+                            <Button x:Name="WindowHotkey" Grid.Row="3" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                <TextBlock Text="Ctrl+Alt+W" />
+                            </Button>
+                            <Button x:Name="RegionHotkey" Grid.Row="4" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                <TextBlock Text="Ctrl+Alt+Shift+R" />
+                            </Button>
                         </Grid>
                     </Border>
                     <TextBlock x:Name="VersionText" Margin="3,14,0,0" Style="{StaticResource SecondaryTextStyle}"

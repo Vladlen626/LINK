@@ -44,6 +44,16 @@ public sealed class ScreenCaptureService
             throw new InvalidOperationException("No active window is available to capture.");
         }
 
+        return CaptureWindow(handle);
+    }
+
+    public ScreenshotResult CaptureWindow(IntPtr handle, bool prune = true)
+    {
+        if (handle == IntPtr.Zero || !NativeMethods.IsWindow(handle))
+        {
+            throw new InvalidOperationException("The window is no longer available to capture.");
+        }
+
         var result = NativeMethods.DwmGetWindowAttribute(
             handle,
             NativeMethods.DwmwaExtendedFrameBounds,
@@ -62,7 +72,8 @@ public sealed class ScreenCaptureService
 
         return CaptureRectangle(
             new Rectangle(bounds.Left, bounds.Top, bounds.Width, bounds.Height),
-            "window");
+            "window",
+            prune);
     }
 
     public ScreenshotResult CaptureRegion(Rectangle region)

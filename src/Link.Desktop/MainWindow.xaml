@@ -36,6 +36,9 @@
             <MenuItem Header="Full desktop" Click="Desktop_OnClick" />
             <MenuItem Header="Active window" Click="ActiveWindow_OnClick" />
             <MenuItem Header="Select region" Click="Region_OnClick" />
+            <Separator />
+            <MenuItem Header="Auto active window on send" Tag="AutoActiveWindow" IsCheckable="True"
+                      Click="AutoActiveWindow_OnClick" />
         </ContextMenu>
     </Window.Resources>
 
@@ -187,6 +190,8 @@
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="14" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                 <Viewbox Width="14" Height="14" VerticalAlignment="Center"><Path Data="{StaticResource ScreenIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeLineJoin="Round" /></Viewbox>
                                 <TextBlock Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="12" Text="Screen" />
+                                <Ellipse x:Name="AutoScreenIndicator" Grid.Column="1" Width="6" Height="6" Margin="0,-5,-6,0"
+                                         HorizontalAlignment="Right" VerticalAlignment="Top" Fill="{StaticResource AquaBrush}" Visibility="Collapsed" />
                             </Grid>
                         </Button>
                         <Button x:Name="VoiceButton" Grid.Column="1" Style="{StaticResource CompactActionButtonStyle}" Margin="3,0"

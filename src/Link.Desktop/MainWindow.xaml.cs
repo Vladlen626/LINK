@@ -22,6 +22,7 @@ public partial class MainWindow : Window
     private readonly ProjectService _projects;
     private readonly RequestService _requests;
     private readonly ScreenCaptureService _capture;
+    private readonly CurrentApplicationService _currentApplication;
     private readonly ScreenshotHistoryService _history;
     private readonly ClipboardContextService _clipboard;
     private readonly IAudioRecorder _audio;
@@ -41,6 +42,7 @@ public partial class MainWindow : Window
         RequestService requests,
         IChatIntegration chat,
         ScreenCaptureService capture,
+        CurrentApplicationService currentApplication,
         ScreenshotHistoryService history,
         ClipboardContextService clipboard,
         IAudioRecorder audio,
@@ -51,6 +53,7 @@ public partial class MainWindow : Window
         _requests = requests;
         _chat = chat;
         _capture = capture;
+        _currentApplication = currentApplication;
         _history = history;
         _clipboard = clipboard;
         _audio = audio;
@@ -93,6 +96,7 @@ public partial class MainWindow : Window
         }
 
         WindowStyleService.EnableBackdrop(this, _settings.Current.Opacity);
+        UpdateAutoScreenIndicator();
         ApplyClickThrough();
     }
 
@@ -131,6 +135,7 @@ public partial class MainWindow : Window
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
         _windowHandle = new WindowInteropHelper(this).Handle;
+        TrackExternalForegroundWindow();
         ApplySettings();
     }
 
@@ -156,12 +161,7 @@ public partial class MainWindow : Window
     {
         Dispatcher.BeginInvoke(() =>
         {
-            var foreground = NativeMethods.GetForegroundWindow();
-            if (foreground != IntPtr.Zero && foreground != _windowHandle)
-            {
-                _lastExternalWindow = foreground;
-            }
-
+            TrackExternalForegroundWindow();
             ApplyClickThrough();
         }, DispatcherPriority.ContextIdle);
     }
@@ -190,6 +190,7 @@ public partial class MainWindow : Window
 
     private void ShowAndActivate()
     {
+        TrackExternalForegroundWindow();
         WindowStyleService.SetClickThrough(this, false);
         ShowActivated = true;
         Show();
@@ -435,6 +436,10 @@ public partial class MainWindow : Window
     private void Screen_OnClick(object sender, RoutedEventArgs e)
     {
         var menu = (ContextMenu)FindResource("ScreenMenu");
+        if (menu.Items.OfType<MenuItem>().FirstOrDefault(item => Equals(item.Tag, "AutoActiveWindow")) is { } autoItem)
+        {
+            autoItem.IsChecked = _settings.Current.AutoCaptureActiveWindowOnSend;
+        }
         menu.PlacementTarget = ScreenButton;
         menu.IsOpen = true;
     }
@@ -444,6 +449,31 @@ public partial class MainWindow : Window
     private async void AllMonitors_OnClick(object sender, RoutedEventArgs e) => await CaptureAllMonitorsAsync();
     private async void ActiveWindow_OnClick(object sender, RoutedEventArgs e) => await CaptureActiveWindowAsync();
     private async void Region_OnClick(object sender, RoutedEventArgs e) => await CaptureRegionAsync();
+
+    private void AutoActiveWindow_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not MenuItem item) return;
+        _settings.Current.AutoCaptureActiveWindowOnSend = item.IsChecked;
+        _settings.Save();
+        UpdateAutoScreenIndicator();
+        SetStatus(item.IsChecked ? "Auto screen enabled" : "Auto screen disabled");
+    }
+
+    private void UpdateAutoScreenIndicator()
+    {
+        if (!IsInitialized) return;
+        var enabled = _settings.Current.AutoCaptureActiveWindowOnSend;
+        AutoScreenIndicator.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
+        ScreenButton.ToolTip = enabled
+            ? "Attach screen context · auto active window is on"
+            : "Attach screen context";
+    }
+
+    private void TrackExternalForegroundWindow()
+    {
+        var foreground = _currentApplication.GetExternalForegroundWindow();
+        if (foreground != IntPtr.Zero) _lastExternalWindow = foreground;
+    }
 
     private void Clipboard_OnClick(object sender, RoutedEventArgs e)
     {

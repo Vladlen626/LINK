@@ -82,6 +82,22 @@ public partial class MainWindow
         }
     }
 
+    private async Task<ScreenshotResult> CaptureTransientWindowAsync(IntPtr windowHandle)
+    {
+        var wasVisible = IsVisible;
+        if (wasVisible) Hide();
+        await Task.Delay(80);
+
+        try
+        {
+            return _capture.CaptureWindow(windowHandle, prune: false);
+        }
+        finally
+        {
+            PresentAfterCapture(wasVisible);
+        }
+    }
+
     private void PresentAfterCapture(bool wasVisible)
     {
         if (wasVisible) ShowAndActivate();

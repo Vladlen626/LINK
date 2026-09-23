@@ -11,7 +11,11 @@ public sealed class RequestService
 
     public RequestService(StoragePaths paths) => _paths = paths;
 
-    public PromptRequest BuildAndLog(LinkProject project, string text, IEnumerable<ContextItem> context)
+    public PromptRequest BuildAndLog(
+        LinkProject project,
+        string text,
+        IEnumerable<ContextItem> context,
+        CurrentApplicationContext? currentApplication)
     {
         var request = new PromptRequest
         {
@@ -19,6 +23,7 @@ public sealed class RequestService
             ProjectName = project.Name,
             CurrentTask = project.CurrentTask,
             Text = text.Trim(),
+            CurrentApplication = currentApplication,
             Context = context.ToArray()
         };
 

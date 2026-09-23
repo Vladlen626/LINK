@@ -12,7 +12,7 @@ namespace Link.Desktop;
 public partial class SettingsWindow : Window
 {
     private readonly SettingsService _settings;
-    private TextBox? _capturingHotkey;
+    private Button? _capturingHotkey;
     private string? _hotkeyBeforeCapture;
 
     public SettingsWindow(SettingsService settings)
@@ -29,11 +29,11 @@ public partial class SettingsWindow : Window
         HistorySizeBox.Text = current.ScreenshotHistorySize.ToString();
         AlwaysOnTopBox.IsChecked = current.AlwaysOnTop;
         LaunchWithWindowsBox.IsChecked = current.LaunchWithWindows;
-        ShowHideHotkey.Text = current.Hotkeys.ShowHide;
-        PushToTalkHotkey.Text = current.Hotkeys.PushToTalk;
-        DesktopHotkey.Text = current.Hotkeys.CaptureDesktop;
-        WindowHotkey.Text = current.Hotkeys.CaptureActiveWindow;
-        RegionHotkey.Text = current.Hotkeys.CaptureRegion;
+        SetHotkey(ShowHideHotkey, current.Hotkeys.ShowHide);
+        SetHotkey(PushToTalkHotkey, current.Hotkeys.PushToTalk);
+        SetHotkey(DesktopHotkey, current.Hotkeys.CaptureDesktop);
+        SetHotkey(WindowHotkey, current.Hotkeys.CaptureActiveWindow);
+        SetHotkey(RegionHotkey, current.Hotkeys.CaptureRegion);
         VersionText.Text = $"Version {GetInformationalVersion()}";
     }
 
@@ -47,22 +47,21 @@ public partial class SettingsWindow : Window
         return $"{version} · build {buildId}";
     }
 
-    private void HotkeyBox_OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    private void HotkeyButton_OnClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not TextBox hotkeyBox) return;
-        if (_capturingHotkey != hotkeyBox)
+        if (sender is not Button hotkeyButton) return;
+        if (_capturingHotkey != hotkeyButton)
         {
             EndHotkeyCapture(restorePrevious: true);
-            _capturingHotkey = hotkeyBox;
-            _hotkeyBeforeCapture = hotkeyBox.Text;
-            hotkeyBox.Text = "Press shortcut…";
-            hotkeyBox.BorderBrush = (Brush)FindResource("AccentBorderBrush");
-            hotkeyBox.Background = (Brush)FindResource("ActiveContextBrush");
+            _capturingHotkey = hotkeyButton;
+            _hotkeyBeforeCapture = GetHotkey(hotkeyButton);
+            SetHotkey(hotkeyButton, "Press shortcut…");
+            hotkeyButton.BorderBrush = (Brush)FindResource("AccentBorderBrush");
+            hotkeyButton.Background = (Brush)FindResource("ActiveContextBrush");
         }
 
-        hotkeyBox.Focus();
+        hotkeyButton.Focus();
         ErrorText.Text = string.Empty;
-        e.Handled = true;
     }
 
     private void Window_OnPreviewKeyDown(object sender, KeyEventArgs e)
@@ -99,7 +98,7 @@ public partial class SettingsWindow : Window
         if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
         if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
         parts.Add(key.ToString());
-        _capturingHotkey.Text = string.Join('+', parts);
+        SetHotkey(_capturingHotkey, string.Join('+', parts));
         EndHotkeyCapture(restorePrevious: false);
     }
 
@@ -108,7 +107,7 @@ public partial class SettingsWindow : Window
         if (_capturingHotkey is null) return;
         if (restorePrevious && _hotkeyBeforeCapture is not null)
         {
-            _capturingHotkey.Text = _hotkeyBeforeCapture;
+            SetHotkey(_capturingHotkey, _hotkeyBeforeCapture);
         }
 
         _capturingHotkey.ClearValue(BorderBrushProperty);
@@ -126,7 +125,14 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        var hotkeys = new[] { ShowHideHotkey.Text, PushToTalkHotkey.Text, DesktopHotkey.Text, WindowHotkey.Text, RegionHotkey.Text };
+        var hotkeys = new[]
+        {
+            GetHotkey(ShowHideHotkey),
+            GetHotkey(PushToTalkHotkey),
+            GetHotkey(DesktopHotkey),
+            GetHotkey(WindowHotkey),
+            GetHotkey(RegionHotkey)
+        };
         if (hotkeys.Any(string.IsNullOrWhiteSpace) || hotkeys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != hotkeys.Length)
         {
             ErrorText.Text = "Each action must have a unique hotkey.";
@@ -154,11 +160,11 @@ public partial class SettingsWindow : Window
         current.ScreenshotHistorySize = historySize;
         current.AlwaysOnTop = AlwaysOnTopBox.IsChecked == true;
         current.LaunchWithWindows = LaunchWithWindowsBox.IsChecked == true;
-        current.Hotkeys.ShowHide = ShowHideHotkey.Text;
-        current.Hotkeys.PushToTalk = PushToTalkHotkey.Text;
-        current.Hotkeys.CaptureDesktop = DesktopHotkey.Text;
-        current.Hotkeys.CaptureActiveWindow = WindowHotkey.Text;
-        current.Hotkeys.CaptureRegion = RegionHotkey.Text;
+        current.Hotkeys.ShowHide = GetHotkey(ShowHideHotkey);
+        current.Hotkeys.PushToTalk = GetHotkey(PushToTalkHotkey);
+        current.Hotkeys.CaptureDesktop = GetHotkey(DesktopHotkey);
+        current.Hotkeys.CaptureActiveWindow = GetHotkey(WindowHotkey);
+        current.Hotkeys.CaptureRegion = GetHotkey(RegionHotkey);
 
         try
         {
@@ -175,5 +181,13 @@ public partial class SettingsWindow : Window
     {
         EndHotkeyCapture(restorePrevious: true);
         DialogResult = false;
+    }
+
+    private static string GetHotkey(Button button) =>
+        button.Content is TextBlock text ? text.Text : string.Empty;
+
+    private static void SetHotkey(Button button, string value)
+    {
+        if (button.Content is TextBlock text) text.Text = value;
     }
 }

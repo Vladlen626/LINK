@@ -34,13 +34,44 @@ public partial class MainWindow
 
         _projects.ActiveProject.CurrentTask = CurrentTaskBox.Text.Trim();
         _projects.Save();
-        var request = _requests.BuildAndLog(_projects.ActiveProject, PromptBox.Text, _context);
         _sendCancellation = new CancellationTokenSource();
         SetSending(true);
         ShowResponse(ChatProgressState.Sending, string.Empty);
+        ContextItem? transientContext = null;
 
         try
         {
+            var externalWindow = _currentApplication.IsExternalWindow(_lastExternalWindow)
+                ? _lastExternalWindow
+                : IntPtr.Zero;
+            var currentApplication = _currentApplication.GetContext(externalWindow);
+            if (_settings.Current.AutoCaptureActiveWindowOnSend && externalWindow != IntPtr.Zero)
+            {
+                try
+                {
+                    var screenshot = await CaptureTransientWindowAsync(externalWindow);
+                    transientContext = new ContextItem
+                    {
+                        Type = ContextItemType.Screenshot,
+                        Label = "Current application",
+                        FilePath = screenshot.FilePath,
+                        MimeType = "image/png"
+                    };
+                }
+                catch (Exception exception)
+                {
+                    SetStatus($"Auto screen unavailable: {exception.Message}", "Sending");
+                }
+            }
+
+            var requestContext = transientContext is null
+                ? _context.ToArray()
+                : _context.Append(transientContext).ToArray();
+            var request = _requests.BuildAndLog(
+                _projects.ActiveProject,
+                PromptBox.Text,
+                requestContext,
+                currentApplication);
             var progress = new Progress<ChatProgress>(OnChatProgress);
             var response = await _chat.SendAsync(request, conversation, progress, _sendCancellation.Token);
             ShowResponse(ChatProgressState.Completed, response.Text);
@@ -61,10 +92,32 @@ public partial class MainWindow
         }
         finally
         {
+            DeleteTransientContext(transientContext);
             _sendCancellation.Dispose();
             _sendCancellation = null;
             SetSending(false);
             UpdateConnectionState();
+        }
+    }
+
+    private void DeleteTransientContext(ContextItem? item)
+    {
+        if (item?.FilePath is null) return;
+        try
+        {
+            File.Delete(item.FilePath);
+        }
+        catch (IOException)
+        {
+            // A failed transient cleanup can be handled by the normal screenshot pruning pass.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Keep sending successful even if Windows briefly retains the capture file.
+        }
+        finally
+        {
+            _history.Prune(_context.Where(context => context.FilePath is not null).Select(context => context.FilePath!));
         }
     }
 

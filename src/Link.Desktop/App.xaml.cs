@@ -35,13 +35,24 @@ public partial class App : System.Windows.Application
         _projects = new ProjectService(paths, _settings);
         var history = new ScreenshotHistoryService(paths, _settings);
         var capture = new ScreenCaptureService(history);
+        var currentApplication = new CurrentApplicationService();
         var clipboard = new ClipboardContextService(history);
         var requests = new RequestService(paths);
         _chat = new BrowserChatIntegration();
         _audio = new AudioRecorderService(paths);
         var speech = new SpeechToTextService();
 
-        _mainWindow = new MainWindow(_settings, _projects, requests, _chat, capture, history, clipboard, _audio, speech);
+        _mainWindow = new MainWindow(
+            _settings,
+            _projects,
+            requests,
+            _chat,
+            capture,
+            currentApplication,
+            history,
+            clipboard,
+            _audio,
+            speech);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
         _mainWindow.Show();
