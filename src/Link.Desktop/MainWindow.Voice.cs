@@ -9,6 +9,8 @@ namespace Link.Desktop;
 
 public partial class MainWindow
 {
+    private static readonly TimeSpan MinimumSpeechDuration = TimeSpan.FromMilliseconds(300);
+
     public void StartPushToTalk()
     {
         if (_sending || _voiceState != VoiceState.Idle) return;
@@ -18,14 +20,16 @@ public partial class MainWindow
             RemoveVoiceContextItems();
             _voiceState = VoiceState.Recording;
             ShowPassive();
-            _audio.Start();
-            ShellBorder.BorderBrush = (Brush)FindResource("SuccessBorderBrush");
-            VoiceButton.Background = (Brush)FindResource("ActiveContextBrush");
+            var usedSelectedMicrophone = _audio.Start(_settings.Current.MicrophoneDeviceId);
+            ShellRim.BorderBrush = (Brush)FindResource("RecordingRimBrush");
+            VoiceButton.Background = (Brush)FindResource("RecordingGelBrush");
             VoiceButton.BorderBrush = (Brush)FindResource("SuccessBorderBrush");
             ExpandedLinkGlyph.Foreground = (Brush)FindResource("SuccessBrush");
             CollapsedLinkGlyph.Foreground = (Brush)FindResource("SuccessBrush");
             AnimateVoiceGlyphs(start: true);
-            SetStatus("Listening — release to finish", "Listening");
+            SetStatus(usedSelectedMicrophone
+                ? "Listening — release to finish"
+                : "Selected microphone is not connected — listening on the Windows default", "Listening");
         }
         catch (Exception exception)
         {
@@ -39,19 +43,36 @@ public partial class MainWindow
         if (_voiceState != VoiceState.Recording) return;
 
         _voiceState = VoiceState.Transcribing;
-        ShellBorder.BorderBrush = (Brush)FindResource("GlassBorderBrush");
-        VoiceButton.Background = (Brush)FindResource("SubtleGlassBrush");
-        VoiceButton.BorderBrush = (Brush)FindResource("GlassBorderSoftBrush");
-        ExpandedLinkGlyph.Foreground = (Brush)FindResource("AquaBrush");
-        CollapsedLinkGlyph.Foreground = (Brush)FindResource("AquaBrush");
+        ShellRim.BorderBrush = (Brush)FindResource("RimLightBrush");
+        VoiceButton.ClearValue(BackgroundProperty);
+        VoiceButton.ClearValue(BorderBrushProperty);
+        ExpandedLinkGlyph.Foreground = (Brush)FindResource("BrandBrush");
+        CollapsedLinkGlyph.Foreground = (Brush)FindResource("BrandBrush");
         AnimateVoiceGlyphs(start: false);
         string? audioPath = null;
 
         try
         {
-            audioPath = _audio.Stop();
+            var recording = _audio.Stop();
+            audioPath = recording.FilePath!;
             RemoveVoiceContextItems();
             RemoveMissingContextFiles();
+            if (recording.Duration < MinimumSpeechDuration || recording.IsSilent)
+            {
+                // Whisper invents phrases for silence, so nothing is transcribed without a signal.
+                TryDeleteRecording(audioPath);
+                audioPath = null;
+                if (recording.IsSilent)
+                {
+                    SetError("No sound from the microphone. Check the input device in Settings → Microphone.");
+                }
+                else
+                {
+                    SetStatus("Recording was too short — hold the key while speaking");
+                }
+                return;
+            }
+
             SetStatus(_speech.IsModelReady
                 ? "Transcribing locally…"
                 : "Downloading local speech model (first use)…", "Transcribing");
@@ -124,6 +145,8 @@ public partial class MainWindow
                 RepeatBehavior = RepeatBehavior.Forever,
                 EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
             };
+            // The overlay is a layered window: every frame is copied to system memory, so keep the pulse cheap.
+            Timeline.SetDesiredFrameRate(pulse, 24);
             scale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
             scale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse.Clone());
         }

@@ -46,6 +46,7 @@ public sealed class BrowserChatIntegration : IChatIntegration, IDisposable
             RequestId = request.Id,
             ConversationId = conversation.ConversationId,
             Prompt = FormatPrompt(request),
+            Effort = request.Effort.ToString().ToLowerInvariant(),
             Attachments = attachments
         };
         return await _bridge.EnqueueAsync(bridgeRequest, progress, cancellationToken).ConfigureAwait(false);
@@ -58,6 +59,15 @@ public sealed class BrowserChatIntegration : IChatIntegration, IDisposable
         var result = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(request.Text)) result.Append(request.Text.Trim());
         else result.Append("Please use the attached context.");
+
+        // The hint works in any chat; the companion additionally switches the ChatGPT mode when it can.
+        var effortHint = request.Effort switch
+        {
+            ResponseEffort.Fast => "[Fast answer: reply briefly and directly — the answer first, a few sentences or a short list at most, no preamble or recap, no extended reasoning.]",
+            ResponseEffort.Deep => "[Deep answer: think hard about this and give a thorough, carefully reasoned answer.]",
+            _ => null
+        };
+        if (effortHint is not null) result.Append("\n\n").Append(effortHint);
 
         var contextLines = new List<string>();
         if (!string.IsNullOrWhiteSpace(request.ProjectName) &&

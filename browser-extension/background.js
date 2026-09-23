@@ -1,8 +1,13 @@
 const BRIDGE = "http://127.0.0.1:43127/link";
 const HEADER = { "X-Link-Bridge": "1" };
 const CHAT_URLS = ["https://chatgpt.com/*", "https://chat.openai.com/*"];
+const IDLE_POLL_MS = 750;
+const ACTIVE_POLL_MS = 250;
+const ANNOUNCE_INTERVAL_MS = 5000;
 const conversations = new Map();
 const pollingTabs = new Set();
+// Tabs that are working on a LINK request and need ticks while Chrome throttles their timers.
+const activeTabs = new Set();
 let loopStarted = false;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
@@ -14,16 +19,29 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   }
 
   if (message?.type === "link-event") {
+    const tabId = sender.tab?.id;
+    if (tabId != null && (message.event?.state === "completed" || message.event?.state === "error")) {
+      activeTabs.delete(tabId);
+    }
     void postJson("/event", message.event).then(
       () => sendResponse({ ok: true }),
-      error => sendResponse({ ok: false, error: error.message }));
+      error => {
+        if (error.status === 404 && tabId != null) activeTabs.delete(tabId);
+        sendResponse({ ok: false, status: error.status, error: error.message });
+      });
     return true;
   }
 });
 
-chrome.tabs.onRemoved.addListener((tabId) => conversations.delete(tabId));
+chrome.tabs.onRemoved.addListener((tabId) => {
+  conversations.delete(tabId);
+  activeTabs.delete(tabId);
+});
 chrome.tabs.onUpdated.addListener((tabId, changeInfo, tab) => {
-  if (changeInfo.url) conversations.delete(tabId);
+  if (changeInfo.url) {
+    conversations.delete(tabId);
+    activeTabs.delete(tabId);
+  }
   if (changeInfo.status === "complete" && isChatUrl(tab.url)) void discoverTab(tab, false);
 });
 chrome.runtime.onStartup.addListener(() => {
@@ -37,9 +55,11 @@ chrome.runtime.onInstalled.addListener(() => {
 
 function registerConversation(tabId, details) {
   if (!details?.conversationId) return;
-  const conversation = { ...details, tabId };
+  const previous = conversations.get(tabId);
+  const sameConversation = previous?.conversationId === details.conversationId;
+  const conversation = { ...details, tabId, announcedAt: sameConversation ? previous.announcedAt : 0 };
   conversations.set(tabId, conversation);
-  void announce(conversation);
+  if (!sameConversation) void announce(conversation);
   void pollConversation(conversation);
 }
 
@@ -75,11 +95,21 @@ function startLoop() {
 
 async function pollLoop() {
   while (true) {
+    if (conversations.size > 0) {
+      // Extension API calls reset the service worker idle timer. Without this the worker dies
+      // whenever Chrome throttles the ChatGPT tab's own heartbeat, and LINK loses the conversation.
+      await chrome.runtime.getPlatformInfo().catch(() => {});
+    }
+
+    for (const tabId of activeTabs) {
+      void chrome.tabs.sendMessage(tabId, { type: "link-tick" }).catch(() => activeTabs.delete(tabId));
+    }
+
     await Promise.allSettled([...conversations.values()].map(async conversation => {
-      await announce(conversation);
+      if (Date.now() - conversation.announcedAt >= ANNOUNCE_INTERVAL_MS) await announce(conversation);
       await pollConversation(conversation);
     }));
-    await delay(750);
+    await delay(activeTabs.size > 0 ? ACTIVE_POLL_MS : IDLE_POLL_MS);
   }
 }
 
@@ -90,8 +120,9 @@ async function announce(conversation) {
       title: conversation.title,
       url: conversation.url
     });
+    conversation.announcedAt = Date.now();
   } catch {
-    // LINK may not be running yet. The next content-script heartbeat retries.
+    // LINK may not be running yet. The next loop iteration retries.
   }
 }
 
@@ -107,8 +138,12 @@ async function pollConversation(conversation) {
 
     const request = await response.json();
     try {
+      activeTabs.add(conversation.tabId);
+      // Memory Saver must not discard the tab LINK talks to.
+      void chrome.tabs.update(conversation.tabId, { autoDiscardable: false }).catch(() => {});
       await chrome.tabs.sendMessage(conversation.tabId, { type: "link-request", request });
     } catch (error) {
+      activeTabs.delete(conversation.tabId);
       await reportError(request.requestId, `The ChatGPT tab could not receive the LINK request: ${error.message}`);
     }
   } catch {
@@ -125,7 +160,9 @@ async function postJson(path, body) {
     body: JSON.stringify(body),
     cache: "no-store"
   });
-  if (!response.ok) throw new Error(`LINK bridge returned HTTP ${response.status}.`);
+  if (!response.ok) {
+    throw Object.assign(new Error(`LINK bridge returned HTTP ${response.status}.`), { status: response.status });
+  }
   return response;
 }
 

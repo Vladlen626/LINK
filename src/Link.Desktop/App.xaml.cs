@@ -1,5 +1,6 @@
 using System.Threading;
 using System.Windows;
+using System.Windows.Threading;
 using Link.Desktop.Services;
 using Link.Desktop.Windows;
 
@@ -7,6 +8,9 @@ namespace Link.Desktop;
 
 public partial class App : System.Windows.Application
 {
+    private const long MaxLogBytes = 1024 * 1024;
+    private readonly Queue<DateTimeOffset> _recentErrors = new();
+    private string? _logPath;
     private Mutex? _singleInstance;
     private SettingsService? _settings;
     private ProjectService? _projects;
@@ -15,6 +19,7 @@ public partial class App : System.Windows.Application
     private AudioRecorderService? _audio;
     private BrowserChatIntegration? _chat;
     private MainWindow? _mainWindow;
+    private bool _started;
     private bool _disposed;
 
     protected override void OnStartup(StartupEventArgs e)
@@ -31,7 +36,15 @@ public partial class App : System.Windows.Application
         }
 
         var paths = new StoragePaths();
+        _logPath = Path.Combine(paths.Root, "link.log");
+        DispatcherUnhandledException += OnDispatcherUnhandledException;
+        TaskScheduler.UnobservedTaskException += (_, args) =>
+        {
+            LogError(args.Exception);
+            args.SetObserved();
+        };
         _settings = new SettingsService(paths);
+        ThemeService.Apply(this, _settings.Current);
         _projects = new ProjectService(paths, _settings);
         var history = new ScreenshotHistoryService(paths, _settings);
         var capture = new ScreenCaptureService(history);
@@ -67,7 +80,7 @@ public partial class App : System.Windows.Application
             () => Dispatcher.Invoke(_mainWindow.ToggleVisible),
             () => Dispatcher.Invoke(ShowSettings),
             () => Dispatcher.Invoke(ExitApplication));
-
+        _started = true;
     }
 
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
@@ -81,6 +94,49 @@ public partial class App : System.Windows.Application
     {
         DisposeServices();
         base.OnExit(e);
+    }
+
+    private void OnDispatcherUnhandledException(object sender, DispatcherUnhandledExceptionEventArgs e)
+    {
+        LogError(e.Exception);
+        if (!_started)
+        {
+            // Without its window and tray a half-started Link would only hold the single-instance lock.
+            e.Handled = true;
+            MessageBox.Show($"Link could not start: {e.Exception.Message}\n\nDetails: {_logPath}", "Link",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            Shutdown(1);
+            return;
+        }
+
+        // A tray companion that silently vanishes is worse than one that reports the failure and keeps going.
+        // An error that repeats in a burst (e.g. during layout) would loop forever, so that one still ends the app.
+        var now = DateTimeOffset.Now;
+        _recentErrors.Enqueue(now);
+        while (_recentErrors.Peek() < now.AddSeconds(-10)) _recentErrors.Dequeue();
+        if (_recentErrors.Count > 5) return;
+
+        e.Handled = true;
+        _mainWindow?.ShowNonBlockingWarning($"Unexpected error: {e.Exception.Message} Details are in link.log.");
+    }
+
+    private void LogError(Exception exception)
+    {
+        if (_logPath is null) return;
+        try
+        {
+            var log = new FileInfo(_logPath);
+            if (log.Exists && log.Length > MaxLogBytes) log.Delete();
+            File.AppendAllText(_logPath, $"[{DateTimeOffset.Now:O}] {exception}{Environment.NewLine}{Environment.NewLine}");
+        }
+        catch (IOException)
+        {
+            // Logging must never raise a second failure.
+        }
+        catch (UnauthorizedAccessException)
+        {
+            // Logging must never raise a second failure.
+        }
     }
 
     private async void OnHotkeyPressed(HotkeyAction action)
@@ -105,13 +161,13 @@ public partial class App : System.Windows.Application
 
     private void ShowSettings()
     {
-        if (_settings is null || _mainWindow is null || _hotkeys is null) return;
+        if (_settings is null || _mainWindow is null || _hotkeys is null || _audio is null) return;
         var previousHotkeys = _settings.Current.Hotkeys.Clone();
         var hotkeysRestarted = false;
         _hotkeys.Stop();
         try
         {
-            var window = new SettingsWindow(_settings);
+            var window = new SettingsWindow(_settings, _audio);
             if (_mainWindow.IsVisible) window.Owner = _mainWindow;
             if (window.ShowDialog() == true)
             {

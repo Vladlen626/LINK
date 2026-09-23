@@ -7,7 +7,28 @@ namespace Link.Desktop.Windows;
 
 public static class WindowStyleService
 {
-    public static void EnableBackdrop(Window window, double tintOpacity = 0.72)
+    // The overlay is a layered window: DWM system backdrops are milky and cannot be tuned, while the
+    // accent blur only softens what shows through the window's own translucent pixels.
+    public static bool EnableGlass(Window window, bool blur)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero) return false;
+
+        try
+        {
+            return SetAccent(handle, new AccentPolicy
+            {
+                AccentState = blur ? NativeMethods.AccentEnableBlurBehind : NativeMethods.AccentDisabled
+            });
+        }
+        catch (EntryPointNotFoundException)
+        {
+            return false;
+        }
+    }
+
+    // Dialogs keep the standard caption and show the system acrylic behind their transparent client area.
+    public static void EnableBackdrop(Window window, bool dark)
     {
         var handle = new WindowInteropHelper(window).Handle;
         if (handle == IntPtr.Zero) return;
@@ -23,11 +44,11 @@ public static class WindowStyleService
             var margins = new DwmMargins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
             NativeMethods.DwmExtendFrameIntoClientArea(handle, ref margins);
 
-            var cornerPreference = NativeMethods.DwmWindowCornerPreferenceRoundSmall;
+            var darkMode = dark ? 1 : 0;
             NativeMethods.DwmSetWindowAttribute(
                 handle,
-                NativeMethods.DwmwaWindowCornerPreference,
-                ref cornerPreference,
+                NativeMethods.DwmwaUseImmersiveDarkMode,
+                ref darkMode,
                 Marshal.SizeOf<int>());
 
             if (Environment.OSVersion.Version.Build >= 22000)
@@ -41,28 +62,26 @@ public static class WindowStyleService
                 if (result == 0) return;
             }
 
-            EnableAcrylicFallback(handle, tintOpacity);
+            SetAccent(handle, new AccentPolicy
+            {
+                AccentState = NativeMethods.AccentEnableAcrylicBlurBehind,
+                AccentFlags = 2,
+                // AccentPolicy uses AABBGGRR.
+                GradientColor = unchecked((int)(dark ? 0xB0201A17 : 0x78FCF7E8))
+            });
         }
         catch (DllNotFoundException)
         {
-            // The XAML material remains the compatibility fallback.
+            // The XAML tint remains the compatibility fallback.
         }
         catch (EntryPointNotFoundException)
         {
-            // The XAML material remains the compatibility fallback.
+            // The XAML tint remains the compatibility fallback.
         }
     }
 
-    private static void EnableAcrylicFallback(IntPtr handle, double tintOpacity)
+    private static bool SetAccent(IntPtr handle, AccentPolicy accent)
     {
-        var alpha = (byte)Math.Clamp(42 + (tintOpacity * 82), 42, 124);
-        var accent = new AccentPolicy
-        {
-            AccentState = NativeMethods.AccentEnableAcrylicBlurBehind,
-            AccentFlags = 2,
-            // AccentPolicy uses AABBGGRR. Keep the native tint translucent so text remains fully opaque.
-            GradientColor = unchecked((int)(((uint)alpha << 24) | 0x00FCF7E8))
-        };
         var size = Marshal.SizeOf<AccentPolicy>();
         var accentPointer = Marshal.AllocHGlobal(size);
         try
@@ -74,7 +93,7 @@ public static class WindowStyleService
                 Data = accentPointer,
                 SizeOfData = size
             };
-            NativeMethods.SetWindowCompositionAttribute(handle, ref data);
+            return NativeMethods.SetWindowCompositionAttribute(handle, ref data);
         }
         finally
         {

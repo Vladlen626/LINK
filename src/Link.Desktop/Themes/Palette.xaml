@@ -1,56 +1,7 @@
 <ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
-    <Color x:Key="InkColor">#193849</Color>
-    <Color x:Key="MutedInkColor">#6A8492</Color>
-    <Color x:Key="SkyColor">#68C7F3</Color>
-    <Color x:Key="AquaColor">#72DDE0</Color>
-    <Color x:Key="GreenColor">#79D889</Color>
-
-    <SolidColorBrush x:Key="TextBrush" Color="{StaticResource InkColor}" />
-    <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedInkColor}" />
-    <SolidColorBrush x:Key="AccentBrush" Color="{StaticResource SkyColor}" />
-    <SolidColorBrush x:Key="AquaBrush" Color="{StaticResource AquaColor}" />
-    <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource GreenColor}" />
-    <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#FFF1F8FB" />
-    <SolidColorBrush x:Key="SurfaceBrush" Color="#70F7FCFE" />
-    <SolidColorBrush x:Key="ResponseSurfaceBrush" Color="#F4F7FCFE" />
-    <SolidColorBrush x:Key="ResponseCodeBrush" Color="#DDE8F1F5" />
-    <SolidColorBrush x:Key="HoverBrush" Color="#78FFFFFF" />
-    <SolidColorBrush x:Key="GlassBorderBrush" Color="#C8FFFFFF" />
-    <SolidColorBrush x:Key="GlassBorderSoftBrush" Color="#68FFFFFF" />
-    <SolidColorBrush x:Key="ControlBorderBrush" Color="#4772A9BD" />
-    <SolidColorBrush x:Key="AccentBorderBrush" Color="#B445BCE9" />
-    <SolidColorBrush x:Key="SuccessBorderBrush" Color="#C251C875" />
-    <SolidColorBrush x:Key="ErrorBrush" Color="#D9485F" />
-
-    <LinearGradientBrush x:Key="PanelBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#9CF8FDFF" />
-        <GradientStop Offset="0.52" Color="#7CEAF6FA" />
-        <GradientStop Offset="1" Color="#74CCE6F0" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="InnerGlassBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Offset="0" Color="#A8FFFFFF" />
-        <GradientStop Offset="1" Color="#72D9EEF5" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="SubtleGlassBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Offset="0" Color="#78FFFFFF" />
-        <GradientStop Offset="1" Color="#55D4EBF3" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="AccentActionBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#E9A9EDFA" />
-        <GradientStop Offset="0.52" Color="#E772DDE0" />
-        <GradientStop Offset="1" Color="#E768C7F3" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="ActiveContextBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#BDE8FCFF" />
-        <GradientStop Offset="1" Color="#AD9EEAF2" />
-    </LinearGradientBrush>
-    <LinearGradientBrush x:Key="GlossBrush" StartPoint="0,0" EndPoint="0,1">
-        <GradientStop Offset="0" Color="#73FFFFFF" />
-        <GradientStop Offset="0.62" Color="#18FFFFFF" />
-        <GradientStop Offset="1" Color="#00FFFFFF" />
-    </LinearGradientBrush>
+    <!-- Theme-independent tokens. Colors live in Colors.Light.xaml / Colors.Dark.xaml. -->
     <Geometry x:Key="LinkIconGeometry">M10,13 A5,5 0 0 0 17.5,13.5 L20.5,10.5 A5,5 0 0 0 13.5,3.5 L11.7,5.3 M14,11 A5,5 0 0 0 6.5,10.5 L3.5,13.5 A5,5 0 0 0 10.5,20.5 L12.3,18.7</Geometry>
     <Geometry x:Key="SettingsIconGeometry">M12,8.5 A3.5,3.5 0 1 0 12,15.5 A3.5,3.5 0 1 0 12,8.5 M19.4,15 A8,8 0 0 0 19.5,9 L21,7.8 L19,4.3 L17.1,5 A8,8 0 0 0 12,2 L11.7,4 A8,8 0 0 0 6.8,5 L5,4.3 L3,7.8 L4.5,9 A8,8 0 0 0 4.6,15 L3,16.2 L5,19.7 L6.9,19 A8,8 0 0 0 12,22 L12.3,20 A8,8 0 0 0 17.2,19 L19,19.7 L21,16.2 Z</Geometry>
     <Geometry x:Key="ScreenIconGeometry">M3,4 L21,4 L21,17 L3,17 Z M8,21 L16,21 M12,17 L12,21</Geometry>
@@ -59,10 +10,11 @@
     <Geometry x:Key="SendIconGeometry">M4,12 L20,4 L16,20 L12,13 Z M12,13 L20,4</Geometry>
     <Geometry x:Key="CloseIconGeometry">M7,7 L17,17 M17,7 L7,17</Geometry>
     <Geometry x:Key="ChevronIconGeometry">M7,9 L12,14 L17,9</Geometry>
+    <Geometry x:Key="FlagIconGeometry">M5,21 L5,4 M5,4 L17,4 L14.5,8 L17,12 L5,12</Geometry>
 
-    <CornerRadius x:Key="ShellRadius">18</CornerRadius>
-    <CornerRadius x:Key="SurfaceRadius">12</CornerRadius>
-    <CornerRadius x:Key="ControlRadius">10</CornerRadius>
+    <CornerRadius x:Key="ShellRadius">8</CornerRadius>
+    <CornerRadius x:Key="SurfaceRadius">6</CornerRadius>
+    <CornerRadius x:Key="ControlRadius">5</CornerRadius>
     <Thickness x:Key="PagePadding">20</Thickness>
     <sys:Double x:Key="HeaderFontSize">16</sys:Double>
     <sys:Double x:Key="BodyFontSize">13</sys:Double>

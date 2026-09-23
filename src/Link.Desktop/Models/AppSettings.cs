@@ -2,11 +2,18 @@ namespace Link.Desktop.Models;
 
 public sealed class AppSettings
 {
-    public int SchemaVersion { get; set; } = 5;
-    public double Opacity { get; set; } = 0.72;
+    private const double DefaultGlassTint = 0.6;
+
+    public int SchemaVersion { get; set; } = 6;
+    public double Opacity { get; set; } = DefaultGlassTint;
+    public AppTheme Theme { get; set; } = AppTheme.System;
+    public bool BlurBackground { get; set; } = true;
     public bool AlwaysOnTop { get; set; } = true;
     public ClickThroughMode ClickThrough { get; set; } = ClickThroughMode.Off;
     public VoiceLanguage VoiceLanguage { get; set; } = VoiceLanguage.Auto;
+    public string? MicrophoneDeviceId { get; set; }
+    public string? MicrophoneDeviceName { get; set; }
+    public ResponseEffort ResponseEffort { get; set; } = ResponseEffort.Normal;
     public int ScreenshotHistorySize { get; set; } = 5;
     public bool LaunchWithWindows { get; set; }
     public bool AutoCaptureActiveWindowOnSend { get; set; }
@@ -31,10 +38,22 @@ public sealed class AppSettings
                 Hotkeys.CaptureRegion = "Ctrl+Alt+Shift+R";
             }
         }
-        SchemaVersion = 5;
-        Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.45, 1.0) : 0.72;
+        if (SchemaVersion < 6)
+        {
+            // The overlay moved from system acrylic to real see-through glass, so old tint values mean something else.
+            Opacity = DefaultGlassTint;
+        }
+        SchemaVersion = 6;
+        Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.2, 1.0) : DefaultGlassTint;
+        if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);
         if (ClickThrough == ClickThroughMode.WhenInactive) ClickThrough = ClickThroughMode.Off;
+        if (!Enum.IsDefined(ResponseEffort)) ResponseEffort = ResponseEffort.Normal;
+        if (string.IsNullOrWhiteSpace(MicrophoneDeviceId))
+        {
+            MicrophoneDeviceId = null;
+            MicrophoneDeviceName = null;
+        }
         Window.Normalize();
         Hotkeys.Normalize();
     }
@@ -42,16 +61,20 @@ public sealed class AppSettings
 
 public sealed class WindowPlacement
 {
+    public const double MinWidth = 320;
+    public const double MaxWidth = 1200;
+    private const double DefaultWidth = 340;
+
     public double? Left { get; set; }
     public double? Top { get; set; }
-    public double Width { get; set; } = 340;
+    public double Width { get; set; } = DefaultWidth;
     public double Height { get; set; } = 240;
 
     public void Normalize()
     {
         if (Left is { } left && !double.IsFinite(left)) Left = null;
         if (Top is { } top && !double.IsFinite(top)) Top = null;
-        Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, 320, 400) : 340;
+        Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, MinWidth, MaxWidth) : DefaultWidth;
         Height = double.IsFinite(Height) && Height > 0 ? Math.Clamp(Height, 46, 620) : 240;
     }
 }
@@ -84,6 +107,13 @@ public sealed class HotkeySettings
 
     private static string DefaultIfEmpty(string? value, string fallback) =>
         string.IsNullOrWhiteSpace(value) ? fallback : value.Trim();
+}
+
+public enum AppTheme
+{
+    System,
+    Light,
+    Dark
 }
 
 public enum ClickThroughMode

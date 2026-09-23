@@ -1,20 +1,28 @@
 <Window x:Class="Link.Desktop.RegionSelectionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Select Region" AllowsTransparency="True" Background="#260B2430"
+        Title="Select Region" AllowsTransparency="True" Background="#2E0B2430"
         WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
-        WindowStartupLocation="Manual"
+        WindowStartupLocation="Manual" Style="{StaticResource LinkWindowStyle}"
         Cursor="Cross" KeyDown="Window_OnKeyDown"
         MouseLeftButtonDown="Window_OnMouseLeftButtonDown"
         MouseMove="Window_OnMouseMove"
         MouseLeftButtonUp="Window_OnMouseLeftButtonUp">
     <Canvas x:Name="SelectionCanvas">
-        <Border x:Name="SelectionBorder"
-                Background="#2872DDE0" BorderBrush="#FF72DDE0" BorderThickness="2"
-                Visibility="Collapsed" />
-        <Border Canvas.Left="20" Canvas.Top="20" Padding="13,9" Background="#EAF1FAFC" BorderBrush="#CCFFFFFF" BorderThickness="1" CornerRadius="12">
-            <Border.Effect><DropShadowEffect BlurRadius="16" ShadowDepth="3" Color="#193849" Opacity="0.35" /></Border.Effect>
-            <TextBlock Foreground="#FF193849" FontWeight="SemiBold" Text="Drag to select  ·  Esc to cancel" />
+        <Border x:Name="SelectionBorder" Background="#1F2A84DE" BorderBrush="#FF3D9BEA" BorderThickness="2"
+                Visibility="Collapsed">
+            <Border BorderBrush="#B3FFFFFF" BorderThickness="1" />
+        </Border>
+        <Border Canvas.Left="20" Canvas.Top="20" Padding="12,8,14,9" Background="{StaticResource PopupSurfaceBrush}"
+                BorderBrush="{StaticResource GlassBorderBrush}" BorderThickness="1" CornerRadius="{StaticResource SurfaceRadius}">
+            <Border.Effect><DropShadowEffect BlurRadius="16" ShadowDepth="3" Direction="270" Color="{StaticResource ShadowColor}" Opacity="0.35" /></Border.Effect>
+            <StackPanel Orientation="Horizontal">
+                <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="Drag to select" />
+                <Border Margin="12,0,6,0" VerticalAlignment="Center" Style="{StaticResource KeyCapStyle}">
+                    <TextBlock FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Esc" />
+                </Border>
+                <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Text="to cancel" />
+            </StackPanel>
         </Border>
     </Canvas>
 </Window>

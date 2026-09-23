@@ -9,7 +9,9 @@ internal sealed class BrowserBridgeServer : IDisposable
 {
     public const int Port = 43127;
     private static readonly TimeSpan ConversationLifetime = TimeSpan.FromSeconds(15);
+    private static readonly TimeSpan AcknowledgeTimeout = TimeSpan.FromSeconds(20);
     private static readonly TimeSpan RequestTimeout = TimeSpan.FromMinutes(10);
+    private static readonly string[] AllowedHosts = [$"127.0.0.1:{Port}", $"localhost:{Port}"];
     private readonly object _gate = new();
     private readonly Dictionary<string, AvailableChatConversation> _conversations = new(StringComparer.Ordinal);
     private readonly Dictionary<string, Queue<Guid>> _queues = new(StringComparer.Ordinal);
@@ -89,17 +91,25 @@ internal sealed class BrowserBridgeServer : IDisposable
 
         progress?.Report(new ChatProgress { State = ChatProgressState.Sending });
 
+        // Every exit removes the request, so a failed or cancelled prompt can never be picked up later.
         try
         {
+            try
+            {
+                // A discarded, frozen or stale tab never reports back; fail fast instead of waiting the full timeout.
+                await pending.Acknowledged.Task.WaitAsync(AcknowledgeTimeout, cancellationToken);
+            }
+            catch (TimeoutException exception)
+            {
+                throw new InvalidOperationException(
+                    "The ChatGPT tab did not respond. Reload the linked tab (and the LINK companion after updates), then try again.",
+                    exception);
+            }
+
             return await pending.Completion.Task.WaitAsync(RequestTimeout, cancellationToken);
         }
         catch (TimeoutException exception)
         {
-            progress?.Report(new ChatProgress
-            {
-                State = ChatProgressState.Error,
-                Error = "Timed out waiting for the browser companion."
-            });
             throw new InvalidOperationException("Timed out waiting for the browser companion.", exception);
         }
         finally
@@ -199,6 +209,13 @@ internal sealed class BrowserBridgeServer : IDisposable
 
     private Task<LoopbackHttpResponse> RouteAsync(LoopbackHttpRequest request)
     {
+        // DNS rebinding pages reach 127.0.0.1 under their own host name.
+        if (request.Headers.GetValueOrDefault("Host") is not { } host ||
+            !AllowedHosts.Contains(host, StringComparer.OrdinalIgnoreCase))
+        {
+            return Task.FromResult(JsonResponse(403, new { error = "Forbidden" }));
+        }
+
         if (request.Method == "OPTIONS")
         {
             return Task.FromResult(new LoopbackHttpResponse(204, "text/plain", []));
@@ -290,8 +307,22 @@ internal sealed class BrowserBridgeServer : IDisposable
 
     private static void ApplyEvent(PendingRequest pending, BrowserBridgeEvent bridgeEvent)
     {
+        pending.Acknowledged.TrySetResult();
         switch (bridgeEvent.State.ToLowerInvariant())
         {
+            case "heartbeat":
+                // Keeps the tab informed that the request is still wanted; a cancelled one answers 404.
+                break;
+            case "notice":
+                if (!string.IsNullOrWhiteSpace(bridgeEvent.Notice))
+                {
+                    pending.Progress?.Report(new ChatProgress
+                    {
+                        State = ChatProgressState.Sending,
+                        Notice = bridgeEvent.Notice.Trim()
+                    });
+                }
+                break;
             case "sending":
                 pending.Progress?.Report(new ChatProgress { State = ChatProgressState.Sending });
                 break;
@@ -358,6 +389,7 @@ internal sealed class BrowserBridgeServer : IDisposable
 
         public BrowserBridgeRequest Request { get; }
         public IProgress<ChatProgress>? Progress { get; }
+        public TaskCompletionSource Acknowledged { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<ChatResponse> Completion { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
@@ -369,6 +401,7 @@ internal sealed class BrowserBridgeRequest
     public required Guid RequestId { get; init; }
     public required string ConversationId { get; init; }
     public required string Prompt { get; init; }
+    public string Effort { get; init; } = "normal";
     public IReadOnlyList<BrowserBridgeAttachment> Attachments { get; init; } = [];
 }
 
@@ -392,4 +425,5 @@ internal sealed class BrowserBridgeEvent
     public required string State { get; init; }
     public string? Text { get; init; }
     public string? Error { get; init; }
+    public string? Notice { get; init; }
 }

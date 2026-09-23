@@ -268,9 +268,9 @@ Current application context — важная часть будущего «Jarvi
 
 ### Milestone 3 — Voice
 Статус: реализована запись и локальная транскрипция через Whisper; нужна ручная проверка после первой загрузки модели.
-- microphone capture;
+- microphone capture — waveIn 16 kHz mono с выбором устройства (Core Audio endpoint id хранится в settings), тест и индикатор уровня в Settings;
 - push-to-talk;
-- local transcription;
+- local transcription — записи без сигнала (< ~-40 dBFS) и короче 0.3 с в Whisper не передаются;
 - RU/EN/auto.
 
 Модель скачивается один раз в `%LocalAppData%\Link\Models`; Windows speech pack не нужен. Первый запуск требует интернет, последующие работают локально. Транскрипт попадает в поле запроса и не прикладывается повторно как audio.
@@ -288,7 +288,10 @@ Current application context — важная часть будущего «Jarvi
 - получение streamed assistant response обратно в Link — реализовано;
 - компактное отображение ответа в overlay — реализовано;
 - ручная проверка обновлённого image upload, minimized/background и ответа на запрос с изображением — ожидается;
-- браузер, если используется как transport, работает в фоне и не становится пользовательским UI.
+- браузер, если используется как transport, работает в фоне и не становится пользовательским UI;
+- уровень ответа Fast / Normal / Deep — реализован: provider-neutral подсказка в запросе + эвристическое переключение режима ChatGPT (Instant / Auto / Thinking) в companion; переключение на реальном залогиненном ChatGPT ожидает ручной проверки;
+- ответ восстанавливается как Markdown из DOM (код, списки, таблицы) — проверено на новом UI ChatGPT;
+- отмена (Stop/Esc) доходит до вкладки и останавливает генерацию; вкладка без ответа даёт ошибку через 20 с — реализовано и проверено изолированными тестами bridge.
 
 Direct API integration остаётся возможным вторым adapter'ом, но не должна быть обязательным фундаментом продукта.
 
@@ -324,24 +327,31 @@ Direct API integration остаётся возможным вторым adapter'
 - canonical versioned `PromptRequest` для application и integration flow;
 - browser ChatGPT integration через локальный loopback bridge;
 - project-to-conversation linking, send/progress/response flow и response UI;
-- `Enter` для отправки и `Shift+Enter` для новой строки;
+- `Enter` для отправки и `Shift+Enter` для новой строки; Stop/Esc отменяет запрос;
+- уровень ответа Fast / Normal / Deep рядом со статусом чата;
+- ширина overlay 320–1200 px (ресайз только по бокам, высота остаётся auto);
+- выбор и тест микрофона в Settings;
 - current application metadata и включаемый в Screen-меню Auto active window capture на каждый Send;
 - обычные shortcut’ы через `RegisterHotKey`, low-level hook только для key-down/key-up push-to-talk;
-- atomic JSON persistence и защищённый lifecycle активных screenshot attachments.
+- atomic JSON persistence и защищённый lifecycle активных screenshot attachments;
+- `link.log` для неожиданных ошибок: после старта приложение предупреждает и продолжает работу, ошибка на старте показывает сообщение и завершает процесс.
 
 Локальные данные хранятся в `%LocalAppData%\Link`. Код остаётся в одном WPF assembly и разделён на `Models`, `Services`, `Windows` и Presentation.
 
 Следующая задача — проверить новую версию на реальном рабочем столе:
-1. Пересобрать и перезапустить Link, нажать **Reload** у unpacked browser extension и обновить связанную вкладку ChatGPT.
-2. Выделить регион, отправить запрос: изображение должно появиться в черновике ChatGPT и уйти вместе с текстом. При ошибке прислать текст ошибки и скрин composer. То же проверить с Auto active window; следующий Send должен получить свежий снимок.
-3. Нажать Enter в поле Link: запрос отправится. Shift+Enter оставит новую строку.
-4. Удержать Voice, произнести короткую русскую и английскую фразу, отпустить; первая попытка скачает модель, транскрипт должен появиться в поле запроса. Если запуск native runtime не удался, проверить Microsoft Visual C++ Redistributable 2022 x64.
+1. Завершить старый Link через tray → Exit, пересобрать и запустить; нажать **Reload** у unpacked browser extension (версия 0.3.0) и обновить связанную вкладку ChatGPT.
+2. Enter в поле Link отправляет запрос, Shift+Enter оставляет новую строку; во время ответа Stop/Esc отменяет его и останавливает генерацию в ChatGPT.
+3. Fast / Normal / Deep: после первого запроса в статусе Link видно «ChatGPT mode: Instant/Auto/Thinking» или «ChatGPT mode not switched (причина)». Причину прислать, если переключение не сработало.
+4. Ответ с кодом/списком/таблицей отображается структурированно, Copy даёт Markdown.
+5. Settings → Microphone: выбрать микрофон, нажать Test (полоска уровня и «Works — peak level …»), затем Voice/push-to-talk.
+6. Растянуть overlay за левый/правый край — ширина до 1200 px, после отпускания высота продолжает подстраиваться под ответ.
+7. Выделить регион и отправить запрос с изображением (проверка upload, как раньше).
 
-Предел текущей реализации: browser companion привязан к DOM ChatGPT и требует ручного Reload после изменения extension. Пользователь уже подтвердил работающий текстовый мост, но upload изображений и новый Whisper на его машине после этого изменения ещё не подтверждены. Цель продукта остаётся прежней: Link — маленький overlay поверх текущего приложения; браузер служит скрытым транспортом, а долгосрочно нужны project memory, context router, handoff между чатами, команды и голосовой ответ.
+Предел текущей реализации: browser companion привязан к DOM ChatGPT и требует ручного Reload после изменения extension. Новый UI ChatGPT («octane», замечен у незалогиненных пользователей) поддержан и проверен без логина; классический залогиненный UI проверяет пользователь. Переключение режима модели эвристическое. Claude-транспорта пока нет: effort-подсказка для него уже provider-neutral, а переключение extended thinking — задача будущего адаптера. Цель продукта остаётся прежней: Link — маленький overlay поверх текущего приложения; браузер служит скрытым транспортом, а долгосрочно нужны project memory, context router, handoff между чатами, команды и голосовой ответ.
 
 ## Для AI-агентов
 
-Репозиторий: `Vladlen626/LINK`, рабочая ветка: `LeN`. Перед работой проверить фактический HEAD и чистоту дерева. Собирать `Link.sln` в Release; если запущенный Link блокирует `bin\Release\...\Link.exe`, указать отдельный `OutputPath`, не завершая пользовательский процесс без необходимости. После изменения `browser-extension/content.js` обязательно перезагрузить unpacked extension и вкладку ChatGPT — обычная пересборка WPF не обновляет content script в уже открытой вкладке.
+Репозиторий: `Vladlen626/LINK`, рабочая ветка: `LeN`. Перед работой проверить фактический HEAD и чистоту дерева. Собирать `Link.sln` в Release; если запущенный Link блокирует `bin\Release\...\Link.exe`, указать отдельный `OutputPath`, не завершая пользовательский процесс без необходимости. Помнить, что пользователь запускает именно `bin\Release`: сборка только в отдельный `OutputPath` оставляет у него старую версию (так «не работал» уже исправленный Enter). После проверки пересобрать `bin\Release` с разрешения пользователя или явно попросить его выйти из Link и пересобрать. После изменения `browser-extension/content.js` обязательно перезагрузить unpacked extension и вкладку ChatGPT — обычная пересборка WPF не обновляет content script в уже открытой вкладке.
 
 Перед каждой существенной задачей:
 1. Прочитать `AGENTS.md`.

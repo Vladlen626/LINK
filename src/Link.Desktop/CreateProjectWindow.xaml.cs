@@ -1,5 +1,7 @@
 using System.Windows;
 using System.Windows.Input;
+using Link.Desktop.Services;
+using Link.Desktop.Windows;
 
 namespace Link.Desktop;
 
@@ -8,6 +10,7 @@ public partial class CreateProjectWindow : Window
     public CreateProjectWindow(string? initialName = null, bool isRename = false)
     {
         InitializeComponent();
+        SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
         if (isRename)
         {
             Title = "Rename Project";

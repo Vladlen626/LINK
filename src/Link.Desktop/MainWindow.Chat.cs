@@ -1,4 +1,7 @@
+using System.Diagnostics;
 using System.Windows;
+using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -9,13 +12,39 @@ namespace Link.Desktop;
 
 public partial class MainWindow
 {
+    private static readonly Geometry StopIconGeometry = CreateFrozenGeometry("M8,8 L16,8 L16,16 L8,16 Z");
+    private static readonly (ResponseEffort Effort, string Label, string Description)[] EffortOptions =
+    [
+        (ResponseEffort.Fast, "Fast", "Fast — short answer, no long thinking"),
+        (ResponseEffort.Normal, "Normal", "Normal — the chat's usual answer"),
+        (ResponseEffort.Deep, "Deep", "Deep — thinks longer, more thorough")
+    ];
     private readonly IChatIntegration _chat;
     private readonly DispatcherTimer _connectionTimer;
     private CancellationTokenSource? _sendCancellation;
     private bool _sending;
     private string _responseText = string.Empty;
+    private string? _chatNotice;
 
     private async void Send_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_sending)
+        {
+            CancelSend();
+            return;
+        }
+
+        await SendAsync();
+    }
+
+    private void CancelSend()
+    {
+        if (_sendCancellation is not { IsCancellationRequested: false } cancellation) return;
+        cancellation.Cancel();
+        SetStatus("Cancelling…", "Cancelling");
+    }
+
+    private async Task SendAsync()
     {
         if (_sending) return;
         RemoveMissingContextFiles();
@@ -32,15 +61,17 @@ public partial class MainWindow
             return;
         }
 
-        _projects.ActiveProject.CurrentTask = CurrentTaskBox.Text.Trim();
-        _projects.Save();
-        _sendCancellation = new CancellationTokenSource();
+        var cancellation = new CancellationTokenSource();
+        _sendCancellation = cancellation;
+        _chatNotice = null;
         SetSending(true);
         ShowResponse(ChatProgressState.Sending, string.Empty);
         ContextItem? transientContext = null;
 
         try
         {
+            _projects.ActiveProject.CurrentTask = CurrentTaskBox.Text.Trim();
+            _projects.Save();
             var externalWindow = _currentApplication.IsExternalWindow(_lastExternalWindow)
                 ? _lastExternalWindow
                 : IntPtr.Zero;
@@ -71,19 +102,20 @@ public partial class MainWindow
                 _projects.ActiveProject,
                 PromptBox.Text,
                 requestContext,
-                currentApplication);
+                currentApplication,
+                _settings.Current.ResponseEffort);
             var progress = new Progress<ChatProgress>(OnChatProgress);
-            var response = await _chat.SendAsync(request, conversation, progress, _sendCancellation.Token);
+            var response = await _chat.SendAsync(request, conversation, progress, cancellation.Token);
             ShowResponse(ChatProgressState.Completed, response.Text);
             PromptBox.Clear();
             ClearContext(prune: true);
-            SetStatus("Response received", "Done");
+            SetStatus(_chatNotice is null ? "Response received" : $"Response received · {_chatNotice}", "Done");
             ShowPassive();
         }
-        catch (OperationCanceledException) when (_sendCancellation.IsCancellationRequested)
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             ShowResponse(ChatProgressState.Error, "Request cancelled.");
-            SetError("Request cancelled. Your prompt and context were kept.");
+            SetStatus("Request cancelled. Your prompt and context were kept.", "Cancelled");
         }
         catch (Exception exception)
         {
@@ -93,11 +125,51 @@ public partial class MainWindow
         finally
         {
             DeleteTransientContext(transientContext);
-            _sendCancellation.Dispose();
             _sendCancellation = null;
+            cancellation.Dispose();
             SetSending(false);
             UpdateConnectionState();
         }
+    }
+
+    private void Effort_OnClick(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = EffortButton, Placement = PlacementMode.Bottom };
+        foreach (var option in EffortOptions)
+        {
+            var item = new MenuItem
+            {
+                Header = option.Description,
+                IsCheckable = true,
+                IsChecked = option.Effort == _settings.Current.ResponseEffort
+            };
+            item.Click += (_, _) => SetEffort(option.Effort);
+            menu.Items.Add(item);
+        }
+
+        menu.IsOpen = true;
+    }
+
+    private void SetEffort(ResponseEffort effort)
+    {
+        _settings.Current.ResponseEffort = effort;
+        _settings.Save();
+        UpdateEffortButton();
+        SetStatus($"Response effort: {EffortText.Text} — applies to the next message");
+    }
+
+    private void UpdateEffortButton()
+    {
+        var option = EffortOptions.First(option => option.Effort == _settings.Current.ResponseEffort);
+        EffortText.Text = option.Label;
+        EffortButton.ToolTip = $"Response effort: {option.Description}";
+    }
+
+    private static Geometry CreateFrozenGeometry(string data)
+    {
+        var geometry = Geometry.Parse(data);
+        geometry.Freeze();
+        return geometry;
     }
 
     private void DeleteTransientContext(ContextItem? item)
@@ -163,16 +235,19 @@ public partial class MainWindow
         };
         ChatStatusDot.Fill = (Brush)FindResource(state switch
         {
-            ChatConnectionState.ConversationAvailable => "SuccessBrush",
-            ChatConnectionState.BridgeUnavailable => "ErrorBrush",
-            _ => "MutedBrush"
+            ChatConnectionState.ConversationAvailable => "SuccessOrbBrush",
+            ChatConnectionState.BridgeUnavailable => "ErrorOrbBrush",
+            _ => "IdleOrbBrush"
         });
     }
 
     private void SetSending(bool sending)
     {
         _sending = sending;
-        SendButton.IsEnabled = !sending;
+        // While a request runs, the send orb becomes Stop; Esc does the same.
+        SendIcon.Data = sending ? StopIconGeometry : (Geometry)FindResource("SendIconGeometry");
+        SendIcon.Fill = sending ? SendIcon.Stroke : Brushes.Transparent;
+        SendButton.ToolTip = sending ? "Stop request (Esc)" : "Send to linked chat";
         PromptBox.IsReadOnly = sending;
         CurrentTaskBox.IsEnabled = !sending;
         ProjectMenuButton.IsEnabled = !sending;
@@ -186,6 +261,14 @@ public partial class MainWindow
 
     private void OnChatProgress(ChatProgress progress)
     {
+        if (progress.Notice is not null)
+        {
+            // Kept for the final status line; the next progress state would hide it right away.
+            _chatNotice = progress.Notice;
+            SetStatus(progress.Notice, "Sending");
+            return;
+        }
+
         ShowResponse(progress.State, progress.Text.Length > 0 ? progress.Text : progress.Error ?? string.Empty);
         SetStatus(progress.State switch
         {
@@ -217,11 +300,12 @@ public partial class MainWindow
             ChatProgressState.Error => "Error",
             _ => "Assistant"
         };
-        ResponseStateText.Foreground = (Brush)FindResource(state switch
+        ResponseStateText.Foreground = (Brush)FindResource(state == ChatProgressState.Error ? "ErrorBrush" : "MutedBrush");
+        ResponseStateDot.Fill = (Brush)FindResource(state switch
         {
-            ChatProgressState.Completed => "SuccessBrush",
-            ChatProgressState.Error => "ErrorBrush",
-            _ => "MutedBrush"
+            ChatProgressState.Completed => "SuccessOrbBrush",
+            ChatProgressState.Error => "ErrorOrbBrush",
+            _ => "BusyOrbBrush"
         });
         if (text.Length > 0 || state is ChatProgressState.Sending or ChatProgressState.Waiting)
         {
@@ -300,6 +384,49 @@ public partial class MainWindow
                 continue;
             }
 
+            if (IsRuleLine(lines[index]))
+            {
+                ResponseDocument.Blocks.Add(new Paragraph
+                {
+                    Margin = new Thickness(0, 2, 0, 11),
+                    BorderBrush = (Brush)FindResource("HairlineBrush"),
+                    BorderThickness = new Thickness(0, 0, 0, 1),
+                    FontSize = 1,
+                    LineHeight = 1
+                });
+                index++;
+                continue;
+            }
+
+            if (IsTableLine(lines[index]))
+            {
+                var tableLines = new List<string>();
+                while (index < lines.Length && IsTableLine(lines[index])) tableLines.Add(lines[index++]);
+                ResponseDocument.Blocks.Add(CreateTable(tableLines));
+                continue;
+            }
+
+            if (IsQuoteLine(lines[index]))
+            {
+                var quoteLines = new List<string>();
+                while (index < lines.Length && IsQuoteLine(lines[index]))
+                {
+                    quoteLines.Add(lines[index++].TrimStart()[1..].Trim());
+                }
+
+                var quote = new Paragraph
+                {
+                    Margin = new Thickness(0, 0, 0, 9),
+                    Padding = new Thickness(9, 1, 0, 1),
+                    BorderBrush = (Brush)FindResource("AquaBrush"),
+                    BorderThickness = new Thickness(2.5, 0, 0, 0),
+                    Foreground = (Brush)FindResource("MutedBrush")
+                };
+                AddInlineContent(quote.Inlines, string.Join(' ', quoteLines.Where(line => line.Length > 0)));
+                ResponseDocument.Blocks.Add(quote);
+                continue;
+            }
+
             if (TryGetListItem(lines[index], numbered: false, out _))
             {
                 index = AddList(lines, index, numbered: false);
@@ -349,8 +476,67 @@ public partial class MainWindow
     private static bool StartsBlock(string line) =>
         line.TrimStart().StartsWith("```", StringComparison.Ordinal) ||
         TryGetHeading(line, out _, out _) ||
+        IsRuleLine(line) ||
+        IsTableLine(line) ||
+        IsQuoteLine(line) ||
         TryGetListItem(line, numbered: false, out _) ||
         TryGetListItem(line, numbered: true, out _);
+
+    private static bool IsRuleLine(string line)
+    {
+        var trimmed = line.Trim();
+        return trimmed.Length >= 3 && (trimmed.All(ch => ch == '-') || trimmed.All(ch => ch == '*') || trimmed.All(ch => ch == '_'));
+    }
+
+    private static bool IsTableLine(string line)
+    {
+        var trimmed = line.Trim();
+        return trimmed.Length > 1 && trimmed[0] == '|' && trimmed.IndexOf('|', 1) > 0;
+    }
+
+    private static bool IsQuoteLine(string line) => line.TrimStart().StartsWith('>');
+
+    private Paragraph CreateTable(IReadOnlyList<string> lines)
+    {
+        // Monospace columns keep tables readable without a grid control in the compact overlay.
+        var rows = lines
+            .Select(SplitTableRow)
+            .Where(cells => !cells.All(cell => cell.Length > 0 && cell.All(ch => ch is '-' or ':')))
+            .ToList();
+        var columns = rows.Max(row => row.Count);
+        var widths = Enumerable.Range(0, columns)
+            .Select(column => rows.Max(row => column < row.Count ? row[column].Length : 0))
+            .ToArray();
+        var formatted = rows
+            .Select(row => string.Join("  ", Enumerable.Range(0, columns)
+                .Select(column => (column < row.Count ? row[column] : string.Empty).PadRight(widths[column]))).TrimEnd())
+            .ToList();
+
+        var table = new Paragraph
+        {
+            Margin = new Thickness(0, 3, 0, 10),
+            Padding = new Thickness(9, 7, 9, 7),
+            Background = (Brush)FindResource("ResponseCodeBrush"),
+            FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+            FontSize = 12.5,
+            LineHeight = 18
+        };
+        table.Inlines.Add(new Bold(new Run(formatted[0])));
+        if (formatted.Count > 1) table.Inlines.Add(new Run("\n" + string.Join('\n', formatted.Skip(1))));
+        return table;
+    }
+
+    private static List<string> SplitTableRow(string line)
+    {
+        var trimmed = line.Trim();
+        if (trimmed.StartsWith('|')) trimmed = trimmed[1..];
+        if (trimmed.EndsWith('|') && !trimmed.EndsWith("\\|", StringComparison.Ordinal)) trimmed = trimmed[..^1];
+        return System.Text.RegularExpressions.Regex.Split(trimmed, @"(?<!\\)\|")
+            .Select(cell => cell.Trim().Replace("\\|", "|", StringComparison.Ordinal)
+                .Replace("**", string.Empty, StringComparison.Ordinal)
+                .Replace("`", string.Empty, StringComparison.Ordinal))
+            .ToList();
+    }
 
     private static bool TryGetHeading(string line, out int level, out string text)
     {
@@ -394,48 +580,94 @@ public partial class MainWindow
 
     private void AddInlineContent(InlineCollection inlines, string text)
     {
+        var plainStart = 0;
         var index = 0;
         while (index < text.Length)
         {
-            var codeStart = text.IndexOf('`', index);
-            var boldStart = text.IndexOf("**", index, StringComparison.Ordinal);
-            var tokenStart = codeStart < 0 ? boldStart : boldStart < 0 ? codeStart : Math.Min(codeStart, boldStart);
-            if (tokenStart < 0)
+            if (!TryReadInline(text, index, out var inline, out var next))
             {
-                inlines.Add(new Run(text[index..]));
-                return;
+                index++;
+                continue;
             }
 
-            if (tokenStart > index) inlines.Add(new Run(text[index..tokenStart]));
-            if (tokenStart == codeStart)
-            {
-                var end = text.IndexOf('`', codeStart + 1);
-                if (end < 0)
-                {
-                    inlines.Add(new Run(text[tokenStart..]));
-                    return;
-                }
+            if (index > plainStart) inlines.Add(new Run(text[plainStart..index]));
+            inlines.Add(inline);
+            index = plainStart = next;
+        }
 
-                inlines.Add(new Run(text[(codeStart + 1)..end])
-                {
-                    Background = (Brush)FindResource("ResponseCodeBrush"),
-                    FontFamily = new FontFamily("Cascadia Mono, Consolas"),
-                    FontSize = 12.5
-                });
-                index = end + 1;
-            }
-            else
-            {
-                var end = text.IndexOf("**", boldStart + 2, StringComparison.Ordinal);
-                if (end < 0)
-                {
-                    inlines.Add(new Run(text[tokenStart..]));
-                    return;
-                }
+        if (plainStart < text.Length) inlines.Add(new Run(text[plainStart..]));
+    }
 
-                inlines.Add(new Bold(new Run(text[(boldStart + 2)..end])));
-                index = end + 2;
+    private bool TryReadInline(string text, int index, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Inline? inline, out int next)
+    {
+        inline = null;
+        next = index;
+        if (text[index] == '`')
+        {
+            var end = text.IndexOf('`', index + 1);
+            if (end < 0) return false;
+            inline = new Run(text[(index + 1)..end])
+            {
+                Background = (Brush)FindResource("ResponseCodeBrush"),
+                FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+                FontSize = 12.5
+            };
+            next = end + 1;
+            return true;
+        }
+
+        if (text[index] == '*' && index + 1 < text.Length && text[index + 1] == '*')
+        {
+            var end = text.IndexOf("**", index + 2, StringComparison.Ordinal);
+            if (end < 0) return false;
+            var bold = new Bold();
+            AddInlineContent(bold.Inlines, text[(index + 2)..end]);
+            inline = bold;
+            next = end + 2;
+            return true;
+        }
+
+        if (text[index] == '[')
+        {
+            var labelEnd = text.IndexOf(']', index + 1);
+            if (labelEnd < 0 || labelEnd + 1 >= text.Length || text[labelEnd + 1] != '(') return false;
+            var targetEnd = text.IndexOf(')', labelEnd + 2);
+            if (targetEnd < 0 ||
+                !Uri.TryCreate(text[(labelEnd + 2)..targetEnd], UriKind.Absolute, out var uri) ||
+                uri.Scheme is not ("http" or "https"))
+            {
+                return false;
             }
+
+            var link = new Hyperlink
+            {
+                NavigateUri = uri,
+                Foreground = (Brush)FindResource("LinkTextBrush"),
+                ToolTip = uri.AbsoluteUri
+            };
+            AddInlineContent(link.Inlines, text[(index + 1)..labelEnd]);
+            link.RequestNavigate += (_, e) =>
+            {
+                e.Handled = true;
+                OpenLink(e.Uri);
+            };
+            inline = link;
+            next = targetEnd + 1;
+            return true;
+        }
+
+        return false;
+    }
+
+    private void OpenLink(Uri uri)
+    {
+        try
+        {
+            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+        }
+        catch (Exception exception)
+        {
+            SetError(exception.Message);
         }
     }
 }

@@ -16,12 +16,12 @@ internal static class NativeMethods
     internal const int WmNcLButtonDown = 0x00A1;
     internal const int HtCaption = 2;
     internal const int DwmwaExtendedFrameBounds = 9;
-    internal const int DwmwaWindowCornerPreference = 33;
+    internal const int DwmwaUseImmersiveDarkMode = 20;
     internal const int DwmwaSystemBackdropType = 38;
-    internal const int DwmWindowCornerPreferenceRound = 2;
-    internal const int DwmWindowCornerPreferenceRoundSmall = 3;
     internal const int DwmSystemBackdropTypeTransientWindow = 3;
     internal const int WcaAccentPolicy = 19;
+    internal const int AccentDisabled = 0;
+    internal const int AccentEnableBlurBehind = 3;
     internal const int AccentEnableAcrylicBlurBehind = 4;
     internal const uint ModAlt = 0x0001;
     internal const uint ModControl = 0x0002;
@@ -34,6 +34,14 @@ internal static class NativeMethods
     internal const int SmCyVirtualScreen = 79;
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpShowWindow = 0x0040;
+    internal const int WmExitSizeMove = 0x0232;
+    internal const int WaveMapper = -1;
+    internal const int WaveFormatPcm = 1;
+    internal const int WaveMapped = 0x0004;
+    internal const int CallbackEvent = 0x00050000;
+    internal const int WaveHeaderDone = 0x00000001;
+    internal const int DrvQueryFunctionInstanceId = 0x0811;
+    internal const int DrvQueryFunctionInstanceIdSize = 0x0812;
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     internal static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
@@ -135,18 +143,93 @@ internal static class NativeMethods
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     internal static extern IntPtr GetModuleHandle(string? moduleName);
 
-    [DllImport("winmm.dll", CharSet = CharSet.Unicode)]
-    internal static extern int mciSendString(
-        string command,
-        System.Text.StringBuilder? returnValue,
-        int returnLength,
-        IntPtr callback);
+    [DllImport("winmm.dll")]
+    internal static extern int waveInGetNumDevs();
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveInOpen(
+        out IntPtr handle,
+        int deviceId,
+        ref WaveFormat format,
+        IntPtr callback,
+        IntPtr instance,
+        int flags);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveInPrepareHeader(IntPtr handle, IntPtr header, int headerSize);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveInUnprepareHeader(IntPtr handle, IntPtr header, int headerSize);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveInAddBuffer(IntPtr handle, IntPtr header, int headerSize);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveInStart(IntPtr handle);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveInReset(IntPtr handle);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveInClose(IntPtr handle);
+
+    // A device id cast to a handle queries the device without opening it.
+    [DllImport("winmm.dll")]
+    internal static extern int waveInMessage(IntPtr deviceId, int message, out int value, IntPtr unused);
 
     [DllImport("winmm.dll", CharSet = CharSet.Unicode)]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool mciGetErrorString(int errorCode, System.Text.StringBuilder text, int textLength);
+    internal static extern int waveInMessage(IntPtr deviceId, int message, [Out] char[] buffer, IntPtr bufferBytes);
+
+    [DllImport("winmm.dll", CharSet = CharSet.Unicode)]
+    internal static extern int waveInGetErrorText(int error, StringBuilder text, int textLength);
+
+    [DllImport("ole32.dll")]
+    internal static extern int PropVariantClear(ref PropVariant value);
 
     internal delegate IntPtr LowLevelKeyboardProc(int code, IntPtr wParam, IntPtr lParam);
+}
+
+[StructLayout(LayoutKind.Sequential, Pack = 2)]
+internal struct WaveFormat
+{
+    public ushort FormatTag;
+    public ushort Channels;
+    public int SamplesPerSecond;
+    public int AverageBytesPerSecond;
+    public ushort BlockAlign;
+    public ushort BitsPerSample;
+    public ushort ExtraSize;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct WaveHeader
+{
+    public IntPtr Data;
+    public int BufferLength;
+    public int BytesRecorded;
+    public IntPtr User;
+    public int Flags;
+    public int Loops;
+    public IntPtr Next;
+    public IntPtr Reserved;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct PropertyKey
+{
+    public Guid FormatId;
+    public int PropertyId;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct PropVariant
+{
+    public ushort ValueType;
+    public ushort Reserved1;
+    public ushort Reserved2;
+    public ushort Reserved3;
+    public IntPtr Value;
+    public IntPtr Value2;
 }
 
 [StructLayout(LayoutKind.Sequential)]

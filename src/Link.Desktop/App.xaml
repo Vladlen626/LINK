@@ -3,9 +3,9 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Application.Resources>
         <ResourceDictionary>
+            <!-- ThemeService merges the light or dark colors and the control styles at startup. -->
             <ResourceDictionary.MergedDictionaries>
                 <ResourceDictionary Source="Themes/Palette.xaml" />
-                <ResourceDictionary Source="Themes/Controls.xaml" />
             </ResourceDictionary.MergedDictionaries>
         </ResourceDictionary>
     </Application.Resources>

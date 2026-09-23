@@ -28,6 +28,9 @@ public sealed class ChatProgress
     public required ChatProgressState State { get; init; }
     public string Text { get; init; } = string.Empty;
     public string? Error { get; init; }
+
+    /// <summary>Transport information that does not change the response, e.g. which chat mode was applied.</summary>
+    public string? Notice { get; init; }
 }
 
 public enum ChatConnectionState

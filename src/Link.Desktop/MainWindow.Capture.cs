@@ -124,7 +124,7 @@ public partial class MainWindow
         };
         AddContext(item);
         _previewContextId = item.Id;
-        ScreenshotPreview.Source = result.Preview;
+        ScreenshotPreview.ImageSource = result.Preview;
         PreviewLabel.Text = label;
         PreviewPanel.Visibility = Visibility.Visible;
     }

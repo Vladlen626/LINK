@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
+using Link.Desktop.Windows;
 
 namespace Link.Desktop;
 
@@ -18,6 +19,7 @@ public partial class LinkConversationWindow : Window
         _chat = chat;
         _currentConversationId = current?.ConversationId;
         InitializeComponent();
+        SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
         _refreshTimer.Tick += (_, _) => RefreshConversations();

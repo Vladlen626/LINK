@@ -66,8 +66,10 @@ public partial class MainWindow : Window
         _context.CollectionChanged += Context_OnCollectionChanged;
         LoadProject(_projects.ActiveProject);
         _loadingProject = false;
+        UpdateEffortButton();
 
         SourceInitialized += OnSourceInitialized;
+        PreviewKeyDown += OnPreviewKeyDown;
         Loaded += OnLoaded;
         Activated += (_, _) => ApplyClickThrough();
         Deactivated += OnDeactivated;
@@ -88,14 +90,19 @@ public partial class MainWindow : Window
         Opacity = 1;
         Topmost = _settings.Current.AlwaysOnTop;
 
+        // With Windows transparency effects off the glass turns solid, like the rest of the system.
+        var transparent = ThemeService.IsTransparencyEnabled;
+        var blurRequested = transparent && _settings.Current.BlurBackground;
+        var blurred = WindowStyleService.EnableGlass(this, blurRequested);
         if (FindResource("PanelBrush") is Brush source)
         {
+            // Glass setting 0.2..1 maps to a 25..95% tint; unblurred glass needs more tint to keep text readable.
             var tint = source.Clone();
-            tint.Opacity = 0.34 + (_settings.Current.Opacity * 0.38);
+            var opacity = 0.25 + (_settings.Current.Opacity - 0.2) * 0.875;
+            tint.Opacity = !transparent ? 1 : blurRequested && !blurred ? Math.Max(opacity, 0.85) : opacity;
             ShellBorder.Background = tint;
         }
 
-        WindowStyleService.EnableBackdrop(this, _settings.Current.Opacity);
         UpdateAutoScreenIndicator();
         ApplyClickThrough();
     }
@@ -135,8 +142,23 @@ public partial class MainWindow : Window
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
         _windowHandle = new WindowInteropHelper(this).Handle;
+        HwndSource.FromHwnd(_windowHandle)?.AddHook(WindowProcedure);
         TrackExternalForegroundWindow();
         ApplySettings();
+    }
+
+    private IntPtr WindowProcedure(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
+    {
+        if (message == NativeMethods.WmExitSizeMove && !_collapsed)
+        {
+            // WPF switches SizeToContent to Manual as soon as a border is dragged.
+            // Only the width is user-sized; the height keeps following the content.
+            SizeToContent = SizeToContent.Height;
+            _expandedWidth = Math.Clamp(ActualWidth, WindowPlacement.MinWidth, WindowPlacement.MaxWidth);
+            SaveWindowState();
+        }
+
+        return IntPtr.Zero;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -150,7 +172,9 @@ public partial class MainWindow : Window
     private void RestoreWindowState()
     {
         var placement = _settings.Current.Window;
-        _expandedWidth = Math.Clamp(placement.Width, 320, 400);
+        _expandedWidth = Math.Clamp(placement.Width, WindowPlacement.MinWidth, WindowPlacement.MaxWidth);
+        MinWidth = WindowPlacement.MinWidth;
+        MaxWidth = WindowPlacement.MaxWidth;
         Width = _expandedWidth;
         if (placement.Left is { } left) Left = left;
         if (placement.Top is { } top) Top = top;
@@ -216,7 +240,7 @@ public partial class MainWindow : Window
 
         if (collapsed)
         {
-            _expandedWidth = Math.Clamp(ActualWidth, 320, 400);
+            _expandedWidth = Math.Clamp(ActualWidth, WindowPlacement.MinWidth, WindowPlacement.MaxWidth);
             ExpandedContent.Visibility = Visibility.Collapsed;
             ExpandedHeader.Visibility = Visibility.Collapsed;
             CollapsedHeader.Visibility = Visibility.Visible;
@@ -225,7 +249,7 @@ public partial class MainWindow : Window
             ResizeMode = ResizeMode.NoResize;
 
             MinWidth = 0;
-            MaxWidth = 400;
+            MaxWidth = WindowPlacement.MaxWidth;
             Width = 180;
             MinWidth = 180;
             MaxWidth = 180;
@@ -239,14 +263,14 @@ public partial class MainWindow : Window
         else
         {
             MinWidth = 0;
-            MaxWidth = 400;
+            MaxWidth = WindowPlacement.MaxWidth;
             MinHeight = 0;
             MaxHeight = 620;
             Width = _expandedWidth;
             ClearValue(HeightProperty);
             SizeToContent = SizeToContent.Height;
             ResizeMode = ResizeMode.CanResize;
-            MinWidth = 320;
+            MinWidth = WindowPlacement.MinWidth;
 
             ExpandedContent.Visibility = Visibility.Visible;
             ExpandedHeader.Visibility = Visibility.Visible;
@@ -294,7 +318,7 @@ public partial class MainWindow : Window
         foreach (var item in _context) ReleaseContext(item);
         _context.Clear();
         _previewContextId = null;
-        ScreenshotPreview.Source = null;
+        ScreenshotPreview.ImageSource = null;
         PreviewPanel.Visibility = Visibility.Collapsed;
         if (prune) _history.Prune();
     }
@@ -528,7 +552,7 @@ public partial class MainWindow : Window
         if (item?.FilePath is null)
         {
             _previewContextId = null;
-            ScreenshotPreview.Source = null;
+            ScreenshotPreview.ImageSource = null;
             PreviewPanel.Visibility = Visibility.Collapsed;
             return;
         }
@@ -536,11 +560,13 @@ public partial class MainWindow : Window
         var image = new BitmapImage();
         image.BeginInit();
         image.CacheOption = BitmapCacheOption.OnLoad;
+        // A full-resolution 4K capture costs ~33 MB; the preview strip needs a fraction of that.
+        image.DecodePixelWidth = 640;
         image.UriSource = new Uri(item.FilePath, UriKind.Absolute);
         image.EndInit();
         image.Freeze();
         _previewContextId = item.Id;
-        ScreenshotPreview.Source = image;
+        ScreenshotPreview.ImageSource = image;
         PreviewLabel.Text = item.Label;
         PreviewPanel.Visibility = Visibility.Visible;
     }
@@ -559,9 +585,18 @@ public partial class MainWindow : Window
 
     private void PromptBox_OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Enter sends, Shift+Enter keeps the TextBox newline. IME composition arrives as ImeProcessed.
         if (e.Key != Key.Return || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
         e.Handled = true;
-        Send_OnClick(sender, e);
+        // While a request runs the send button means Stop; Enter must never cancel.
+        if (!_sending && !e.IsRepeat) Send_OnClick(sender, e);
+    }
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || !_sending) return;
+        e.Handled = true;
+        CancelSend();
     }
 
 }

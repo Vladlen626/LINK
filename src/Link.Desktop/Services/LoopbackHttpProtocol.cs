@@ -92,17 +92,20 @@ internal static class LoopbackHttpProtocol
             404 => "Not Found",
             _ => "Internal Server Error"
         };
-        var allowedOrigin = IsExtensionOrigin(origin) ? origin : "null";
+        // Only the companion extension gets CORS access; "null" would also admit sandboxed pages.
+        var cors = IsExtensionOrigin(origin)
+            ? $"Access-Control-Allow-Origin: {origin}\r\n" +
+              "Access-Control-Allow-Headers: Content-Type, X-Link-Bridge\r\n" +
+              "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n" +
+              "Access-Control-Allow-Private-Network: true\r\n"
+            : string.Empty;
         var headers = Encoding.ASCII.GetBytes(
             $"HTTP/1.1 {response.StatusCode} {reason}\r\n" +
             $"Content-Type: {response.ContentType}\r\n" +
             $"Content-Length: {response.Body.Length}\r\n" +
             "Cache-Control: no-store\r\n" +
             "Connection: close\r\n" +
-            $"Access-Control-Allow-Origin: {allowedOrigin}\r\n" +
-            "Access-Control-Allow-Headers: Content-Type, X-Link-Bridge\r\n" +
-            "Access-Control-Allow-Methods: GET, POST, OPTIONS\r\n" +
-            "Access-Control-Allow-Private-Network: true\r\n\r\n");
+            cors + "\r\n");
         await stream.WriteAsync(headers, cancellationToken);
         if (response.Body.Length > 0) await stream.WriteAsync(response.Body, cancellationToken);
     }

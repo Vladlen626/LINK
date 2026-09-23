@@ -15,7 +15,8 @@ public sealed class RequestService
         LinkProject project,
         string text,
         IEnumerable<ContextItem> context,
-        CurrentApplicationContext? currentApplication)
+        CurrentApplicationContext? currentApplication,
+        ResponseEffort effort)
     {
         var request = new PromptRequest
         {
@@ -23,6 +24,7 @@ public sealed class RequestService
             ProjectName = project.Name,
             CurrentTask = project.CurrentTask,
             Text = text.Trim(),
+            Effort = effort,
             CurrentApplication = currentApplication,
             Context = context.ToArray()
         };

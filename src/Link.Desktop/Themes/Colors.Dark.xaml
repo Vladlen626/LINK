@@ -1,0 +1,66 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Color x:Key="InkColor">#F2F5F8</Color>
+    <Color x:Key="MutedInkColor">#BAC5D0</Color>
+    <Color x:Key="AccentColor">#2A84DE</Color>
+    <Color x:Key="ShadowColor">#000000</Color>
+
+    <SolidColorBrush x:Key="TextBrush" Color="{StaticResource InkColor}" />
+    <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedInkColor}" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#66B5FF" />
+    <SolidColorBrush x:Key="AccentActionBrush" Color="{StaticResource AccentColor}" />
+    <SolidColorBrush x:Key="AccentForegroundBrush" Color="White" />
+    <SolidColorBrush x:Key="AccentBorderBrush" Color="#66B5FF" />
+    <SolidColorBrush x:Key="AquaBrush" Color="#4ACFDF" />
+    <SolidColorBrush x:Key="SuccessBrush" Color="#5AD26E" />
+    <SolidColorBrush x:Key="ErrorBrush" Color="#FF6B70" />
+    <SolidColorBrush x:Key="LinkTextBrush" Color="#7FC1FF" />
+    <LinearGradientBrush x:Key="BrandBrush" StartPoint="0,0" EndPoint="1,1">
+        <GradientStop Offset="0" Color="#FF5FD0FF" />
+        <GradientStop Offset="1" Color="#FF3B95F2" />
+    </LinearGradientBrush>
+
+    <!-- Window glass: the tint sits over the blurred backdrop, MainWindow scales its opacity. -->
+    <LinearGradientBrush x:Key="PanelBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#FF20262E" />
+        <GradientStop Offset="1" Color="#FF171B21" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="ShellBorderBrush" Color="#8C000000" />
+    <LinearGradientBrush x:Key="RimLightBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#47FFFFFF" />
+        <GradientStop Offset="0.25" Color="#17FFFFFF" />
+        <GradientStop Offset="1" Color="#0FFFFFFF" />
+    </LinearGradientBrush>
+    <LinearGradientBrush x:Key="RecordingRimBrush" StartPoint="0,0" EndPoint="0,1">
+        <GradientStop Offset="0" Color="#FF5AD26E" />
+        <GradientStop Offset="1" Color="#805AD26E" />
+    </LinearGradientBrush>
+    <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#FF1B2027" />
+    <SolidColorBrush x:Key="PopupSurfaceBrush" Color="#F7222830" />
+
+    <!-- Content surfaces stay denser than the shell so text keeps its contrast on any backdrop. -->
+    <SolidColorBrush x:Key="CardBrush" Color="#14FFFFFF" />
+    <SolidColorBrush x:Key="InnerGlassBrush" Color="#47000000" />
+    <SolidColorBrush x:Key="ResponseSurfaceBrush" Color="#D9121619" />
+    <SolidColorBrush x:Key="ResponseCodeBrush" Color="#FF262D36" />
+    <SolidColorBrush x:Key="GlassBorderBrush" Color="#26FFFFFF" />
+    <SolidColorBrush x:Key="GlassBorderSoftBrush" Color="#17FFFFFF" />
+    <SolidColorBrush x:Key="HairlineBrush" Color="#21FFFFFF" />
+
+    <SolidColorBrush x:Key="SubtleGlassBrush" Color="#1AFFFFFF" />
+    <SolidColorBrush x:Key="ControlBorderBrush" Color="#1FFFFFFF" />
+    <SolidColorBrush x:Key="HoverBrush" Color="#17FFFFFF" />
+    <SolidColorBrush x:Key="PressedBrush" Color="#38000000" />
+    <SolidColorBrush x:Key="AccentHoverBrush" Color="#21FFFFFF" />
+    <SolidColorBrush x:Key="ActiveContextBrush" Color="#3D2A84DE" />
+    <SolidColorBrush x:Key="RecordingGelBrush" Color="#475AD26E" />
+    <SolidColorBrush x:Key="SuccessBorderBrush" Color="#B35AD26E" />
+    <SolidColorBrush x:Key="SelectionBrush" Color="#8066B5FF" />
+    <SolidColorBrush x:Key="ScrollThumbBrush" Color="#4DFFFFFF" />
+    <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#85FFFFFF" />
+
+    <SolidColorBrush x:Key="SuccessOrbBrush" Color="#3FB950" />
+    <SolidColorBrush x:Key="ErrorOrbBrush" Color="#F85149" />
+    <SolidColorBrush x:Key="BusyOrbBrush" Color="#66B5FF" />
+    <SolidColorBrush x:Key="IdleOrbBrush" Color="#7D8894" />
+</ResourceDictionary>

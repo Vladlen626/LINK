@@ -1,4 +1,5 @@
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -11,19 +12,30 @@ namespace Link.Desktop;
 
 public partial class SettingsWindow : Window
 {
+    private static readonly TimeSpan MicrophoneTestDuration = TimeSpan.FromSeconds(3);
     private readonly SettingsService _settings;
+    private readonly IAudioRecorder _audio;
     private Button? _capturingHotkey;
     private string? _hotkeyBeforeCapture;
+    private AudioInputDevice? _disconnectedMicrophone;
+    private CancellationTokenSource? _microphoneTest;
 
-    public SettingsWindow(SettingsService settings)
+    public SettingsWindow(SettingsService settings, IAudioRecorder audio)
     {
         _settings = settings;
+        _audio = audio;
         InitializeComponent();
+        SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
+        Closing += (_, _) => StopMicrophoneTest();
 
         var current = settings.Current;
+        ThemeCombo.ItemsSource = Enum.GetValues<AppTheme>();
+        ThemeCombo.SelectedItem = current.Theme;
         OpacitySlider.Value = current.Opacity;
+        BlurBackgroundBox.IsChecked = current.BlurBackground;
         VoiceLanguageCombo.ItemsSource = Enum.GetValues<VoiceLanguage>();
         VoiceLanguageCombo.SelectedItem = current.VoiceLanguage;
+        LoadMicrophones(current);
         ClickThroughCombo.ItemsSource = new[] { ClickThroughMode.Off, ClickThroughMode.WhenCollapsed };
         ClickThroughCombo.SelectedItem = current.ClickThrough;
         HistorySizeBox.Text = current.ScreenshotHistorySize.ToString();
@@ -35,6 +47,95 @@ public partial class SettingsWindow : Window
         SetHotkey(WindowHotkey, current.Hotkeys.CaptureActiveWindow);
         SetHotkey(RegionHotkey, current.Hotkeys.CaptureRegion);
         VersionText.Text = $"Version {GetInformationalVersion()}";
+    }
+
+    private void LoadMicrophones(AppSettings current)
+    {
+        IReadOnlyList<AudioInputDevice> devices = [];
+        string? defaultName = null;
+        try
+        {
+            devices = AudioInputDevices.GetAll();
+            defaultName = AudioInputDevices.GetDefaultName();
+        }
+        catch (COMException exception)
+        {
+            MicrophoneTestText.Text = $"Microphones could not be listed: {exception.Message}";
+        }
+
+        var options = new List<AudioInputDevice>
+        {
+            new(null, defaultName is null ? "Windows default" : $"Windows default — {defaultName}")
+        };
+        options.AddRange(devices);
+        if (current.MicrophoneDeviceId is { } savedId && devices.All(device => device.Id != savedId))
+        {
+            // Keep an unplugged choice instead of silently switching it to the default on Save.
+            _disconnectedMicrophone = new AudioInputDevice(savedId, $"{current.MicrophoneDeviceName ?? "Saved microphone"} (not connected)");
+            options.Add(_disconnectedMicrophone);
+        }
+
+        MicrophoneCombo.ItemsSource = options;
+        MicrophoneCombo.SelectedItem = options.FirstOrDefault(option => option.Id == current.MicrophoneDeviceId) ?? options[0];
+    }
+
+    private async void MicrophoneTest_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_microphoneTest is not null) return;
+        var cancellation = new CancellationTokenSource();
+        _microphoneTest = cancellation;
+        MicrophoneTestButton.IsEnabled = false;
+        MicrophoneCombo.IsEnabled = false;
+        _audio.LevelChanged += OnMicrophoneLevel;
+        var started = false;
+        try
+        {
+            var device = MicrophoneCombo.SelectedItem as AudioInputDevice;
+            var usedSelectedDevice = _audio.Start(device?.Id);
+            started = true;
+            MicrophoneTestText.Text = usedSelectedDevice
+                ? "Listening — say something…"
+                : "This microphone is not connected — testing the Windows default. Say something…";
+            await Task.Delay(MicrophoneTestDuration, cancellation.Token);
+            var recording = _audio.Stop(save: false);
+            MicrophoneTestText.Text = recording.IsSilent
+                ? "No sound was picked up. Choose another microphone, unmute it, or allow desktop apps to use it in Windows Settings → Privacy → Microphone."
+                : $"Works — peak level {recording.PeakLevel:P0}.";
+        }
+        catch (OperationCanceledException)
+        {
+            // The window closed during the test; the recorder was already released.
+        }
+        catch (Exception exception)
+        {
+            if (started) _audio.Cancel();
+            MicrophoneTestText.Text = exception.Message;
+        }
+        finally
+        {
+            _audio.LevelChanged -= OnMicrophoneLevel;
+            _microphoneTest = null;
+            cancellation.Dispose();
+            SetMicrophoneLevel(0);
+            MicrophoneTestButton.IsEnabled = true;
+            MicrophoneCombo.IsEnabled = true;
+        }
+    }
+
+    private void StopMicrophoneTest()
+    {
+        if (_microphoneTest is not { } test) return;
+        test.Cancel();
+        _audio.Cancel();
+    }
+
+    private void OnMicrophoneLevel(double peak) => Dispatcher.BeginInvoke(() => SetMicrophoneLevel(peak));
+
+    private void SetMicrophoneLevel(double peak)
+    {
+        // -60..0 dBFS fills the bar, so a quiet microphone still visibly moves it.
+        var level = peak <= 0 ? 0 : Math.Clamp((20 * Math.Log10(peak) + 60) / 60, 0, 1);
+        if (MicrophoneLevelFill.RenderTransform is ScaleTransform scale) scale.ScaleX = level;
     }
 
     private static string GetInformationalVersion()
@@ -154,8 +255,16 @@ public partial class SettingsWindow : Window
         }
 
         var current = _settings.Current;
+        current.Theme = (AppTheme)(ThemeCombo.SelectedItem ?? AppTheme.System);
         current.Opacity = OpacitySlider.Value;
+        current.BlurBackground = BlurBackgroundBox.IsChecked == true;
         current.VoiceLanguage = (VoiceLanguage)(VoiceLanguageCombo.SelectedItem ?? VoiceLanguage.Auto);
+        var microphone = MicrophoneCombo.SelectedItem as AudioInputDevice;
+        if (microphone != _disconnectedMicrophone)
+        {
+            current.MicrophoneDeviceId = microphone?.Id;
+            current.MicrophoneDeviceName = microphone?.Id is null ? null : microphone.Name;
+        }
         current.ClickThrough = (ClickThroughMode)(ClickThroughCombo.SelectedItem ?? ClickThroughMode.WhenCollapsed);
         current.ScreenshotHistorySize = historySize;
         current.AlwaysOnTop = AlwaysOnTopBox.IsChecked == true;
