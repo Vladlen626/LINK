@@ -11,6 +11,8 @@ Unpacked Chrome/Edge extension used by LINK as a local ChatGPT transport.
 5. Open or reload the ChatGPT conversation that should be linked and keep its tab open.
 6. In LINK, click the chat status row, select the discovered conversation, and click **Link**.
 
+After each extension update, press **Reload** on its extension card and reload the linked ChatGPT tab. An already open tab keeps the previous content script until it is reloaded.
+
 The extension talks only to the loopback bridge at `127.0.0.1:43127`. The ChatGPT tab may remain in the background or in a minimized browser window.
 
 ## Diagnostics
@@ -19,3 +21,4 @@ The extension talks only to the loopback bridge at `127.0.0.1:43127`. The ChatGP
 - The URL must contain a stable `/c/<conversation-id>` segment. Send one message in a new chat first if needed.
 - Extension logs are available from **Extensions → LINK ChatGPT Companion → Service worker**.
 - Page-side errors are available in DevTools for the linked ChatGPT tab.
+- Image requests use ChatGPT's composer upload control. LINK waits for an attachment preview before sending; if ChatGPT changes its composer, the request fails without sending text and the image stays attached in LINK for a retry.

@@ -557,4 +557,11 @@ public partial class MainWindow : Window
     private void PromptBox_OnTextChanged(object sender, TextChangedEventArgs e) =>
         PromptPlaceholder.Visibility = string.IsNullOrEmpty(PromptBox.Text) ? Visibility.Visible : Visibility.Collapsed;
 
+    private void PromptBox_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Return || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
+        e.Handled = true;
+        Send_OnClick(sender, e);
+    }
+
 }

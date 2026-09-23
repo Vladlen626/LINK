@@ -211,7 +211,7 @@ Current application context — важная часть будущего «Jarvi
 - .NET 10;
 - WPF;
 - Windows native APIs;
-- `System.Speech` для локального STT через установленные Windows recognizers.
+- `Whisper.net` с CPU runtime и локальной мультиязычной моделью Base для STT.
 
 Позже, когда появится реальная потребность:
 - SQLite для локальной памяти;
@@ -267,14 +267,16 @@ Current application context — важная часть будущего «Jarvi
 - локальный preview.
 
 ### Milestone 3 — Voice
-Статус: выполнен в первой локальной версии через Windows Speech Recognition.
+Статус: реализована запись и локальная транскрипция через Whisper; нужна ручная проверка после первой загрузки модели.
 - microphone capture;
 - push-to-talk;
 - local transcription;
 - RU/EN/auto.
 
+Модель скачивается один раз в `%LocalAppData%\Link\Models`; Windows speech pack не нужен. Первый запуск требует интернет, последующие работают локально. Транскрипт попадает в поле запроса и не прикладывается повторно как audio.
+
 ### Milestone 4 — Persistent AI Conversation Bridge
-Статус: первая end-to-end browser версия реализована, требуется ручная проверка на реальном ChatGPT DOM.
+Статус: текстовый end-to-end сценарий работает у пользователя. Загрузка изображения дала конкретную ошибку `ChatGPT image input was not found`; расширение обновлено для открытия upload-контрола и ожидания preview, но требуется повторная ручная проверка на реальной вкладке.
 
 Цель milestone: пользователь общается с существующей AI-беседой из Link и получает ответ обратно в overlay, не переключаясь в браузер.
 
@@ -282,23 +284,22 @@ Current application context — важная часть будущего «Jarvi
 - provider-neutral / transport-neutral `IChatIntegration` boundary — реализован;
 - связь проекта с конкретной AI-беседой — реализована;
 - browser companion и loopback transport — реализованы;
-- отправка user text, clipboard и image context — реализована;
+- отправка user text и clipboard — проверена; путь загрузки image context обновлён, ожидает проверки на реальном ChatGPT;
 - получение streamed assistant response обратно в Link — реализовано;
 - компактное отображение ответа в overlay — реализовано;
-- ручная проверка реального ChatGPT DOM, minimized/background и image upload — ожидается;
+- ручная проверка обновлённого image upload, minimized/background и ответа на запрос с изображением — ожидается;
 - браузер, если используется как transport, работает в фоне и не становится пользовательским UI.
 
 Direct API integration остаётся возможным вторым adapter'ом, но не должна быть обязательным фундаментом продукта.
 
 ### Milestone 5 — Projects & Context Brain
-Статус: базовый project selector, active project, current task и локальная модель `ContextItem` реализованы. Остаются:
+Статус: project selector, active project, current task, `ContextItem`, метаданные предыдущего рабочего окна и опциональный Auto active window capture реализованы. Остаются:
 - memory;
 - decisions;
 - summaries;
 - handoff/compaction;
 - context router;
-- context stack;
-- current application context.
+- выбор контекста по релевантности и долговременная память.
 
 ### Milestone 6 — Commands
 - command palette;
@@ -318,19 +319,29 @@ Direct API integration остаётся возможным вторым adapter'
 
 - компактный auto-height frosted-glass overlay с завершённым collapsed state, tray и глобальными hotkeys;
 - screen capture всех требуемых источников и локальный preview;
-- push-to-talk, WAV и локальный RU/EN STT через установленные Windows recognizers;
+- push-to-talk, WAV и локальный RU/EN/Auto STT через Whisper;
 - clipboard, видимый context stack, проекты и current task;
 - canonical versioned `PromptRequest` для application и integration flow;
 - browser ChatGPT integration через локальный loopback bridge;
 - project-to-conversation linking, send/progress/response flow и response UI;
+- `Enter` для отправки и `Shift+Enter` для новой строки;
+- current application metadata и включаемый в Screen-меню Auto active window capture на каждый Send;
 - обычные shortcut’ы через `RegisterHotKey`, low-level hook только для key-down/key-up push-to-talk;
 - atomic JSON persistence и защищённый lifecycle активных screenshot attachments.
 
 Локальные данные хранятся в `%LocalAppData%\Link`. Код остаётся в одном WPF assembly и разделён на `Models`, `Services`, `Windows` и Presentation.
 
-Следующая задача — проверить browser companion на реальной logged-in ChatGPT-сессии и по результатам укрепить DOM-селекторы, background/minimized поведение и image upload.
+Следующая задача — проверить новую версию на реальном рабочем столе:
+1. Пересобрать и перезапустить Link, нажать **Reload** у unpacked browser extension и обновить связанную вкладку ChatGPT.
+2. Выделить регион, отправить запрос: изображение должно появиться в черновике ChatGPT и уйти вместе с текстом. При ошибке прислать текст ошибки и скрин composer. То же проверить с Auto active window; следующий Send должен получить свежий снимок.
+3. Нажать Enter в поле Link: запрос отправится. Shift+Enter оставит новую строку.
+4. Удержать Voice, произнести короткую русскую и английскую фразу, отпустить; первая попытка скачает модель, транскрипт должен появиться в поле запроса. Если запуск native runtime не удался, проверить Microsoft Visual C++ Redistributable 2022 x64.
+
+Предел текущей реализации: browser companion привязан к DOM ChatGPT и требует ручного Reload после изменения extension. Пользователь уже подтвердил работающий текстовый мост, но upload изображений и новый Whisper на его машине после этого изменения ещё не подтверждены. Цель продукта остаётся прежней: Link — маленький overlay поверх текущего приложения; браузер служит скрытым транспортом, а долгосрочно нужны project memory, context router, handoff между чатами, команды и голосовой ответ.
 
 ## Для AI-агентов
+
+Репозиторий: `Vladlen626/LINK`, рабочая ветка: `LeN`. Перед работой проверить фактический HEAD и чистоту дерева. Собирать `Link.sln` в Release; если запущенный Link блокирует `bin\Release\...\Link.exe`, указать отдельный `OutputPath`, не завершая пользовательский процесс без необходимости. После изменения `browser-extension/content.js` обязательно перезагрузить unpacked extension и вкладку ChatGPT — обычная пересборка WPF не обновляет content script в уже открытой вкладке.
 
 Перед каждой существенной задачей:
 1. Прочитать `AGENTS.md`.

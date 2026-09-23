@@ -22,7 +22,7 @@ current app / screen / clipboard / voice
         response back to Link
 ```
 
-Текущая версия собирает text, voice, screenshots и clipboard в единый `PromptRequest`, отправляет его в связанную ChatGPT-беседу через browser companion и показывает ответ в overlay.
+Текущая версия собирает text, voice, screenshots, clipboard и данные текущего приложения в единый `PromptRequest`, отправляет его в связанную ChatGPT-беседу через browser companion и показывает ответ в overlay.
 
 ## Что уже работает
 
@@ -32,14 +32,16 @@ current app / screen / clipboard / voice
 - переназначаемые глобальные hotkeys через `RegisterHotKey`; low-level hook используется только для push-to-talk по нажатию/отпусканию;
 - захват текущего монитора, всего virtual desktop, каждого монитора, активного окна и выбранной области;
 - preview последнего screenshot, attachment chips и ограниченная история, которая не удаляет активные attachments;
-- локальная WAV-запись и Windows Speech-to-Text для RU/EN/Auto;
+- локальная WAV-запись и распознавание Whisper для RU/EN/Auto без Windows speech pack;
 - видимый context stack для screenshots, voice и clipboard;
 - проекты с `General` по умолчанию, active project и current task;
 - сборка versioned `PromptRequest`, debug output и atomic-сохранение последнего request;
 - provider-neutral `IChatIntegration` и локальный browser bridge на `127.0.0.1:43127`;
 - привязка проекта к обнаруженной ChatGPT-беседе;
-- отправка текста, clipboard и изображений через browser companion;
+- отправка текста и clipboard через browser companion; путь загрузки изображений обновлён после ошибки на реальном ChatGPT и ждёт повторной проверки;
 - streamed response status и последний ответ прямо в overlay с копированием.
+- `Enter` отправляет запрос, `Shift+Enter` вставляет новую строку;
+- опциональный Auto active window в меню Screen делает свежий снимок предыдущего рабочего окна для каждого запроса.
 
 ## Куда идёт продукт
 
@@ -74,6 +76,8 @@ dotnet run --project src/Link.Desktop/Link.Desktop.csproj
 5. Нажать строку статуса ChatGPT в Link, выбрать найденную беседу и нажать **Link**.
 
 После привязки вкладка и окно браузера могут оставаться в фоне. Подробная диагностика находится в [`browser-extension/README.md`](browser-extension/README.md).
+
+После обновления кода расширения нажмите **Reload** на карточке LINK ChatGPT Companion в `chrome://extensions` или `edge://extensions`, затем обновите вкладку ChatGPT. Без этого браузер продолжит выполнять старую версию скрипта.
 
 Закрытие overlay через `Alt+F4` скрывает Link в tray. Полностью завершить приложение можно через `Exit` в tray menu.
 
@@ -117,11 +121,9 @@ src/Link.Desktop/
 
 `PromptRequest` и context model принадлежат самому Link. `IChatIntegration` отделяет их от browser bridge; будущие OpenAI/API adapters, другие провайдеры и local AI подключаются через ту же границу.
 
-## Следующий milestone
+## Ближайшие задачи
 
-### Milestone 4 — Persistent AI Conversation Bridge
-
-Первая end-to-end реализация готова:
+Текстовый end-to-end сценарий работает:
 
 ```text
 Link prompt/context
@@ -130,14 +132,12 @@ Link prompt/context
 → Link overlay
 ```
 
-Пользователь остаётся в текущем рабочем приложении.
-
-Следующий шаг — проверить extension на реальном logged-in ChatGPT DOM и укрепить селекторы/фоновые сценарии по результатам этой проверки. Direct API integration остаётся возможным дополнительным adapter'ом.
+Пользователь остаётся в текущем рабочем приложении. Сейчас нужно проверить обновлённую загрузку изображения после Reload расширения и первую локальную транскрипцию Whisper. Далее — укрепить browser transport по результатам проверки, затем развивать project memory, выбор релевантного контекста и handoff между чатами. Direct API integration остаётся возможным дополнительным adapter'ом.
 
 ## Зависимости и ограничения
 
-- Единственная внешняя runtime-зависимость текущего WPF-приложения — официальный пакет `System.Speech` 10.0.0.
+- Для локального распознавания речи используются `Whisper.net` и его CPU runtime. При первом использовании Voice загружается мультиязычная модель Base в `%LocalAppData%\Link\Models`; дальше распознавание работает локально. Для этого runtime нужны Windows 11+, интернет при первой загрузке и Microsoft Visual C++ Redistributable 2022 x64.
 - Browser transport требует запущенный Chrome/Edge, вручную загруженный unpacked companion и открытую вкладку связанной беседы.
 - Companion зависит от DOM ChatGPT. После изменений интерфейса ChatGPT могут потребоваться обновления селекторов.
-- Для локальной транскрипции нужен установленный Windows speech recognizer нужного языка. Без RU/EN speech pack WAV сохранится и Link покажет понятную ошибку, но транскрипции не будет.
+- Качество и скорость Voice зависят от микрофона и CPU; на первой попытке нужно дождаться загрузки модели.
 - Захват защищённого DRM/UAC content может вернуть пустое изображение — это ограничение Windows/GDI.

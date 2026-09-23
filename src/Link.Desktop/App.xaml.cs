@@ -40,7 +40,7 @@ public partial class App : System.Windows.Application
         var requests = new RequestService(paths);
         _chat = new BrowserChatIntegration();
         _audio = new AudioRecorderService(paths);
-        var speech = new SpeechToTextService();
+        var speech = new SpeechToTextService(paths);
 
         _mainWindow = new MainWindow(
             _settings,

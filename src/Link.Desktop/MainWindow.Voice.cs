@@ -52,7 +52,9 @@ public partial class MainWindow
             audioPath = _audio.Stop();
             RemoveVoiceContextItems();
             RemoveMissingContextFiles();
-            SetStatus("Transcribing locally…", "Transcribing");
+            SetStatus(_speech.IsModelReady
+                ? "Transcribing locally…"
+                : "Downloading local speech model (first use)…", "Transcribing");
             var transcript = await _speech.TranscribeAsync(audioPath, _settings.Current.VoiceLanguage);
             PromptBox.Text = string.IsNullOrWhiteSpace(PromptBox.Text)
                 ? transcript

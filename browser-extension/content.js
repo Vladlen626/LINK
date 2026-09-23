@@ -43,9 +43,8 @@ async function handleRequest(request) {
   processingRequestId = request.requestId;
   try {
     await report(request.requestId, "sending");
-    if (request.attachments?.length) await attachImages(request.attachments);
-
     const composer = await waitFor(findComposer, 15000, "ChatGPT message composer was not found.");
+    if (request.attachments?.length) await attachImages(composer, request.attachments);
     setComposerText(composer, request.prompt);
     const baseline = getAssistantMessages();
     const baselineLast = baseline.at(-1) ?? null;
@@ -67,10 +66,16 @@ async function handleRequest(request) {
   }
 }
 
-async function attachImages(attachments) {
-  const input = document.querySelector('input[type="file"]');
-  if (!(input instanceof HTMLInputElement)) {
-    throw new Error("ChatGPT image input was not found. Remove image context and retry the text request.");
+async function attachImages(composer, attachments) {
+  const form = composer.closest("form");
+  const baseline = countAttachmentPreviews(form);
+  let input = findImageInput();
+  if (!input) {
+    const addButton = form?.querySelector('[data-testid="composer-plus-btn"]') ??
+      document.querySelector('[data-testid="composer-plus-btn"]');
+    if (addButton instanceof HTMLButtonElement) addButton.click();
+    input = await waitFor(findImageInput, 3000,
+      "ChatGPT did not expose an image upload control. Reload the linked ChatGPT tab and try again.");
   }
 
   const transfer = new DataTransfer();
@@ -83,7 +88,31 @@ async function attachImages(attachments) {
 
   input.files = transfer.files;
   input.dispatchEvent(new Event("change", { bubbles: true }));
-  await delay(900);
+  await waitFor(() => hasAttachmentPreviews(form, attachments, baseline), 30000,
+    "ChatGPT did not attach the image. The request was not sent; retry after reloading the linked tab.");
+  await waitFor(() => !form?.querySelector('[role="progressbar"], [aria-label*="Uploading" i]'),
+    30000, "ChatGPT did not finish uploading the image. The request was not sent.");
+}
+
+function findImageInput() {
+  const inputs = [...document.querySelectorAll('input[type="file"]')];
+  return inputs.find(input => input.id === "upload-files" && !input.disabled) ??
+    inputs.find(input => input.id === "upload-photos" && !input.disabled) ??
+    inputs.find(input => !input.disabled && (!input.accept || input.accept.includes("image/"))) ?? null;
+}
+
+function countAttachmentPreviews(form) {
+  return form?.querySelectorAll('img, [data-testid*="attachment"], [data-testid*="file-thumbnail"]').length ?? 0;
+}
+
+function hasAttachmentPreviews(form, attachments, baseline) {
+  if (!form) return false;
+  const labels = [...form.querySelectorAll('[aria-label], [title]')]
+    .map(element => `${element.getAttribute("aria-label") ?? ""} ${element.getAttribute("title") ?? ""}`)
+    .join(" ");
+  if (attachments.every(attachment =>
+    form.textContent.includes(attachment.fileName) || labels.includes(attachment.fileName))) return true;
+  return countAttachmentPreviews(form) >= baseline + attachments.length;
 }
 
 function findComposer() {
