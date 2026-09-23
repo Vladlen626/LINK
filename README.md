@@ -1,6 +1,28 @@
 # Link
 
-Link — компактный Windows desktop companion на C#/.NET и WPF. Текущая версия собирает текст, голос, screenshots и clipboard в единый локальный request, готовый для подключения AI provider на следующем этапе.
+Link — компактный Windows desktop companion на C#/.NET и WPF.
+
+Главная идея продукта: пользователь работает в Unreal, Blender, IDE, игре, браузере или другом приложении и не должен постоянно переключаться в большое окно ChatGPT. Link остаётся маленьким floating overlay, понимает активный проект и текущую задачу, собирает нужный screen / clipboard / voice / app context, отправляет его в связанную AI-беседу и возвращает ответ обратно в overlay.
+
+**UI для пользователя — Link. Браузер, extension, WebView, API или другой transport — внутренняя реализация.**
+
+Целевой рабочий поток:
+
+```text
+current app / screen / clipboard / voice
+                 ↓
+               Link
+                 ↓
+            Context Brain
+                 ↓
+       Chat Integration Layer
+                 ↓
+      existing AI conversation
+                 ↓
+        response back to Link
+```
+
+Текущая версия уже собирает text, voice, screenshots и clipboard в единый локальный `PromptRequest`. Следующая крупная задача — первый end-to-end AI conversation bridge: отправить запрос в связанную беседу и получить ответ обратно без необходимости переключаться в браузер.
 
 ## Что уже работает
 
@@ -14,6 +36,21 @@ Link — компактный Windows desktop companion на C#/.NET и WPF. Т�
 - видимый context stack для screenshots, voice и clipboard;
 - проекты с `General` по умолчанию, active project и current task;
 - сборка versioned `PromptRequest`, preview JSON, debug output и atomic-сохранение последнего request.
+
+## Куда идёт продукт
+
+Link должен ощущаться как маленький персональный «Jarvis» для работы с AI:
+
+- спросить что-то, не покидая текущее приложение;
+- показать AI экран или активное окно;
+- автоматически добавить релевантный project/current-task context;
+- продолжать существующую долгую AI-беседу;
+- получить ответ прямо в overlay;
+- позже — услышать его через local TTS или выполнить безопасное локальное действие.
+
+Обычный сценарий не должен требовать ручного перехода в browser UI, copy/paste каждого запроса или ручного переноса ответа обратно в Link.
+
+Browser companion, direct provider API и local model должны быть заменяемыми transport adapters вокруг общего request/context слоя.
 
 ## Запуск
 
@@ -62,9 +99,30 @@ src/Link.Desktop/
 
 Проект пока остаётся одним assembly. UI, состояние и Windows-specific код логически разделены без преждевременной многослойности.
 
+Следующий архитектурный seam — Chat Integration Layer. `PromptRequest` и context model принадлежат самому Link; browser bridge, OpenAI/API adapters, другие провайдеры и local AI должны подключаться поверх них, не протекая в основной UI.
+
+## Следующий milestone
+
+### Milestone 4 — Persistent AI Conversation Bridge
+
+Цель:
+
+```text
+Link prompt/context
+→ linked AI conversation
+→ assistant response
+→ Link overlay
+```
+
+Пользователь остаётся в текущем рабочем приложении.
+
+Если первый transport использует browser companion/extension, браузер должен быть только фоновым transport и не становиться обязательным пользовательским UI.
+
+Direct API integration остаётся возможным дополнительным adapter'ом, а не обязательной основой продукта.
+
 ## Зависимости и ограничения
 
-- Единственная внешняя runtime-зависимость — официальный пакет `System.Speech` 10.0.0.
+- Единственная внешняя runtime-зависимость текущего WPF-приложения — официальный пакет `System.Speech` 10.0.0.
 - Для локальной транскрипции нужен установленный Windows speech recognizer нужного языка. Без RU/EN speech pack WAV сохранится и Link покажет понятную ошибку, но транскрипции не будет.
 - Захват защищённого DRM/UAC content может вернуть пустое изображение — это ограничение Windows/GDI.
-- AI provider пока намеренно не подключён: кнопка Send показывает и сохраняет готовый request JSON.
+- AI conversation bridge пока не подключён: кнопка Send показывает и сохраняет готовый request JSON.
