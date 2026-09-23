@@ -6,6 +6,7 @@ public sealed class LinkProject
     public required string Name { get; set; }
     public required string DataFolder { get; init; }
     public string CurrentTask { get; set; } = string.Empty;
+    public ChatConversationLink? LinkedConversation { get; set; }
 
     public override string ToString() => Name;
 }

@@ -11,7 +11,7 @@ public partial class MainWindow
 {
     public void StartPushToTalk()
     {
-        if (_audio.IsRecording || _stoppingVoice) return;
+        if (_sending || _audio.IsRecording || _stoppingVoice) return;
 
         try
         {

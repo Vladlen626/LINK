@@ -6,23 +6,34 @@ namespace Link.Desktop;
 
 public partial class MainWindow
 {
-    public async Task CaptureCurrentMonitorAsync() =>
+    public async Task CaptureCurrentMonitorAsync()
+    {
+        if (_sending) return;
         await CaptureWithOverlayHiddenAsync(() => [_capture.CaptureCurrentMonitor()]);
+    }
 
-    public async Task CaptureDesktopAsync() =>
+    public async Task CaptureDesktopAsync()
+    {
+        if (_sending) return;
         await CaptureWithOverlayHiddenAsync(() => [_capture.CaptureDesktop()]);
+    }
 
-    public async Task CaptureAllMonitorsAsync() =>
+    public async Task CaptureAllMonitorsAsync()
+    {
+        if (_sending) return;
         await CaptureWithOverlayHiddenAsync(() => _capture.CaptureAllMonitors());
+    }
 
     public async Task CaptureActiveWindowAsync()
     {
+        if (_sending) return;
         var fallback = IsActive ? _lastExternalWindow : IntPtr.Zero;
         await CaptureWithOverlayHiddenAsync(() => [_capture.CaptureActiveWindow(fallback)]);
     }
 
     public async Task CaptureRegionAsync()
     {
+        if (_sending) return;
         var wasVisible = IsVisible;
         if (wasVisible) Hide();
         await Task.Delay(80);

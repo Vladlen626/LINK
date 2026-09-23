@@ -11,7 +11,7 @@ public sealed class RequestService
 
     public RequestService(StoragePaths paths) => _paths = paths;
 
-    public string BuildAndLog(LinkProject project, string text, IEnumerable<ContextItem> context)
+    public PromptRequest BuildAndLog(LinkProject project, string text, IEnumerable<ContextItem> context)
     {
         var request = new PromptRequest
         {
@@ -25,6 +25,6 @@ public sealed class RequestService
         var json = JsonSerializer.Serialize(request, _json);
         AtomicJsonFile.Write(_paths.LastRequestFile, request, _json);
         Debug.WriteLine(json);
-        return json;
+        return request;
     }
 }

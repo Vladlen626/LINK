@@ -22,7 +22,7 @@ current app / screen / clipboard / voice
         response back to Link
 ```
 
-Текущая версия уже собирает text, voice, screenshots и clipboard в единый локальный `PromptRequest`. Следующая крупная задача — первый end-to-end AI conversation bridge: отправить запрос в связанную беседу и получить ответ обратно без необходимости переключаться в браузер.
+Текущая версия собирает text, voice, screenshots и clipboard в единый `PromptRequest`, отправляет его в связанную ChatGPT-беседу через browser companion и показывает ответ в overlay.
 
 ## Что уже работает
 
@@ -35,7 +35,11 @@ current app / screen / clipboard / voice
 - локальная WAV-запись и Windows Speech-to-Text для RU/EN/Auto;
 - видимый context stack для screenshots, voice и clipboard;
 - проекты с `General` по умолчанию, active project и current task;
-- сборка versioned `PromptRequest`, preview JSON, debug output и atomic-сохранение последнего request.
+- сборка versioned `PromptRequest`, debug output и atomic-сохранение последнего request;
+- provider-neutral `IChatIntegration` и локальный browser bridge на `127.0.0.1:43127`;
+- привязка проекта к обнаруженной ChatGPT-беседе;
+- отправка текста, clipboard и изображений через browser companion;
+- streamed response status и последний ответ прямо в overlay с копированием.
 
 ## Куда идёт продукт
 
@@ -60,6 +64,16 @@ Browser companion, direct provider API и local model должны быть за
 dotnet build Link.sln --configuration Release
 dotnet run --project src/Link.Desktop/Link.Desktop.csproj
 ```
+
+### Подключение ChatGPT
+
+1. Запустить Link.
+2. Открыть `chrome://extensions` или `edge://extensions`.
+3. Включить Developer mode, нажать **Load unpacked** и выбрать папку `browser-extension`.
+4. Открыть нужную беседу ChatGPT. У новой беседы сначала отправить одно сообщение, чтобы URL получил `/c/<id>`.
+5. Нажать строку статуса ChatGPT в Link, выбрать найденную беседу и нажать **Link**.
+
+После привязки вкладка и окно браузера могут оставаться в фоне. Подробная диагностика находится в [`browser-extension/README.md`](browser-extension/README.md).
 
 Закрытие overlay через `Alt+F4` скрывает Link в tray. Полностью завершить приложение можно через `Exit` в tray menu.
 
@@ -90,22 +104,24 @@ dotnet run --project src/Link.Desktop/Link.Desktop.csproj
 ```text
 src/Link.Desktop/
 ├── Models/        settings, projects, context и PromptRequest
-├── Services/      JSON storage, history, clipboard, STT, request builder
+├── Services/      storage, context, request builder и chat integration
 ├── Windows/       Win32 hotkeys/styles, GDI capture, MCI audio, tray
 ├── MainWindow*    overlay shell, capture и voice orchestration
 ├── SettingsWindow*
 └── RegionSelectionWindow*
 ```
 
+`browser-extension/` содержит первый ChatGPT transport. Desktop-приложение отдаёт ему pending requests через локальный HTTP bridge; extension взаимодействует с DOM уже открытой беседы и возвращает progress/response. Browser-specific код не попадает в модели Link или `MainWindow`.
+
 Проект пока остаётся одним assembly. UI, состояние и Windows-specific код логически разделены без преждевременной многослойности.
 
-Следующий архитектурный seam — Chat Integration Layer. `PromptRequest` и context model принадлежат самому Link; browser bridge, OpenAI/API adapters, другие провайдеры и local AI должны подключаться поверх них, не протекая в основной UI.
+`PromptRequest` и context model принадлежат самому Link. `IChatIntegration` отделяет их от browser bridge; будущие OpenAI/API adapters, другие провайдеры и local AI подключаются через ту же границу.
 
 ## Следующий milestone
 
 ### Milestone 4 — Persistent AI Conversation Bridge
 
-Цель:
+Первая end-to-end реализация готова:
 
 ```text
 Link prompt/context
@@ -116,13 +132,12 @@ Link prompt/context
 
 Пользователь остаётся в текущем рабочем приложении.
 
-Если первый transport использует browser companion/extension, браузер должен быть только фоновым transport и не становиться обязательным пользовательским UI.
-
-Direct API integration остаётся возможным дополнительным adapter'ом, а не обязательной основой продукта.
+Следующий шаг — проверить extension на реальном logged-in ChatGPT DOM и укрепить селекторы/фоновые сценарии по результатам этой проверки. Direct API integration остаётся возможным дополнительным adapter'ом.
 
 ## Зависимости и ограничения
 
 - Единственная внешняя runtime-зависимость текущего WPF-приложения — официальный пакет `System.Speech` 10.0.0.
+- Browser transport требует запущенный Chrome/Edge, вручную загруженный unpacked companion и открытую вкладку связанной беседы.
+- Companion зависит от DOM ChatGPT. После изменений интерфейса ChatGPT могут потребоваться обновления селекторов.
 - Для локальной транскрипции нужен установленный Windows speech recognizer нужного языка. Без RU/EN speech pack WAV сохранится и Link покажет понятную ошибку, но транскрипции не будет.
 - Захват защищённого DRM/UAC content может вернуть пустое изображение — это ограничение Windows/GDI.
-- AI conversation bridge пока не подключён: кнопка Send показывает и сохраняет готовый request JSON.

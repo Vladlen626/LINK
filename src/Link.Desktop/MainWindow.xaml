@@ -130,6 +130,17 @@
                         </Grid>
                     </Border>
 
+                    <Button x:Name="ChatConnectionButton" Height="27" Margin="0,5,0,0" Padding="8,3"
+                            HorizontalContentAlignment="Left" Click="ChatConnection_OnClick"
+                            ToolTip="Link this project to a ChatGPT conversation">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="ChatStatusDot" Width="7" Height="7" Margin="0,0,7,0"
+                                     VerticalAlignment="Center" Fill="{StaticResource MutedBrush}" />
+                            <TextBlock x:Name="ChatConnectionText" VerticalAlignment="Center" FontSize="11.5"
+                                       Text="No linked conversation" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </Button>
+
                     <Border x:Name="InputBorder" MinHeight="68" MaxHeight="136" Margin="0,7,0,0"
                             Background="{StaticResource InnerGlassBrush}"
                             BorderThickness="1" CornerRadius="12">
@@ -155,7 +166,7 @@
                                        Foreground="{StaticResource MutedBrush}" FontSize="13.5" IsHitTestVisible="False" Text="Ask Link…" />
                             <Button x:Name="SendButton" Width="28" Height="28" Margin="0,0,6,6" Padding="0"
                                     HorizontalAlignment="Right" VerticalAlignment="Bottom" Background="{StaticResource AccentActionBrush}"
-                                    BorderBrush="{StaticResource AccentBorderBrush}" Click="Send_OnClick" ToolTip="Build request" Cursor="Hand">
+                                    BorderBrush="{StaticResource AccentBorderBrush}" Click="Send_OnClick" ToolTip="Send to linked chat" Cursor="Hand">
                                 <Viewbox Width="14" Height="14">
                                     <Path Data="{StaticResource SendIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}"
                                           StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
@@ -164,7 +175,7 @@
                         </Grid>
                     </Border>
 
-                    <Grid Margin="0,7,0,0">
+                    <Grid x:Name="ContextActionsPanel" Margin="0,7,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" />
                             <ColumnDefinition Width="*" />
@@ -185,7 +196,7 @@
                                 <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="12" Text="Voice" />
                             </StackPanel>
                         </Button>
-                        <Button Grid.Column="2" Style="{StaticResource CompactActionButtonStyle}" Margin="3,0,0,0"
+                        <Button x:Name="ClipboardButton" Grid.Column="2" Style="{StaticResource CompactActionButtonStyle}" Margin="3,0,0,0"
                                 Click="Clipboard_OnClick" ToolTip="Attach clipboard">
                             <StackPanel Orientation="Horizontal">
                                 <Viewbox Width="14" Height="14"><Path Data="{StaticResource ClipboardIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeLineJoin="Round" /></Viewbox>
@@ -246,6 +257,37 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <Border x:Name="ResponsePanel" MaxHeight="190" Margin="0,7,0,0"
+                            Style="{StaticResource GlassCardStyle}" Visibility="Collapsed">
+                        <Grid>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="Auto" />
+                                <RowDefinition Height="*" />
+                            </Grid.RowDefinitions>
+                            <Grid>
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" />
+                                    <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <TextBlock x:Name="ResponseStateText" VerticalAlignment="Center" FontSize="11.5"
+                                           FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Waiting" />
+                                <Button Grid.Column="1" Height="24" Margin="4,0" Padding="7,2"
+                                        Click="CopyResponse_OnClick" Content="Copy" />
+                                <Button Grid.Column="2" Style="{StaticResource TinyIconButtonStyle}"
+                                        Click="CloseResponse_OnClick" ToolTip="Hide response">
+                                    <Path Width="10" Height="10" Data="{StaticResource CloseIconGeometry}"
+                                          Stroke="{StaticResource TextBrush}" StrokeThickness="1.7" />
+                                </Button>
+                            </Grid>
+                            <ScrollViewer Grid.Row="1" MaxHeight="150" Margin="0,7,0,0"
+                                          VerticalScrollBarVisibility="Auto">
+                                <TextBlock x:Name="ResponseText" FontSize="12.5" LineHeight="18"
+                                           TextWrapping="Wrap" />
+                            </ScrollViewer>
+                        </Grid>
+                    </Border>
 
                     <TextBlock x:Name="StatusText" Height="16" Margin="2,5,2,0" VerticalAlignment="Center"
                                Style="{StaticResource SecondaryTextStyle}" Text="Ready" TextTrimming="CharacterEllipsis" />

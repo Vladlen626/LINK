@@ -39,6 +39,7 @@ public partial class MainWindow : Window
         SettingsService settings,
         ProjectService projects,
         RequestService requests,
+        IChatIntegration chat,
         ScreenCaptureService capture,
         ScreenshotHistoryService history,
         ClipboardContextService clipboard,
@@ -48,6 +49,7 @@ public partial class MainWindow : Window
         _settings = settings;
         _projects = projects;
         _requests = requests;
+        _chat = chat;
         _capture = capture;
         _history = history;
         _clipboard = clipboard;
@@ -55,6 +57,8 @@ public partial class MainWindow : Window
         _speech = speech;
 
         InitializeComponent();
+        _connectionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
+        _connectionTimer.Tick += (_, _) => UpdateConnectionState();
         ContextItemsControl.ItemsSource = _context;
         _context.CollectionChanged += Context_OnCollectionChanged;
         LoadProject(_projects.ActiveProject);
@@ -65,6 +69,12 @@ public partial class MainWindow : Window
         Activated += (_, _) => ApplyClickThrough();
         Deactivated += OnDeactivated;
         Closing += OnClosing;
+        Closed += (_, _) =>
+        {
+            _connectionTimer.Stop();
+            _sendCancellation?.Cancel();
+            _sendCancellation?.Dispose();
+        };
     }
 
     public event Action? SettingsRequested;
@@ -125,6 +135,8 @@ public partial class MainWindow : Window
     {
         RestoreWindowState();
         if (_settings.Current.IsCollapsed) SetCollapsed(true);
+        UpdateConnectionState();
+        _connectionTimer.Start();
     }
 
     private void RestoreWindowState()
@@ -161,6 +173,7 @@ public partial class MainWindow : Window
             return;
         }
 
+        _sendCancellation?.Cancel();
         ClearContext(prune: true);
     }
 
@@ -333,6 +346,7 @@ public partial class MainWindow : Window
     {
         ProjectNameText.Text = project.Name;
         CurrentTaskBox.Text = project.CurrentTask;
+        UpdateConnectionState();
     }
 
     private void SwitchProject(LinkProject project)
@@ -370,6 +384,17 @@ public partial class MainWindow : Window
         var delete = new MenuItem { Header = "Remove current…", IsEnabled = _projects.Projects.Count > 1 };
         delete.Click += (_, _) => RemoveCurrentProject();
         menu.Items.Add(delete);
+        menu.Items.Add(new Separator());
+        var linkConversation = new MenuItem { Header = "Link ChatGPT conversation…" };
+        linkConversation.Click += (_, _) => LinkConversation();
+        menu.Items.Add(linkConversation);
+        var unlinkConversation = new MenuItem
+        {
+            Header = "Unlink conversation",
+            IsEnabled = _projects.ActiveProject.LinkedConversation is not null
+        };
+        unlinkConversation.Click += (_, _) => UnlinkConversation();
+        menu.Items.Add(unlinkConversation);
         menu.IsOpen = true;
     }
 
@@ -424,6 +449,7 @@ public partial class MainWindow : Window
 
     private void Clipboard_OnClick(object sender, RoutedEventArgs e)
     {
+        if (_sending) return;
         try
         {
             var item = _clipboard.Read();
@@ -498,22 +524,4 @@ public partial class MainWindow : Window
     private void PromptBox_OnTextChanged(object sender, TextChangedEventArgs e) =>
         PromptPlaceholder.Visibility = string.IsNullOrEmpty(PromptBox.Text) ? Visibility.Visible : Visibility.Collapsed;
 
-    private void Send_OnClick(object sender, RoutedEventArgs e)
-    {
-        RemoveMissingContextFiles();
-        if (string.IsNullOrWhiteSpace(PromptBox.Text) && _context.Count == 0)
-        {
-            SetError("Add text or context before sending.");
-            return;
-        }
-
-        _projects.ActiveProject.CurrentTask = CurrentTaskBox.Text.Trim();
-        _projects.Save();
-        var json = _requests.BuildAndLog(_projects.ActiveProject, PromptBox.Text, _context);
-        new RequestPreviewWindow(json) { Owner = this }.ShowDialog();
-
-        PromptBox.Clear();
-        ClearContext(prune: true);
-        SetStatus("Request built and saved locally");
-    }
 }

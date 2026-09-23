@@ -13,6 +13,7 @@ public partial class App : System.Windows.Application
     private GlobalHotkeyService? _hotkeys;
     private TrayIconService? _tray;
     private AudioRecorderService? _audio;
+    private BrowserChatIntegration? _chat;
     private MainWindow? _mainWindow;
     private bool _disposed;
 
@@ -36,10 +37,11 @@ public partial class App : System.Windows.Application
         var capture = new ScreenCaptureService(history);
         var clipboard = new ClipboardContextService(history);
         var requests = new RequestService(paths);
+        _chat = new BrowserChatIntegration();
         _audio = new AudioRecorderService(paths);
         var speech = new SpeechToTextService();
 
-        _mainWindow = new MainWindow(_settings, _projects, requests, capture, history, clipboard, _audio, speech);
+        _mainWindow = new MainWindow(_settings, _projects, requests, _chat, capture, history, clipboard, _audio, speech);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
         _mainWindow.Show();
@@ -178,6 +180,7 @@ public partial class App : System.Windows.Application
         _audio?.Cancel();
         _hotkeys?.Dispose();
         _audio?.Dispose();
+        _chat?.Dispose();
         _tray?.Dispose();
         _singleInstance?.Dispose();
     }

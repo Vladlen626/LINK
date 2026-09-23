@@ -274,17 +274,18 @@ Current application context — важная часть будущего «Jarvi
 - RU/EN/auto.
 
 ### Milestone 4 — Persistent AI Conversation Bridge
-Следующая крупная цель.
+Статус: первая end-to-end browser версия реализована, требуется ручная проверка на реальном ChatGPT DOM.
 
 Цель milestone: пользователь общается с существующей AI-беседой из Link и получает ответ обратно в overlay, не переключаясь в браузер.
 
 Этапы:
-- provider-neutral / transport-neutral chat integration boundary;
-- связь проекта с конкретной AI-беседой;
-- первый работающий transport для существующего ChatGPT workflow;
-- отправка user text + поддерживаемого live context;
-- получение assistant response обратно в Link;
-- компактное отображение ответа в overlay;
+- provider-neutral / transport-neutral `IChatIntegration` boundary — реализован;
+- связь проекта с конкретной AI-беседой — реализована;
+- browser companion и loopback transport — реализованы;
+- отправка user text, clipboard и image context — реализована;
+- получение streamed assistant response обратно в Link — реализовано;
+- компактное отображение ответа в overlay — реализовано;
+- ручная проверка реального ChatGPT DOM, minimized/background и image upload — ожидается;
 - браузер, если используется как transport, работает в фоне и не становится пользовательским UI.
 
 Direct API integration остаётся возможным вторым adapter'ом, но не должна быть обязательным фундаментом продукта.
@@ -319,13 +320,15 @@ Direct API integration остаётся возможным вторым adapter'
 - screen capture всех требуемых источников и локальный preview;
 - push-to-talk, WAV и локальный RU/EN STT через установленные Windows recognizers;
 - clipboard, видимый context stack, проекты и current task;
-- versioned `PromptRequest` без AI-интеграции;
+- canonical versioned `PromptRequest` для application и integration flow;
+- browser ChatGPT integration через локальный loopback bridge;
+- project-to-conversation linking, send/progress/response flow и response UI;
 - обычные shortcut’ы через `RegisterHotKey`, low-level hook только для key-down/key-up push-to-talk;
 - atomic JSON persistence и защищённый lifecycle активных screenshot attachments.
 
 Локальные данные хранятся в `%LocalAppData%\Link`. Код остаётся в одном WPF assembly и разделён на `Models`, `Services`, `Windows` и Presentation.
 
-Следующая крупная задача — построить первый end-to-end AI conversation bridge: Link отправляет запрос в связанную беседу и получает ответ обратно, при этом пользователь остаётся в текущем рабочем приложении.
+Следующая задача — проверить browser companion на реальной logged-in ChatGPT-сессии и по результатам укрепить DOM-селекторы, background/minimized поведение и image upload.
 
 ## Для AI-агентов
 
