@@ -183,25 +183,28 @@
                         </Grid.ColumnDefinitions>
                         <Button x:Name="ScreenButton" Grid.Column="0" Style="{StaticResource CompactActionButtonStyle}" Margin="0,0,3,0"
                                 Click="Screen_OnClick" ToolTip="Attach screen context">
-                            <StackPanel Orientation="Horizontal">
-                                <Viewbox Width="14" Height="14"><Path Data="{StaticResource ScreenIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeLineJoin="Round" /></Viewbox>
-                                <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="12" Text="Screen" />
-                            </StackPanel>
+                            <Grid VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="14" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <Viewbox Width="14" Height="14" VerticalAlignment="Center"><Path Data="{StaticResource ScreenIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeLineJoin="Round" /></Viewbox>
+                                <TextBlock Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="12" Text="Screen" />
+                            </Grid>
                         </Button>
                         <Button x:Name="VoiceButton" Grid.Column="1" Style="{StaticResource CompactActionButtonStyle}" Margin="3,0"
                                 PreviewMouseLeftButtonDown="Voice_OnPreviewMouseLeftButtonDown"
                                 PreviewMouseLeftButtonUp="Voice_OnPreviewMouseLeftButtonUp" ToolTip="Hold to talk">
-                            <StackPanel Orientation="Horizontal">
-                                <Viewbox Width="14" Height="14"><Path Data="{StaticResource MicrophoneIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" /></Viewbox>
-                                <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="12" Text="Voice" />
-                            </StackPanel>
+                            <Grid VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="14" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <Viewbox Width="14" Height="14" VerticalAlignment="Center"><Path Data="{StaticResource MicrophoneIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" /></Viewbox>
+                                <TextBlock Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="12" Text="Voice" />
+                            </Grid>
                         </Button>
                         <Button x:Name="ClipboardButton" Grid.Column="2" Style="{StaticResource CompactActionButtonStyle}" Margin="3,0,0,0"
                                 Click="Clipboard_OnClick" ToolTip="Attach clipboard">
-                            <StackPanel Orientation="Horizontal">
-                                <Viewbox Width="14" Height="14"><Path Data="{StaticResource ClipboardIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeLineJoin="Round" /></Viewbox>
-                                <TextBlock Margin="6,0,0,0" VerticalAlignment="Center" FontSize="12" Text="Clipboard" />
-                            </StackPanel>
+                            <Grid VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="14" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <Viewbox Width="14" Height="14" VerticalAlignment="Center"><Path Data="{StaticResource ClipboardIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeLineJoin="Round" /></Viewbox>
+                                <TextBlock Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="12" Text="Clipboard" />
+                            </Grid>
                         </Button>
                     </Grid>
 
@@ -258,8 +261,9 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <Border x:Name="ResponsePanel" MaxHeight="190" Margin="0,7,0,0"
-                            Style="{StaticResource GlassCardStyle}" Visibility="Collapsed">
+                    <Border x:Name="ResponsePanel" MaxHeight="280" Margin="0,7,0,0" Padding="12,10"
+                            Background="{StaticResource ResponseSurfaceBrush}" BorderBrush="{StaticResource ControlBorderBrush}"
+                            BorderThickness="1" CornerRadius="12" Visibility="Collapsed">
                         <Grid>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
@@ -271,9 +275,9 @@
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
-                                <TextBlock x:Name="ResponseStateText" VerticalAlignment="Center" FontSize="11.5"
+                                <TextBlock x:Name="ResponseStateText" VerticalAlignment="Center" FontSize="10.5"
                                            FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Waiting" />
-                                <Button Grid.Column="1" Height="24" Margin="4,0" Padding="7,2"
+                                <Button Grid.Column="1" Height="22" Margin="4,0" Padding="7,1" FontSize="10.5"
                                         Click="CopyResponse_OnClick" Content="Copy" />
                                 <Button Grid.Column="2" Style="{StaticResource TinyIconButtonStyle}"
                                         Click="CloseResponse_OnClick" ToolTip="Hide response">
@@ -281,11 +285,12 @@
                                           Stroke="{StaticResource TextBrush}" StrokeThickness="1.7" />
                                 </Button>
                             </Grid>
-                            <ScrollViewer Grid.Row="1" MaxHeight="150" Margin="0,7,0,0"
-                                          VerticalScrollBarVisibility="Auto">
-                                <TextBlock x:Name="ResponseText" FontSize="12.5" LineHeight="18"
-                                           TextWrapping="Wrap" />
-                            </ScrollViewer>
+                            <FlowDocumentScrollViewer x:Name="ResponseViewer" Grid.Row="1" MaxHeight="225" Margin="0,8,0,0"
+                                                      Background="Transparent" BorderThickness="0" IsToolBarVisible="False"
+                                                      VerticalScrollBarVisibility="Auto" IsSelectionEnabled="True">
+                                <FlowDocument x:Name="ResponseDocument" PagePadding="0" FontFamily="Segoe UI"
+                                              FontSize="13.75" LineHeight="20.5" Foreground="{StaticResource TextBrush}" />
+                            </FlowDocumentScrollViewer>
                         </Grid>
                     </Border>
 

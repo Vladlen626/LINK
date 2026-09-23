@@ -3,6 +3,7 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
+using Link.Desktop.Models;
 
 namespace Link.Desktop;
 
@@ -10,10 +11,12 @@ public partial class MainWindow
 {
     public void StartPushToTalk()
     {
-        if (_sending || _audio.IsRecording || _stoppingVoice) return;
+        if (_sending || _voiceState != VoiceState.Idle) return;
 
         try
         {
+            RemoveVoiceContextItems();
+            _voiceState = VoiceState.Recording;
             ShowPassive();
             _audio.Start();
             ShellBorder.BorderBrush = (Brush)FindResource("SuccessBorderBrush");
@@ -26,15 +29,16 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            _voiceState = VoiceState.Idle;
             SetError(exception.Message);
         }
     }
 
     public async Task StopPushToTalkAsync()
     {
-        if (!_audio.IsRecording || _stoppingVoice) return;
+        if (_voiceState != VoiceState.Recording) return;
 
-        _stoppingVoice = true;
+        _voiceState = VoiceState.Transcribing;
         ShellBorder.BorderBrush = (Brush)FindResource("GlassBorderBrush");
         VoiceButton.Background = (Brush)FindResource("SubtleGlassBrush");
         VoiceButton.BorderBrush = (Brush)FindResource("GlassBorderSoftBrush");
@@ -46,6 +50,7 @@ public partial class MainWindow
         try
         {
             audioPath = _audio.Stop();
+            RemoveVoiceContextItems();
             RemoveMissingContextFiles();
             SetStatus("Transcribing locally…", "Transcribing");
             var transcript = await _speech.TranscribeAsync(audioPath, _settings.Current.VoiceLanguage);
@@ -54,7 +59,9 @@ public partial class MainWindow
                 : $"{PromptBox.Text.TrimEnd()} {transcript}";
 
             // The transcript has one canonical home: user input. The browser transport does not send raw audio.
-            SetStatus("Voice transcribed");
+            SetStatus(TryDeleteRecording(audioPath)
+                ? "Voice transcribed"
+                : "Voice transcribed; temporary recording could not be deleted");
         }
         catch (Exception exception)
         {
@@ -64,7 +71,34 @@ public partial class MainWindow
         }
         finally
         {
-            _stoppingVoice = false;
+            RemoveVoiceContextItems();
+            _voiceState = VoiceState.Idle;
+        }
+    }
+
+    private void RemoveVoiceContextItems()
+    {
+        foreach (var item in _context.Where(item => item.Type == ContextItemType.Voice).ToArray())
+        {
+            ReleaseContext(item);
+            _context.Remove(item);
+        }
+    }
+
+    private static bool TryDeleteRecording(string path)
+    {
+        try
+        {
+            File.Delete(path);
+            return true;
+        }
+        catch (IOException)
+        {
+            return false;
+        }
+        catch (UnauthorizedAccessException)
+        {
+            return false;
         }
     }
 
@@ -96,8 +130,8 @@ public partial class MainWindow
     private void Voice_OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
     {
         if (e.ChangedButton != MouseButton.Left) return;
-        ((Button)sender).CaptureMouse();
         StartPushToTalk();
+        if (_voiceState == VoiceState.Recording) ((Button)sender).CaptureMouse();
         e.Handled = true;
     }
 
@@ -107,5 +141,12 @@ public partial class MainWindow
         ((Button)sender).ReleaseMouseCapture();
         await StopPushToTalkAsync();
         e.Handled = true;
+    }
+
+    private enum VoiceState
+    {
+        Idle,
+        Recording,
+        Transcribing
     }
 }

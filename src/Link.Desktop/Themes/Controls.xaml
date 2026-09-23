@@ -113,9 +113,12 @@
     </Style>
 
     <Style x:Key="CompactActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
+        <Setter Property="Height" Value="32" />
         <Setter Property="Background" Value="#45FFFFFF" />
         <Setter Property="BorderBrush" Value="{StaticResource GlassBorderSoftBrush}" />
         <Setter Property="Padding" Value="8,4" />
+        <Setter Property="HorizontalContentAlignment" Value="Center" />
+        <Setter Property="VerticalContentAlignment" Value="Center" />
     </Style>
 
     <Style x:Key="TinyIconButtonStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">

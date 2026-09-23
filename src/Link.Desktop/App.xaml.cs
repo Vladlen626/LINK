@@ -96,7 +96,8 @@ public partial class App : System.Windows.Application
     {
         if (_settings is null || _mainWindow is null || _hotkeys is null) return;
         var previousHotkeys = _settings.Current.Hotkeys.Clone();
-        _hotkeys.IsSuspended = true;
+        var hotkeysRestarted = false;
+        _hotkeys.Stop();
         try
         {
             var window = new SettingsWindow(_settings);
@@ -107,6 +108,7 @@ public partial class App : System.Windows.Application
                 try
                 {
                     var failures = _hotkeys.Start(_settings.Current.Hotkeys);
+                    hotkeysRestarted = true;
                     if (failures.Count > 0)
                     {
                         _mainWindow.ShowNonBlockingWarning($"Hotkey unavailable: {string.Join("; ", failures)}.");
@@ -119,6 +121,7 @@ public partial class App : System.Windows.Application
                     try
                     {
                         _hotkeys.Start(previousHotkeys);
+                        hotkeysRestarted = true;
                     }
                     catch (Exception)
                     {
@@ -131,10 +134,29 @@ public partial class App : System.Windows.Application
                         MessageBoxImage.Warning);
                 }
             }
+            else
+            {
+                var failures = _hotkeys.Start(previousHotkeys);
+                hotkeysRestarted = true;
+                if (failures.Count > 0)
+                {
+                    _mainWindow.ShowNonBlockingWarning($"Hotkey unavailable: {string.Join("; ", failures)}.");
+                }
+            }
         }
         finally
         {
-            _hotkeys.IsSuspended = false;
+            if (!hotkeysRestarted)
+            {
+                try
+                {
+                    _hotkeys.Start(previousHotkeys);
+                }
+                catch (Exception exception)
+                {
+                    _mainWindow.ShowNonBlockingWarning($"Global hotkeys could not be restored: {exception.Message}");
+                }
+            }
         }
     }
 

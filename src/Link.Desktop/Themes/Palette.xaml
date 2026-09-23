@@ -14,6 +14,8 @@
     <SolidColorBrush x:Key="SuccessBrush" Color="{StaticResource GreenColor}" />
     <SolidColorBrush x:Key="WindowSurfaceBrush" Color="#FFF1F8FB" />
     <SolidColorBrush x:Key="SurfaceBrush" Color="#70F7FCFE" />
+    <SolidColorBrush x:Key="ResponseSurfaceBrush" Color="#F4F7FCFE" />
+    <SolidColorBrush x:Key="ResponseCodeBrush" Color="#DDE8F1F5" />
     <SolidColorBrush x:Key="HoverBrush" Color="#78FFFFFF" />
     <SolidColorBrush x:Key="GlassBorderBrush" Color="#C8FFFFFF" />
     <SolidColorBrush x:Key="GlassBorderSoftBrush" Color="#68FFFFFF" />

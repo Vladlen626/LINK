@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Documents;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Link.Desktop.Models;
@@ -12,6 +13,7 @@ public partial class MainWindow
     private readonly DispatcherTimer _connectionTimer;
     private CancellationTokenSource? _sendCancellation;
     private bool _sending;
+    private string _responseText = string.Empty;
 
     private async void Send_OnClick(object sender, RoutedEventArgs e)
     {
@@ -170,16 +172,17 @@ public partial class MainWindow
         });
         if (text.Length > 0 || state is ChatProgressState.Sending or ChatProgressState.Waiting)
         {
-            ResponseText.Text = text;
+            _responseText = text;
+            RenderResponse(text);
         }
     }
 
     private void CopyResponse_OnClick(object sender, RoutedEventArgs e)
     {
-        if (string.IsNullOrEmpty(ResponseText.Text)) return;
+        if (string.IsNullOrEmpty(_responseText)) return;
         try
         {
-            Clipboard.SetText(ResponseText.Text);
+            Clipboard.SetText(_responseText);
             SetStatus("Response copied");
         }
         catch (Exception exception)
@@ -190,4 +193,196 @@ public partial class MainWindow
 
     private void CloseResponse_OnClick(object sender, RoutedEventArgs e) =>
         ResponsePanel.Visibility = Visibility.Collapsed;
+
+    private void RenderResponse(string text)
+    {
+        ResponseDocument.Blocks.Clear();
+        if (string.IsNullOrWhiteSpace(text)) return;
+
+        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
+        var index = 0;
+        while (index < lines.Length)
+        {
+            if (string.IsNullOrWhiteSpace(lines[index]))
+            {
+                index++;
+                continue;
+            }
+
+            if (lines[index].TrimStart().StartsWith("```", StringComparison.Ordinal))
+            {
+                index++;
+                var codeLines = new List<string>();
+                while (index < lines.Length && !lines[index].TrimStart().StartsWith("```", StringComparison.Ordinal))
+                {
+                    codeLines.Add(lines[index++]);
+                }
+                if (index < lines.Length) index++;
+
+                var code = new Paragraph(new Run(string.Join('\n', codeLines)))
+                {
+                    Margin = new Thickness(0, 3, 0, 10),
+                    Padding = new Thickness(9, 7, 9, 7),
+                    Background = (Brush)FindResource("ResponseCodeBrush"),
+                    FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+                    FontSize = 12.5,
+                    LineHeight = 18
+                };
+                ResponseDocument.Blocks.Add(code);
+                continue;
+            }
+
+            if (TryGetHeading(lines[index], out var headingLevel, out var headingText))
+            {
+                var heading = new Paragraph
+                {
+                    Margin = new Thickness(0, index == 0 ? 0 : 5, 0, 5),
+                    FontSize = headingLevel switch { 1 => 17, 2 => 15.5, _ => 14.5 },
+                    FontWeight = FontWeights.SemiBold,
+                    LineHeight = 22
+                };
+                AddInlineContent(heading.Inlines, headingText);
+                ResponseDocument.Blocks.Add(heading);
+                index++;
+                continue;
+            }
+
+            if (TryGetListItem(lines[index], numbered: false, out _))
+            {
+                index = AddList(lines, index, numbered: false);
+                continue;
+            }
+
+            if (TryGetListItem(lines[index], numbered: true, out _))
+            {
+                index = AddList(lines, index, numbered: true);
+                continue;
+            }
+
+            var paragraphLines = new List<string>();
+            while (index < lines.Length && !string.IsNullOrWhiteSpace(lines[index]) && !StartsBlock(lines[index]))
+            {
+                paragraphLines.Add(lines[index].Trim());
+                index++;
+            }
+
+            var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 9) };
+            AddInlineContent(paragraph.Inlines, string.Join(' ', paragraphLines));
+            ResponseDocument.Blocks.Add(paragraph);
+        }
+    }
+
+    private int AddList(string[] lines, int index, bool numbered)
+    {
+        var list = new System.Windows.Documents.List
+        {
+            MarkerStyle = numbered ? TextMarkerStyle.Decimal : TextMarkerStyle.Disc,
+            Margin = new Thickness(18, 1, 0, 9),
+            Padding = new Thickness(0)
+        };
+
+        while (index < lines.Length && TryGetListItem(lines[index], numbered, out var itemText))
+        {
+            var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 3) };
+            AddInlineContent(paragraph.Inlines, itemText);
+            list.ListItems.Add(new ListItem(paragraph));
+            index++;
+        }
+
+        ResponseDocument.Blocks.Add(list);
+        return index;
+    }
+
+    private static bool StartsBlock(string line) =>
+        line.TrimStart().StartsWith("```", StringComparison.Ordinal) ||
+        TryGetHeading(line, out _, out _) ||
+        TryGetListItem(line, numbered: false, out _) ||
+        TryGetListItem(line, numbered: true, out _);
+
+    private static bool TryGetHeading(string line, out int level, out string text)
+    {
+        var trimmed = line.TrimStart();
+        level = 0;
+        while (level < trimmed.Length && level < 6 && trimmed[level] == '#') level++;
+        if (level == 0 || level >= trimmed.Length || trimmed[level] != ' ')
+        {
+            text = string.Empty;
+            return false;
+        }
+
+        text = trimmed[(level + 1)..].Trim();
+        return text.Length > 0;
+    }
+
+    private static bool TryGetListItem(string line, bool numbered, out string text)
+    {
+        var trimmed = line.TrimStart();
+        if (!numbered)
+        {
+            if (trimmed.Length >= 2 && trimmed[1] == ' ' && trimmed[0] is '-' or '*' or '+')
+            {
+                text = trimmed[2..].Trim();
+                return true;
+            }
+        }
+        else
+        {
+            var separator = trimmed.IndexOf(". ", StringComparison.Ordinal);
+            if (separator > 0 && trimmed[..separator].All(char.IsDigit))
+            {
+                text = trimmed[(separator + 2)..].Trim();
+                return true;
+            }
+        }
+
+        text = string.Empty;
+        return false;
+    }
+
+    private void AddInlineContent(InlineCollection inlines, string text)
+    {
+        var index = 0;
+        while (index < text.Length)
+        {
+            var codeStart = text.IndexOf('`', index);
+            var boldStart = text.IndexOf("**", index, StringComparison.Ordinal);
+            var tokenStart = codeStart < 0 ? boldStart : boldStart < 0 ? codeStart : Math.Min(codeStart, boldStart);
+            if (tokenStart < 0)
+            {
+                inlines.Add(new Run(text[index..]));
+                return;
+            }
+
+            if (tokenStart > index) inlines.Add(new Run(text[index..tokenStart]));
+            if (tokenStart == codeStart)
+            {
+                var end = text.IndexOf('`', codeStart + 1);
+                if (end < 0)
+                {
+                    inlines.Add(new Run(text[tokenStart..]));
+                    return;
+                }
+
+                inlines.Add(new Run(text[(codeStart + 1)..end])
+                {
+                    Background = (Brush)FindResource("ResponseCodeBrush"),
+                    FontFamily = new FontFamily("Cascadia Mono, Consolas"),
+                    FontSize = 12.5
+                });
+                index = end + 1;
+            }
+            else
+            {
+                var end = text.IndexOf("**", boldStart + 2, StringComparison.Ordinal);
+                if (end < 0)
+                {
+                    inlines.Add(new Run(text[tokenStart..]));
+                    return;
+                }
+
+                inlines.Add(new Bold(new Run(text[(boldStart + 2)..end])));
+                index = end + 2;
+            }
+        }
+    }
 }

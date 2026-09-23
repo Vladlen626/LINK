@@ -28,7 +28,7 @@ public partial class MainWindow : Window
     private readonly ISpeechToText _speech;
     private readonly ObservableCollection<ContextItem> _context = [];
     private bool _collapsed;
-    private bool _stoppingVoice;
+    private VoiceState _voiceState;
     private double _expandedWidth = 340;
     private Guid? _previewContextId;
     private IntPtr _lastExternalWindow;
@@ -117,10 +117,11 @@ public partial class MainWindow : Window
     {
         if (WindowState == WindowState.Normal)
         {
-            _settings.Current.Window.Left = Left;
-            _settings.Current.Window.Top = Top;
-            _settings.Current.Window.Width = _collapsed ? _expandedWidth : ActualWidth;
-            _settings.Current.Window.Height = ActualHeight;
+            _settings.Current.Window.Left = double.IsFinite(Left) ? Left : null;
+            _settings.Current.Window.Top = double.IsFinite(Top) ? Top : null;
+            var width = _collapsed ? _expandedWidth : ActualWidth;
+            if (double.IsFinite(width) && width > 0) _settings.Current.Window.Width = width;
+            if (double.IsFinite(ActualHeight) && ActualHeight > 0) _settings.Current.Window.Height = ActualHeight;
             _settings.Current.IsCollapsed = _collapsed;
         }
 
@@ -146,8 +147,8 @@ public partial class MainWindow : Window
         var placement = _settings.Current.Window;
         _expandedWidth = Math.Clamp(placement.Width, 320, 400);
         Width = _expandedWidth;
-        if (!double.IsNaN(placement.Left)) Left = placement.Left;
-        if (!double.IsNaN(placement.Top)) Top = placement.Top;
+        if (placement.Left is { } left) Left = left;
+        if (placement.Top is { } top) Top = top;
         WindowStyleService.EnsureVisible(this);
     }
 
@@ -321,17 +322,12 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (e.ButtonState == MouseButtonState.Pressed)
-        {
-            try
-            {
-                DragMove();
-            }
-            catch (InvalidOperationException)
-            {
-                // The mouse may have been released between the preview event and DragMove.
-            }
-        }
+        if (e.ButtonState != MouseButtonState.Pressed) return;
+
+        e.Handled = true;
+        var handle = _windowHandle != IntPtr.Zero ? _windowHandle : new WindowInteropHelper(this).EnsureHandle();
+        NativeMethods.ReleaseCapture();
+        NativeMethods.SendMessage(handle, NativeMethods.WmNcLButtonDown, new IntPtr(NativeMethods.HtCaption), IntPtr.Zero);
     }
 
     private static T? FindParent<T>(DependencyObject? child) where T : DependencyObject

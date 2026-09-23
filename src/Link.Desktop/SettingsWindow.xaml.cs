@@ -1,6 +1,8 @@
+using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
+using System.Windows.Media;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
 using Link.Desktop.Windows;
@@ -10,6 +12,8 @@ namespace Link.Desktop;
 public partial class SettingsWindow : Window
 {
     private readonly SettingsService _settings;
+    private TextBox? _capturingHotkey;
+    private string? _hotkeyBeforeCapture;
 
     public SettingsWindow(SettingsService settings)
     {
@@ -30,12 +34,49 @@ public partial class SettingsWindow : Window
         DesktopHotkey.Text = current.Hotkeys.CaptureDesktop;
         WindowHotkey.Text = current.Hotkeys.CaptureActiveWindow;
         RegionHotkey.Text = current.Hotkeys.CaptureRegion;
+        VersionText.Text = $"Version {GetInformationalVersion()}";
     }
 
-    private void HotkeyBox_OnPreviewKeyDown(object sender, System.Windows.Input.KeyEventArgs e)
+    private static string GetInformationalVersion()
     {
+        var assembly = typeof(SettingsWindow).Assembly;
+        var version = assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion
+            ?? assembly.GetName().Version?.ToString()
+            ?? "unknown";
+        var buildId = assembly.ManifestModule.ModuleVersionId.ToString("N")[..8];
+        return $"{version} · build {buildId}";
+    }
+
+    private void HotkeyBox_OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not TextBox hotkeyBox) return;
+        if (_capturingHotkey != hotkeyBox)
+        {
+            EndHotkeyCapture(restorePrevious: true);
+            _capturingHotkey = hotkeyBox;
+            _hotkeyBeforeCapture = hotkeyBox.Text;
+            hotkeyBox.Text = "Press shortcut…";
+            hotkeyBox.BorderBrush = (Brush)FindResource("AccentBorderBrush");
+            hotkeyBox.Background = (Brush)FindResource("ActiveContextBrush");
+        }
+
+        hotkeyBox.Focus();
+        ErrorText.Text = string.Empty;
+        e.Handled = true;
+    }
+
+    private void Window_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (_capturingHotkey is null) return;
         e.Handled = true;
         var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key == Key.Escape)
+        {
+            EndHotkeyCapture(restorePrevious: true);
+            ErrorText.Text = string.Empty;
+            return;
+        }
+
         if (key is Key.LeftAlt or Key.RightAlt or Key.LeftCtrl or Key.RightCtrl or
             Key.LeftShift or Key.RightShift or Key.LWin or Key.RWin or Key.None)
         {
@@ -58,11 +99,27 @@ public partial class SettingsWindow : Window
         if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
         if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
         parts.Add(key.ToString());
-        ((TextBox)sender).Text = string.Join('+', parts);
+        _capturingHotkey.Text = string.Join('+', parts);
+        EndHotkeyCapture(restorePrevious: false);
+    }
+
+    private void EndHotkeyCapture(bool restorePrevious)
+    {
+        if (_capturingHotkey is null) return;
+        if (restorePrevious && _hotkeyBeforeCapture is not null)
+        {
+            _capturingHotkey.Text = _hotkeyBeforeCapture;
+        }
+
+        _capturingHotkey.ClearValue(BorderBrushProperty);
+        _capturingHotkey.ClearValue(BackgroundProperty);
+        _capturingHotkey = null;
+        _hotkeyBeforeCapture = null;
     }
 
     private void Save_OnClick(object sender, RoutedEventArgs e)
     {
+        EndHotkeyCapture(restorePrevious: true);
         if (!int.TryParse(HistorySizeBox.Text, out var historySize) || historySize is < 1 or > 20)
         {
             ErrorText.Text = "Screenshot history must be between 1 and 20.";
@@ -114,5 +171,9 @@ public partial class SettingsWindow : Window
         }
     }
 
-    private void Cancel_OnClick(object sender, RoutedEventArgs e) => DialogResult = false;
+    private void Cancel_OnClick(object sender, RoutedEventArgs e)
+    {
+        EndHotkeyCapture(restorePrevious: true);
+        DialogResult = false;
+    }
 }
