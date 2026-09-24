@@ -317,7 +317,7 @@
                         </StackPanel>
                     </Grid>
 
-                    <!-- Last child: takes the free height up to Link's height limit; without a limit it is capped in code. -->
+                    <!-- Last child: takes the free height of the chosen Link height; without a limit it is capped in code. -->
                     <Border x:Name="ResponsePanel" Margin="0,8,0,0" Padding="12,8,8,10"
                             Background="{StaticResource ResponseSurfaceBrush}" BorderBrush="{StaticResource GlassBorderBrush}"
                             BorderThickness="1" CornerRadius="{StaticResource SurfaceRadius}" Visibility="Collapsed">

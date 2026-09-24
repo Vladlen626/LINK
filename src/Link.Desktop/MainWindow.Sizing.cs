@@ -8,7 +8,7 @@ using Link.Desktop.Windows;
 
 namespace Link.Desktop;
 
-// Window size and state: the side borders set the width, the bottom border how tall Link may grow,
+// Window size and state: the side borders set the width, the bottom border the height,
 // and the collapsed capsule keeps a fixed size.
 public partial class MainWindow
 {
@@ -89,7 +89,7 @@ public partial class MainWindow
 
     private void EndSizeMove()
     {
-        // WPF switches SizeToContent to Manual as soon as a border is dragged; the height follows the content again.
+        // WPF switches SizeToContent to Manual as soon as a border is dragged; restore the chosen height mode.
         _expandedWidth = Math.Clamp(ActualWidth, WindowPlacement.MinWidth, WindowPlacement.MaxWidth);
         if (_resizingHeight)
         {
@@ -136,21 +136,21 @@ public partial class MainWindow
 
     private void ApplyExpandedHeight()
     {
-        // Link always fits its content. The height chosen with the bottom edge is how tall it may grow:
-        // a short answer stays compact, a long one fills that height and scrolls.
-        if (_settings.Current.Window.HeightLimit is { } limit)
+        // Without a chosen height Link fits its content with a compact answer. The height chosen with the
+        // bottom edge is kept as is, even taller than the content: the answer fills it and scrolls.
+        MaxHeight = MaxExpandedHeight;
+        if (_settings.Current.Window.HeightLimit is { } height)
         {
-            MaxHeight = Math.Clamp(limit, WindowPlacement.MinHeight, MaxExpandedHeight);
             ResponsePanel.MaxHeight = double.PositiveInfinity;
+            SizeToContent = SizeToContent.Manual;
+            Height = Math.Clamp(height, WindowPlacement.MinHeight, MaxExpandedHeight);
         }
         else
         {
-            MaxHeight = MaxExpandedHeight;
             ResponsePanel.MaxHeight = DefaultAnswerMaxHeight;
+            ClearValue(HeightProperty);
+            SizeToContent = SizeToContent.Height;
         }
-
-        ClearValue(HeightProperty);
-        SizeToContent = SizeToContent.Height;
     }
 
     private void SetCollapsed(bool collapsed)
