@@ -203,7 +203,6 @@ public partial class MainWindow
         }
 
         _settings.Current.IsCollapsed = collapsed;
-        ApplyClickThrough();
     }
 
     private static void FadeIn(UIElement element)

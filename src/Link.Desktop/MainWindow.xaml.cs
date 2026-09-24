@@ -69,7 +69,6 @@ public partial class MainWindow : Window
         PreviewKeyDown += OnPreviewKeyDown;
         Loaded += OnLoaded;
         Activated += OnActivated;
-        Deactivated += (_, _) => ApplyClickThrough();
         Closing += OnClosing;
         Closed += (_, _) =>
         {
@@ -105,7 +104,6 @@ public partial class MainWindow : Window
         }
 
         UpdateAutoScreenIndicator();
-        ApplyClickThrough();
     }
 
     public void ToggleVisible()
@@ -157,7 +155,6 @@ public partial class MainWindow : Window
     {
         // Coming back from an app the user worked in makes it the target; watching the linked chat does not.
         _currentApplication.LatchRecent(_chat.IsConversationWindow);
-        ApplyClickThrough();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -174,23 +171,13 @@ public partial class MainWindow : Window
         ClearContext(prune: true);
     }
 
-    private void ApplyClickThrough()
-    {
-        // Inactive click-through made the window impossible to recover with a mouse.
-        // The explicit power-user behavior is now limited to the compact capsule.
-        var enabled = _settings.Current.ClickThrough == ClickThroughMode.WhenCollapsed && _collapsed;
-        WindowStyleService.SetClickThrough(this, enabled);
-    }
-
     private void ShowAndActivate()
     {
-        WindowStyleService.SetClickThrough(this, false);
         ShowActivated = true;
         Show();
         WindowState = WindowState.Normal;
         Activate();
         if (!_collapsed) PromptBox.Focus();
-        ApplyClickThrough();
     }
 
     private void ShowPassive()
@@ -199,7 +186,6 @@ public partial class MainWindow : Window
         ShowActivated = false;
         Show();
         ShowActivated = true;
-        ApplyClickThrough();
     }
 
     private void SetStatus(string message, string? collapsedStatus = null)

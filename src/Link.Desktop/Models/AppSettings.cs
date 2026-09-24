@@ -11,7 +11,6 @@ public sealed class AppSettings
     public AppTheme Theme { get; set; } = AppTheme.System;
     public bool BlurBackground { get; set; } = true;
     public bool AlwaysOnTop { get; set; } = true;
-    public ClickThroughMode ClickThrough { get; set; } = ClickThroughMode.Off;
     public VoiceLanguage VoiceLanguage { get; set; } = VoiceLanguage.Auto;
     public string? MicrophoneDeviceId { get; set; }
     public string? MicrophoneDeviceName { get; set; }
@@ -36,11 +35,6 @@ public sealed class AppSettings
     {
         Window ??= new WindowPlacement();
         Hotkeys ??= new HotkeySettings();
-        if (SchemaVersion < 2)
-        {
-            // Earlier builds enabled click-through by default, which made the capsule feel unreachable.
-            ClickThrough = ClickThroughMode.Off;
-        }
         if (SchemaVersion < 4)
         {
             if (string.Equals(Hotkeys.CaptureRegion, "Ctrl+Alt+R", StringComparison.OrdinalIgnoreCase))
@@ -57,7 +51,6 @@ public sealed class AppSettings
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.2, 1.0) : DefaultGlassTint;
         if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);
-        if (ClickThrough == ClickThroughMode.WhenInactive) ClickThrough = ClickThroughMode.Off;
         if (!Enum.IsDefined(ResponseEffort)) ResponseEffort = ResponseEffort.Normal;
         if (string.IsNullOrWhiteSpace(MicrophoneDeviceId))
         {
@@ -141,13 +134,6 @@ public enum AppTheme
     System,
     Light,
     Dark
-}
-
-public enum ClickThroughMode
-{
-    Off,
-    WhenCollapsed,
-    WhenInactive
 }
 
 public enum VoiceLanguage

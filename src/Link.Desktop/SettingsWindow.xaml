@@ -51,14 +51,12 @@
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
+                                <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
                             </Grid.RowDefinitions>
-                            <TextBlock VerticalAlignment="Center" Text="Click-through" />
-                            <ComboBox x:Name="ClickThroughCombo" Grid.Column="1" Width="190" HorizontalAlignment="Left" />
-                            <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Screenshot history" />
-                            <TextBox x:Name="HistorySizeBox" Grid.Row="1" Grid.Column="1" Width="72" Height="32" HorizontalAlignment="Left" />
-                            <CheckBox x:Name="AlwaysOnTopBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Always on top" />
-                            <CheckBox x:Name="LaunchWithWindowsBox" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Launch with Windows" />
+                            <TextBlock VerticalAlignment="Center" Text="Screenshot history" />
+                            <TextBox x:Name="HistorySizeBox" Grid.Column="1" Width="72" Height="32" HorizontalAlignment="Left" />
+                            <CheckBox x:Name="AlwaysOnTopBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Always on top" />
+                            <CheckBox x:Name="LaunchWithWindowsBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Launch with Windows" />
                         </Grid>
                     </Border>
 

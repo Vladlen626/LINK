@@ -6,7 +6,6 @@ namespace Link.Desktop.Windows;
 internal static class NativeMethods
 {
     internal const int GwlExStyle = -20;
-    internal const long WsExTransparent = 0x00000020L;
     internal const int WhKeyboardLl = 13;
     internal const int WmKeyDown = 0x0100;
     internal const int WmKeyUp = 0x0101;

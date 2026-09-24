@@ -101,22 +101,6 @@ public static class WindowStyleService
         }
     }
 
-    public static void SetClickThrough(Window window, bool enabled)
-    {
-        var handle = new WindowInteropHelper(window).Handle;
-        if (handle == IntPtr.Zero)
-        {
-            return;
-        }
-
-        var style = NativeMethods.GetWindowLongPtr(handle, NativeMethods.GwlExStyle).ToInt64();
-        var next = enabled ? style | NativeMethods.WsExTransparent : style & ~NativeMethods.WsExTransparent;
-        if (next != style)
-        {
-            NativeMethods.SetWindowLongPtr(handle, NativeMethods.GwlExStyle, new IntPtr(next));
-        }
-    }
-
     public static void EnsureVisible(Window window)
     {
         const double visibleEdge = 48;

@@ -47,8 +47,6 @@ public partial class SettingsWindow : Window
         VoiceRepliesBox.IsChecked = current.VoiceReplies;
         ReplySpeedSlider.Value = current.VoiceReplySpeed;
         LoadVoices(current);
-        ClickThroughCombo.ItemsSource = new[] { ClickThroughMode.Off, ClickThroughMode.WhenCollapsed };
-        ClickThroughCombo.SelectedItem = current.ClickThrough;
         HistorySizeBox.Text = current.ScreenshotHistorySize.ToString();
         AlwaysOnTopBox.IsChecked = current.AlwaysOnTop;
         LaunchWithWindowsBox.IsChecked = current.LaunchWithWindows;
@@ -369,7 +367,6 @@ public partial class SettingsWindow : Window
         current.VoiceReplies = VoiceRepliesBox.IsChecked == true;
         current.VoiceReplyVoice = (ReplyVoiceCombo.SelectedItem as VoiceOption)?.Name;
         current.VoiceReplySpeed = ReplySpeedSlider.Value;
-        current.ClickThrough = (ClickThroughMode)(ClickThroughCombo.SelectedItem ?? ClickThroughMode.WhenCollapsed);
         current.ScreenshotHistorySize = historySize;
         current.AlwaysOnTop = AlwaysOnTopBox.IsChecked == true;
         current.LaunchWithWindows = LaunchWithWindowsBox.IsChecked == true;
