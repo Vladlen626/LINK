@@ -61,9 +61,33 @@ Link должен ощущаться как маленький персонал�
 - автоматически добавить релевантный project/current-task context;
 - продолжать существующую долгую AI-беседу;
 - получить ответ прямо в overlay;
-- услышать короткий ответ голосом, а дальше — разговаривать с Link без рук (Conversation Mode) или выполнить безопасное локальное действие.
+- услышать его через local TTS и вести голосовой Conversation Mode без отдельного AI-сеанса;
+- позже — выполнять безопасные локальные действия.
 
 Обычный сценарий не должен требовать ручного перехода в browser UI, copy/paste каждого запроса или ручного переноса ответа обратно в Link.
+
+### Voice / Conversation roadmap
+
+Принятое направление: speech-layer должен быть local-first и без поминутного лимита, а GPT остаётся intelligence layer для reasoning, search, screenshots, project context и linked conversation.
+
+Целевой flow:
+
+```text
+microphone
+→ local VAD + live partial STT
+→ Whisper final correction
+→ обычный PromptRequest + screenshots/context
+→ GPT
+→ full written response in LINK
+→ local TTS
+→ next voice turn
+```
+
+Планируемый стек: `sherpa-onnx` для streaming ASR / Silero VAD / local TTS, существующий `Whisper.net` для final correction (следующий quality benchmark — large-v3-turbo), Supertonic 3 как первый кандидат на локальный RU/EN voice output.
+
+Режимы: **Text / Voice Reply / Conversation**. В Conversation Mode voice endpoint автоматически отправляет обычный LINK request, поэтому vision и project context не теряются. PTT должен мгновенно прерывать TTS.
+
+Полный поэтапный план: [docs/VOICE_CONVERSATION_PLAN.md](docs/VOICE_CONVERSATION_PLAN.md).
 
 Browser companion, direct provider API и local model должны быть заменяемыми transport adapters вокруг общего request/context слоя.
 
@@ -154,7 +178,17 @@ Link prompt/context
 → Link overlay
 ```
 
-Пользователь остаётся в текущем рабочем приложении. Сейчас нужно проверить обновлённую загрузку изображения после Reload расширения и первую локальную транскрипцию Whisper. Далее — укрепить browser transport по результатам проверки, затем развивать project memory, выбор релевантного контекста и handoff между чатами. Direct API integration остаётся возможным дополнительным adapter'ом.
+Пользователь остаётся в текущем рабочем приложении.
+
+Ближайший UX pass:
+- один Region context вместо накопления дубликатов;
+- последний assistant response отдельно для каждого проекта;
+- global Send hotkey;
+- **vertical resize** overlay (horizontal resize уже работает);
+- уведомление «ответ готов», когда LINK скрыт;
+- корректно latched current work target.
+
+После этого основной следующий слой — local Voice / Conversation по [зафиксированному плану](docs/VOICE_CONVERSATION_PLAN.md): live transcript, stronger final Whisper, local TTS, Voice Reply и Conversation Mode. Затем — project memory, context router и handoff.
 
 ## Зависимости и ограничения
 

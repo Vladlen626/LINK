@@ -27,3 +27,13 @@
 - После изменений собирать проект и исправлять warnings/errors.
 - Перед добавлением новой функциональности проверять, не дублирует ли она существующий код.
 - Не считать работу завершённой, пока проект не собирается чисто или явно не зафиксирована внешняя причина проблемы.
+
+## Voice / Conversation
+
+- Перед изменениями voice/conversation читать `docs/VOICE_CONVERSATION_PLAN.md` и `PROJECT_CONTEXT.md`.
+- GPT остаётся intelligence layer. Speech-компоненты не должны создавать отдельный разговор без существующего LINK `PromptRequest`, screenshots, project context и linked chat.
+- Core voice path должен быть local-first и без обязательной поминутной оплаты. Cloud STT/TTS допускаются только как optional adapters.
+- Не имитировать streaming повторным полным Whisper decode на каждом маленьком chunk: live partial recognition должен иметь отдельный streaming recognizer, а Whisper используется как final correction.
+- Один microphone capture session должен кормить level/VAD/live STT/final recording; не открывать микрофон параллельно несколькими сервисами без необходимости.
+- Voice orchestration постепенно выносить из `MainWindow.Voice.cs` в отдельный controller/state machine, сохраняя MainWindow как presentation layer.
+- Horizontal resize пользователь подтвердил рабочим. Нужен vertical resize; не переделывать горизонтальный без новой причины.

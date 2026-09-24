@@ -89,10 +89,14 @@ Link должен уметь по команде пользователя пол
 - Push-to-talk по глобальному хоткею.
 - Все хоткеи переназначаемые.
 - Русский, английский и auto language.
-- В дальнейшем — conversation mode.
-- Speech-to-text предпочтительно локальный.
-- В дальнейшем — локальный text-to-speech, чтобы Link мог отвечать голосом без обязательного использования отдельного Voice/Live режима AI-сервиса.
+- Core speech stack должен работать локально и без поминутного лимита.
+- GPT остаётся intelligence layer: reasoning, search, screenshots, project context и linked chat не переносятся в отдельный voice provider.
+- Целевой input: live partial STT → локальный Whisper final correction.
+- Целевой output: local TTS с interrupt/barge-in.
+- Нужны режимы Text / Voice Reply / Conversation.
+- В Conversation Mode финальная voice-реплика автоматически отправляется обычным `PromptRequest`, поэтому screenshots/current app/project context продолжают работать.
 - Транскрипт успешной voice-сессии является user text и не должен повторно отправляться как отдельный voice context.
+- Полный принятый план: [docs/VOICE_CONVERSATION_PLAN.md](docs/VOICE_CONVERSATION_PLAN.md).
 
 ### 4. Projects
 Пользователь выбирает активный проект, например:
@@ -211,13 +215,18 @@ Current application context — важная часть будущего «Jarvi
 - .NET 10;
 - WPF;
 - Windows native APIs;
-- `Whisper.net` с CPU runtime и локальной мультиязычной моделью Base для STT;
-- `System.Speech` (официальная обёртка Microsoft над SAPI) для голосовых ответов установленными голосами Windows.
+- `Whisper.net` с CPU runtime и локальной мультиязычной моделью Base для final STT.
+
+Принятый voice roadmap:
+- `sherpa-onnx` как единый local runtime для streaming ASR, Silero VAD, local TTS и при необходимости speech enhancement;
+- `Whisper large-v3-turbo` как целевой final correction после benchmark на реальной машине;
+- Supertonic 3 через sherpa-onnx как первый кандидат на локальный RU/EN TTS;
+- Windows native audio playback с interrupt;
+- cloud speech providers допускаются позже только как optional adapters, не как обязательная зависимость.
 
 Позже, когда появится реальная потребность:
 - SQLite для локальной памяти;
 - Windows Graphics Capture для vision;
-- локальный нейросетевой TTS (Piper), если голосов Windows окажется мало;
 - browser companion/extension на TypeScript для поддерживаемых пользовательских интеграций.
 
 Не добавлять эти зависимости заранее без реализуемой фичи.
@@ -311,19 +320,17 @@ Direct API integration остаётся возможным вторым adapter'
 - script commands;
 - локальные действия.
 
-### Milestone 7 — Voice replies
-Статус: проход 1 из 3 реализован (2026-09-24), ждёт ручной проверки.
-- local TTS — реализован через голоса Windows;
-- conversation mode;
-- interruption/cancel — клавишей реализовано;
-- выбор голоса и скорости — реализован.
+### Milestone 7 — Voice & Conversation
+Принята архитектура local-first без поминутной оплаты. Полный план — [docs/VOICE_CONVERSATION_PLAN.md](docs/VOICE_CONVERSATION_PLAN.md).
 
-Главный критерий голосового режима — время до первого звука ответа и возможность перебить Link. Три прохода:
-1. `VoiceSession` + TTS + перебивание клавишей — сделано. Одна машина состояний Idle → Listening → Finalizing → Sending → Waiting → Speaking без UI; overlay только подписывается на фазу. Ответ читается, если запрос продиктован (PTT) и включён Voice replies. Читается начало: первый абзац, до трёх предложений (меньше, если они длинные), без кода, таблиц, формул, заголовков, URL и разметки; если есть ещё текст — «Подробности на экране.» (`SpokenAnswer`, проверки в `tests/`). PTT во время речи — мгновенный Stop и запись; Esc, Stop и hotkey Send — Stop.
-2. Говорить по мере поступления ответа и честные статусы (earcon на Sending, фраза только при долгом Waiting) — следующий.
-3. Детектор речи, живой текст и Conversation Mode — после отдельного исследования одной локальной зависимости (кандидат — sherpa-onnx).
-
-Решение по TTS: `System.Speech`, а не WinRT `Windows.Media.SpeechSynthesis`. Он проще (сам воспроизводит звук, очередь и мгновенная отмена встроены), не требует TFM `net10.0-windows10.0.x` и собственного плеера, а версия 10 видит и классические SAPI-голоса, и OneCore (на машине пользователя: Irina Desktop, Zira Desktop, Irina, Pavel; WinRT видит только русские). Голос выбирается через `SelectVoice`: выбор внутри SSML подменяет Irina Desktop на OneCore Irina. Нормальная скорость голосов Windows медленная, поэтому по умолчанию 1.2×.
+Порядок:
+- общий live PCM stream из существующего waveIn capture;
+- local VAD + streaming partial STT через sherpa-onnx;
+- финальная коррекция Whisper (целевой benchmark: large-v3-turbo);
+- local TTS (первый кандидат: Supertonic 3);
+- Voice Reply;
+- Conversation Mode с auto-send, waiting cues и PTT interrupt;
+- позже — lower-latency sentence streaming, enhancement, wake word и echo cancellation.
 
 ## Текущий статус репозитория
 
@@ -400,17 +407,19 @@ Direct API integration остаётся возможным вторым adapter'
    - Более polished вариант позже: Windows App Notification (toast), клик по которому показывает LINK и нужный project response.
    - Не уведомлять, если LINK сейчас открыт и активен; ошибки/отмена могут иметь отдельный тип уведомления.
 
-6. **Горизонтальный resize должен быть реально удобным.**
-   - В XAML уже заявлены `MaxWidth=1200`, `ResizeMode=CanResize` и боковой `ResizeBorderThickness`, но пользователь на реальной сборке не может нормально растянуть окно по горизонтали.
-   - Проверить hit-test прозрачного borderless окна. Если `WindowChrome` остаётся ненадёжным, сделать явные невидимые `Thumb`/resize grips по левому и правому краю с нормальной зоной 8–12 px и cursor SizeWE.
-   - Высота при этом продолжает auto-size по контенту; пользователь регулирует только ширину.
+6. **Добавить вертикальный resize; горизонтальный уже работает хорошо.**
+   - Пользователь подтвердил, что горизонтальное изменение ширины удобно и его не нужно переделывать.
+   - Нужен ручной resize по нижнему краю: пользователь может увеличить/уменьшить высоту overlay.
+   - После ручного vertical resize выбранная высота сохраняется и response area использует доступное место.
+   - Collapsed mode остаётся фиксированным; horizontal resize 320–1200 px сохранить без изменений.
 
 7. **Voice interaction / spoken assistant.**
-   - Цель — hands-free режим: пользователь говорит запрос, LINK показывает partial text во время речи, сам отправляет запрос, следит за состоянием ответа и при желании озвучивает результат.
-   - Во время долгого ожидания LINK может правдиво озвучивать короткие локальные состояния: «Ищу решение», «Ещё немного», «Получаю ответ». Не придумывать конкретную activity, которой bridge не наблюдает.
-   - Нужен optional Voice Conversation Mode: PTT/voice input → auto-send после финального transcript → waiting cues → TTS assistant response → можно прервать голосом/клавишей.
-   - Для live partial STT рассмотреть настоящий streaming recognizer вместо многократного запуска полного Whisper на растущем WAV; текущий Whisper можно оставить финальным correction-pass.
-   - Для local TTS нужен отдельный `ITextToSpeech` boundary, выбор голоса/скорости и возможность interrupt/stop.
+   - Решение зафиксировано: core должен быть local-first и без лимита минут; GPT остаётся мозгом и продолжает получать screenshots/project/current-app context.
+   - Live text: sherpa-onnx streaming ASR + Silero VAD; final correction: Whisper, целевой benchmark large-v3-turbo.
+   - Voice output: `ITextToSpeech`, первый local candidate — Supertonic 3 через sherpa-onnx.
+   - Нужны Text / Voice Reply / Conversation modes, auto-send after endpoint, честные waiting cues и PTT interrupt.
+   - Во время долгого ожидания можно говорить «Секунду», «Думаю над ответом», «Получаю ответ», но не выдумывать web-search activity.
+   - Полный implementation plan и state machine: [docs/VOICE_CONVERSATION_PLAN.md](docs/VOICE_CONVERSATION_PLAN.md).
 
 ## Для AI-агентов
 
