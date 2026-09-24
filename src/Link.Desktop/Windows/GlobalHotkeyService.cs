@@ -53,6 +53,7 @@ public sealed class GlobalHotkeyService : IDisposable
         {
             [HotkeyAction.ShowHide] = HotkeyGesture.Parse(settings.ShowHide),
             [HotkeyAction.PushToTalk] = HotkeyGesture.Parse(settings.PushToTalk),
+            [HotkeyAction.Send] = HotkeyGesture.Parse(settings.Send),
             [HotkeyAction.CaptureDesktop] = HotkeyGesture.Parse(settings.CaptureDesktop),
             [HotkeyAction.CaptureActiveWindow] = HotkeyGesture.Parse(settings.CaptureActiveWindow),
             [HotkeyAction.CaptureRegion] = HotkeyGesture.Parse(settings.CaptureRegion)
@@ -108,6 +109,7 @@ public sealed class GlobalHotkeyService : IDisposable
     private static string GetActionName(HotkeyAction action) => action switch
     {
         HotkeyAction.ShowHide => "Show/hide",
+        HotkeyAction.Send => "Send prompt",
         HotkeyAction.CaptureDesktop => "Desktop capture",
         HotkeyAction.CaptureActiveWindow => "Window capture",
         HotkeyAction.CaptureRegion => "Region capture",
@@ -189,6 +191,7 @@ public enum HotkeyAction
 {
     ShowHide,
     PushToTalk,
+    Send,
     CaptureDesktop,
     CaptureActiveWindow,
     CaptureRegion

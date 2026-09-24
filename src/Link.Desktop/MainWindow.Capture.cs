@@ -6,34 +6,42 @@ namespace Link.Desktop;
 
 public partial class MainWindow
 {
+    private bool _selectingRegion;
+    private Guid? _regionContextId;
+
+    // While the region selector is open another capture would photograph its dimmed overlay.
+    private bool CanCapture => !_sending && !_selectingRegion;
+
     public async Task CaptureCurrentMonitorAsync()
     {
-        if (_sending) return;
+        if (!CanCapture) return;
         await CaptureWithOverlayHiddenAsync(() => [_capture.CaptureCurrentMonitor()]);
     }
 
     public async Task CaptureDesktopAsync()
     {
-        if (_sending) return;
+        if (!CanCapture) return;
         await CaptureWithOverlayHiddenAsync(() => [_capture.CaptureDesktop()]);
     }
 
     public async Task CaptureAllMonitorsAsync()
     {
-        if (_sending) return;
+        if (!CanCapture) return;
         await CaptureWithOverlayHiddenAsync(() => _capture.CaptureAllMonitors());
     }
 
     public async Task CaptureActiveWindowAsync()
     {
-        if (_sending) return;
-        var fallback = IsActive ? _lastExternalWindow : IntPtr.Zero;
-        await CaptureWithOverlayHiddenAsync(() => [_capture.CaptureActiveWindow(fallback)]);
+        if (!CanCapture) return;
+        var target = _currentApplication.WorkTarget;
+        await CaptureWithOverlayHiddenAsync(() => [_capture.CaptureActiveWindow(target)]);
     }
 
     public async Task CaptureRegionAsync()
     {
-        if (_sending) return;
+        // A second hotkey press while the selector is open is ignored instead of stacking selectors.
+        if (!CanCapture) return;
+        _selectingRegion = true;
         var wasVisible = IsVisible;
         if (wasVisible) Hide();
         await Task.Delay(80);
@@ -45,7 +53,7 @@ public partial class MainWindow
             {
                 var result = _capture.CaptureRegion(region);
                 RemoveMissingContextFiles();
-                AddScreenshot(result);
+                ReplaceRegionContext(AddScreenshot(result));
                 SetStatus("Region captured");
             }
         }
@@ -55,8 +63,22 @@ public partial class MainWindow
         }
         finally
         {
+            _selectingRegion = false;
             PresentAfterCapture(wasVisible);
         }
+    }
+
+    private void ReplaceRegionContext(ContextItem region)
+    {
+        // Only one selected region is ever sent: a new selection replaces the previous one.
+        if (_context.FirstOrDefault(item => item.Id == _regionContextId) is { } previous)
+        {
+            ReleaseContext(previous);
+            _context.Remove(previous);
+            _history.Prune();
+        }
+
+        _regionContextId = region.Id;
     }
 
     private async Task CaptureWithOverlayHiddenAsync(Func<IReadOnlyList<ScreenshotResult>> capture)
@@ -85,6 +107,7 @@ public partial class MainWindow
     private async Task<ScreenshotResult> CaptureTransientWindowAsync(IntPtr windowHandle)
     {
         var wasVisible = IsVisible;
+        var wasActive = IsActive;
         if (wasVisible) Hide();
         await Task.Delay(80);
 
@@ -94,7 +117,9 @@ public partial class MainWindow
         }
         finally
         {
-            PresentAfterCapture(wasVisible);
+            // Sending leaves the user where they were: a Send hotkey from another app keeps that app in front.
+            if (wasActive) ShowAndActivate();
+            else if (wasVisible) ShowPassive();
         }
     }
 
@@ -104,7 +129,7 @@ public partial class MainWindow
         else ShowPassive();
     }
 
-    private void AddScreenshot(ScreenshotResult result)
+    private ContextItem AddScreenshot(ScreenshotResult result)
     {
         var label = result.Source switch
         {
@@ -127,5 +152,6 @@ public partial class MainWindow
         ScreenshotPreview.ImageSource = result.Preview;
         PreviewLabel.Text = label;
         PreviewPanel.Visibility = Visibility.Visible;
+        return item;
     }
 }

@@ -26,11 +26,34 @@ public partial class MainWindow
     private string _responseText = string.Empty;
     private string? _chatNotice;
 
+    /// <summary>The global Send hotkey: works from any app, never cancels a running request.</summary>
+    public async Task SendFromHotkeyAsync()
+    {
+        if (_selectingRegion) return;
+        // The progress and any "nothing to send" message must be visible even when Link was hidden.
+        ShowPassive();
+        await SendOrQueueAsync();
+    }
+
     private async void Send_OnClick(object sender, RoutedEventArgs e)
     {
         if (_sending)
         {
             CancelSend();
+            return;
+        }
+
+        await SendOrQueueAsync();
+    }
+
+    private async Task SendOrQueueAsync()
+    {
+        if (_voiceState != VoiceState.Idle)
+        {
+            // Push-to-talk was just released: send as soon as the transcript is in the prompt.
+            _sendAfterVoice = true;
+            SetStatus("Will send when the transcript is ready…",
+                _voiceState == VoiceState.Recording ? "Listening" : "Transcribing");
             return;
         }
 
@@ -54,7 +77,8 @@ public partial class MainWindow
             return;
         }
 
-        var conversation = _projects.ActiveProject.LinkedConversation;
+        var project = _projects.ActiveProject;
+        var conversation = project.LinkedConversation;
         if (conversation is null)
         {
             SetError("Link this project to a ChatGPT conversation first.");
@@ -70,11 +94,11 @@ public partial class MainWindow
 
         try
         {
-            _projects.ActiveProject.CurrentTask = CurrentTaskBox.Text.Trim();
+            project.CurrentTask = CurrentTaskBox.Text.Trim();
             _projects.Save();
-            var externalWindow = _currentApplication.IsExternalWindow(_lastExternalWindow)
-                ? _lastExternalWindow
-                : IntPtr.Zero;
+            // The app Link was invoked from, not whatever took the focus since (the browser, Link's own captures).
+            var workTarget = _currentApplication.WorkTarget;
+            var externalWindow = _currentApplication.IsExternalWindow(workTarget) ? workTarget : IntPtr.Zero;
             var currentApplication = _currentApplication.GetContext(externalWindow);
             if (_settings.Current.AutoCaptureActiveWindowOnSend && externalWindow != IntPtr.Zero)
             {
@@ -99,18 +123,24 @@ public partial class MainWindow
                 ? _context.ToArray()
                 : _context.Append(transientContext).ToArray();
             var request = _requests.BuildAndLog(
-                _projects.ActiveProject,
+                project,
                 PromptBox.Text,
                 requestContext,
                 currentApplication,
                 _settings.Current.ResponseEffort);
             var progress = new Progress<ChatProgress>(OnChatProgress);
             var response = await _chat.SendAsync(request, conversation, progress, cancellation.Token);
+            project.LastResponse = new ProjectResponse
+            {
+                ConversationId = conversation.ConversationId,
+                Text = response.Text
+            };
+            _projects.Save();
             ShowResponse(ChatProgressState.Completed, response.Text);
             PromptBox.Clear();
             ClearContext(prune: true);
             SetStatus(_chatNotice is null ? "Response received" : $"Response received · {_chatNotice}", "Done");
-            ShowPassive();
+            NotifyIfAway(project, "Answer ready", ToNotificationText(response.Text));
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -121,6 +151,7 @@ public partial class MainWindow
         {
             ShowResponse(ChatProgressState.Error, exception.Message);
             SetError($"{exception.Message} Prompt and context were kept.");
+            NotifyIfAway(project, "Request failed", exception.Message);
         }
         finally
         {
@@ -131,6 +162,21 @@ public partial class MainWindow
             UpdateConnectionState();
         }
     }
+
+    private void NotifyIfAway(LinkProject project, string title, string message)
+    {
+        // Someone looking at Link already sees the result.
+        if (IsVisible && IsActive) return;
+        NotificationRequested?.Invoke($"{title} · {project.Name}", message, project.Id);
+    }
+
+    // A one-glance preview for the notification: plain words without Markdown markers or code fences.
+    private static string ToNotificationText(string markdown) =>
+        string.Join(' ', markdown.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
+            .Where(line => !line.StartsWith("```", StringComparison.Ordinal) && !IsRuleLine(line))
+            .Select(line => line.TrimStart('#', '>', '-', '*', '+', ' ')
+                .Replace("**", string.Empty, StringComparison.Ordinal)
+                .Replace("`", string.Empty, StringComparison.Ordinal)));
 
     private void Effort_OnClick(object sender, RoutedEventArgs e)
     {
@@ -208,6 +254,7 @@ public partial class MainWindow
         };
         _projects.Save();
         UpdateConnectionState();
+        ShowProjectResponse(_projects.ActiveProject);
         SetStatus($"Linked to {conversation.Title}");
     }
 
@@ -217,6 +264,7 @@ public partial class MainWindow
         _projects.ActiveProject.LinkedConversation = null;
         _projects.Save();
         UpdateConnectionState();
+        ShowProjectResponse(_projects.ActiveProject);
         SetStatus("Conversation unlinked");
     }
 
@@ -312,6 +360,22 @@ public partial class MainWindow
             _responseText = text;
             RenderResponse(text);
         }
+    }
+
+    /// <summary>Shows the project's last answer, or hides the panel when its linked chat has none yet.</summary>
+    private void ShowProjectResponse(LinkProject project)
+    {
+        // An answer belongs to the conversation it came from: after relinking the project it is not shown.
+        if (project.LastResponse is not { } response ||
+            response.ConversationId != project.LinkedConversation?.ConversationId)
+        {
+            _responseText = string.Empty;
+            ResponseDocument.Blocks.Clear();
+            ResponsePanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        ShowResponse(ChatProgressState.Completed, response.Text);
     }
 
     private void CopyResponse_OnClick(object sender, RoutedEventArgs e)

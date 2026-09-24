@@ -14,6 +14,7 @@ public partial class App : System.Windows.Application
     private Mutex? _singleInstance;
     private SettingsService? _settings;
     private ProjectService? _projects;
+    private CurrentApplicationService? _currentApplication;
     private GlobalHotkeyService? _hotkeys;
     private TrayIconService? _tray;
     private AudioRecorderService? _audio;
@@ -48,7 +49,7 @@ public partial class App : System.Windows.Application
         _projects = new ProjectService(paths, _settings);
         var history = new ScreenshotHistoryService(paths, _settings);
         var capture = new ScreenCaptureService(history);
-        var currentApplication = new CurrentApplicationService();
+        _currentApplication = new CurrentApplicationService();
         var clipboard = new ClipboardContextService(history);
         var requests = new RequestService(paths);
         _chat = new BrowserChatIntegration();
@@ -61,18 +62,23 @@ public partial class App : System.Windows.Application
             requests,
             _chat,
             capture,
-            currentApplication,
+            _currentApplication,
             history,
             clipboard,
             _audio,
             speech);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
+        _mainWindow.NotificationRequested += ShowNotification;
         _mainWindow.Show();
 
         _hotkeys = new GlobalHotkeyService(_mainWindow, Dispatcher);
         _hotkeys.Pressed += OnHotkeyPressed;
-        _hotkeys.PushToTalkStarted += () => _mainWindow.StartPushToTalk();
+        _hotkeys.PushToTalkStarted += () =>
+        {
+            _currentApplication.LatchForeground();
+            _mainWindow.StartPushToTalk();
+        };
         _hotkeys.PushToTalkEnded += async () => await _mainWindow.StopPushToTalkAsync();
         TryStartHotkeys();
 
@@ -142,10 +148,15 @@ public partial class App : System.Windows.Application
     private async void OnHotkeyPressed(HotkeyAction action)
     {
         if (_mainWindow is null) return;
+        // A global hotkey is an explicit invocation: the app in front is what the user is working on.
+        _currentApplication?.LatchForeground();
         switch (action)
         {
             case HotkeyAction.ShowHide:
                 _mainWindow.ToggleVisible();
+                break;
+            case HotkeyAction.Send:
+                await _mainWindow.SendFromHotkeyAsync();
                 break;
             case HotkeyAction.CaptureDesktop:
                 await _mainWindow.CaptureDesktopAsync();
@@ -158,6 +169,9 @@ public partial class App : System.Windows.Application
                 break;
         }
     }
+
+    private void ShowNotification(string title, string message, Guid projectId) =>
+        _tray?.ShowNotification(title, message, () => Dispatcher.Invoke(() => _mainWindow?.ShowProject(projectId)));
 
     private void ShowSettings()
     {
@@ -276,6 +290,7 @@ public partial class App : System.Windows.Application
         _disposed = true;
         _audio?.Cancel();
         _hotkeys?.Dispose();
+        _currentApplication?.Dispose();
         _audio?.Dispose();
         _chat?.Dispose();
         _tray?.Dispose();

@@ -63,19 +63,29 @@ public sealed class WindowPlacement
 {
     public const double MinWidth = 320;
     public const double MaxWidth = 1200;
+    public const double MinHeight = 200;
+    public const double MaxHeight = 4320;
     private const double DefaultWidth = 340;
 
     public double? Left { get; set; }
     public double? Top { get; set; }
     public double Width { get; set; } = DefaultWidth;
-    public double Height { get; set; } = 240;
+
+    /// <summary>
+    /// How tall the expanded window may grow, set by dragging its bottom edge. The window still fits its content,
+    /// so only long answers reach this height. Null keeps the compact default.
+    /// </summary>
+    public double? HeightLimit { get; set; }
 
     public void Normalize()
     {
         if (Left is { } left && !double.IsFinite(left)) Left = null;
         if (Top is { } top && !double.IsFinite(top)) Top = null;
         Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, MinWidth, MaxWidth) : DefaultWidth;
-        Height = double.IsFinite(Height) && Height > 0 ? Math.Clamp(Height, 46, 620) : 240;
+        if (HeightLimit is { } height)
+        {
+            HeightLimit = double.IsFinite(height) && height > 0 ? Math.Clamp(height, MinHeight, MaxHeight) : null;
+        }
     }
 }
 
@@ -83,6 +93,7 @@ public sealed class HotkeySettings
 {
     public string ShowHide { get; set; } = "Ctrl+Alt+Space";
     public string PushToTalk { get; set; } = "Ctrl+Alt+V";
+    public string Send { get; set; } = "Ctrl+Alt+Enter";
     public string CaptureDesktop { get; set; } = "Ctrl+Alt+D";
     public string CaptureActiveWindow { get; set; } = "Ctrl+Alt+W";
     public string CaptureRegion { get; set; } = "Ctrl+Alt+Shift+R";
@@ -91,6 +102,7 @@ public sealed class HotkeySettings
     {
         ShowHide = DefaultIfEmpty(ShowHide, "Ctrl+Alt+Space");
         PushToTalk = DefaultIfEmpty(PushToTalk, "Ctrl+Alt+V");
+        Send = DefaultIfEmpty(Send, "Ctrl+Alt+Enter");
         CaptureDesktop = DefaultIfEmpty(CaptureDesktop, "Ctrl+Alt+D");
         CaptureActiveWindow = DefaultIfEmpty(CaptureActiveWindow, "Ctrl+Alt+W");
         CaptureRegion = DefaultIfEmpty(CaptureRegion, "Ctrl+Alt+Shift+R");
@@ -100,6 +112,7 @@ public sealed class HotkeySettings
     {
         ShowHide = ShowHide,
         PushToTalk = PushToTalk,
+        Send = Send,
         CaptureDesktop = CaptureDesktop,
         CaptureActiveWindow = CaptureActiveWindow,
         CaptureRegion = CaptureRegion

@@ -7,8 +7,8 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
+using System.Windows.Shell;
 using System.Windows.Threading;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
@@ -32,7 +32,6 @@ public partial class MainWindow : Window
     private VoiceState _voiceState;
     private double _expandedWidth = 340;
     private Guid? _previewContextId;
-    private IntPtr _lastExternalWindow;
     private IntPtr _windowHandle;
     private bool _loadingProject = true;
 
@@ -60,6 +59,7 @@ public partial class MainWindow : Window
         _speech = speech;
 
         InitializeComponent();
+        _resizeBorder = WindowChrome.GetWindowChrome(this).ResizeBorderThickness;
         _connectionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _connectionTimer.Tick += (_, _) => UpdateConnectionState();
         ContextItemsControl.ItemsSource = _context;
@@ -71,8 +71,8 @@ public partial class MainWindow : Window
         SourceInitialized += OnSourceInitialized;
         PreviewKeyDown += OnPreviewKeyDown;
         Loaded += OnLoaded;
-        Activated += (_, _) => ApplyClickThrough();
-        Deactivated += OnDeactivated;
+        Activated += OnActivated;
+        Deactivated += (_, _) => ApplyClickThrough();
         Closing += OnClosing;
         Closed += (_, _) =>
         {
@@ -83,6 +83,10 @@ public partial class MainWindow : Window
     }
 
     public event Action? SettingsRequested;
+
+    /// <summary>A Windows notification is due: title, message and the project it opens.</summary>
+    public event Action<string, string, Guid>? NotificationRequested;
+
     public bool AllowClose { get; set; }
 
     public void ApplySettings()
@@ -124,41 +128,24 @@ public partial class MainWindow : Window
 
     public void ShowNonBlockingWarning(string message) => SetStatus(message, "Attention");
 
-    public void SaveWindowState()
+    /// <summary>Brings Link up on a project's answer, e.g. when its notification is clicked.</summary>
+    public void ShowProject(Guid projectId)
     {
-        if (WindowState == WindowState.Normal)
+        if (!_sending && _projects.Projects.FirstOrDefault(project => project.Id == projectId) is { } project)
         {
-            _settings.Current.Window.Left = double.IsFinite(Left) ? Left : null;
-            _settings.Current.Window.Top = double.IsFinite(Top) ? Top : null;
-            var width = _collapsed ? _expandedWidth : ActualWidth;
-            if (double.IsFinite(width) && width > 0) _settings.Current.Window.Width = width;
-            if (double.IsFinite(ActualHeight) && ActualHeight > 0) _settings.Current.Window.Height = ActualHeight;
-            _settings.Current.IsCollapsed = _collapsed;
+            if (project.Id != _projects.ActiveProject.Id) SwitchProject(project);
+            else if (ResponsePanel.Visibility != Visibility.Visible) ShowProjectResponse(project);
         }
 
-        _settings.Save();
+        SetCollapsed(false);
+        ShowAndActivate();
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
         _windowHandle = new WindowInteropHelper(this).Handle;
         HwndSource.FromHwnd(_windowHandle)?.AddHook(WindowProcedure);
-        TrackExternalForegroundWindow();
         ApplySettings();
-    }
-
-    private IntPtr WindowProcedure(IntPtr hwnd, int message, IntPtr wParam, IntPtr lParam, ref bool handled)
-    {
-        if (message == NativeMethods.WmExitSizeMove && !_collapsed)
-        {
-            // WPF switches SizeToContent to Manual as soon as a border is dragged.
-            // Only the width is user-sized; the height keeps following the content.
-            SizeToContent = SizeToContent.Height;
-            _expandedWidth = Math.Clamp(ActualWidth, WindowPlacement.MinWidth, WindowPlacement.MaxWidth);
-            SaveWindowState();
-        }
-
-        return IntPtr.Zero;
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
@@ -169,25 +156,11 @@ public partial class MainWindow : Window
         _connectionTimer.Start();
     }
 
-    private void RestoreWindowState()
+    private void OnActivated(object? sender, EventArgs e)
     {
-        var placement = _settings.Current.Window;
-        _expandedWidth = Math.Clamp(placement.Width, WindowPlacement.MinWidth, WindowPlacement.MaxWidth);
-        MinWidth = WindowPlacement.MinWidth;
-        MaxWidth = WindowPlacement.MaxWidth;
-        Width = _expandedWidth;
-        if (placement.Left is { } left) Left = left;
-        if (placement.Top is { } top) Top = top;
-        WindowStyleService.EnsureVisible(this);
-    }
-
-    private void OnDeactivated(object? sender, EventArgs e)
-    {
-        Dispatcher.BeginInvoke(() =>
-        {
-            TrackExternalForegroundWindow();
-            ApplyClickThrough();
-        }, DispatcherPriority.ContextIdle);
+        // Coming back from an app the user worked in makes it the target; watching the linked chat does not.
+        _currentApplication.LatchRecent(_chat.IsConversationWindow);
+        ApplyClickThrough();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -214,7 +187,6 @@ public partial class MainWindow : Window
 
     private void ShowAndActivate()
     {
-        TrackExternalForegroundWindow();
         WindowStyleService.SetClickThrough(this, false);
         ShowActivated = true;
         Show();
@@ -231,64 +203,6 @@ public partial class MainWindow : Window
         Show();
         ShowActivated = true;
         ApplyClickThrough();
-    }
-
-    private void SetCollapsed(bool collapsed)
-    {
-        if (_collapsed == collapsed) return;
-        _collapsed = collapsed;
-
-        if (collapsed)
-        {
-            _expandedWidth = Math.Clamp(ActualWidth, WindowPlacement.MinWidth, WindowPlacement.MaxWidth);
-            ExpandedContent.Visibility = Visibility.Collapsed;
-            ExpandedHeader.Visibility = Visibility.Collapsed;
-            CollapsedHeader.Visibility = Visibility.Visible;
-            HeaderRow.Height = new GridLength(46);
-            SizeToContent = SizeToContent.Manual;
-            ResizeMode = ResizeMode.NoResize;
-
-            MinWidth = 0;
-            MaxWidth = WindowPlacement.MaxWidth;
-            Width = 180;
-            MinWidth = 180;
-            MaxWidth = 180;
-            MinHeight = 0;
-            MaxHeight = 620;
-            Height = 46;
-            MinHeight = 46;
-            MaxHeight = 46;
-            FadeIn(CollapsedHeader);
-        }
-        else
-        {
-            MinWidth = 0;
-            MaxWidth = WindowPlacement.MaxWidth;
-            MinHeight = 0;
-            MaxHeight = 620;
-            Width = _expandedWidth;
-            ClearValue(HeightProperty);
-            SizeToContent = SizeToContent.Height;
-            ResizeMode = ResizeMode.CanResize;
-            MinWidth = WindowPlacement.MinWidth;
-
-            ExpandedContent.Visibility = Visibility.Visible;
-            ExpandedHeader.Visibility = Visibility.Visible;
-            CollapsedHeader.Visibility = Visibility.Collapsed;
-            HeaderRow.Height = new GridLength(46);
-            FadeIn(ExpandedContent);
-        }
-
-        _settings.Current.IsCollapsed = collapsed;
-        ApplyClickThrough();
-    }
-
-    private static void FadeIn(UIElement element)
-    {
-        element.BeginAnimation(OpacityProperty, new DoubleAnimation(0, 1, TimeSpan.FromMilliseconds(140))
-        {
-            EasingFunction = new QuadraticEase { EasingMode = EasingMode.EaseOut }
-        });
     }
 
     private void SetStatus(string message, string? collapsedStatus = null)
@@ -370,6 +284,7 @@ public partial class MainWindow : Window
         ProjectNameText.Text = project.Name;
         CurrentTaskBox.Text = project.CurrentTask;
         UpdateConnectionState();
+        ShowProjectResponse(project);
     }
 
     private void SwitchProject(LinkProject project)
@@ -491,12 +406,6 @@ public partial class MainWindow : Window
         ScreenButton.ToolTip = enabled
             ? "Attach screen context · auto active window is on"
             : "Attach screen context";
-    }
-
-    private void TrackExternalForegroundWindow()
-    {
-        var foreground = _currentApplication.GetExternalForegroundWindow();
-        if (foreground != IntPtr.Zero) _lastExternalWindow = foreground;
     }
 
     private void Clipboard_OnClick(object sender, RoutedEventArgs e)

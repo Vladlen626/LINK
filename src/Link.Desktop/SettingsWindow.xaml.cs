@@ -43,6 +43,7 @@ public partial class SettingsWindow : Window
         LaunchWithWindowsBox.IsChecked = current.LaunchWithWindows;
         SetHotkey(ShowHideHotkey, current.Hotkeys.ShowHide);
         SetHotkey(PushToTalkHotkey, current.Hotkeys.PushToTalk);
+        SetHotkey(SendHotkey, current.Hotkeys.Send);
         SetHotkey(DesktopHotkey, current.Hotkeys.CaptureDesktop);
         SetHotkey(WindowHotkey, current.Hotkeys.CaptureActiveWindow);
         SetHotkey(RegionHotkey, current.Hotkeys.CaptureRegion);
@@ -198,7 +199,8 @@ public partial class SettingsWindow : Window
         if (modifiers.HasFlag(ModifierKeys.Alt)) parts.Add("Alt");
         if (modifiers.HasFlag(ModifierKeys.Shift)) parts.Add("Shift");
         if (modifiers.HasFlag(ModifierKeys.Windows)) parts.Add("Win");
-        parts.Add(key.ToString());
+        // Key.Enter and Key.Return are the same value; show the name printed on the keyboard.
+        parts.Add(key == Key.Return ? "Enter" : key.ToString());
         SetHotkey(_capturingHotkey, string.Join('+', parts));
         EndHotkeyCapture(restorePrevious: false);
     }
@@ -230,11 +232,12 @@ public partial class SettingsWindow : Window
         {
             GetHotkey(ShowHideHotkey),
             GetHotkey(PushToTalkHotkey),
+            GetHotkey(SendHotkey),
             GetHotkey(DesktopHotkey),
             GetHotkey(WindowHotkey),
             GetHotkey(RegionHotkey)
         };
-        if (hotkeys.Any(string.IsNullOrWhiteSpace) || hotkeys.Distinct(StringComparer.OrdinalIgnoreCase).Count() != hotkeys.Length)
+        if (hotkeys.Any(string.IsNullOrWhiteSpace))
         {
             ErrorText.Text = "Each action must have a unique hotkey.";
             return;
@@ -242,9 +245,18 @@ public partial class SettingsWindow : Window
 
         try
         {
-            if (hotkeys.Select(HotkeyGesture.Parse).Any(gesture => !gesture.IsSafeGlobalShortcut))
+            var gestures = hotkeys.Select(HotkeyGesture.Parse).ToArray();
+            if (gestures.Any(gesture => !gesture.IsSafeGlobalShortcut))
             {
                 ErrorText.Text = "Global shortcuts must include a modifier or use a function key.";
+                return;
+            }
+
+            // Compare keys, not text: "Ctrl+Alt+Enter" and "Ctrl+Alt+Return" are the same shortcut.
+            if (gestures.DistinctBy(gesture => (gesture.VirtualKey, gesture.Control, gesture.Alt, gesture.Shift, gesture.Windows))
+                    .Count() != gestures.Length)
+            {
+                ErrorText.Text = "Each action must have a unique hotkey.";
                 return;
             }
         }
@@ -271,6 +283,7 @@ public partial class SettingsWindow : Window
         current.LaunchWithWindows = LaunchWithWindowsBox.IsChecked == true;
         current.Hotkeys.ShowHide = GetHotkey(ShowHideHotkey);
         current.Hotkeys.PushToTalk = GetHotkey(PushToTalkHotkey);
+        current.Hotkeys.Send = GetHotkey(SendHotkey);
         current.Hotkeys.CaptureDesktop = GetHotkey(DesktopHotkey);
         current.Hotkeys.CaptureActiveWindow = GetHotkey(WindowHotkey);
         current.Hotkeys.CaptureRegion = GetHotkey(RegionHotkey);

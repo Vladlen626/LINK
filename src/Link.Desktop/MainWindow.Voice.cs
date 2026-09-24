@@ -10,6 +10,7 @@ namespace Link.Desktop;
 public partial class MainWindow
 {
     private static readonly TimeSpan MinimumSpeechDuration = TimeSpan.FromMilliseconds(300);
+    private bool _sendAfterVoice;
 
     public void StartPushToTalk()
     {
@@ -50,6 +51,8 @@ public partial class MainWindow
         CollapsedLinkGlyph.Foreground = (Brush)FindResource("BrandBrush");
         AnimateVoiceGlyphs(start: false);
         string? audioPath = null;
+        var transcribed = false;
+        var sendNow = false;
 
         try
         {
@@ -80,6 +83,7 @@ public partial class MainWindow
             PromptBox.Text = string.IsNullOrWhiteSpace(PromptBox.Text)
                 ? transcript
                 : $"{PromptBox.Text.TrimEnd()} {transcript}";
+            transcribed = true;
 
             // The transcript has one canonical home: user input. The browser transport does not send raw audio.
             SetStatus(TryDeleteRecording(audioPath)
@@ -96,7 +100,13 @@ public partial class MainWindow
         {
             RemoveVoiceContextItems();
             _voiceState = VoiceState.Idle;
+            // Send was pressed while the user was still speaking or being transcribed.
+            // Without a transcript it is dropped: the status already explains what went wrong.
+            sendNow = _sendAfterVoice && transcribed;
+            _sendAfterVoice = false;
         }
+
+        if (sendNow) await SendAsync();
     }
 
     private void RemoveVoiceContextItems()

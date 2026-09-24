@@ -27,6 +27,12 @@ public sealed class BrowserChatIntegration : IChatIntegration, IDisposable
     public IReadOnlyList<AvailableChatConversation> GetAvailableConversations() =>
         _bridge.GetAvailableConversations();
 
+    // A browser window is titled after its active tab: a ChatGPT page or a conversation the companion announced.
+    public bool IsConversationWindow(string windowTitle) =>
+        windowTitle.Contains("ChatGPT", StringComparison.OrdinalIgnoreCase) ||
+        _bridge.GetAvailableConversations().Any(conversation =>
+            windowTitle.StartsWith(conversation.Title, StringComparison.Ordinal));
+
     public async Task<ChatResponse> SendAsync(
         PromptRequest request,
         ChatConversationLink conversation,

@@ -96,26 +96,30 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
-                                <RowDefinition Height="42" /><RowDefinition Height="42" />
+                                <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
                             </Grid.RowDefinitions>
                             <TextBlock VerticalAlignment="Center" Text="Show / hide" />
                             <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Push to talk" />
-                            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Capture desktop" />
-                            <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Capture active window" />
-                            <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Select region" />
+                            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Send prompt" />
+                            <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Capture desktop" />
+                            <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Capture active window" />
+                            <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="Select region" />
                             <Button x:Name="ShowHideHotkey" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
                                 <TextBlock Text="Ctrl+Alt+Space" />
                             </Button>
                             <Button x:Name="PushToTalkHotkey" Grid.Row="1" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
                                 <TextBlock Text="Ctrl+Alt+V" />
                             </Button>
-                            <Button x:Name="DesktopHotkey" Grid.Row="2" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                            <Button x:Name="SendHotkey" Grid.Row="2" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                <TextBlock Text="Ctrl+Alt+Enter" />
+                            </Button>
+                            <Button x:Name="DesktopHotkey" Grid.Row="3" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
                                 <TextBlock Text="Ctrl+Alt+D" />
                             </Button>
-                            <Button x:Name="WindowHotkey" Grid.Row="3" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                            <Button x:Name="WindowHotkey" Grid.Row="4" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
                                 <TextBlock Text="Ctrl+Alt+W" />
                             </Button>
-                            <Button x:Name="RegionHotkey" Grid.Row="4" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                            <Button x:Name="RegionHotkey" Grid.Row="5" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
                                 <TextBlock Text="Ctrl+Alt+Shift+R" />
                             </Button>
                         </Grid>

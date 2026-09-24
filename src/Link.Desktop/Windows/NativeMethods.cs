@@ -14,7 +14,14 @@ internal static class NativeMethods
     internal const int WmSysKeyUp = 0x0105;
     internal const int WmHotkey = 0x0312;
     internal const int WmNcLButtonDown = 0x00A1;
+    internal const int WmNcLButtonDblClk = 0x00A3;
+    internal const int WmSizing = 0x0214;
     internal const int HtCaption = 2;
+    internal const int HtBottom = 15;
+    internal const int HtBottomLeft = 16;
+    internal const int HtBottomRight = 17;
+    internal const uint EventSystemForeground = 0x0003;
+    internal const uint WinEventOutOfContext = 0x0000;
     internal const int DwmwaExtendedFrameBounds = 9;
     internal const int DwmwaUseImmersiveDarkMode = 20;
     internal const int DwmwaSystemBackdropType = 38;
@@ -60,6 +67,23 @@ internal static class NativeMethods
 
     [DllImport("user32.dll", CharSet = CharSet.Unicode)]
     internal static extern int GetWindowTextLength(IntPtr hWnd);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    internal static extern int GetClassName(IntPtr hWnd, StringBuilder className, int maxCount);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr SetWinEventHook(
+        uint eventMin,
+        uint eventMax,
+        IntPtr module,
+        WinEventProc callback,
+        uint processId,
+        uint threadId,
+        uint flags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool UnhookWinEvent(IntPtr hook);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -187,6 +211,15 @@ internal static class NativeMethods
     internal static extern int PropVariantClear(ref PropVariant value);
 
     internal delegate IntPtr LowLevelKeyboardProc(int code, IntPtr wParam, IntPtr lParam);
+
+    internal delegate void WinEventProc(
+        IntPtr hook,
+        uint eventType,
+        IntPtr hwnd,
+        int objectId,
+        int childId,
+        uint threadId,
+        uint eventTime);
 }
 
 [StructLayout(LayoutKind.Sequential, Pack = 2)]

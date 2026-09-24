@@ -4,8 +4,12 @@ namespace Link.Desktop.Windows;
 
 public sealed class TrayIconService : IDisposable
 {
+    // NOTIFYICONDATA limits: 64 characters for the title and 256 for the text, both including the terminator.
+    private const int MaxTitleLength = 63;
+    private const int MaxMessageLength = 255;
     private readonly System.Windows.Forms.NotifyIcon _icon;
     private readonly Icon _linkIcon;
+    private Action? _notificationClicked;
 
     public TrayIconService(Action show, Action settings, Action exit)
     {
@@ -24,13 +28,17 @@ public sealed class TrayIconService : IDisposable
             ContextMenuStrip = menu
         };
         _icon.DoubleClick += (_, _) => show();
+        _icon.BalloonTipClicked += (_, _) => _notificationClicked?.Invoke();
     }
 
-    public void ShowNotification(string title, string message)
+    /// <summary>Shows a Windows notification; <paramref name="clicked"/> runs if the user clicks it.</summary>
+    public void ShowNotification(string title, string message, Action? clicked = null)
     {
-        _icon.BalloonTipTitle = title;
-        _icon.BalloonTipText = message;
-        _icon.ShowBalloonTip(2500);
+        _notificationClicked = clicked;
+        _icon.BalloonTipTitle = Truncate(title, MaxTitleLength);
+        // Windows refuses an empty balloon text.
+        _icon.BalloonTipText = Truncate(string.IsNullOrWhiteSpace(message) ? title : message, MaxMessageLength);
+        _icon.ShowBalloonTip(5000);
     }
 
     public void Dispose()
@@ -39,5 +47,14 @@ public sealed class TrayIconService : IDisposable
         _icon.Dispose();
         _linkIcon.Dispose();
         GC.SuppressFinalize(this);
+    }
+
+    private static string Truncate(string text, int maxLength)
+    {
+        if (text.Length <= maxLength) return text;
+        var length = maxLength - 1;
+        // Never split an emoji's surrogate pair.
+        if (char.IsHighSurrogate(text[length - 1])) length--;
+        return $"{text[..length].TrimEnd()}…";
     }
 }
