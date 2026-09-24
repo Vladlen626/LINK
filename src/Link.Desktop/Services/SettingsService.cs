@@ -19,7 +19,8 @@ public sealed class SettingsService
         _savedLaunchWithWindows = Current.LaunchWithWindows;
     }
 
-    public AppSettings Current { get; private set; }
+    /// <summary>The live settings: one instance for the app's lifetime, edited in place and saved.</summary>
+    public AppSettings Current { get; }
 
     public void Save()
     {

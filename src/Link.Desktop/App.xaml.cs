@@ -18,6 +18,7 @@ public partial class App : System.Windows.Application
     private GlobalHotkeyService? _hotkeys;
     private TrayIconService? _tray;
     private AudioRecorderService? _audio;
+    private TextToSpeechService? _textToSpeech;
     private BrowserChatIntegration? _chat;
     private MainWindow? _mainWindow;
     private bool _started;
@@ -54,7 +55,8 @@ public partial class App : System.Windows.Application
         var requests = new RequestService(paths);
         _chat = new BrowserChatIntegration();
         _audio = new AudioRecorderService(paths);
-        var speech = new SpeechToTextService(paths);
+        _textToSpeech = new TextToSpeechService();
+        var voice = new VoiceSession(_settings.Current, _audio, new SpeechToTextService(paths), _textToSpeech);
 
         _mainWindow = new MainWindow(
             _settings,
@@ -65,8 +67,7 @@ public partial class App : System.Windows.Application
             _currentApplication,
             history,
             clipboard,
-            _audio,
-            speech);
+            voice);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
         _mainWindow.NotificationRequested += ShowNotification;
@@ -175,13 +176,13 @@ public partial class App : System.Windows.Application
 
     private void ShowSettings()
     {
-        if (_settings is null || _mainWindow is null || _hotkeys is null || _audio is null) return;
+        if (_settings is null || _mainWindow is null || _hotkeys is null || _audio is null || _textToSpeech is null) return;
         var previousHotkeys = _settings.Current.Hotkeys.Clone();
         var hotkeysRestarted = false;
         _hotkeys.Stop();
         try
         {
-            var window = new SettingsWindow(_settings, _audio);
+            var window = new SettingsWindow(_settings, _audio, _textToSpeech);
             if (_mainWindow.IsVisible) window.Owner = _mainWindow;
             if (window.ShowDialog() == true)
             {
@@ -292,6 +293,7 @@ public partial class App : System.Windows.Application
         _hotkeys?.Dispose();
         _currentApplication?.Dispose();
         _audio?.Dispose();
+        _textToSpeech?.Dispose();
         _chat?.Dispose();
         _tray?.Dispose();
         _singleInstance?.Dispose();

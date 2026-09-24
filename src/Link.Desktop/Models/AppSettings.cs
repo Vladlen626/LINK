@@ -3,6 +3,8 @@ namespace Link.Desktop.Models;
 public sealed class AppSettings
 {
     private const double DefaultGlassTint = 0.6;
+    // Windows voices sound slow at their normal pace.
+    private const double DefaultVoiceReplySpeed = 1.2;
 
     public int SchemaVersion { get; set; } = 6;
     public double Opacity { get; set; } = DefaultGlassTint;
@@ -13,6 +15,14 @@ public sealed class AppSettings
     public VoiceLanguage VoiceLanguage { get; set; } = VoiceLanguage.Auto;
     public string? MicrophoneDeviceId { get; set; }
     public string? MicrophoneDeviceName { get; set; }
+
+    /// <summary>Read the answer to a dictated prompt aloud.</summary>
+    public bool VoiceReplies { get; set; } = true;
+
+    /// <summary>A Windows voice by name; null picks one that speaks the answer's language.</summary>
+    public string? VoiceReplyVoice { get; set; }
+
+    public double VoiceReplySpeed { get; set; } = DefaultVoiceReplySpeed;
     public ResponseEffort ResponseEffort { get; set; } = ResponseEffort.Normal;
     public int ScreenshotHistorySize { get; set; } = 5;
     public bool LaunchWithWindows { get; set; }
@@ -54,6 +64,10 @@ public sealed class AppSettings
             MicrophoneDeviceId = null;
             MicrophoneDeviceName = null;
         }
+        if (string.IsNullOrWhiteSpace(VoiceReplyVoice)) VoiceReplyVoice = null;
+        VoiceReplySpeed = double.IsFinite(VoiceReplySpeed)
+            ? Math.Round(Math.Clamp(VoiceReplySpeed, 0.5, 2.0), 2)
+            : DefaultVoiceReplySpeed;
         Window.Normalize();
         Hotkeys.Normalize();
     }

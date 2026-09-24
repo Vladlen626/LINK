@@ -15,18 +15,26 @@ public partial class SettingsWindow : Window
     private static readonly TimeSpan MicrophoneTestDuration = TimeSpan.FromSeconds(3);
     private readonly SettingsService _settings;
     private readonly IAudioRecorder _audio;
+    private readonly ITextToSpeech _textToSpeech;
     private Button? _capturingHotkey;
     private string? _hotkeyBeforeCapture;
     private AudioInputDevice? _disconnectedMicrophone;
     private CancellationTokenSource? _microphoneTest;
+    private IReadOnlyList<SpeechVoice> _voices = [];
+    private CancellationTokenSource? _voiceTest;
 
-    public SettingsWindow(SettingsService settings, IAudioRecorder audio)
+    public SettingsWindow(SettingsService settings, IAudioRecorder audio, ITextToSpeech textToSpeech)
     {
         _settings = settings;
         _audio = audio;
+        _textToSpeech = textToSpeech;
         InitializeComponent();
         SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
-        Closing += (_, _) => StopMicrophoneTest();
+        Closing += (_, _) =>
+        {
+            StopMicrophoneTest();
+            _voiceTest?.Cancel();
+        };
 
         var current = settings.Current;
         ThemeCombo.ItemsSource = Enum.GetValues<AppTheme>();
@@ -36,6 +44,9 @@ public partial class SettingsWindow : Window
         VoiceLanguageCombo.ItemsSource = Enum.GetValues<VoiceLanguage>();
         VoiceLanguageCombo.SelectedItem = current.VoiceLanguage;
         LoadMicrophones(current);
+        VoiceRepliesBox.IsChecked = current.VoiceReplies;
+        ReplySpeedSlider.Value = current.VoiceReplySpeed;
+        LoadVoices(current);
         ClickThroughCombo.ItemsSource = new[] { ClickThroughMode.Off, ClickThroughMode.WhenCollapsed };
         ClickThroughCombo.SelectedItem = current.ClickThrough;
         HistorySizeBox.Text = current.ScreenshotHistorySize.ToString();
@@ -79,6 +90,84 @@ public partial class SettingsWindow : Window
         MicrophoneCombo.ItemsSource = options;
         MicrophoneCombo.SelectedItem = options.FirstOrDefault(option => option.Id == current.MicrophoneDeviceId) ?? options[0];
     }
+
+    private void LoadVoices(AppSettings current)
+    {
+        try
+        {
+            _voices = _textToSpeech.GetVoices();
+            ReplyVoiceText.Text = DescribeVoices(_voices);
+        }
+        catch (Exception exception)
+        {
+            ReplyVoiceText.Text = $"Windows voices could not be listed: {exception.Message}";
+        }
+
+        var options = new List<VoiceOption> { new(null, "Auto — matches the answer's language") };
+        options.AddRange(_voices.Select(voice => new VoiceOption(voice.Name, $"{voice.Name} · {voice.Language}")));
+        if (current.VoiceReplyVoice is { } savedName && _voices.All(voice => voice.Name != savedName))
+        {
+            // Keep an uninstalled choice instead of silently switching it to Auto on Save.
+            options.Add(new VoiceOption(savedName, $"{savedName} (not installed)"));
+        }
+
+        ReplyVoiceCombo.ItemsSource = options;
+        ReplyVoiceCombo.SelectedItem = options.First(option => option.Name == current.VoiceReplyVoice);
+    }
+
+    private async void VoiceTest_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_voiceTest is not null)
+        {
+            _voiceTest.Cancel();
+            return;
+        }
+
+        var cancellation = new CancellationTokenSource();
+        _voiceTest = cancellation;
+        VoiceTestButton.Content = "Stop";
+        try
+        {
+            var voiceName = (ReplyVoiceCombo.SelectedItem as VoiceOption)?.Name;
+            var voice = _voices.FirstOrDefault(candidate => candidate.Name == voiceName);
+            var russian = voice is not null ? IsRussianVoice(voice) : _voices.Any(IsRussianVoice);
+            // An answer being read aloud would talk over the sample.
+            _textToSpeech.Stop();
+            await _textToSpeech.SpeakAsync(
+                russian ? "Привет! Так LINK будет читать ответы." : "Hi! This is how LINK will read its answers.",
+                new SpeechOptions(voiceName, russian ? "ru" : "en", ReplySpeedSlider.Value),
+                cancellation.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Stopped with the button or by closing Settings.
+        }
+        catch (Exception exception)
+        {
+            ReplyVoiceText.Text = exception.Message;
+        }
+        finally
+        {
+            _voiceTest = null;
+            cancellation.Dispose();
+            VoiceTestButton.Content = "Test voice";
+        }
+    }
+
+    private static string DescribeVoices(IReadOnlyList<SpeechVoice> voices)
+    {
+        if (voices.Count == 0) return "Windows has no voices installed. Add one in Windows Settings → Time & language → Speech.";
+        if (!voices.Any(IsRussianVoice))
+        {
+            return "No Russian voice is installed, so Russian answers will sound wrong. Add one in Windows Settings → " +
+                   "Time & language → Speech → Add voices. Link could use a local neural voice (Piper) instead — not built in yet.";
+        }
+
+        return "Link reads the opening of an answer; the rest stays on screen. Push-to-talk interrupts, Esc stops.";
+    }
+
+    private static bool IsRussianVoice(SpeechVoice voice) =>
+        voice.Language.StartsWith("ru", StringComparison.OrdinalIgnoreCase);
 
     private async void MicrophoneTest_OnClick(object sender, RoutedEventArgs e)
     {
@@ -277,6 +366,9 @@ public partial class SettingsWindow : Window
             current.MicrophoneDeviceId = microphone?.Id;
             current.MicrophoneDeviceName = microphone?.Id is null ? null : microphone.Name;
         }
+        current.VoiceReplies = VoiceRepliesBox.IsChecked == true;
+        current.VoiceReplyVoice = (ReplyVoiceCombo.SelectedItem as VoiceOption)?.Name;
+        current.VoiceReplySpeed = ReplySpeedSlider.Value;
         current.ClickThrough = (ClickThroughMode)(ClickThroughCombo.SelectedItem ?? ClickThroughMode.WhenCollapsed);
         current.ScreenshotHistorySize = historySize;
         current.AlwaysOnTop = AlwaysOnTopBox.IsChecked == true;
@@ -311,5 +403,11 @@ public partial class SettingsWindow : Window
     private static void SetHotkey(Button button, string value)
     {
         if (button.Content is TextBlock text) text.Text = value;
+    }
+
+    /// <summary>A reply voice choice; a null <see cref="Name"/> picks a voice for the answer's language.</summary>
+    private sealed record VoiceOption(string? Name, string Label)
+    {
+        public override string ToString() => Label;
     }
 }

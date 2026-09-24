@@ -14,3 +14,4 @@ jobs:
           dotnet-version: 10.0.x
       - run: dotnet restore Link.sln
       - run: dotnet build Link.sln --configuration Release --no-restore
+      - run: dotnet run --project tests/Link.Desktop.Tests --configuration Release --no-build

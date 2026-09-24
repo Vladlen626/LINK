@@ -3,135 +3,96 @@ using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
-using Link.Desktop.Models;
+using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
 public partial class MainWindow
 {
-    private static readonly TimeSpan MinimumSpeechDuration = TimeSpan.FromMilliseconds(300);
-    private bool _sendAfterVoice;
-
+    /// <summary>Push-to-talk pressed; during a spoken answer it silences Link and listens right away.</summary>
     public void StartPushToTalk()
     {
-        if (_sending || _voiceState != VoiceState.Idle) return;
+        if (!_voice.CanStartListening) return;
 
         try
         {
-            RemoveVoiceContextItems();
-            _voiceState = VoiceState.Recording;
             ShowPassive();
-            var usedSelectedMicrophone = _audio.Start(_settings.Current.MicrophoneDeviceId);
-            ShellRim.BorderBrush = (Brush)FindResource("RecordingRimBrush");
-            VoiceButton.Background = (Brush)FindResource("RecordingGelBrush");
-            VoiceButton.BorderBrush = (Brush)FindResource("SuccessBorderBrush");
-            ExpandedLinkGlyph.Foreground = (Brush)FindResource("SuccessBrush");
-            CollapsedLinkGlyph.Foreground = (Brush)FindResource("SuccessBrush");
-            AnimateVoiceGlyphs(start: true);
+            var usedSelectedMicrophone = _voice.StartListening();
             SetStatus(usedSelectedMicrophone
                 ? "Listening — release to finish"
                 : "Selected microphone is not connected — listening on the Windows default", "Listening");
         }
         catch (Exception exception)
         {
-            _voiceState = VoiceState.Idle;
             SetError(exception.Message);
         }
     }
 
     public async Task StopPushToTalkAsync()
     {
-        if (_voiceState != VoiceState.Recording) return;
+        if (_voice.Phase != VoicePhase.Listening) return;
 
-        _voiceState = VoiceState.Transcribing;
-        ShellRim.BorderBrush = (Brush)FindResource("RimLightBrush");
-        VoiceButton.ClearValue(BackgroundProperty);
-        VoiceButton.ClearValue(BorderBrushProperty);
-        ExpandedLinkGlyph.Foreground = (Brush)FindResource("BrandBrush");
-        CollapsedLinkGlyph.Foreground = (Brush)FindResource("BrandBrush");
-        AnimateVoiceGlyphs(start: false);
-        string? audioPath = null;
-        var transcribed = false;
-        var sendNow = false;
-
+        VoiceTranscript? transcript;
         try
         {
-            var recording = _audio.Stop();
-            audioPath = recording.FilePath!;
-            RemoveVoiceContextItems();
-            RemoveMissingContextFiles();
-            if (recording.Duration < MinimumSpeechDuration || recording.IsSilent)
-            {
-                // Whisper invents phrases for silence, so nothing is transcribed without a signal.
-                TryDeleteRecording(audioPath);
-                audioPath = null;
-                if (recording.IsSilent)
-                {
-                    SetError("No sound from the microphone. Check the input device in Settings → Microphone.");
-                }
-                else
-                {
-                    SetStatus("Recording was too short — hold the key while speaking");
-                }
-                return;
-            }
-
-            SetStatus(_speech.IsModelReady
-                ? "Transcribing locally…"
-                : "Downloading local speech model (first use)…", "Transcribing");
-            var transcript = await _speech.TranscribeAsync(audioPath, _settings.Current.VoiceLanguage);
-            PromptBox.Text = string.IsNullOrWhiteSpace(PromptBox.Text)
-                ? transcript
-                : $"{PromptBox.Text.TrimEnd()} {transcript}";
-            transcribed = true;
-
-            // The transcript has one canonical home: user input. The browser transport does not send raw audio.
-            SetStatus(TryDeleteRecording(audioPath)
-                ? "Voice transcribed"
-                : "Voice transcribed; temporary recording could not be deleted");
+            transcript = await _voice.FinishListeningAsync();
         }
         catch (Exception exception)
         {
-            SetError(audioPath is null
-                ? exception.Message
-                : $"{exception.Message} Recording was kept locally.");
-        }
-        finally
-        {
-            RemoveVoiceContextItems();
-            _voiceState = VoiceState.Idle;
-            // Send was pressed while the user was still speaking or being transcribed.
-            // Without a transcript it is dropped: the status already explains what went wrong.
-            sendNow = _sendAfterVoice && transcribed;
-            _sendAfterVoice = false;
+            SetError(exception.Message);
+            return;
         }
 
-        if (sendNow) await SendAsync();
+        if (transcript is null)
+        {
+            SetStatus("Recording was too short — hold the key while speaking");
+            return;
+        }
+
+        PromptBox.Text = string.IsNullOrWhiteSpace(PromptBox.Text)
+            ? transcript.Text
+            : $"{PromptBox.Text.TrimEnd()} {transcript.Text}";
+        SetStatus("Voice transcribed");
+        // Send was pressed while the user was still speaking or being transcribed.
+        if (transcript.SendRequested) await SendAsync();
     }
 
-    private void RemoveVoiceContextItems()
+    private void OnVoicePhaseChanged(VoicePhase previous)
     {
-        foreach (var item in _context.Where(item => item.Type == ContextItemType.Voice).ToArray())
+        var phase = _voice.Phase;
+        var listening = phase == VoicePhase.Listening;
+        var speaking = phase == VoicePhase.Speaking;
+        ShellRim.BorderBrush = (Brush)FindResource(listening ? "RecordingRimBrush" : "RimLightBrush");
+        if (listening)
         {
-            ReleaseContext(item);
-            _context.Remove(item);
+            VoiceButton.Background = (Brush)FindResource("RecordingGelBrush");
+            VoiceButton.BorderBrush = (Brush)FindResource("SuccessBorderBrush");
         }
-    }
+        else
+        {
+            VoiceButton.ClearValue(BackgroundProperty);
+            VoiceButton.ClearValue(BorderBrushProperty);
+        }
 
-    private static bool TryDeleteRecording(string path)
-    {
-        try
+        var glyph = (Brush)FindResource(listening ? "SuccessBrush" : speaking ? "AquaBrush" : "BrandBrush");
+        ExpandedLinkGlyph.Foreground = glyph;
+        CollapsedLinkGlyph.Foreground = glyph;
+        AnimateVoiceGlyphs(start: listening || speaking);
+        UpdateSendButton();
+
+        if (phase == VoicePhase.Finalizing)
         {
-            File.Delete(path);
-            return true;
+            SetStatus(_voice.IsSpeechModelReady
+                ? "Transcribing locally…"
+                : "Downloading local speech model (first use)…", "Transcribing");
         }
-        catch (IOException)
+        else if (speaking)
         {
-            return false;
+            SetStatus("Speaking — Esc stops, push-to-talk interrupts", "Speaking");
         }
-        catch (UnauthorizedAccessException)
+        else if (previous == VoicePhase.Speaking && phase == VoicePhase.Idle)
         {
-            return false;
+            SetStatus(ResponseReceivedStatus(), "Done");
         }
     }
 
@@ -166,7 +127,7 @@ public partial class MainWindow
     {
         if (e.ChangedButton != MouseButton.Left) return;
         StartPushToTalk();
-        if (_voiceState == VoiceState.Recording) ((Button)sender).CaptureMouse();
+        if (_voice.Phase == VoicePhase.Listening) ((Button)sender).CaptureMouse();
         e.Handled = true;
     }
 
@@ -176,12 +137,5 @@ public partial class MainWindow
         ((Button)sender).ReleaseMouseCapture();
         await StopPushToTalkAsync();
         e.Handled = true;
-    }
-
-    private enum VoiceState
-    {
-        Idle,
-        Recording,
-        Transcribing
     }
 }

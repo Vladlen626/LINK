@@ -34,6 +34,7 @@ current app / screen / clipboard / voice
 - preview последнего screenshot, attachment chips и ограниченная история, которая не удаляет активные attachments;
 - локальная WAV-запись и распознавание Whisper для RU/EN/Auto без Windows speech pack;
 - выбор микрофона в Settings → Microphone (полные имена устройств, Windows default, отключённое устройство не теряется) и тест с индикатором уровня; запись без сигнала не отправляется в Whisper, чтобы он не «придумывал» текст на тишине;
+- голосовой ответ: если запрос продиктован через push-to-talk, Link читает вслух начало ответа голосом Windows — первый абзац, не больше трёх предложений, без кода, таблиц, URL и разметки; если в ответе есть что-то ещё, добавляет «Подробности на экране.». Push-to-talk во время речи сразу обрывает её и начинает запись; Esc, кнопка Stop и hotkey Send просто останавливают. В Settings → Voice replies: включение, голос (Auto подбирает голос по языку ответа), скорость и проверка голоса;
 - видимый context stack для screenshots, voice и clipboard;
 - проекты с `General` по умолчанию, active project и current task;
 - сборка versioned `PromptRequest`, debug output и atomic-сохранение последнего request;
@@ -60,7 +61,7 @@ Link должен ощущаться как маленький персонал�
 - автоматически добавить релевантный project/current-task context;
 - продолжать существующую долгую AI-беседу;
 - получить ответ прямо в overlay;
-- позже — услышать его через local TTS или выполнить безопасное локальное действие.
+- услышать короткий ответ голосом, а дальше — разговаривать с Link без рук (Conversation Mode) или выполнить безопасное локальное действие.
 
 Обычный сценарий не должен требовать ручного перехода в browser UI, copy/paste каждого запроса или ручного переноса ответа обратно в Link.
 
@@ -73,6 +74,12 @@ Browser companion, direct provider API и local model должны быть за
 ```powershell
 dotnet build Link.sln --configuration Release
 dotnet run --project src/Link.Desktop/Link.Desktop.csproj
+```
+
+Проверки логики без микрофона, звука и браузера (что именно Link прочитает вслух, переходы голосовой сессии на фейках) — консольный раннер без тестового фреймворка: печатает упавшие примеры, код выхода равен числу ошибок. CI запускает его после сборки.
+
+```powershell
+dotnet run --project tests/Link.Desktop.Tests
 ```
 
 ### Подключение ChatGPT
@@ -120,12 +127,15 @@ dotnet run --project src/Link.Desktop/Link.Desktop.csproj
 ```text
 src/Link.Desktop/
 ├── Models/        settings, projects, context и PromptRequest
-├── Services/      storage, context, request builder и chat integration
+├── Services/      storage, context, request builder, chat integration, voice session, STT и TTS
 ├── Windows/       Win32 hotkeys/styles, GDI capture, waveIn audio + Core Audio device list, tray
-├── MainWindow*    overlay shell, capture и voice orchestration
+├── MainWindow*    overlay shell; capture и voice UI
 ├── SettingsWindow*
 └── RegionSelectionWindow*
+tests/Link.Desktop.Tests/   проверки логики без тестового фреймворка
 ```
+
+`VoiceSession` — единственный владелец голосового состояния (Idle → Listening → Finalizing → Sending → Waiting → Speaking): микрофон, Whisper, прогресс запроса и чтение ответа вслух. UI только отображает его фазу.
 
 `browser-extension/` содержит первый ChatGPT transport. Desktop-приложение отдаёт ему pending requests через локальный HTTP bridge; extension взаимодействует с DOM уже открытой беседы и возвращает progress/response. Browser-specific код не попадает в модели Link или `MainWindow`.
 
@@ -149,6 +159,7 @@ Link prompt/context
 ## Зависимости и ограничения
 
 - Для локального распознавания речи используются `Whisper.net` и его CPU runtime. При первом использовании Voice загружается мультиязычная модель Base в `%LocalAppData%\Link\Models`; дальше распознавание работает локально. Для этого runtime нужны Windows 11+, интернет при первой загрузке и Microsoft Visual C++ Redistributable 2022 x64.
+- Голосовые ответы идут через `System.Speech` — официальную обёртку Microsoft над SAPI, которая есть в Windows, — и голоса, установленные в Windows (классические Desktop и OneCore, например Irina, Pavel, Zira). Ничего не скачивается. Если русского голоса нет, Settings подскажет, где его добавить. Это не нейросетевые голоса: звучат заметно синтетически.
 - Browser transport требует запущенный Chrome/Edge, вручную загруженный unpacked companion и открытую вкладку связанной беседы.
 - Companion зависит от DOM ChatGPT. Он поддерживает классический composer и новый интерфейс ChatGPT (`textarea[name="prompt"]`, `data-message-complete`), но после изменений UI могут потребоваться обновления селекторов.
 - Переключение режима ChatGPT для Fast/Deep эвристическое (ищет переключатель моделей и пункты Instant/Auto/Thinking). Если переключить не удалось, статус Link пишет «ChatGPT mode not switched», а подсказка о длине ответа всё равно уходит в запрос.

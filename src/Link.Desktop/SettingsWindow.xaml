@@ -90,6 +90,34 @@
                         </Grid>
                     </Border>
 
+                    <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="VOICE REPLIES" />
+                    <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions>
+                                <RowDefinition Height="36" /><RowDefinition Height="44" /><RowDefinition Height="44" />
+                                <RowDefinition Height="44" /><RowDefinition Height="Auto" />
+                            </Grid.RowDefinitions>
+                            <CheckBox x:Name="VoiceRepliesBox" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                      Content="Read the answer aloud when I ask by voice" />
+                            <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Voice" />
+                            <ComboBox x:Name="ReplyVoiceCombo" Grid.Row="1" Grid.Column="1" />
+                            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Speed" />
+                            <Grid Grid.Row="2" Grid.Column="1" VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
+                                <Slider x:Name="ReplySpeedSlider" Minimum="0.5" Maximum="2" SmallChange="0.1" LargeChange="0.2"
+                                        TickFrequency="0.1" IsSnapToTickEnabled="True" />
+                                <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
+                                           Text="{Binding ElementName=ReplySpeedSlider, Path=Value, StringFormat={}{0:0.0}×}" />
+                            </Grid>
+                            <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Check" />
+                            <Button x:Name="VoiceTestButton" Grid.Row="3" Grid.Column="1" HorizontalAlignment="Left"
+                                    Style="{StaticResource ChipButtonStyle}" Click="VoiceTest_OnClick" Content="Test voice" />
+                            <TextBlock x:Name="ReplyVoiceText" Grid.Row="4" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                        </Grid>
+                    </Border>
+
                     <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="GLOBAL HOTKEYS" />
                     <Border Style="{StaticResource GlassCardStyle}" Padding="16,6">
                         <Grid>

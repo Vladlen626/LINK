@@ -211,12 +211,13 @@ Current application context — важная часть будущего «Jarvi
 - .NET 10;
 - WPF;
 - Windows native APIs;
-- `Whisper.net` с CPU runtime и локальной мультиязычной моделью Base для STT.
+- `Whisper.net` с CPU runtime и локальной мультиязычной моделью Base для STT;
+- `System.Speech` (официальная обёртка Microsoft над SAPI) для голосовых ответов установленными голосами Windows.
 
 Позже, когда появится реальная потребность:
 - SQLite для локальной памяти;
 - Windows Graphics Capture для vision;
-- локальный TTS;
+- локальный нейросетевой TTS (Piper), если голосов Windows окажется мало;
 - browser companion/extension на TypeScript для поддерживаемых пользовательских интеграций.
 
 Не добавлять эти зависимости заранее без реализуемой фичи.
@@ -311,10 +312,18 @@ Direct API integration остаётся возможным вторым adapter'
 - локальные действия.
 
 ### Milestone 7 — Voice replies
-- local TTS;
+Статус: проход 1 из 3 реализован (2026-09-24), ждёт ручной проверки.
+- local TTS — реализован через голоса Windows;
 - conversation mode;
-- interruption/cancel;
-- выбор голоса.
+- interruption/cancel — клавишей реализовано;
+- выбор голоса и скорости — реализован.
+
+Главный критерий голосового режима — время до первого звука ответа и возможность перебить Link. Три прохода:
+1. `VoiceSession` + TTS + перебивание клавишей — сделано. Одна машина состояний Idle → Listening → Finalizing → Sending → Waiting → Speaking без UI; overlay только подписывается на фазу. Ответ читается, если запрос продиктован (PTT) и включён Voice replies. Читается начало: первый абзац, до трёх предложений (меньше, если они длинные), без кода, таблиц, формул, заголовков, URL и разметки; если есть ещё текст — «Подробности на экране.» (`SpokenAnswer`, проверки в `tests/`). PTT во время речи — мгновенный Stop и запись; Esc, Stop и hotkey Send — Stop.
+2. Говорить по мере поступления ответа и честные статусы (earcon на Sending, фраза только при долгом Waiting) — следующий.
+3. Детектор речи, живой текст и Conversation Mode — после отдельного исследования одной локальной зависимости (кандидат — sherpa-onnx).
+
+Решение по TTS: `System.Speech`, а не WinRT `Windows.Media.SpeechSynthesis`. Он проще (сам воспроизводит звук, очередь и мгновенная отмена встроены), не требует TFM `net10.0-windows10.0.x` и собственного плеера, а версия 10 видит и классические SAPI-голоса, и OneCore (на машине пользователя: Irina Desktop, Zira Desktop, Irina, Pavel; WinRT видит только русские). Голос выбирается через `SelectVoice`: выбор внутри SSML подменяет Irina Desktop на OneCore Irina. Нормальная скорость голосов Windows медленная, поэтому по умолчанию 1.2×.
 
 ## Текущий статус репозитория
 
@@ -336,6 +345,7 @@ Direct API integration остаётся возможным вторым adapter'
 - latched work target (`CurrentApplicationService.WorkTarget`): фиксируется global hotkey'ем или возвратом в Link после ≥ 2 с работы в приложении; окна ChatGPT (по заголовку) неявно его не заменяют, собственные hide/show Link тоже; используется для metadata, Auto active window и Active window capture;
 - один manual Region context: новый регион заменяет прежний, повторный вызов при открытом selector игнорируется;
 - выбор и тест микрофона в Settings;
+- голосовой ответ на продиктованный запрос голосом Windows (Settings → Voice replies: вкл/выкл, голос, скорость, тест); PTT во время речи перебивает и слушает, Esc/Stop/Send hotkey — замолкает;
 - current application metadata и включаемый в Screen-меню Auto active window capture на каждый Send;
 - обычные shortcut’ы через `RegisterHotKey`, low-level hook только для key-down/key-up push-to-talk;
 - atomic JSON persistence и защищённый lifecycle активных screenshot attachments;

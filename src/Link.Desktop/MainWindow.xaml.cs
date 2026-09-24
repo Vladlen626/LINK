@@ -25,11 +25,9 @@ public partial class MainWindow : Window
     private readonly CurrentApplicationService _currentApplication;
     private readonly ScreenshotHistoryService _history;
     private readonly ClipboardContextService _clipboard;
-    private readonly IAudioRecorder _audio;
-    private readonly ISpeechToText _speech;
+    private readonly VoiceSession _voice;
     private readonly ObservableCollection<ContextItem> _context = [];
     private bool _collapsed;
-    private VoiceState _voiceState;
     private double _expandedWidth = 340;
     private Guid? _previewContextId;
     private IntPtr _windowHandle;
@@ -44,8 +42,7 @@ public partial class MainWindow : Window
         CurrentApplicationService currentApplication,
         ScreenshotHistoryService history,
         ClipboardContextService clipboard,
-        IAudioRecorder audio,
-        ISpeechToText speech)
+        VoiceSession voice)
     {
         _settings = settings;
         _projects = projects;
@@ -55,10 +52,10 @@ public partial class MainWindow : Window
         _currentApplication = currentApplication;
         _history = history;
         _clipboard = clipboard;
-        _audio = audio;
-        _speech = speech;
+        _voice = voice;
 
         InitializeComponent();
+        _voice.PhaseChanged += OnVoicePhaseChanged;
         _resizeBorder = WindowChrome.GetWindowChrome(this).ResizeBorderThickness;
         _connectionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _connectionTimer.Tick += (_, _) => UpdateConnectionState();
@@ -489,23 +486,30 @@ public partial class MainWindow : Window
     private void CurrentTaskBox_OnTextChanged(object sender, TextChangedEventArgs e) =>
         CurrentTaskPlaceholder.Visibility = string.IsNullOrEmpty(CurrentTaskBox.Text) ? Visibility.Visible : Visibility.Collapsed;
 
-    private void PromptBox_OnTextChanged(object sender, TextChangedEventArgs e) =>
-        PromptPlaceholder.Visibility = string.IsNullOrEmpty(PromptBox.Text) ? Visibility.Visible : Visibility.Collapsed;
+    private void PromptBox_OnTextChanged(object sender, TextChangedEventArgs e)
+    {
+        var empty = string.IsNullOrEmpty(PromptBox.Text);
+        PromptPlaceholder.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        // A cleared prompt no longer holds the dictated words, so its answer is not read aloud.
+        if (empty) _voice.ForgetVoicePrompt();
+    }
 
-    private void PromptBox_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    private async void PromptBox_OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         // Enter sends, Shift+Enter keeps the TextBox newline. IME composition arrives as ImeProcessed.
         if (e.Key != Key.Return || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
         e.Handled = true;
-        // While a request runs the send button means Stop; Enter must never cancel.
-        if (!_sending && !e.IsRepeat) Send_OnClick(sender, e);
+        // The send button may mean Stop right now; Enter only ever sends.
+        if (!_sending && !e.IsRepeat) await SendOrQueueAsync();
     }
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Escape || !_sending) return;
+        if (e.Key != Key.Escape) return;
+        if (_sending) CancelSend();
+        else if (_voice.Phase == VoicePhase.Speaking) _voice.StopSpeaking();
+        else return;
         e.Handled = true;
-        CancelSend();
     }
 
 }

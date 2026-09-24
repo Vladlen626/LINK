@@ -26,10 +26,19 @@ public partial class MainWindow
     private string _responseText = string.Empty;
     private string? _chatNotice;
 
-    /// <summary>The global Send hotkey: works from any app, never cancels a running request.</summary>
+    /// <summary>
+    /// The global Send hotkey: works from any app and never cancels a running request.
+    /// While an answer is read aloud it only silences Link.
+    /// </summary>
     public async Task SendFromHotkeyAsync()
     {
         if (_selectingRegion) return;
+        if (_voice.Phase == VoicePhase.Speaking)
+        {
+            _voice.StopSpeaking();
+            return;
+        }
+
         // The progress and any "nothing to send" message must be visible even when Link was hidden.
         ShowPassive();
         await SendOrQueueAsync();
@@ -43,17 +52,23 @@ public partial class MainWindow
             return;
         }
 
+        if (_voice.Phase == VoicePhase.Speaking)
+        {
+            _voice.StopSpeaking();
+            return;
+        }
+
         await SendOrQueueAsync();
     }
 
     private async Task SendOrQueueAsync()
     {
-        if (_voiceState != VoiceState.Idle)
+        if (_voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing)
         {
             // Push-to-talk was just released: send as soon as the transcript is in the prompt.
-            _sendAfterVoice = true;
+            _voice.SendWhenTranscribed();
             SetStatus("Will send when the transcript is ready…",
-                _voiceState == VoiceState.Recording ? "Listening" : "Transcribing");
+                _voice.Phase == VoicePhase.Listening ? "Listening" : "Transcribing");
             return;
         }
 
@@ -88,6 +103,7 @@ public partial class MainWindow
         var cancellation = new CancellationTokenSource();
         _sendCancellation = cancellation;
         _chatNotice = null;
+        _voice.BeginRequest();
         SetSending(true);
         ShowResponse(ChatProgressState.Sending, string.Empty);
         ContextItem? transientContext = null;
@@ -139,8 +155,9 @@ public partial class MainWindow
             ShowResponse(ChatProgressState.Completed, response.Text);
             PromptBox.Clear();
             ClearContext(prune: true);
-            SetStatus(_chatNotice is null ? "Response received" : $"Response received · {_chatNotice}", "Done");
+            SetStatus(ResponseReceivedStatus(), "Done");
             NotifyIfAway(project, "Answer ready", ToNotificationText(response.Text));
+            _ = ReadAnswerAloudAsync(response.Text);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -155,11 +172,28 @@ public partial class MainWindow
         }
         finally
         {
+            // After a failure or Stop; an answer being read aloud keeps its phase.
+            _voice.EndRequest();
             DeleteTransientContext(transientContext);
             _sendCancellation = null;
             cancellation.Dispose();
             SetSending(false);
             UpdateConnectionState();
+        }
+    }
+
+    private string ResponseReceivedStatus() =>
+        _chatNotice is null ? "Response received" : $"Response received · {_chatNotice}";
+
+    private async Task ReadAnswerAloudAsync(string answer)
+    {
+        try
+        {
+            await _voice.CompleteRequestAsync(answer);
+        }
+        catch (Exception exception)
+        {
+            SetError($"The answer could not be read aloud: {exception.Message}");
         }
     }
 
@@ -292,10 +326,7 @@ public partial class MainWindow
     private void SetSending(bool sending)
     {
         _sending = sending;
-        // While a request runs, the send orb becomes Stop; Esc does the same.
-        SendIcon.Data = sending ? StopIconGeometry : (Geometry)FindResource("SendIconGeometry");
-        SendIcon.Fill = sending ? SendIcon.Stroke : Brushes.Transparent;
-        SendButton.ToolTip = sending ? "Stop request (Esc)" : "Send to linked chat";
+        UpdateSendButton();
         PromptBox.IsReadOnly = sending;
         CurrentTaskBox.IsEnabled = !sending;
         ProjectMenuButton.IsEnabled = !sending;
@@ -307,8 +338,18 @@ public partial class MainWindow
         ClipboardButton.IsEnabled = !sending;
     }
 
+    private void UpdateSendButton()
+    {
+        // While a request runs or an answer is read aloud, the send orb becomes Stop; Esc does the same.
+        var stop = _sending || _voice.Phase == VoicePhase.Speaking;
+        SendIcon.Data = stop ? StopIconGeometry : (Geometry)FindResource("SendIconGeometry");
+        SendIcon.Fill = stop ? SendIcon.Stroke : Brushes.Transparent;
+        SendButton.ToolTip = _sending ? "Stop request (Esc)" : stop ? "Stop reading aloud (Esc)" : "Send to linked chat";
+    }
+
     private void OnChatProgress(ChatProgress progress)
     {
+        _voice.ReportProgress(progress);
         if (progress.Notice is not null)
         {
             // Kept for the final status line; the next progress state would hide it right away.
