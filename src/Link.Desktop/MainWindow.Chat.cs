@@ -41,20 +41,23 @@ public partial class MainWindow
 
         // The progress and any "nothing to send" message must be visible even when Link was hidden.
         ShowPassive();
+        // One message at a time: words dictated while an answer arrives wait in the prompt.
+        if (_sending) return;
         await SendOrQueueAsync();
     }
 
     private async void Send_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_sending)
-        {
-            CancelSend();
-            return;
-        }
-
+        // Silencing Link comes first; the answer keeps arriving on screen and the next press stops the request.
         if (_voice.Phase == VoicePhase.Speaking)
         {
             _voice.StopSpeaking();
+            return;
+        }
+
+        if (_sending)
+        {
+            CancelSend();
             return;
         }
 
@@ -138,9 +141,10 @@ public partial class MainWindow
             var requestContext = transientContext is null
                 ? _context.ToArray()
                 : _context.Append(transientContext).ToArray();
+            var prompt = PromptBox.Text;
             var request = _requests.BuildAndLog(
                 project,
-                PromptBox.Text,
+                prompt,
                 requestContext,
                 currentApplication,
                 _settings.Current.ResponseEffort);
@@ -153,11 +157,16 @@ public partial class MainWindow
             };
             _projects.Save();
             ShowResponse(ChatProgressState.Completed, response.Text);
-            PromptBox.Clear();
+            // Words dictated after interrupting the spoken answer are the next message: only the sent prompt goes.
+            var sent = prompt.TrimEnd();
+            PromptBox.Text = PromptBox.Text.StartsWith(sent, StringComparison.Ordinal)
+                ? PromptBox.Text[sent.Length..].Trim()
+                : string.Empty;
             ClearContext(prune: true);
             SetStatus(ResponseReceivedStatus(), "Done");
             NotifyIfAway(project, "Answer ready", ToNotificationText(response.Text));
             _ = ReadAnswerAloudAsync(response.Text);
+            if (_voice.Phase == VoicePhase.Speaking) SetStatus(SpeakingStatus, "Speaking");
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
@@ -334,17 +343,17 @@ public partial class MainWindow
         ContextActionsPanel.IsEnabled = !sending;
         ContextItemsControl.IsEnabled = !sending;
         ScreenButton.IsEnabled = !sending;
-        VoiceButton.IsEnabled = !sending;
         ClipboardButton.IsEnabled = !sending;
     }
 
     private void UpdateSendButton()
     {
-        // While a request runs or an answer is read aloud, the send orb becomes Stop; Esc does the same.
-        var stop = _sending || _voice.Phase == VoicePhase.Speaking;
+        // While a request runs or Link talks, the send orb becomes Stop; Esc does the same, silencing Link first.
+        var speaking = _voice.Phase == VoicePhase.Speaking;
+        var stop = _sending || speaking;
         SendIcon.Data = stop ? StopIconGeometry : (Geometry)FindResource("SendIconGeometry");
         SendIcon.Fill = stop ? SendIcon.Stroke : Brushes.Transparent;
-        SendButton.ToolTip = _sending ? "Stop request (Esc)" : stop ? "Stop reading aloud (Esc)" : "Send to linked chat";
+        SendButton.ToolTip = speaking ? "Stop reading aloud (Esc)" : _sending ? "Stop request (Esc)" : "Send to linked chat";
     }
 
     private void OnChatProgress(ChatProgress progress)
@@ -359,6 +368,8 @@ public partial class MainWindow
         }
 
         ShowResponse(progress.State, progress.Text.Length > 0 ? progress.Text : progress.Error ?? string.Empty);
+        // While the user dictates the next message, the status line stays with the microphone.
+        if (_voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing) return;
         SetStatus(progress.State switch
         {
             ChatProgressState.Sending => "Sending to ChatGPT…",

@@ -38,6 +38,14 @@ internal static class Program
         Console.WriteLine($"FAIL {name}\n  expected: {expected}\n  actual:   {actual}");
     }
 
+    /// <summary>Checks a value that work finishing on another thread (e.g. the end of speech) settles soon.</summary>
+    public static async Task EventuallyAsync<T>(string name, Func<T> actual, T expected)
+    {
+        var deadline = DateTime.UtcNow.AddSeconds(5);
+        while (!Equals(actual(), expected) && DateTime.UtcNow < deadline) await Task.Delay(5);
+        Equal(name, actual(), expected);
+    }
+
     public static async Task ThrowsAsync<TException>(string name, Func<Task> action) where TException : Exception
     {
         Exception? error = null;

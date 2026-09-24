@@ -5,9 +5,10 @@ using System.Text.RegularExpressions;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// What to say aloud for a Markdown answer: its opening paragraph, up to three sentences, as plain words.
-/// Code, tables, formulas, headings, URLs and markup are skipped and links keep their text; when more follows,
-/// a short phrase sends the listener to the screen. <see cref="Language"/> is "ru" or "en".
+/// Words to say aloud; <see cref="Language"/> is "ru" or "en". Of a Markdown answer Link says its opening
+/// paragraph, up to three sentences, as plain words: code, tables, formulas, headings, URLs and markup are skipped
+/// and links keep their text; when more follows, a short phrase sends the listener to the screen.
+/// <see cref="SpokenAnswerStream"/> picks them while the answer still streams.
 /// </summary>
 public sealed partial record SpokenAnswer(string Text, string Language)
 {
@@ -15,16 +16,21 @@ public sealed partial record SpokenAnswer(string Text, string Language)
     // Sentences after the first are added only while the speech stays short.
     private const int MaxLength = 300;
 
-    public static SpokenAnswer From(string markdown)
+    /// <summary>
+    /// The sentences to say of an answer and whether it goes on past them. While the answer streams
+    /// (<paramref name="final"/> false) the sentence still being written is left out: "1." may yet become "1.5".
+    /// </summary>
+    internal static (List<string> Sentences, bool GoesOn) ReadOpening(string markdown, bool final)
     {
-        var paragraphs = ReadParagraphs(markdown, out var hasDetails);
-        if (paragraphs.Count == 0)
+        var paragraphs = ReadParagraphs(markdown, out var hasDetails, out var growing);
+        if (growing && !final)
         {
-            return IsRussian(markdown)
-                ? new SpokenAnswer("Ответ на экране.", "ru")
-                : new SpokenAnswer("The answer is on screen.", "en");
+            var last = paragraphs[^1];
+            last.RemoveAt(last.Count - 1);
+            if (last.Count == 0) paragraphs.RemoveAt(paragraphs.Count - 1);
         }
 
+        if (paragraphs.Count == 0) return ([], hasDetails);
         var opening = paragraphs[0];
         var spoken = new List<string>();
         var length = 0;
@@ -35,14 +41,7 @@ public sealed partial record SpokenAnswer(string Text, string Language)
             length += sentence.Length + 1;
         }
 
-        var text = string.Join(' ', spoken);
-        var russian = IsRussian(text);
-        if (hasDetails || paragraphs.Count > 1 || spoken.Count < opening.Count)
-        {
-            text += russian ? " Подробности на экране." : " Details are on screen.";
-        }
-
-        return new SpokenAnswer(text, russian ? "ru" : "en");
+        return (spoken, hasDetails || paragraphs.Count > 1 || spoken.Count < opening.Count);
     }
 
     /// <summary>Russian answers keep English terms, so a quarter of Cyrillic letters already means Russian.</summary>
@@ -59,8 +58,11 @@ public sealed partial record SpokenAnswer(string Text, string Language)
         return cyrillic > 0 && cyrillic * 3 >= latin;
     }
 
-    /// <summary>Speakable paragraphs split into sentences; code, tables and formulas only set <paramref name="hasDetails"/>.</summary>
-    private static List<List<string>> ReadParagraphs(string markdown, out bool hasDetails)
+    /// <summary>
+    /// Speakable paragraphs split into sentences; code, tables and formulas only set <paramref name="hasDetails"/>.
+    /// <paramref name="growing"/>: the text stops inside the last paragraph, which a streaming answer may still extend.
+    /// </summary>
+    private static List<List<string>> ReadParagraphs(string markdown, out bool hasDetails, out bool growing)
     {
         var paragraphs = new List<List<string>>();
         var units = new List<string>();
@@ -68,7 +70,7 @@ public sealed partial record SpokenAnswer(string Text, string Language)
         string? fence = null;
         hasDetails = false;
 
-        void EndParagraph()
+        bool EndParagraph()
         {
             // List items rarely end with a stop; adding one keeps the voice from running them together.
             var sentences = (isList ? units.Select(EndSentence) : [string.Join(' ', units)])
@@ -77,6 +79,7 @@ public sealed partial record SpokenAnswer(string Text, string Language)
             if (sentences.Count > 0) paragraphs.Add(sentences);
             units.Clear();
             isList = false;
+            return sentences.Count > 0;
         }
 
         foreach (var rawLine in markdown.Split('\n'))
@@ -126,7 +129,7 @@ public sealed partial record SpokenAnswer(string Text, string Language)
             units.Add(Clean(line.TrimStart('>', ' ')));
         }
 
-        EndParagraph();
+        growing = EndParagraph();
         return paragraphs;
     }
 

@@ -506,8 +506,9 @@ public partial class MainWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Escape) return;
-        if (_sending) CancelSend();
-        else if (_voice.Phase == VoicePhase.Speaking) _voice.StopSpeaking();
+        // Like the Stop orb: silence Link first, then stop the request.
+        if (_voice.Phase == VoicePhase.Speaking) _voice.StopSpeaking();
+        else if (_sending) CancelSend();
         else return;
         e.Handled = true;
     }

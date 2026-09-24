@@ -9,6 +9,8 @@ namespace Link.Desktop;
 
 public partial class MainWindow
 {
+    private const string SpeakingStatus = "Speaking — Esc stops, push-to-talk interrupts";
+
     /// <summary>Push-to-talk pressed; during a spoken answer it silences Link and listens right away.</summary>
     public void StartPushToTalk()
     {
@@ -78,6 +80,8 @@ public partial class MainWindow
         ExpandedLinkGlyph.Foreground = glyph;
         CollapsedLinkGlyph.Foreground = glyph;
         AnimateVoiceGlyphs(start: listening || speaking);
+        // During a request push-to-talk waits for the answer, unless Link talks: then it interrupts.
+        VoiceButton.IsEnabled = phase is not (VoicePhase.Sending or VoicePhase.Waiting);
         UpdateSendButton();
 
         if (phase == VoicePhase.Finalizing)
@@ -85,15 +89,13 @@ public partial class MainWindow
             SetStatus(_voice.IsSpeechModelReady
                 ? "Transcribing locally…"
                 : "Downloading local speech model (first use)…", "Transcribing");
+            return;
         }
-        else if (speaking)
-        {
-            SetStatus("Speaking — Esc stops, push-to-talk interrupts", "Speaking");
-        }
-        else if (previous == VoicePhase.Speaking && phase == VoicePhase.Idle)
-        {
-            SetStatus(ResponseReceivedStatus(), "Done");
-        }
+
+        // While the answer arrives the status line follows the chat; the pulsing glyph shows that Link talks.
+        if (_sending) return;
+        if (speaking) SetStatus(SpeakingStatus, "Speaking");
+        else if (previous == VoicePhase.Speaking && phase == VoicePhase.Idle) SetStatus(ResponseReceivedStatus(), "Done");
     }
 
     private void AnimateVoiceGlyphs(bool start)

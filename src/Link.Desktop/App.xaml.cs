@@ -56,7 +56,8 @@ public partial class App : System.Windows.Application
         _chat = new BrowserChatIntegration();
         _audio = new AudioRecorderService(paths);
         _textToSpeech = new TextToSpeechService();
-        var voice = new VoiceSession(_settings.Current, _audio, new SpeechToTextService(paths), _textToSpeech);
+        var voice = new VoiceSession(
+            _settings.Current, _audio, new SpeechToTextService(paths), _textToSpeech, TimeProvider.System);
 
         _mainWindow = new MainWindow(
             _settings,

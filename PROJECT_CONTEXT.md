@@ -330,7 +330,8 @@ Direct API integration остаётся возможным вторым adapter'
 - local TTS (первый кандидат: Supertonic 3);
 - Voice Reply;
 - Conversation Mode с auto-send, waiting cues и PTT interrupt;
-- позже — lower-latency sentence streaming, enhancement, wake word и echo cancellation.
+- sentence streaming и waiting cue для Voice Reply — сделаны (Voice Reply pass 2, Windows voices за `ITextToSpeech`);
+- позже — enhancement, wake word и echo cancellation.
 
 ## Текущий статус репозитория
 
@@ -353,6 +354,7 @@ Direct API integration остаётся возможным вторым adapter'
 - один manual Region context: новый регион заменяет прежний, повторный вызов при открытом selector игнорируется;
 - выбор и тест микрофона в Settings;
 - голосовой ответ на продиктованный запрос голосом Windows (Settings → Voice replies: вкл/выкл, голос, скорость, тест); PTT во время речи перебивает и слушает, Esc/Stop/Send hotkey — замолкает;
+- Voice Reply pass 2: ответ читается по мере streaming (`SpokenAnswerStream`: только законченные предложения из `ChatProgressState.Receiving`, без повторов, та же политика «первый абзац, до трёх предложений»; остаток и «Подробности на экране.» — на Completed); при ожидании > 6 с — один waiting cue на языке вопроса («Секунду.» / «Думаю над ответом.» / «Ещё немного.»), отменяется с первым Receiving; статуса «ищу в интернете» нет, bridge его не сообщает. Esc/Stop сначала заглушают речь, повторно — отменяют запрос; PTT во время streaming-ответа перебивает, дальше ответ не читается, а продиктованное остаётся в PromptBox как следующее сообщение (Send во время активного запроса не срабатывает);
 - current application metadata и включаемый в Screen-меню Auto active window capture на каждый Send;
 - обычные shortcut’ы через `RegisterHotKey`, low-level hook только для key-down/key-up push-to-talk;
 - atomic JSON persistence и защищённый lifecycle активных screenshot attachments;
