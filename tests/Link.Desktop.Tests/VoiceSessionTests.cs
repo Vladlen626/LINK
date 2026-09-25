@@ -81,6 +81,7 @@ internal static class VoiceSessionTests
 
         await StreamingAsync();
         await WaitingCuesAsync();
+        await LiveDraftAsync();
 
         rig = new Rig();
         rig.Session.StartListening();
@@ -215,16 +216,77 @@ internal static class VoiceSessionTests
             (true, VoicePhase.Listening));
     }
 
+    /// <summary>While the key is held the live words show; speech detection decides whether Whisper runs.</summary>
+    private static async Task LiveDraftAsync()
+    {
+        var rig = new Rig();
+        var drafts = new List<string>();
+        rig.Session.DraftChanged += drafts.Add;
+        rig.Session.StartListening();
+        var live = rig.Streaming.Last!;
+        rig.Recorder.Capture(new float[800]);
+        Program.Equal("the live side hears the one microphone session", live.Samples, 800);
+        live.Draft("почему у");
+        live.Draft("почему у меня");
+        Program.Equal("drafts come while listening", string.Join(" | ", drafts), "почему у | почему у меня");
+        var transcript = await rig.Session.FinishListeningAsync();
+        live.Draft("почему у меня материал");
+        Program.Equal("a draft after the key is dropped", drafts.Count, 2);
+        Program.Equal("the transcript comes from the final pass", transcript?.Text, "Как дела?");
+        rig.Recorder.Capture(new float[800]);
+        Program.Equal("the live side stops with the key", (live.Samples, live.Disposed), (800, true));
+
+        rig = new Rig();
+        rig.Streaming.Heard = false;
+        rig.Session.StartListening();
+        Program.Equal("a recording without speech has no transcript", await rig.Session.FinishListeningAsync(), null);
+        Program.Equal("a recording without speech skips Whisper", rig.SpeechToText.Calls, 0);
+
+        rig = new Rig();
+        rig.Streaming.Heard = null;
+        await rig.DictateAsync();
+        Program.Equal("without a detector Whisper runs", rig.SpeechToText.Calls, 1);
+
+        rig = new Rig();
+        rig.Settings.LiveTranscription = false;
+        rig.Streaming.Note = "live text model is downloading (28 MB, once)";
+        rig.Session.StartListening();
+        Program.Equal("live text off asks for no draft", rig.Streaming.Starts[0].Draft, false);
+        Program.Equal("why the draft is missing is told", rig.Session.DraftNote, "live text model is downloading (28 MB, once)");
+
+        rig = new Rig();
+        rig.SpeechToText.Text = "How are you?";
+        await rig.DictateAsync();
+        rig.Session.StartListening();
+        Program.Equal("under Auto the draft follows the last dictation", rig.Streaming.Starts[1].Language, VoiceLanguage.English);
+        await rig.Session.FinishListeningAsync();
+        rig.Settings.VoiceLanguage = VoiceLanguage.Russian;
+        rig.Session.StartListening();
+        Program.Equal("a chosen language is kept", rig.Streaming.Starts[2].Language, VoiceLanguage.Russian);
+
+        rig = new Rig();
+        rig.Recorder.FailStart = true;
+        await Program.ThrowsAsync<InvalidOperationException>("a microphone that fails to open is reported", () =>
+        {
+            rig.Session.StartListening();
+            return Task.CompletedTask;
+        });
+        Program.Equal("a failed start lets the live side go", (rig.Streaming.Last!.Disposed, rig.Session.Phase),
+            (true, VoicePhase.Idle));
+    }
+
     private static ChatProgress Waiting() => new() { State = ChatProgressState.Waiting };
 
     private static ChatProgress Receiving(string text) => new() { State = ChatProgressState.Receiving, Text = text };
 
     private sealed class Rig
     {
-        public Rig() => Session = new VoiceSession(Settings, Recorder, new FakeSpeechToText(), Speech, Time);
+        public Rig() => Session = new VoiceSession(Settings, Recorder, Streaming, SpeechToText, Speech, Time);
 
         public AppSettings Settings { get; } = new();
         public FakeRecorder Recorder { get; } = new();
+        public FakeStreaming Streaming { get; } = new();
+        public FakeSpeechToText SpeechToText { get; } = new();
         public FakeTextToSpeech Speech { get; } = new();
         public ManualTime Time { get; } = new();
         public VoiceSession Session { get; }
@@ -266,14 +328,22 @@ internal static class VoiceSessionTests
 
         public bool IsRecording { get; private set; }
 
+        public bool FailStart { get; set; }
+
         public event Action<double>? LevelChanged
         {
             add { }
             remove { }
         }
 
+        public event Action<float[]>? SamplesCaptured;
+
+        /// <summary>A block arrives from the microphone, as it would on the capture thread.</summary>
+        public void Capture(float[] samples) => SamplesCaptured?.Invoke(samples);
+
         public bool Start(string? deviceId)
         {
+            if (FailStart) throw new InvalidOperationException("The microphone did not respond.");
             IsRecording = true;
             return true;
         }
@@ -293,10 +363,51 @@ internal static class VoiceSessionTests
 
     private sealed class FakeSpeechToText : ISpeechToText
     {
+        public string Text { get; set; } = "Как дела?";
+        public int Calls { get; private set; }
+
         public bool IsModelReady => true;
 
-        public Task<string> TranscribeAsync(string waveFile, VoiceLanguage language, CancellationToken cancellationToken = default) =>
-            Task.FromResult("Как дела?");
+        public string? Note => null;
+
+        public Task<string> TranscribeAsync(string waveFile, VoiceLanguage language, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+            return Task.FromResult(Text);
+        }
+    }
+
+    /// <summary>Live recognition whose drafts the test says and whose speech detection it decides.</summary>
+    private sealed class FakeStreaming : IStreamingSpeechToText
+    {
+        public bool? Heard { get; set; } = true;
+        public string? Note { get; set; }
+        public List<(VoiceLanguage Language, bool Draft)> Starts { get; } = [];
+        public FakeTranscription? Last { get; private set; }
+
+        public IStreamingTranscription Start(VoiceLanguage language, bool draft)
+        {
+            Starts.Add((language, draft));
+            Last = new FakeTranscription(Heard, Note);
+            return Last;
+        }
+    }
+
+    private sealed class FakeTranscription(bool? heard, string? note) : IStreamingTranscription
+    {
+        public event Action<string>? DraftChanged;
+
+        public string? Note => note;
+        public int Samples { get; private set; }
+        public bool Disposed { get; private set; }
+
+        public void Draft(string words) => DraftChanged?.Invoke(words);
+
+        public void Accept(float[] samples) => Samples += samples.Length;
+
+        public Task<bool?> FinishAsync() => Task.FromResult(heard);
+
+        public void Dispose() => Disposed = true;
     }
 
     /// <summary>

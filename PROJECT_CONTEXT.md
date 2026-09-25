@@ -215,11 +215,12 @@ Current application context — важная часть будущего «Jarvi
 - .NET 10;
 - WPF;
 - Windows native APIs;
-- `Whisper.net` с CPU runtime и локальной мультиязычной моделью Base для final STT.
+- `Whisper.net` для final STT: Base на CPU и large-v3-turbo q5_0 на GPU через `Whisper.net.Runtime.Vulkan` (turbo скачивается и прогревается в фоне, если Vulkan-сборка загрузилась и whisper.cpp подтвердил GPU; иначе Base);
+- `org.k2fsa.sherpa.onnx` 1.13.8 для live-черновика (streaming Zipformer RU/EN) и Silero VAD v5; сборка win-x64 через `RuntimeIdentifier`, чтобы не копировать нативные библиотеки девяти платформ.
 
 Принятый voice roadmap:
-- `sherpa-onnx` как единый local runtime для streaming ASR, Silero VAD, local TTS и при необходимости speech enhancement;
-- `Whisper large-v3-turbo` как целевой final correction после benchmark на реальной машине;
+- `sherpa-onnx` как единый local runtime для streaming ASR (сделано), Silero VAD (сделано), local TTS и при необходимости speech enhancement;
+- `Whisper large-v3-turbo` как final correction — сделано (Phase 2, на GPU; на CPU 13,7 с на фразу, поэтому там остаётся Base);
 - Supertonic 3 через sherpa-onnx как первый кандидат на локальный RU/EN TTS;
 - Windows native audio playback с interrupt;
 - cloud speech providers допускаются позже только как optional adapters, не как обязательная зависимость.
@@ -324,9 +325,9 @@ Direct API integration остаётся возможным вторым adapter'
 Принята архитектура local-first без поминутной оплаты. Полный план — [docs/VOICE_CONVERSATION_PLAN.md](docs/VOICE_CONVERSATION_PLAN.md).
 
 Порядок:
-- общий live PCM stream из существующего waveIn capture;
-- local VAD + streaming partial STT через sherpa-onnx;
-- финальная коррекция Whisper (целевой benchmark: large-v3-turbo);
+- общий live PCM stream из существующего waveIn capture — сделан (`IAudioRecorder.SamplesCaptured`);
+- local VAD + streaming partial STT через sherpa-onnx — сделаны (Phase 3: live-черновик в PromptBox, Whisper заменяет его без дублей, запись без речи в Whisper не идёт);
+- финальная коррекция Whisper — сделана (Phase 2: large-v3-turbo на GPU через Vulkan, Base на CPU; таблица замеров в плане);
 - local TTS (первый кандидат: Supertonic 3);
 - Voice Reply;
 - Conversation Mode с auto-send, waiting cues и PTT interrupt;
@@ -355,6 +356,10 @@ Direct API integration остаётся возможным вторым adapter'
 - выбор и тест микрофона в Settings;
 - голосовой ответ на продиктованный запрос голосом Windows (Settings → Voice replies: вкл/выкл, голос, скорость, тест); PTT во время речи перебивает и слушает, Esc/Stop/Send hotkey — замолкает;
 - Voice Reply pass 2: ответ читается по мере streaming (`SpokenAnswerStream`: только законченные предложения из `ChatProgressState.Receiving`, без повторов, та же политика «первый абзац, до трёх предложений»; остаток и «Подробности на экране.» — на Completed); при ожидании > 6 с — один waiting cue на языке вопроса («Секунду.» / «Думаю над ответом.» / «Ещё немного.»), отменяется с первым Receiving; статуса «ищу в интернете» нет, bridge его не сообщает. Esc/Stop сначала заглушают речь, повторно — отменяют запрос; PTT во время streaming-ответа перебивает, дальше ответ не читается, а продиктованное остаётся в PromptBox как следующее сообщение (Send во время активного запроса не срабатывает);
+- live voice draft (Voice pass 3, 2026-09-24): один waveIn-захват отдаёт PCM-блоки (`IAudioRecorder.SamplesCaptured`) в `IStreamingSpeechToText` → `SherpaStreamingSpeechToText`: Silero VAD v5 (порог 0.3 — сомнительное считается речью) и streaming Zipformer (RU — Vosk small int8, EN — icefall 20M int8; под Auto — язык прошлого транскрипта, сначала язык Windows). Черновик идёт в конец PromptBox (`PromptDraft`: набранный текст сохраняется, черновик заменяется, а не дописывается; поле read-only в Listening/Finalizing), после отпускания Whisper заменяет его финалом. Если VAD не услышал речи и черновик пуст — Whisper не запускается («No speech heard»). Распознаватель грузится ~2 с и держит ~75–100 МБ, поэтому кэшируется и выгружается через 10 мин без голоса; модели скачивает `SpeechModelManager` (один раз, проверка размера + SHA-256, закреплённые ревизии HF/GitHub), до загрузки статус «live text model is downloading». Settings → Voice: «Show my words while I speak». Whisper final pass — 8 потоков вместо 4 (−30% времени на 12-поточном CPU). Замеры: черновик RU точнее Whisper Base на синтетике; `WithOffset/WithDuration` в Whisper.net не обрезают аудио, поэтому VAD не тримит запись, а только гейтит;
+- final STT (Voice pass 4, Phase 2, 2026-09-25): `SpeechToTextService` берёт Whisper large-v3-turbo q5_0 на GPU (Vulkan, ~0,25 с на фразу + ~0,8 с загрузка модели на RTX 4070 SUPER), пока его нет или нет GPU — Base на CPU. Turbo (574 МБ) скачивается и прогревается в фоне после первой диктовки; статус Finalizing показывает «Whisper turbo model is downloading (N% of 574 MB, once)» / «is warming up». Включается только после подтверждения GPU в логе whisper.cpp; при сбое на GPU фраза распознаётся Base, а turbo выключается до перезапуска;
+- browser companion 0.5.0: ожидание ответа через MutationObserver вместо опроса каждые 250 мс; пока страница молчит (ChatGPT думает) — ничего не выполняется, пока меняется — взгляд ≤ раз в 150 мс и каждое изменение ответа уходит в LINK (0.4.0 слал ≤ 2 раз/с, пользователь заметил «прерывисто»); текст — только из markdown-корня ответа (никакого fallback на весь элемент, поэтому «Думаю»/«Thinking» и плейсхолдеры не становятся ответом); завершение — только при исчезнувшей Stop-кнопке и непустом ответе, по кнопкам действий хода (`copy-turn-action-button`) или `data-message-complete` сразу, иначе через 1.2 с тишины; в конце ответ перечитывается целиком. Режим ответа: с июня 2026 селектор ChatGPT стоит в composer (Instant / Medium / High / Extra High, по-русски «Мгновенный» / «Средний» / «Высокий»…); Fast/Deep перед каждым запросом читают текущий режим с кнопки и переключают на Instant / High, только если чат в другом (раньше LINK помнил «уже применено» и не замечал ручную смену на «Высокий»); Normal возвращает режим, который был до первого переключения LINK (`mode:<conversation>` в `chrome.storage.local`), иначе Medium/Auto; при неудаче статус перечисляет предложенные пункты. После перезагрузки расширения вкладку ChatGPT нужно обновить — иначе в ней работает старый скрипт (так и было с «ответа нет»). Проверено на mock-DOM, на реальном ChatGPT — пользователем;
+- ответ в overlay перерисовывается инкрементально: `RenderResponse` сравнивает Markdown-источник каждого блока с показанным и пересобирает только блоки с первого изменившегося, поэтому частые streaming-обновления не перестраивают весь `FlowDocument`;
 - current application metadata и включаемый в Screen-меню Auto active window capture на каждый Send;
 - обычные shortcut’ы через `RegisterHotKey`, low-level hook только для key-down/key-up push-to-talk;
 - atomic JSON persistence и защищённый lifecycle активных screenshot attachments;
@@ -417,7 +422,7 @@ Direct API integration остаётся возможным вторым adapter'
 
 7. **Voice interaction / spoken assistant.**
    - Решение зафиксировано: core должен быть local-first и без лимита минут; GPT остаётся мозгом и продолжает получать screenshots/project/current-app context.
-   - Live text: sherpa-onnx streaming ASR + Silero VAD; final correction: Whisper, целевой benchmark large-v3-turbo.
+   - Live text: sherpa-onnx streaming ASR + Silero VAD; final correction: Whisper large-v3-turbo на GPU, Base на CPU (оба сделаны).
    - Voice output: `ITextToSpeech`, первый local candidate — Supertonic 3 через sherpa-onnx.
    - Нужны Text / Voice Reply / Conversation modes, auto-send after endpoint, честные waiting cues и PTT interrupt.
    - Во время долгого ожидания можно говорить «Секунду», «Думаю над ответом», «Получаю ответ», но не выдумывать web-search activity.

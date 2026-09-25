@@ -5,6 +5,12 @@ public interface IAudioRecorder : IDisposable
     /// <summary>Peak level of the latest captured block, 0..1. Raised on a background thread.</summary>
     event Action<double>? LevelChanged;
 
+    /// <summary>
+    /// The latest captured block as 16 kHz mono samples in -1..1, so recognition can listen along with the one
+    /// microphone session. Raised on the capture thread; the array belongs to the handler.
+    /// </summary>
+    event Action<float[]>? SamplesCaptured;
+
     bool IsRecording { get; }
 
     /// <summary>

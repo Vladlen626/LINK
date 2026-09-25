@@ -16,6 +16,7 @@ internal static class Program
     {
         Console.OutputEncoding = Encoding.UTF8;
         SpokenAnswerTests.Run();
+        PromptDraftTests.Run();
         var voiceChecks = VoiceSessionTests.RunAsync();
         if (await Task.WhenAny(voiceChecks, Task.Delay(Timeout)) != voiceChecks)
         {

@@ -21,9 +21,12 @@ public partial class MainWindow
     ];
     private readonly IChatIntegration _chat;
     private readonly DispatcherTimer _connectionTimer;
+    // The answer on screen: each block's Markdown source with its document block, reused while the answer streams.
+    private readonly List<(string Source, Block Block)> _responseBlocks = [];
     private CancellationTokenSource? _sendCancellation;
     private bool _sending;
     private string _responseText = string.Empty;
+    private int _nextResponseBlock;
     private string? _chatNotice;
 
     /// <summary>
@@ -336,7 +339,7 @@ public partial class MainWindow
     {
         _sending = sending;
         UpdateSendButton();
-        PromptBox.IsReadOnly = sending;
+        UpdatePromptReadOnly();
         CurrentTaskBox.IsEnabled = !sending;
         ProjectMenuButton.IsEnabled = !sending;
         ChatConnectionButton.IsEnabled = !sending;
@@ -422,7 +425,7 @@ public partial class MainWindow
             response.ConversationId != project.LinkedConversation?.ConversationId)
         {
             _responseText = string.Empty;
-            ResponseDocument.Blocks.Clear();
+            RenderResponse(string.Empty);
             ResponsePanel.Visibility = Visibility.Collapsed;
             return;
         }
@@ -449,9 +452,7 @@ public partial class MainWindow
 
     private void RenderResponse(string text)
     {
-        ResponseDocument.Blocks.Clear();
-        if (string.IsNullOrWhiteSpace(text)) return;
-
+        _nextResponseBlock = 0;
         var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
         var index = 0;
         while (index < lines.Length)
@@ -462,6 +463,7 @@ public partial class MainWindow
                 continue;
             }
 
+            var start = index;
             if (lines[index].TrimStart().StartsWith("```", StringComparison.Ordinal))
             {
                 index++;
@@ -472,7 +474,7 @@ public partial class MainWindow
                 }
                 if (index < lines.Length) index++;
 
-                var code = new Paragraph(new Run(string.Join('\n', codeLines)))
+                AddResponseBlock(lines, start, index, () => new Paragraph(new Run(string.Join('\n', codeLines)))
                 {
                     Margin = new Thickness(0, 3, 0, 10),
                     Padding = new Thickness(9, 7, 9, 7),
@@ -480,29 +482,32 @@ public partial class MainWindow
                     FontFamily = new FontFamily("Cascadia Mono, Consolas"),
                     FontSize = 12.5,
                     LineHeight = 18
-                };
-                ResponseDocument.Blocks.Add(code);
+                });
                 continue;
             }
 
             if (TryGetHeading(lines[index], out var headingLevel, out var headingText))
             {
-                var heading = new Paragraph
-                {
-                    Margin = new Thickness(0, index == 0 ? 0 : 5, 0, 5),
-                    FontSize = headingLevel switch { 1 => 17, 2 => 15.5, _ => 14.5 },
-                    FontWeight = FontWeights.SemiBold,
-                    LineHeight = 22
-                };
-                AddInlineContent(heading.Inlines, headingText);
-                ResponseDocument.Blocks.Add(heading);
                 index++;
+                AddResponseBlock(lines, start, index, () =>
+                {
+                    var heading = new Paragraph
+                    {
+                        Margin = new Thickness(0, start == 0 ? 0 : 5, 0, 5),
+                        FontSize = headingLevel switch { 1 => 17, 2 => 15.5, _ => 14.5 },
+                        FontWeight = FontWeights.SemiBold,
+                        LineHeight = 22
+                    };
+                    AddInlineContent(heading.Inlines, headingText);
+                    return heading;
+                });
                 continue;
             }
 
             if (IsRuleLine(lines[index]))
             {
-                ResponseDocument.Blocks.Add(new Paragraph
+                index++;
+                AddResponseBlock(lines, start, index, () => new Paragraph
                 {
                     Margin = new Thickness(0, 2, 0, 11),
                     BorderBrush = (Brush)FindResource("HairlineBrush"),
@@ -510,65 +515,91 @@ public partial class MainWindow
                     FontSize = 1,
                     LineHeight = 1
                 });
-                index++;
                 continue;
             }
 
             if (IsTableLine(lines[index]))
             {
-                var tableLines = new List<string>();
-                while (index < lines.Length && IsTableLine(lines[index])) tableLines.Add(lines[index++]);
-                ResponseDocument.Blocks.Add(CreateTable(tableLines));
+                while (index < lines.Length && IsTableLine(lines[index])) index++;
+                AddResponseBlock(lines, start, index, () => CreateTable(lines[start..index]));
                 continue;
             }
 
             if (IsQuoteLine(lines[index]))
             {
-                var quoteLines = new List<string>();
-                while (index < lines.Length && IsQuoteLine(lines[index]))
+                while (index < lines.Length && IsQuoteLine(lines[index])) index++;
+                AddResponseBlock(lines, start, index, () =>
                 {
-                    quoteLines.Add(lines[index++].TrimStart()[1..].Trim());
-                }
-
-                var quote = new Paragraph
-                {
-                    Margin = new Thickness(0, 0, 0, 9),
-                    Padding = new Thickness(9, 1, 0, 1),
-                    BorderBrush = (Brush)FindResource("AquaBrush"),
-                    BorderThickness = new Thickness(2.5, 0, 0, 0),
-                    Foreground = (Brush)FindResource("MutedBrush")
-                };
-                AddInlineContent(quote.Inlines, string.Join(' ', quoteLines.Where(line => line.Length > 0)));
-                ResponseDocument.Blocks.Add(quote);
+                    var quote = new Paragraph
+                    {
+                        Margin = new Thickness(0, 0, 0, 9),
+                        Padding = new Thickness(9, 1, 0, 1),
+                        BorderBrush = (Brush)FindResource("AquaBrush"),
+                        BorderThickness = new Thickness(2.5, 0, 0, 0),
+                        Foreground = (Brush)FindResource("MutedBrush")
+                    };
+                    var quoteLines = lines[start..index].Select(line => line.TrimStart()[1..].Trim());
+                    AddInlineContent(quote.Inlines, string.Join(' ', quoteLines.Where(line => line.Length > 0)));
+                    return quote;
+                });
                 continue;
             }
 
-            if (TryGetListItem(lines[index], numbered: false, out _))
+            if (TryGetListItem(lines[index], numbered: false, out _) || TryGetListItem(lines[index], numbered: true, out _))
             {
-                index = AddList(lines, index, numbered: false);
+                var numbered = !TryGetListItem(lines[index], numbered: false, out _);
+                while (index < lines.Length && TryGetListItem(lines[index], numbered, out _)) index++;
+                AddResponseBlock(lines, start, index, () => CreateList(lines[start..index], numbered));
                 continue;
             }
 
-            if (TryGetListItem(lines[index], numbered: true, out _))
+            while (index < lines.Length && !string.IsNullOrWhiteSpace(lines[index]) && !StartsBlock(lines[index])) index++;
+            AddResponseBlock(lines, start, index, () =>
             {
-                index = AddList(lines, index, numbered: true);
-                continue;
-            }
-
-            var paragraphLines = new List<string>();
-            while (index < lines.Length && !string.IsNullOrWhiteSpace(lines[index]) && !StartsBlock(lines[index]))
-            {
-                paragraphLines.Add(lines[index].Trim());
-                index++;
-            }
-
-            var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 9) };
-            AddInlineContent(paragraph.Inlines, string.Join(' ', paragraphLines));
-            ResponseDocument.Blocks.Add(paragraph);
+                var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 9) };
+                AddInlineContent(paragraph.Inlines, string.Join(' ', lines[start..index].Select(line => line.Trim())));
+                return paragraph;
+            });
         }
+
+        RemoveResponseBlocks(from: _nextResponseBlock);
     }
 
-    private int AddList(string[] lines, int index, bool numbered)
+    /// <summary>
+    /// Shows the next block of the answer. A streaming answer only grows at its end, so a block whose source is
+    /// unchanged keeps its rendered form and layout; from the first changed block on everything is built anew.
+    /// </summary>
+    private void AddResponseBlock(string[] lines, int start, int end, Func<Block> create)
+    {
+        var source = string.Join('\n', lines, start, end - start);
+        if (_nextResponseBlock < _responseBlocks.Count)
+        {
+            if (_responseBlocks[_nextResponseBlock].Source == source)
+            {
+                _nextResponseBlock++;
+                return;
+            }
+
+            RemoveResponseBlocks(from: _nextResponseBlock);
+        }
+
+        var block = create();
+        ResponseDocument.Blocks.Add(block);
+        _responseBlocks.Add((source, block));
+        _nextResponseBlock++;
+    }
+
+    private void RemoveResponseBlocks(int from)
+    {
+        for (var index = _responseBlocks.Count - 1; index >= from; index--)
+        {
+            ResponseDocument.Blocks.Remove(_responseBlocks[index].Block);
+        }
+
+        _responseBlocks.RemoveRange(from, _responseBlocks.Count - from);
+    }
+
+    private System.Windows.Documents.List CreateList(IEnumerable<string> lines, bool numbered)
     {
         var list = new System.Windows.Documents.List
         {
@@ -577,16 +608,15 @@ public partial class MainWindow
             Padding = new Thickness(0)
         };
 
-        while (index < lines.Length && TryGetListItem(lines[index], numbered, out var itemText))
+        foreach (var line in lines)
         {
+            TryGetListItem(line, numbered, out var itemText);
             var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 3) };
             AddInlineContent(paragraph.Inlines, itemText);
             list.ListItems.Add(new ListItem(paragraph));
-            index++;
         }
 
-        ResponseDocument.Blocks.Add(list);
-        return index;
+        return list;
     }
 
     private static bool StartsBlock(string line) =>

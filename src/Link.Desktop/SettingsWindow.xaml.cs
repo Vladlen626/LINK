@@ -43,6 +43,7 @@ public partial class SettingsWindow : Window
         BlurBackgroundBox.IsChecked = current.BlurBackground;
         VoiceLanguageCombo.ItemsSource = Enum.GetValues<VoiceLanguage>();
         VoiceLanguageCombo.SelectedItem = current.VoiceLanguage;
+        LiveTranscriptionBox.IsChecked = current.LiveTranscription;
         LoadMicrophones(current);
         VoiceRepliesBox.IsChecked = current.VoiceReplies;
         ReplySpeedSlider.Value = current.VoiceReplySpeed;
@@ -358,6 +359,7 @@ public partial class SettingsWindow : Window
         current.Opacity = OpacitySlider.Value;
         current.BlurBackground = BlurBackgroundBox.IsChecked == true;
         current.VoiceLanguage = (VoiceLanguage)(VoiceLanguageCombo.SelectedItem ?? VoiceLanguage.Auto);
+        current.LiveTranscription = LiveTranscriptionBox.IsChecked == true;
         var microphone = MicrophoneCombo.SelectedItem as AudioInputDevice;
         if (microphone != _disconnectedMicrophone)
         {

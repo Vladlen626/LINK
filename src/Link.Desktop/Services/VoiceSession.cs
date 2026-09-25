@@ -1,3 +1,4 @@
+using System.Globalization;
 using Link.Desktop.Models;
 
 namespace Link.Desktop.Services;
@@ -29,8 +30,8 @@ public enum VoicePhase
 public sealed record VoiceTranscript(string Text, bool SendRequested);
 
 /// <summary>
-/// The one owner of voice state: the microphone, local transcription, the request as far as voice cares
-/// and the spoken answer, read sentence by sentence while it streams. It has no UI; the overlay renders
+/// The one owner of voice state: the microphone, local transcription with its live draft, the request as far as
+/// voice cares and the spoken answer, read sentence by sentence while it streams. It has no UI; the overlay renders
 /// <see cref="Phase"/>. Used on the UI thread, with the live settings that the Settings window edits in place.
 /// </summary>
 public sealed class VoiceSession
@@ -42,16 +43,22 @@ public sealed class VoiceSession
     private static readonly string[] EnglishCues = ["One moment.", "Thinking it over.", "Just a little longer."];
     private readonly AppSettings _settings;
     private readonly IAudioRecorder _recorder;
+    private readonly IStreamingSpeechToText _streaming;
     private readonly ISpeechToText _speechToText;
     private readonly ITextToSpeech _textToSpeech;
     private readonly TimeProvider _time;
     // Said in order, one at a time; parts that queue up while another is said go out together.
     private readonly List<SpokenAnswer> _unsaid = [];
+    private IStreamingTranscription? _live;
     private SpokenAnswerStream? _answer;
     private Task _speech = Task.CompletedTask;
     private CancellationTokenSource? _speaking;
     private CancellationTokenSource? _cue;
     private string _promptLanguage = "en";
+    // Under Auto the live draft needs a language before anything is said: the one spoken last, at first Windows'.
+    private VoiceLanguage _spokenLanguage = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ru"
+        ? VoiceLanguage.Russian
+        : VoiceLanguage.English;
     private int _nextCue;
     private bool _sendRequested;
     private bool _voicePrompt;
@@ -59,12 +66,14 @@ public sealed class VoiceSession
     public VoiceSession(
         AppSettings settings,
         IAudioRecorder recorder,
+        IStreamingSpeechToText streaming,
         ISpeechToText speechToText,
         ITextToSpeech textToSpeech,
         TimeProvider time)
     {
         _settings = settings;
         _recorder = recorder;
+        _streaming = streaming;
         _speechToText = speechToText;
         _textToSpeech = textToSpeech;
         _time = time;
@@ -73,12 +82,24 @@ public sealed class VoiceSession
     /// <summary>Raised after <see cref="Phase"/> changed, with the phase it left.</summary>
     public event Action<VoicePhase>? PhaseChanged;
 
+    /// <summary>
+    /// The words recognized so far while the microphone is open, raised on the thread that started listening.
+    /// Each draft replaces the previous one, and the transcript replaces the last.
+    /// </summary>
+    public event Action<string>? DraftChanged;
+
     public VoicePhase Phase { get; private set; }
+
+    /// <summary>Why the current utterance has no live draft although it is on, e.g. while its model downloads.</summary>
+    public string? DraftNote { get; private set; }
 
     /// <summary>Push-to-talk starts when nothing else is going on, and interrupts Link while it talks.</summary>
     public bool CanStartListening => Phase is VoicePhase.Idle or VoicePhase.Speaking;
 
     public bool IsSpeechModelReady => _speechToText.IsModelReady;
+
+    /// <summary>What the final pass is waiting on for a better model, e.g. its download; null when nothing.</summary>
+    public string? FinalNote => _speechToText.Note;
 
     /// <summary>
     /// Silences an answer being read aloud and opens the microphone; the rest of that answer stays on screen only.
@@ -88,32 +109,56 @@ public sealed class VoiceSession
     {
         if (!CanStartListening) throw new InvalidOperationException("Voice input is busy.");
         SilenceAnswer();
+        IStreamingTranscription? live = null;
         try
         {
+            live = StartLive();
             var usedSelectedMicrophone = _recorder.Start(_settings.MicrophoneDeviceId);
             SetPhase(VoicePhase.Listening);
             return usedSelectedMicrophone;
         }
         catch
         {
+            if (live is not null)
+            {
+                _recorder.SamplesCaptured -= live.Accept;
+                live.Dispose();
+            }
+
+            _live = null;
             SetPhase(VoicePhase.Idle);
             throw;
         }
     }
 
-    /// <summary>Closes the microphone and transcribes locally; null when the recording was too short to be speech.</summary>
+    /// <summary>
+    /// Closes the microphone and transcribes locally; null when the recording was too short or held no speech.
+    /// </summary>
     public async Task<VoiceTranscript?> FinishListeningAsync()
     {
         if (Phase != VoicePhase.Listening) throw new InvalidOperationException("Voice input is not listening.");
         SetPhase(VoicePhase.Finalizing);
+        var live = _live!;
+        _live = null;
         string? audioPath = null;
         try
         {
-            var recording = _recorder.Stop();
-            audioPath = recording.FilePath!;
-            if (recording.Duration < MinimumSpeechDuration || recording.IsSilent)
+            AudioRecording recording;
+            try
             {
-                // Whisper invents phrases for silence, so nothing is transcribed without a signal.
+                recording = _recorder.Stop();
+            }
+            finally
+            {
+                // Stop returns after the last block, so the live side has heard everything by now.
+                _recorder.SamplesCaptured -= live.Accept;
+            }
+
+            audioPath = recording.FilePath!;
+            var heard = await live.FinishAsync();
+            // Whisper invents phrases for silence and noise, so nothing is transcribed without a signal or speech.
+            if (recording.Duration < MinimumSpeechDuration || recording.IsSilent || heard == false)
+            {
                 DeleteRecording(audioPath);
                 audioPath = null;
                 if (recording.IsSilent)
@@ -130,7 +175,9 @@ public sealed class VoiceSession
             DeleteRecording(audioPath);
             _voicePrompt = true;
             // Waiting cues speak the language of the question; the answer's own is not known yet.
-            _promptLanguage = SpokenAnswer.IsRussian(text) ? "ru" : "en";
+            var russian = SpokenAnswer.IsRussian(text);
+            _promptLanguage = russian ? "ru" : "en";
+            _spokenLanguage = russian ? VoiceLanguage.Russian : VoiceLanguage.English;
             return new VoiceTranscript(text, _sendRequested);
         }
         catch (Exception exception) when (audioPath is not null)
@@ -139,6 +186,7 @@ public sealed class VoiceSession
         }
         finally
         {
+            live.Dispose();
             _sendRequested = false;
             SetPhase(VoicePhase.Idle);
         }
@@ -219,6 +267,34 @@ public sealed class VoiceSession
         if (Phase != VoicePhase.Speaking) return;
         SilenceAnswer();
         SetPhase(VoicePhase.Idle);
+    }
+
+    /// <summary>Starts recognition that listens along with the microphone and hands its drafts to this thread.</summary>
+    private IStreamingTranscription StartLive()
+    {
+        var live = _streaming.Start(DraftLanguage(), _settings.LiveTranscription);
+        // Drafts come from a worker thread; the prompt belongs to the thread this session runs on.
+        var context = SynchronizationContext.Current;
+        live.DraftChanged += draft =>
+        {
+            if (context is null) ShowDraft(live, draft);
+            else context.Post(_ => ShowDraft(live, draft), null);
+        };
+        _live = live;
+        DraftNote = live.Note;
+        // The one microphone session feeds the recording and the live recognition alike.
+        _recorder.SamplesCaptured += live.Accept;
+        return live;
+    }
+
+    /// <summary>The live draft's language: the chosen one, or under Auto the language of the last dictation.</summary>
+    private VoiceLanguage DraftLanguage() =>
+        _settings.VoiceLanguage == VoiceLanguage.Auto ? _spokenLanguage : _settings.VoiceLanguage;
+
+    private void ShowDraft(IStreamingTranscription live, string draft)
+    {
+        // A draft that arrives after the key was released would overwrite the transcript.
+        if (live == _live && Phase == VoicePhase.Listening) DraftChanged?.Invoke(draft);
     }
 
     private void SilenceAnswer()

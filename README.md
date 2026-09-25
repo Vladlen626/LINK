@@ -32,8 +32,9 @@ current app / screen / clipboard / voice
 - переназначаемые глобальные hotkeys через `RegisterHotKey`; low-level hook используется только для push-to-talk по нажатию/отпусканию;
 - захват текущего монитора, всего virtual desktop, каждого монитора, активного окна и выбранной области;
 - preview последнего screenshot, attachment chips и ограниченная история, которая не удаляет активные attachments;
-- локальная WAV-запись и распознавание Whisper для RU/EN/Auto без Windows speech pack;
-- выбор микрофона в Settings → Microphone (полные имена устройств, Windows default, отключённое устройство не теряется) и тест с индикатором уровня; запись без сигнала не отправляется в Whisper, чтобы он не «придумывал» текст на тишине;
+- локальная WAV-запись и распознавание Whisper для RU/EN/Auto без Windows speech pack: large-v3-turbo на видеокарте (Vulkan), Base на CPU, если GPU нет или turbo ещё скачивается;
+- live-черновик во время push-to-talk: слова появляются в поле запроса, пока вы говорите (локальный streaming-распознаватель sherpa-onnx, RU или EN; под Auto — язык прошлой диктовки, в первый раз — язык Windows), после отпускания Whisper заменяет черновик финальным текстом без дублей. Уже набранный текст остаётся перед черновиком; пока идёт диктовка и распознавание, поле только для чтения. Модели (~2 МБ VAD и 28 МБ RU / 43 МБ EN) скачиваются один раз при первом использовании; до этого статус пишет «live text model is downloading». Выключается в Settings → Voice;
+- выбор микрофона в Settings → Microphone (полные имена устройств, Windows default, отключённое устройство не теряется) и тест с индикатором уровня; запись без сигнала или без речи (локальный Silero VAD) не отправляется в Whisper, чтобы он не «придумывал» текст на тишине и шуме;
 - голосовой ответ: если запрос продиктован через push-to-talk, Link читает вслух начало ответа голосом Windows — первый абзац, не больше трёх предложений, без кода, таблиц, URL и разметки; если в ответе есть что-то ещё, добавляет «Подробности на экране.». Читает, пока ответ ещё приходит: каждое предложение — как только оно закончено (началось следующее или новый блок), ничего не повторяя; остаток и «Подробности на экране.» — когда ответ готов. Если ChatGPT молчит дольше ~6 с, Link один раз говорит короткую фразу («Секунду.», «Думаю над ответом.», «Ещё немного.») на языке вопроса. Push-to-talk во время речи сразу обрывает её и начинает запись (продиктованное во время ответа остаётся в поле как следующее сообщение); Esc, кнопка Stop и hotkey Send сначала только заглушают Link, а повторные Esc/Stop останавливают запрос. В Settings → Voice replies: включение, голос (Auto подбирает голос по языку ответа), скорость и проверка голоса;
 - видимый context stack для screenshots, voice и clipboard;
 - проекты с `General` по умолчанию, active project и current task;
@@ -83,7 +84,7 @@ microphone
 → next voice turn
 ```
 
-Планируемый стек: `sherpa-onnx` для streaming ASR / Silero VAD / local TTS, существующий `Whisper.net` для final correction (следующий quality benchmark — large-v3-turbo), Supertonic 3 как первый кандидат на локальный RU/EN voice output.
+Стек: `sherpa-onnx` для streaming ASR и Silero VAD (сделано), `Whisper.net` для final correction — large-v3-turbo на GPU через Vulkan, Base на CPU (сделано), Supertonic 3 через sherpa-onnx как первый кандидат на локальный RU/EN voice output (следующий шаг).
 
 Режимы: **Text / Voice Reply / Conversation**. В Conversation Mode voice endpoint автоматически отправляет обычный LINK request, поэтому vision и project context не теряются. PTT должен мгновенно прерывать TTS.
 
@@ -159,7 +160,9 @@ src/Link.Desktop/
 tests/Link.Desktop.Tests/   проверки логики без тестового фреймворка
 ```
 
-`VoiceSession` — единственный владелец голосового состояния (Idle → Listening → Finalizing → Sending → Waiting → Speaking): микрофон, Whisper, прогресс запроса, waiting cue и чтение ответа вслух по мере streaming (`SpokenAnswerStream` выбирает законченные предложения, озвучка — через `ITextToSpeech`). UI только отображает его фазу.
+`VoiceSession` — единственный владелец голосового состояния (Idle → Listening → Finalizing → Sending → Waiting → Speaking): микрофон, live-черновик, Whisper, прогресс запроса, waiting cue и чтение ответа вслух по мере streaming (`SpokenAnswerStream` выбирает законченные предложения, озвучка — через `ITextToSpeech`). UI только отображает его фазу и черновик.
+
+Один waveIn-захват кормит и WAV для Whisper, и `IStreamingSpeechToText` (`IAudioRecorder.SamplesCaptured`). `SherpaStreamingSpeechToText` в одном рабочем потоке прогоняет блоки через Silero VAD (была ли речь) и streaming Zipformer (черновик); распознаватель грузится ~2 с, поэтому живёт между фразами и выгружается после 10 минут без голоса. `SpeechModelManager` скачивает модели один раз и принимает файл только при совпадении размера и SHA-256. `PromptDraft` держит черновик в конце поля и заменяет его, а не дописывает.
 
 `browser-extension/` содержит первый ChatGPT transport. Desktop-приложение отдаёт ему pending requests через локальный HTTP bridge; extension взаимодействует с DOM уже открытой беседы и возвращает progress/response. Browser-specific код не попадает в модели Link или `MainWindow`.
 
@@ -188,15 +191,16 @@ Link prompt/context
 - уведомление «ответ готов», когда LINK скрыт;
 - корректно latched current work target.
 
-После этого основной следующий слой — local Voice / Conversation по [зафиксированному плану](docs/VOICE_CONVERSATION_PLAN.md): live transcript, stronger final Whisper, local TTS, Voice Reply и Conversation Mode. Затем — project memory, context router и handoff.
+После этого основной следующий слой — local Voice / Conversation по [зафиксированному плану](docs/VOICE_CONVERSATION_PLAN.md): live transcript (сделан), stronger final Whisper, local TTS, Voice Reply и Conversation Mode. Затем — project memory, context router и handoff.
 
 ## Зависимости и ограничения
 
-- Для локального распознавания речи используются `Whisper.net` и его CPU runtime. При первом использовании Voice загружается мультиязычная модель Base в `%LocalAppData%\Link\Models`; дальше распознавание работает локально. Для этого runtime нужны Windows 11+, интернет при первой загрузке и Microsoft Visual C++ Redistributable 2022 x64.
+- Для локального распознавания речи используются `Whisper.net` с CPU- и Vulkan-runtime. При первом использовании Voice загружается мультиязычная модель Base (148 МБ) в `%LocalAppData%\Link\Models` и работает на CPU. Если Whisper.net смог загрузить Vulkan-сборку, после первой диктовки в фоне скачивается large-v3-turbo q5_0 (574 МБ) и один раз прогревается на видеокарте (первая компиляция шейдеров ~10–15 с); дальше финальный текст даёт он — примерно за секунду вместе с загрузкой модели и заметно точнее, особенно на английских терминах в русской речи. Turbo включается только если whisper.cpp подтвердил работу на GPU; без видеокарты и при сбое GPU остаётся Base. Для runtime нужны Windows 11+, интернет при первой загрузке моделей и Microsoft Visual C++ Redistributable 2022 x64; для GPU — драйвер видеокарты с Vulkan.
+- Live-черновик и VAD — `org.k2fsa.sherpa.onnx` (Apache-2.0, ONNX Runtime на CPU). Модели: Silero VAD v5 (MIT), small streaming Zipformer RU от Alpha Cephei / Vosk (Apache-2.0), 20M streaming Zipformer EN из icefall (Apache-2.0); скачиваются с GitHub/Hugging Face по закреплённым ревизиям. Распознаватель занимает ~75–100 МБ RAM, пока загружен. Сборка — только win-x64 (`RuntimeIdentifier`), чтобы не копировать нативные библиотеки других платформ.
 - Голосовые ответы идут через `System.Speech` — официальную обёртку Microsoft над SAPI, которая есть в Windows, — и голоса, установленные в Windows (классические Desktop и OneCore, например Irina, Pavel, Zira). Ничего не скачивается. Если русского голоса нет, Settings подскажет, где его добавить. Это не нейросетевые голоса: звучат заметно синтетически.
 - Browser transport требует запущенный Chrome/Edge, вручную загруженный unpacked companion и открытую вкладку связанной беседы.
 - Companion зависит от DOM ChatGPT. Он поддерживает классический composer и новый интерфейс ChatGPT (`textarea[name="prompt"]`, `data-message-complete`), но после изменений UI могут потребоваться обновления селекторов.
-- Переключение режима ChatGPT для Fast/Deep эвристическое (ищет переключатель моделей и пункты Instant/Auto/Thinking). Если переключить не удалось, статус Link пишет «ChatGPT mode not switched», а подсказка о длине ответа всё равно уходит в запрос.
+- Переключение режима ChatGPT для Fast/Deep эвристическое: companion читает текущий режим с кнопки в composer (Instant / Medium / High, по-русски «Мгновенный» / «Средний» / «Высокий») и переключает на Instant / High, если чат в другом режиме; Normal возвращает режим, выбранный до LINK. Старый переключатель в шапке (Instant / Auto / Thinking) тоже поддержан. Если переключить не удалось, статус Link пишет «ChatGPT mode not switched» со списком предложенных пунктов, а подсказка о длине ответа всё равно уходит в запрос.
 - Сейчас транспорт есть только для ChatGPT; Claude-чат подключается тем же `IChatIntegration` отдельным адаптером (ещё не реализован).
 - Качество и скорость Voice зависят от микрофона и CPU; на первой попытке нужно дождаться загрузки модели.
 - Захват защищённого DRM/UAC content может вернуть пустое изображение — это ограничение Windows/GDI.

@@ -56,6 +56,7 @@ public partial class MainWindow : Window
 
         InitializeComponent();
         _voice.PhaseChanged += OnVoicePhaseChanged;
+        _voice.DraftChanged += OnVoiceDraftChanged;
         _resizeBorder = WindowChrome.GetWindowChrome(this).ResizeBorderThickness;
         _connectionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _connectionTimer.Tick += (_, _) => UpdateConnectionState();

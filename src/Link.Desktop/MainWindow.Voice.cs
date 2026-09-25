@@ -10,6 +10,7 @@ namespace Link.Desktop;
 public partial class MainWindow
 {
     private const string SpeakingStatus = "Speaking — Esc stops, push-to-talk interrupts";
+    private readonly PromptDraft _draft = new();
 
     /// <summary>Push-to-talk pressed; during a spoken answer it silences Link and listens right away.</summary>
     public void StartPushToTalk()
@@ -20,9 +21,9 @@ public partial class MainWindow
         {
             ShowPassive();
             var usedSelectedMicrophone = _voice.StartListening();
-            SetStatus(usedSelectedMicrophone
-                ? "Listening — release to finish"
-                : "Selected microphone is not connected — listening on the Windows default", "Listening");
+            SetStatus(!usedSelectedMicrophone
+                ? "Selected microphone is not connected — listening on the Windows default"
+                : _voice.DraftNote is { } note ? $"Listening — {note}" : "Listening — release to finish", "Listening");
         }
         catch (Exception exception)
         {
@@ -41,29 +42,47 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            // The live words may be all that is left of the dictation, so they stay as typed text.
+            _draft.Keep();
             SetError(exception.Message);
             return;
         }
 
         if (transcript is null)
         {
-            SetStatus("Recording was too short — hold the key while speaking");
+            SetPromptText(_draft.Commit(PromptBox.Text, string.Empty));
+            SetStatus("No speech heard — hold the key while speaking");
             return;
         }
 
-        PromptBox.Text = string.IsNullOrWhiteSpace(PromptBox.Text)
-            ? transcript.Text
-            : $"{PromptBox.Text.TrimEnd()} {transcript.Text}";
+        // The final pass replaces the live words instead of adding a second version of them.
+        SetPromptText(_draft.Commit(PromptBox.Text, transcript.Text));
         SetStatus("Voice transcribed");
         // Send was pressed while the user was still speaking or being transcribed.
         if (transcript.SendRequested) await SendAsync();
     }
+
+    private void OnVoiceDraftChanged(string words) => SetPromptText(_draft.Show(PromptBox.Text, words));
+
+    private void SetPromptText(string text)
+    {
+        if (PromptBox.Text == text) return;
+        PromptBox.Text = text;
+        // Dictated words arrive at the end: keep them in view.
+        PromptBox.CaretIndex = text.Length;
+        PromptBox.ScrollToEnd();
+    }
+
+    /// <summary>Typing into words that are still being recognized would mix with them, so the prompt waits.</summary>
+    private void UpdatePromptReadOnly() =>
+        PromptBox.IsReadOnly = _sending || _voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing;
 
     private void OnVoicePhaseChanged(VoicePhase previous)
     {
         var phase = _voice.Phase;
         var listening = phase == VoicePhase.Listening;
         var speaking = phase == VoicePhase.Speaking;
+        UpdatePromptReadOnly();
         ShellRim.BorderBrush = (Brush)FindResource(listening ? "RecordingRimBrush" : "RimLightBrush");
         if (listening)
         {
@@ -86,9 +105,9 @@ public partial class MainWindow
 
         if (phase == VoicePhase.Finalizing)
         {
-            SetStatus(_voice.IsSpeechModelReady
-                ? "Transcribing locally…"
-                : "Downloading local speech model (first use)…", "Transcribing");
+            SetStatus(!_voice.IsSpeechModelReady ? "Downloading local speech model (first use)…"
+                : _voice.FinalNote is { } note ? $"Transcribing locally… · {note}"
+                : "Transcribing locally…", "Transcribing");
             return;
         }
 

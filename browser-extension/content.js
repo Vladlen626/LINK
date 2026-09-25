@@ -2,13 +2,21 @@
 const ANNOUNCE_INTERVAL_MS = 2500;
 const RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 2000;
-// The classic UI has no completion flag: a quiet period after its Stop button disappears ends the answer.
+// ChatGPT re-renders the answer on every token. While the page changes, LINK reads the growing answer at most this
+// often: smooth enough for the overlay and reading aloud, and a few cheap looks a second for the page.
+const CHECK_INTERVAL_MS = 150;
+// Without ChatGPT's own sign of completion, a quiet period after its Stop button disappears ends the answer.
 const SETTLE_MS = 1200;
+const MARKDOWN_ROOTS = "[data-assistant-markdown], .markdown, [class*='markdown']";
+// LINK's Fast / Normal / Deep on ChatGPT's mode picker. Since June 2026 it sits in the composer and offers Instant,
+// Medium, High and Extra High; the older header picker offered Instant, Auto and Thinking. Labels are matched by
+// their first word, so "Extra High" / "Очень высокий" never pass for High.
 const EFFORT_MODES = {
-  fast: { testId: /instant|fast/i, text: /instant|fast|мгновен|быстр/i, label: "Instant" },
-  normal: { testId: /auto/i, text: /^\s*(auto|авто)/i, label: "Auto" },
-  deep: { testId: /thinking/i, text: /thinking|думающ|размышл|рассужд/i, label: "Thinking" }
+  fast: { label: "Instant", patterns: [/^(instant|мгновен|быстр)/i] },
+  normal: { label: "Medium", patterns: [/^(medium|средн|auto|авто)/i] },
+  deep: { label: "High", patterns: [/^(high|высок|thinking|думающ)/i] }
 };
+const MODE_LABELS = /instant|medium|high|auto|thinking|мгновен|средн|высок|авто|думающ/i;
 const EXCLUDED_MODES = /\bpro\b|upgrade|legacy|улучш|устаревш/i;
 const SKIPPED_NODES = 'button, svg, style, script, [hidden], [aria-hidden="true"], .sr-only, ' +
   "[data-message-content-controls], [data-message-actions], [data-message-attribution], [data-assistant-placeholder-slot]";
@@ -72,14 +80,18 @@ async function handleRequest(request) {
     const composer = await waitFor(findComposer, 15000, "ChatGPT message composer was not found.");
     if (request.attachments?.length) await attachImages(composer, request.attachments);
     setComposerText(composer, request.prompt);
-    const baselineKeys = new Set(getAssistantMessages().map(messageKey).filter(Boolean));
-    const baselineLast = getAssistantMessages().at(-1) ?? null;
-    const baselineText = baselineLast ? readAssistantMarkdown(baselineLast) : "";
+    const messages = getAssistantMessages();
+    const last = messages.at(-1) ?? null;
+    const baseline = {
+      keys: new Set(messages.map(messageKey).filter(Boolean)),
+      last,
+      text: last ? readAssistantMarkdown(last) : ""
+    };
 
     const sendButton = await waitFor(findEnabledSendButton, 15000, "ChatGPT Send button did not become available.");
     sendButton.click();
     await report(request.requestId, "waiting");
-    const response = await waitForAssistantResponse(request.requestId, baselineKeys, baselineLast, baselineText);
+    const response = await waitForAssistantResponse(request.requestId, baseline);
     await report(request.requestId, "completed", { text: response });
   } catch (error) {
     if (error instanceof CancelledError) {
@@ -99,35 +111,47 @@ async function handleRequest(request) {
 
 async function applyEffort(request) {
   const effort = EFFORT_MODES[request.effort] ? request.effort : "normal";
-  const key = `effort:${request.conversationId}`;
-  let applied = "normal";
+  const appliedKey = `effort:${request.conversationId}`;
+  const ownKey = `mode:${request.conversationId}`;
+  let saved = {};
   try {
-    applied = (await chrome.storage.local.get(key))[key] ?? "normal";
+    saved = await chrome.storage.local.get([appliedKey, ownKey]);
   } catch {
-    // Without storage the mode is simply applied again.
+    // Without storage the chat's mode is simply checked again.
   }
-  // Normal leaves the user's own model choice alone until LINK has changed it.
-  if (effort === applied) return;
+  const applied = saved[appliedKey] ?? "normal";
+  // Normal leaves the user's own mode alone until LINK has changed it, and then gives that mode back.
+  if (effort === "normal" && applied === "normal") return;
 
-  const result = await switchChatMode(EFFORT_MODES[effort]);
+  const own = effort === "normal" ? saved[ownKey] : null;
+  const mode = own
+    ? { label: own, patterns: [new RegExp(`^${escapeRegExp(own)}$`, "i"), ...EFFORT_MODES.normal.patterns] }
+    : EFFORT_MODES[effort];
+  const result = await switchChatMode(mode);
   if (!result.ok) {
     await report(request.requestId, "notice", { notice: `ChatGPT mode not switched (${result.reason}); the answer hint was still sent` });
     return;
   }
 
   try {
-    await chrome.storage.local.set({ [key]: effort });
+    const update = { [appliedKey]: effort };
+    if (applied === "normal" && result.previous) update[ownKey] = result.previous;
+    await chrome.storage.local.set(update);
   } catch {
-    // The switch still happened; the next request re-applies it.
+    // The chat is in the right mode anyway; the next request checks it again.
   }
-  await report(request.requestId, "notice", { notice: `ChatGPT mode: ${result.label}` });
+  if (result.changed) await report(request.requestId, "notice", { notice: `ChatGPT mode: ${result.label}` });
 }
 
+/**
+ * Puts the chat into the first mode of `mode.patterns` it offers. The picker shows the current mode, so a chat
+ * already in it is left alone; the user may have changed it by hand since LINK last did.
+ */
 async function switchChatMode(mode) {
-  const trigger = document.querySelector('[data-testid="model-switcher-dropdown-button"]') ??
-    [...document.querySelectorAll('button[aria-haspopup="menu"]')]
-      .find(button => /model|модел/i.test(button.getAttribute("aria-label") ?? ""));
+  const trigger = findModePicker();
   if (!trigger) return { ok: false, reason: "model picker not found" };
+  const previous = firstLine(trigger.innerText);
+  if (mode.patterns[0].test(previous)) return { ok: true, changed: false, label: previous, previous };
 
   // Radix menus open on pointerdown; a synthetic click alone does not open them.
   trigger.dispatchEvent(new PointerEvent("pointerdown", {
@@ -140,18 +164,41 @@ async function switchChatMode(mode) {
   }
   if (!items) return { ok: false, reason: "model menu did not open" };
 
-  const target = items.find(item => mode.testId.test(item.getAttribute("data-testid") ?? "") && !isExcludedMode(item)) ??
-    items.find(item => mode.text.test(item.innerText ?? "") && !isExcludedMode(item));
+  const offered = items.filter(item => !isExcludedMode(item));
+  const target = mode.patterns
+    .map(pattern => offered.find(item => pattern.test(firstLine(item.innerText))))
+    .find(Boolean);
   if (!target) {
     (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", {
       key: "Escape", code: "Escape", bubbles: true, cancelable: true
     }));
-    return { ok: false, reason: `${mode.label} is not offered` };
+    // The labels on offer tell what a changed picker calls its modes now.
+    const labels = offered.map(item => firstLine(item.innerText)).filter(Boolean).join(", ");
+    return { ok: false, reason: `${mode.label} is not offered${labels ? `: ${labels}` : ""}` };
   }
 
+  const label = firstLine(target.innerText) || mode.label;
   target.click();
   await delay(300);
-  return { ok: true, label: mode.label };
+  return { ok: true, changed: true, label, previous };
+}
+
+function findModePicker() {
+  const form = findComposer()?.closest("form");
+  const menuButtons = root => [...(root?.querySelectorAll('button[aria-haspopup="menu"], button[aria-haspopup="listbox"]') ?? [])];
+  return document.querySelector('[data-testid="model-switcher-dropdown-button"]') ??
+    // The composer's picker is labelled with the current mode ("Высокий"), the header's with "model".
+    menuButtons(form).find(button => MODE_LABELS.test(firstLine(button.innerText))) ??
+    menuButtons(document).find(button => /model|модел/i.test(button.getAttribute("aria-label") ?? "")) ??
+    null;
+}
+
+function firstLine(text) {
+  return (text ?? "").trim().split("\n")[0].trim();
+}
+
+function escapeRegExp(text) {
+  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 function findModeItems(trigger) {
@@ -277,7 +324,8 @@ function isStopState(button) {
 function isGenerating() {
   return Boolean(findStopButton() ||
     document.querySelector("[data-message-streaming], .result-streaming") ||
-    document.querySelector('button[aria-label*="Stop"], button[aria-label*="stop"]'));
+    // Only the composer's own button: "Stop" elsewhere (e.g. reading aloud) says nothing about the answer.
+    document.querySelector('form button[aria-label*="stop" i], form button[aria-label*="останов" i]'));
 }
 
 function getAssistantMessages() {
@@ -293,60 +341,126 @@ function messageKey(element) {
     element.querySelector("[data-message-id]")?.getAttribute("data-message-id") ?? null;
 }
 
-function isNewResponse(element, baselineKeys, baselineLast, baselineText) {
+function isNewResponse(element, baseline) {
   const key = messageKey(element);
-  if (key) return !baselineKeys.has(key);
-  return element !== baselineLast && readAssistantMarkdown(element) !== baselineText;
+  if (key) return !baseline.keys.has(key);
+  return element !== baseline.last && readAssistantMarkdown(element) !== baseline.text;
 }
 
-function isComplete(message, lastChangeAt) {
-  // The new UI flags finished answers; the classic one needs its Stop button gone and a short quiet period.
-  if (message.closest("[data-message-complete]")) return true;
-  return !isGenerating() && Date.now() - lastChangeAt >= SETTLE_MS;
+// ChatGPT's own sign that the turn is over: the new UI flags the message, the classic one gives the turn its actions.
+function isMarkedComplete(message) {
+  return Boolean(message.closest("[data-message-complete]") ||
+    message.closest("article, [data-turn-id]")?.querySelector('[data-testid="copy-turn-action-button"]'));
 }
 
-async function waitForAssistantResponse(requestId, baselineKeys, baselineLast, baselineText) {
-  const startedAt = Date.now();
-  let responseElement = null;
-  let lastText = "";
-  let lastChangeAt = Date.now();
-  let lastReportedText = "";
-  let lastReportAt = Date.now();
+/**
+ * Waits for the answer without polling the page: a MutationObserver wakes the loop when ChatGPT changes something,
+ * and the page is looked at every CHECK_INTERVAL_MS at most while it changes. The complete answer is read once more
+ * at the end, the moment ChatGPT is done with it.
+ */
+async function waitForAssistantResponse(requestId, baseline) {
+  const page = watchPage();
+  try {
+    const startedAt = Date.now();
+    let candidate = null;
+    let response = null;
+    let stale = true;
+    let text = "";
+    let changedAt = Date.now();
+    let reportedText = "";
+    let eventAt = Date.now();
 
-  while (Date.now() - startedAt < RESPONSE_TIMEOUT_MS) {
-    const latest = getAssistantMessages().at(-1) ?? null;
-    if (latest && isNewResponse(latest, baselineKeys, baselineLast, baselineText)) responseElement = latest;
-
-    if (responseElement) {
-      const text = readAssistantMarkdown(responseElement);
-      if (text !== lastText) {
-        lastText = text;
-        lastChangeAt = Date.now();
+    while (Date.now() - startedAt < RESPONSE_TIMEOUT_MS) {
+      stale = page.takeChanges() || stale;
+      const latest = getAssistantMessages().at(-1) ?? null;
+      if (latest !== candidate) {
+        // Telling a new answer from an old one can take reading it, so each element is judged once.
+        candidate = latest;
+        response = latest && isNewResponse(latest, baseline) ? latest : null;
+        stale = true;
       }
-      if (text && text !== lastReportedText) {
-        lastReportedText = text;
-        lastReportAt = Date.now();
+
+      const generating = isGenerating();
+      if (response && stale) {
+        stale = false;
+        const next = readAssistantMarkdown(response);
+        if (next !== text) {
+          text = next;
+          changedAt = Date.now();
+        }
+      }
+
+      // Only the answer's own text completes it: a status such as "Thinking" is never the answer.
+      if (text && !generating && (isMarkedComplete(response) || Date.now() - changedAt >= SETTLE_MS)) {
+        return readAssistantMarkdown(response) || text;
+      }
+
+      if (text && text !== reportedText) {
+        reportedText = text;
+        eventAt = Date.now();
         await report(requestId, "receiving", { text });
+      } else if (Date.now() - eventAt >= HEARTBEAT_INTERVAL_MS) {
+        // A cancelled request answers 404, which ends the wait through CancelledError.
+        eventAt = Date.now();
+        await report(requestId, "heartbeat");
       }
-      if (text && isComplete(responseElement, lastChangeAt)) return text;
+
+      const now = Date.now();
+      let wait = HEARTBEAT_INTERVAL_MS - (now - eventAt);
+      if (text && !generating) wait = Math.min(wait, SETTLE_MS - (now - changedAt));
+      await page.next(wait);
     }
 
-    if (Date.now() - lastReportAt >= HEARTBEAT_INTERVAL_MS) {
-      // A cancelled request answers 404, which ends the wait through CancelledError.
-      lastReportAt = Date.now();
-      await report(requestId, "heartbeat");
-    }
-    await delay(250);
+    throw new Error("Timed out waiting for ChatGPT to finish the response.");
+  } finally {
+    page.disconnect();
   }
+}
 
-  throw new Error("Timed out waiting for ChatGPT to finish the response.");
+function watchPage() {
+  let changed = false;
+  let wake = null;
+  const observer = new MutationObserver(() => {
+    changed = true;
+    wake?.();
+  });
+  // Text streams in as nodes and characters; the Stop button and ChatGPT's completion flag change attributes.
+  observer.observe(document.body, {
+    subtree: true,
+    childList: true,
+    characterData: true,
+    attributes: true,
+    attributeFilter: ["aria-label", "data-testid", "data-message-complete"]
+  });
+  return {
+    takeChanges() {
+      const result = changed;
+      changed = false;
+      return result;
+    },
+    // Until the page changes or `ms` pass, but never less than CHECK_INTERVAL_MS: a busy page costs a few looks a second.
+    async next(ms) {
+      await delay(CHECK_INTERVAL_MS);
+      if (changed || ms <= CHECK_INTERVAL_MS) return;
+      await new Promise(resolve => {
+        wake = resolve;
+        void delay(ms - CHECK_INTERVAL_MS).then(resolve);
+      });
+      wake = null;
+    },
+    disconnect() {
+      observer.disconnect();
+      wake?.();
+    }
+  };
 }
 
 // ChatGPT renders Markdown to HTML; LINK needs the Markdown back, so code, lists and tables keep their shape.
+// Only rendered answer Markdown counts: status lines ("Thinking", "Думаю") and placeholders around it are not the answer.
 function readAssistantMarkdown(message) {
-  const roots = [...message.querySelectorAll("[data-assistant-markdown], .markdown, [class*='markdown']")]
-    .filter(root => !root.parentElement?.closest("[data-assistant-markdown], .markdown, [class*='markdown']"));
-  return toMarkdown(roots.at(-1) ?? message);
+  const roots = [...message.querySelectorAll(MARKDOWN_ROOTS)]
+    .filter(root => !root.parentElement?.closest(MARKDOWN_ROOTS));
+  return roots.length ? toMarkdown(roots.at(-1)) : "";
 }
 
 function toMarkdown(root) {

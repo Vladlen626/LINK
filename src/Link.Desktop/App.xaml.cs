@@ -18,6 +18,7 @@ public partial class App : System.Windows.Application
     private GlobalHotkeyService? _hotkeys;
     private TrayIconService? _tray;
     private AudioRecorderService? _audio;
+    private SherpaStreamingSpeechToText? _streamingSpeech;
     private TextToSpeechService? _textToSpeech;
     private BrowserChatIntegration? _chat;
     private MainWindow? _mainWindow;
@@ -55,9 +56,16 @@ public partial class App : System.Windows.Application
         var requests = new RequestService(paths);
         _chat = new BrowserChatIntegration();
         _audio = new AudioRecorderService(paths);
+        var speechModels = new SpeechModelManager(paths);
+        _streamingSpeech = new SherpaStreamingSpeechToText(speechModels);
         _textToSpeech = new TextToSpeechService();
         var voice = new VoiceSession(
-            _settings.Current, _audio, new SpeechToTextService(paths), _textToSpeech, TimeProvider.System);
+            _settings.Current,
+            _audio,
+            _streamingSpeech,
+            new SpeechToTextService(speechModels),
+            _textToSpeech,
+            TimeProvider.System);
 
         _mainWindow = new MainWindow(
             _settings,
@@ -294,6 +302,7 @@ public partial class App : System.Windows.Application
         _hotkeys?.Dispose();
         _currentApplication?.Dispose();
         _audio?.Dispose();
+        _streamingSpeech?.Dispose();
         _textToSpeech?.Dispose();
         _chat?.Dispose();
         _tray?.Dispose();

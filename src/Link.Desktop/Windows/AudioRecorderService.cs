@@ -4,7 +4,10 @@ using Link.Desktop.Services;
 
 namespace Link.Desktop.Windows;
 
-/// <summary>Records 16 kHz mono PCM through waveIn, which lets Windows resample any microphone for Whisper.</summary>
+/// <summary>
+/// Records 16 kHz mono PCM through waveIn, which lets Windows resample any microphone for Whisper.
+/// The same capture session hands every block to live recognition, so the microphone is opened only once.
+/// </summary>
 public sealed class AudioRecorderService : IAudioRecorder
 {
     private const int SampleRate = 16000;
@@ -16,6 +19,8 @@ public sealed class AudioRecorderService : IAudioRecorder
     public AudioRecorderService(StoragePaths paths) => _paths = paths;
 
     public event Action<double>? LevelChanged;
+
+    public event Action<float[]>? SamplesCaptured;
 
     public bool IsRecording => _session is not null;
 
@@ -35,7 +40,7 @@ public sealed class AudioRecorderService : IAudioRecorder
             }
         }
 
-        var session = new CaptureSession(waveInId, level => LevelChanged?.Invoke(level));
+        var session = new CaptureSession(waveInId, level => LevelChanged?.Invoke(level), PublishSamples);
         session.Start();
         _session = session;
         return usedSelectedDevice;
@@ -63,6 +68,15 @@ public sealed class AudioRecorderService : IAudioRecorder
     }
 
     public void Dispose() => Cancel();
+
+    private void PublishSamples(ReadOnlySpan<short> samples)
+    {
+        // Only a listener pays for the conversion.
+        if (SamplesCaptured is not { } handler) return;
+        var block = new float[samples.Length];
+        for (var index = 0; index < samples.Length; index++) block[index] = samples[index] / 32768f;
+        handler(block);
+    }
 
     private static void WriteWave(string path, byte[] samples)
     {
@@ -114,6 +128,7 @@ public sealed class AudioRecorderService : IAudioRecorder
         private static readonly TimeSpan ResponseTimeout = TimeSpan.FromSeconds(5);
         private readonly int _deviceId;
         private readonly Action<double> _levelChanged;
+        private readonly Action<ReadOnlySpan<short>> _samplesCaptured;
         private readonly Thread _thread;
         private readonly ManualResetEventSlim _started = new();
         private readonly ManualResetEvent _stopRequested = new(false);
@@ -121,10 +136,11 @@ public sealed class AudioRecorderService : IAudioRecorder
         private readonly byte[] _scratch = new byte[BufferBytes];
         private Exception? _error;
 
-        public CaptureSession(int deviceId, Action<double> levelChanged)
+        public CaptureSession(int deviceId, Action<double> levelChanged, Action<ReadOnlySpan<short>> samplesCaptured)
         {
             _deviceId = deviceId;
             _levelChanged = levelChanged;
+            _samplesCaptured = samplesCaptured;
             _thread = new Thread(Run) { IsBackground = true, Name = "Link microphone" };
         }
 
@@ -270,8 +286,9 @@ public sealed class AudioRecorderService : IAudioRecorder
         private void Append(IntPtr data, int bytes)
         {
             Marshal.Copy(data, _scratch, 0, bytes);
+            var samples = MemoryMarshal.Cast<byte, short>(_scratch.AsSpan(0, bytes & ~1));
             var peak = 0;
-            foreach (var sample in MemoryMarshal.Cast<byte, short>(_scratch.AsSpan(0, bytes & ~1)))
+            foreach (var sample in samples)
             {
                 peak = Math.Max(peak, Math.Abs((int)sample));
             }
@@ -281,6 +298,7 @@ public sealed class AudioRecorderService : IAudioRecorder
             // A stuck push-to-talk key must not grow memory without bound.
             if (_samples.Length + bytes <= MaxBytes) _samples.Write(_scratch, 0, bytes);
             _levelChanged(level);
+            _samplesCaptured(samples);
         }
 
         private static void Check(int result, string action)

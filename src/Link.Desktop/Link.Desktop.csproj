@@ -10,12 +10,27 @@
     <RootNamespace>Link.Desktop</RootNamespace>
     <AssemblyName>Link</AssemblyName>
     <ApplicationManifest>app.manifest</ApplicationManifest>
+    <!-- Link runs on Windows x64 only. Without a runtime identifier sherpa-onnx copies its natives for nine
+         platforms (~230 MB); the output path stays bin\Release\net10.0-windows. -->
+    <RuntimeIdentifier>win-x64</RuntimeIdentifier>
+    <SelfContained>false</SelfContained>
+    <AppendRuntimeIdentifierToOutputPath>false</AppendRuntimeIdentifierToOutputPath>
   </PropertyGroup>
 
   <ItemGroup>
+    <PackageReference Include="org.k2fsa.sherpa.onnx" Version="1.13.8" />
     <PackageReference Include="System.Speech" Version="10.0.12" />
     <PackageReference Include="Whisper.net" Version="1.9.1" />
     <PackageReference Include="Whisper.net.Runtime" Version="1.9.1" />
+    <!-- Whisper on a Vulkan GPU for the large final model; without such a GPU Whisper.net loads the CPU runtime. -->
+    <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.1" PrivateAssets="all" />
   </ItemGroup>
+
+  <!-- The Vulkan runtime copies its Linux build too, unconditionally; Link runs on Windows only. -->
+  <Target Name="SkipLinuxVulkanRuntime" BeforeTargets="AssignTargetPaths">
+    <ItemGroup>
+      <None Remove="@(None)" Condition="$([System.String]::Copy('%(None.TargetPath)').StartsWith('runtimes/vulkan/linux'))" />
+    </ItemGroup>
+  </Target>
 
 </Project>

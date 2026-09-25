@@ -15,6 +15,9 @@ public sealed class AppSettings
     public string? MicrophoneDeviceId { get; set; }
     public string? MicrophoneDeviceName { get; set; }
 
+    /// <summary>Show the words in the prompt while push-to-talk is held; the final transcript replaces them.</summary>
+    public bool LiveTranscription { get; set; } = true;
+
     /// <summary>Read the answer to a dictated prompt aloud.</summary>
     public bool VoiceReplies { get; set; } = true;
 
