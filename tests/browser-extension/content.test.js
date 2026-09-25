@@ -3,7 +3,7 @@
 async function startCompanion(page, bridge = fakeBridge(), storage = memoryStorage()) {
   const api = contentApi(bridge, storage);
   await page.start(api);
-  return { api, bridge, storage };
+  return { page, api, bridge, storage };
 }
 
 async function ask(api, request) {
@@ -12,6 +12,30 @@ async function ask(api, request) {
 
 function completedOf(bridge, request, timeout = 20000) {
   return until("the answer completes", () => bridge.of(request.requestId, "completed")[0], timeout);
+}
+
+// A prompt as LINK formats it: the user's words, the effort hint, the context block.
+const LINK_PROMPT = "- Ты работаешь? - Ты работаешь?\n\n[Fast answer: reply briefly and directly — the answer first, " +
+  "a few sentences or a short list at most, no preamble or recap, no extended reasoning.]\n\n---\nContext\n" +
+  "Application: explorer\n\nWindow: net10.0-windows — проводник";
+
+/** Sends LINK's prompt and waits for its answer, which must be the new one, whole. */
+async function expectAnswer(page, what) {
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, LINK_PROMPT);
+  await ask(api, request);
+  const completed = await completedOf(bridge, request);
+  expect(what, completed?.text, ANSWER_MARKDOWN);
+  expect("the prompt is sent once", page.chat.sent, [LINK_PROMPT]);
+  return { bridge, request, completed };
+}
+
+/** Sends a prompt with a response effort and waits for its answer; the mode notices LINK got on the way. */
+async function askWithEffort({ page, api, bridge }, effort, prompt = `Вопрос ${effort}`) {
+  const request = promptRequest(page.conversationId, prompt, { effort });
+  await ask(api, request);
+  await completedOf(bridge, request);
+  return bridge.of(request.requestId, "notice").map(event => event.notice);
 }
 
 check("streams the answer and completes it", async () => {
@@ -198,12 +222,9 @@ check("a prompt that reached the chat just before its copy went is not sent agai
 
 check("Fast switches the composer's picker from Высокий to Мгновенный", async () => {
   const page = await openChat({ mode: "Высокий" });
-  const { api, bridge } = await startCompanion(page);
-  const request = promptRequest(page.conversationId, "Быстрый вопрос", { effort: "fast" });
-  await ask(api, request);
-  await completedOf(bridge, request);
+  const companion = await startCompanion(page);
+  expect("LINK is told the mode", await askWithEffort(companion, "fast", "Быстрый вопрос"), ["ChatGPT mode: Мгновенный"]);
   expect("the picker shows Мгновенный", page.chat.mode, "Мгновенный");
-  expect("LINK is told the mode", bridge.of(request.requestId, "notice").map(event => event.notice), ["ChatGPT mode: Мгновенный"]);
   expect("the header's model picker is left alone", page.chat.headerOpens, 0);
   expect("the menu is closed", page.chat.menu, null);
   expect("the prompt is sent", page.chat.sent, ["Быстрый вопрос"]);
@@ -211,56 +232,39 @@ check("Fast switches the composer's picker from Высокий to Мгновен
 
 check("Fast, Deep and Normal follow the picker; Normal gives the user's mode back", async () => {
   const page = await openChat({ mode: "Средний", tokenMs: 20 });
-  const { api, bridge, storage } = await startCompanion(page);
-  const run = async effort => {
-    const request = promptRequest(page.conversationId, `Вопрос ${effort}`, { effort });
-    await ask(api, request);
-    await completedOf(bridge, request);
-    return bridge.of(request.requestId, "notice").map(event => event.notice);
-  };
-  expect("Fast", [await run("fast"), page.chat.mode], [["ChatGPT mode: Мгновенный"], "Мгновенный"]);
-  expect("the user's own mode is kept", storage.data.get(`mode:${page.conversationId}`), "Средний");
+  const companion = await startCompanion(page);
+  const run = async effort => [await askWithEffort(companion, effort), page.chat.mode];
+  expect("Fast", await run("fast"), [["ChatGPT mode: Мгновенный"], "Мгновенный"]);
+  expect("the user's own mode is kept", companion.storage.data.get(`mode:${page.conversationId}`), "Средний");
   // The user picks High by hand; Fast puts Instant back.
   page.chat.mode = "Высокий";
-  expect("Fast again", [await run("fast"), page.chat.mode], [["ChatGPT mode: Мгновенный"], "Мгновенный"]);
-  expect("Deep", [await run("deep"), page.chat.mode], [["ChatGPT mode: Высокий"], "Высокий"]);
-  expect("Deep again changes nothing", [await run("deep"), page.chat.mode], [[], "Высокий"]);
-  expect("Normal", [await run("normal"), page.chat.mode], [["ChatGPT mode: Средний"], "Средний"]);
-  expect("Normal again leaves it alone", [await run("normal"), page.chat.mode], [[], "Средний"]);
+  expect("Fast again", await run("fast"), [["ChatGPT mode: Мгновенный"], "Мгновенный"]);
+  expect("Deep", await run("deep"), [["ChatGPT mode: Высокий"], "Высокий"]);
+  expect("Deep again changes nothing", await run("deep"), [[], "Высокий"]);
+  expect("Normal", await run("normal"), [["ChatGPT mode: Средний"], "Средний"]);
+  expect("Normal again leaves it alone", await run("normal"), [[], "Средний"]);
 });
 
 check("a picker that names its kind before the mode is read by the mode", async () => {
   const page = await openChat({ mode: "Высокий", pickerPrefix: "Рассуждение · " });
-  const { api, bridge } = await startCompanion(page);
-  const request = promptRequest(page.conversationId, "Вопрос", { effort: "fast" });
-  await ask(api, request);
-  await completedOf(bridge, request);
+  const companion = await startCompanion(page);
+  expect("LINK is told the mode", await askWithEffort(companion, "fast"), ["ChatGPT mode: Рассуждение · Мгновенный"]);
   expect("the picker shows Мгновенный", page.chat.mode, "Мгновенный");
-  expect("LINK is told the mode", bridge.of(request.requestId, "notice").map(event => event.notice),
-    ["ChatGPT mode: Рассуждение · Мгновенный"]);
 });
 
 check("the older header picker is used when the composer has none", async () => {
   const page = await openChat({ composerPicker: false, tokenMs: 20 });
-  const { api, bridge, storage } = await startCompanion(page);
-  const run = async effort => {
-    const request = promptRequest(page.conversationId, `Вопрос ${effort}`, { effort });
-    await ask(api, request);
-    await completedOf(bridge, request);
-    return bridge.of(request.requestId, "notice").map(event => event.notice);
-  };
-  expect("Fast picks Instant there", [await run("fast"), page.chat.headerMode], [["ChatGPT mode: Instant"], "Instant"]);
-  expect("its label names no mode to keep", storage.data.has(`mode:${page.conversationId}`), false);
-  expect("Normal picks Auto", [await run("normal"), page.chat.headerMode], [["ChatGPT mode: Auto"], "Auto"]);
+  const companion = await startCompanion(page);
+  const run = async effort => [await askWithEffort(companion, effort), page.chat.headerMode];
+  expect("Fast picks Instant there", await run("fast"), [["ChatGPT mode: Instant"], "Instant"]);
+  expect("its label names no mode to keep", companion.storage.data.has(`mode:${page.conversationId}`), false);
+  expect("Normal picks Auto", await run("normal"), [["ChatGPT mode: Auto"], "Auto"]);
 });
 
 check("a mode the picker does not take is reported, and the prompt still goes", async () => {
   const page = await openChat({ mode: "Высокий", itemsChoose: false });
-  const { api, bridge } = await startCompanion(page);
-  const request = promptRequest(page.conversationId, "Вопрос", { effort: "fast" });
-  await ask(api, request);
-  await completedOf(bridge, request);
-  expect("the notice says what the picker shows", bridge.of(request.requestId, "notice").map(event => event.notice),
+  const companion = await startCompanion(page);
+  expect("the notice says what the picker shows", await askWithEffort(companion, "fast", "Вопрос"),
     ['ChatGPT mode not switched (the picker still shows "Высокий"); the answer hint was still sent']);
   expect("the menu is closed", page.chat.menu, null);
   expect("the prompt is sent", page.chat.sent, ["Вопрос"]);
@@ -318,4 +322,100 @@ check("Check chat reads the answer and says which prompt it belongs to", async (
   await sendToTab(api, { type: "link-request", request: after });
   const snapshot = await until("a snapshot comes", () => bridge.of(after.requestId, "snapshot")[0]);
   expect("once it is done", [snapshot?.generating, snapshot?.answerTo, snapshot?.text], [false, null, ANSWER_MARKDOWN]);
+});
+
+check("octane: streams the answer and completes it on ChatGPT's completion flag", async () => {
+  const page = await openChat({ ui: "octane" });
+  const { bridge, request, completed } = await expectAnswer(page, "the complete answer comes as Markdown");
+  expect("a usual end needs no diagnostics", completed?.diagnostics, undefined);
+  const streamed = bridge.of(request.requestId, "receiving").map(event => event.text);
+  expect("the answer streams in steps before it ends", streamed.length >= 3, true);
+  expect("the thinking status is never the answer", streamed.some(text => text.includes("Думаю")), false);
+});
+
+check("octane: Fast switches the composer's popover picker from Высокий to Мгновенный", async () => {
+  for (const pickerHaspopup of [true, false]) {
+    const page = await openChat({ ui: "octane", pickerHaspopup });
+    const companion = await startCompanion(page);
+    const kind = pickerHaspopup ? "a menu button" : "a plain popover button";
+    expect(`LINK is told the mode (${kind})`, await askWithEffort(companion, "fast"), ["ChatGPT mode: Мгновенный"]);
+    expect(`the picker shows Мгновенный (${kind})`, page.chat.mode, "Мгновенный");
+    expect(`the popover is closed (${kind})`, page.chat.menu, null);
+    page.frame.remove();
+  }
+});
+
+check("octane: a prompt the chat renders as Markdown is still found", async () => {
+  await expectAnswer(await openChat({ ui: "octane", userMarkdown: true }), "its answer, not an older one");
+});
+
+check("octane: new turns that land before the transcript are found", async () => {
+  await expectAnswer(await openChat({ ui: "octane", newTurnsBefore: true }), "the new answer, not the transcript's last one");
+});
+
+check("a hidden message template at the end of the page does not hide the prompt", async () => {
+  await expectAnswer(await openChat({ ui: "octane", trailingTemplate: true }), "the answer to the prompt");
+});
+
+check("shell: the prompt and its answer are found in the newest UI, and the answer's own buttons complete it", async () => {
+  const page = await openChat({ ui: "shell" });
+  // The prompt's own action buttons share the turn from the start; they must not cut the answer short.
+  const { bridge, request, completed } = await expectAnswer(page, "the complete answer comes as Markdown");
+  expect("a usual end needs no diagnostics", completed?.diagnostics, undefined);
+  const streamed = bridge.of(request.requestId, "receiving").map(event => event.text);
+  expect("the answer streams in steps before it ends", streamed.length >= 3, true);
+});
+
+check("shell: an answer still being typed out when Stop has gone is taken whole", async () => {
+  await expectAnswer(await openChat({ ui: "shell", typedAfterStop: true }), "the whole answer, not the part there when Stop went");
+});
+
+check("shell: Fast, Deep and Normal move the picker's effort slider", async () => {
+  const page = await openChat({ ui: "shell", mode: "Высокий", tokenMs: 20 });
+  const companion = await startCompanion(page);
+  const run = async effort => [await askWithEffort(companion, effort), page.chat.mode];
+  expect("Fast", await run("fast"), [["ChatGPT mode: Instant"], "Instant"]);
+  expect("the menu is closed", page.chat.menu, null);
+  expect("Deep", await run("deep"), [["ChatGPT mode: Высокий"], "Высокий"]);
+  expect("Fast again", await run("fast"), [["ChatGPT mode: Instant"], "Instant"]);
+  expect("Normal gives the user's mode back", await run("normal"), [["ChatGPT mode: Высокий"], "Высокий"]);
+});
+
+check("shell: Check chat sees ChatGPT writing, and Stop in LINK presses its Остановить", async () => {
+  const page = await openChat({ ui: "shell", tokenMs: 400 });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  await until("the answer streams", () => bridge.of(request.requestId, "receiving").length);
+  const read = { requestId: crypto.randomUUID(), conversationId: page.conversationId, kind: "read" };
+  await sendToTab(api, { type: "link-request", request: read });
+  const snapshot = await until("a snapshot comes", () => bridge.of(read.requestId, "snapshot")[0]);
+  expect("ChatGPT is still writing", [snapshot?.generating, snapshot?.answerTo], [true, request.requestId]);
+  bridge.ended.set(request.requestId, "cancelled");
+  await until("ChatGPT is stopped", () => page.chat.stopClicks === 1, 5000);
+});
+
+check("a chat still writing an earlier answer gets no prompt, and LINK's words leave its composer", async () => {
+  let page = await openChat({ ui: "shell", busyMs: 60000 });
+  let { api, bridge } = await startCompanion(page);
+  let request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  const error = await until("an error is reported", () => bridge.of(request.requestId, "error")[0], 30000);
+  expect("it says ChatGPT is still answering", error?.error.startsWith("ChatGPT is still answering the previous message"), true);
+  expect("the prompt is not sent", page.chat.sent, []);
+  expect("its words are taken back from the composer", page.chat.composer.innerText.trim(), "");
+  expect("the earlier answer is not stopped", page.chat.stopClicks, 0);
+  page.frame.remove();
+
+  // Stopped in LINK while the chat is busy: once the chat is free, nothing is sent and nothing is stopped.
+  page = await openChat({ ui: "shell", busyMs: 3000 });
+  ({ api, bridge } = await startCompanion(page));
+  request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  await sleep(1000);
+  bridge.ended.set(request.requestId, "cancelled");
+  await sleep(8000);
+  expect("the stopped prompt is not sent", page.chat.sent, []);
+  expect("nor left in the composer", page.chat.composer.innerText.trim(), "");
+  expect("the chat's own answer is not stopped", page.chat.stopClicks, 0);
 });

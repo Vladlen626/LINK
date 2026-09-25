@@ -12,6 +12,8 @@ const HELLO_TIMEOUT_MS = 5000;
 // A tab that cannot be reached is reloaded at most once in this period, so a broken page never reloads in a loop.
 const RELOAD_INTERVAL_MS = 60000;
 const RELOAD_TIMEOUT_MS = 30000;
+// The unpacked companion checks this often whether its files on disk are a newer version, and then reloads itself.
+const UPDATE_CHECK_INTERVAL_MS = 10000;
 const conversations = new Map();
 const pollingTabs = new Set();
 // Tabs that are working on a LINK request and need ticks while Chrome throttles their timers.
@@ -22,6 +24,7 @@ const reloadedAt = new Map();
 let loopStarted = false;
 let tabsCheck = null;
 let tabsCheckedAt = 0;
+let updateCheckedAt = 0;
 
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   const tabId = sender.tab?.id;
@@ -109,7 +112,7 @@ function ensureCompanion(tabId) {
 
 async function repairTab(tabId) {
   const reply = await hello(tabId);
-  if (reply?.version === VERSION) return { reply: registered(tabId, reply) };
+  if (reply?.version === VERSION) return { reply: trackCompanion(tabId, reply) };
   if (reply) await chrome.tabs.sendMessage(tabId, { type: "link-retire" }).catch(() => {});
   try {
     await chrome.scripting.executeScript({ target: { tabId }, files: ["content.js"] });
@@ -118,23 +121,29 @@ async function repairTab(tabId) {
     return { unreachable: true };
   }
   const started = await hello(tabId);
-  return started?.version === VERSION ? { reply: registered(tabId, started) } : {};
+  return started?.version === VERSION ? { reply: trackCompanion(tabId, started) } : {};
 }
 
-/** The version handshake: which companion runs in the tab, if any answers. */
+/** The version handshake: which companion runs in the tab, if any answers in time. */
 async function hello(tabId) {
+  let timer;
   try {
     const reply = await Promise.race([
       chrome.tabs.sendMessage(tabId, { type: "link-hello" }),
-      delay(HELLO_TIMEOUT_MS).then(() => null)
+      new Promise(resolve => {
+        timer = setTimeout(resolve, HELLO_TIMEOUT_MS, null);
+      })
     ]);
     return reply?.version ? reply : null;
   } catch {
     return null;
+  } finally {
+    clearTimeout(timer);
   }
 }
 
-function registered(tabId, reply) {
+/** Registers the tab's conversation from its companion's handshake, and the ticks a prompt there needs. */
+function trackCompanion(tabId, reply) {
   registerConversation(tabId, reply.conversation);
   if (reply.busy) activeTabs.add(tabId);
   return reply;
@@ -153,7 +162,7 @@ async function reloadTab(tabId) {
   while (Date.now() < deadline) {
     await delay(500);
     const reply = await hello(tabId);
-    if (reply?.version === VERSION && reply.conversation) return registered(tabId, reply);
+    if (reply?.version === VERSION && reply.conversation) return trackCompanion(tabId, reply);
   }
   return null;
 }
@@ -168,6 +177,21 @@ async function mayReload(tabId, request) {
     return tab.discarded || !request.sent;
   } catch {
     return false;
+  }
+}
+
+/**
+ * Reloads the extension when its manifest on disk names another version: an unpacked companion updated in place then
+ * takes effect without Reload in chrome://extensions. The new worker starts the new content script in the open tabs,
+ * and a prompt on its way is picked up again from LINK.
+ */
+async function reloadIfUpdated() {
+  try {
+    const response = await fetch(chrome.runtime.getURL("manifest.json"), { cache: "no-store" });
+    const { version } = await response.json();
+    if (typeof version === "string" && version !== VERSION) chrome.runtime.reload();
+  } catch {
+    // A manifest being written just now is read again at the next check.
   }
 }
 
@@ -195,6 +219,10 @@ async function pollLoop() {
     }
 
     if (Date.now() - tabsCheckedAt >= TAB_CHECK_INTERVAL_MS) void checkTabs();
+    if (Date.now() - updateCheckedAt >= UPDATE_CHECK_INTERVAL_MS) {
+      updateCheckedAt = Date.now();
+      void reloadIfUpdated();
+    }
     await Promise.allSettled([...conversations.values()].map(async conversation => {
       if (Date.now() - conversation.announcedAt >= ANNOUNCE_INTERVAL_MS) await announce(conversation);
       await pollConversation(conversation);

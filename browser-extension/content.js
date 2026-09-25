@@ -19,25 +19,41 @@ const PROGRESS_INTERVAL_MS = 250;
 // one in a hidden tab, whose throttled timers may still be putting the last words on the page, and for an answer
 // without a Markdown root, so that a status line cannot pass for it.
 const SETTLE_MS = 1200;
-const PLAIN_SETTLE_MS = 3000;
+const LONG_SETTLE_MS = 3000;
 // An answer that has not changed at all for this long is complete even if a Stop-like button lingers.
 const STALL_MS = 60 * 1000;
+// The whole page is searched for the answer this often while it has not turned up where new turns land; seldom when
+// the prompt itself landed there, since its answer will follow it.
+const SEARCH_INTERVAL_MS = 1000;
+const SEARCH_INTERVAL_IN_THREAD_MS = 5000;
 // A prompt still in the composer this long after Send was not taken by ChatGPT.
 const SEND_CONFIRM_MS = 20 * 1000;
 // A prompt picked up again (after a reload) that the chat does not show by then has gone from the page.
 const RESUME_TIMEOUT_MS = 20 * 1000;
+// The chat shows a sent prompt at once; an answer is taken without the prompt in sight only after this long.
+const PROMPT_GRACE_MS = 5000;
 // LINK counts as gone when no event of a prompt has reached it for this long.
 const BRIDGE_TIMEOUT_MS = 30 * 1000;
 const REQUEST_STATE_TTL_MS = 60 * 60 * 1000;
-const MARKDOWN_ROOTS = "[data-assistant-markdown], .markdown, [class*='markdown']";
-const ASSISTANT_MESSAGES = '[data-message-author-role="assistant"], article[data-turn="assistant"], li[data-message-role="assistant"]';
-const USER_MESSAGES = '[data-message-author-role="user"], article[data-turn="user"], li[data-message-role="user"]';
-const TURNS = "article, [data-turn-id], [data-testid^='conversation-turn']";
+const MARKDOWN_ROOTS = "[data-assistant-markdown], [data-markdown-text-style], .markdown, [class*='markdown']";
+const ASSISTANT_MESSAGES = '[data-message-author-role="assistant"], article[data-turn="assistant"], li[data-message-role="assistant"], ' +
+  '[data-chatgpt-search-unit-key$=":assistant"]';
+const USER_MESSAGES = '[data-message-author-role="user"], article[data-turn="user"], li[data-message-role="user"], ' +
+  '[data-chatgpt-search-unit-key$=":user"]';
+const TURNS = "article, [data-turn-id], [data-testid^='conversation-turn'], [data-turn-key]";
 // ChatGPT gives a finished turn its action buttons (copy, rate, read aloud…); a turn still being written has none.
-const TURN_ACTIONS = '[data-testid$="turn-action-button"]';
-const STREAMING = '[data-message-streaming]:not([data-message-streaming="false"]), .result-streaming';
+// The newest UI has no test ids on them, and its prompt has action buttons of its own in the same turn.
+const TURN_ACTIONS = '[data-testid$="turn-action-button"], .turn-action-controls button';
+// The newest UI types a received answer out over time, and its Stop button goes before it has finished typing.
+const STREAMING = '[data-message-streaming]:not([data-message-streaming="false"]), .result-streaming, [data-markdown-animated]';
+// In order of preference: the classic composer's id first, which the browser finds without searching the page.
+const COMPOSERS = ["#prompt-textarea", 'textarea[data-testid="prompt-textarea"]', 'textarea[name="prompt"]',
+  "[data-mobile-composer-prompt]", 'textarea[placeholder*="Message"]', '[contenteditable="true"][data-virtualkeyboard]'];
+const SEND_BUTTONS = ['button[data-testid="send-button"]', "button[data-composer-submit]", 'button[aria-label="Send prompt"]',
+  'form button[type="submit"]'];
+// The `i` flag folds only Latin case, so the Russian label is matched as ChatGPT writes it ("Остановить").
 const STOP_BUTTONS = 'button[data-testid="stop-button"], button[data-composer-submit], ' +
-  'button[aria-label*="stop" i], button[aria-label*="останов" i]';
+  'button[aria-label*="stop" i], button[aria-label*="Останов"], button[aria-label*="останов"]';
 // Status lines that stand in for an answer while ChatGPT thinks or searches.
 const STATUS_LINE = /^(thinking|thought|reasoning|searching|analy[sz]|думаю|думал|размышл|рассужд|ищу|поиск|анализ)/i;
 // ChatGPT's answer modes as its picker names them. Since June 2026 the picker sits in the composer (Instant, Medium,
@@ -55,8 +71,13 @@ const MODE_NAMES = { extra: "Extra High", instant: "Instant", medium: "Medium", 
 // LINK's Fast / Normal / Deep: the chat's modes to use, the first one it offers.
 const EFFORT_MODES = { fast: ["instant"], normal: ["medium", "auto"], deep: ["high", "thinking"] };
 const EXCLUDED_MODES = /\bpro\b|upgrade|legacy|улучш|устаревш/i;
-const PICKER_BUTTONS = 'button[aria-haspopup], [role="combobox"]';
+// The composer of the new UI ("octane") opens its menus as native popovers (popovertarget), not Radix menus.
+const PICKER_BUTTONS = 'button[aria-haspopup], button[popovertarget], [role="combobox"]';
 const MENUS = '[role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]';
+// Since September 2026 the picker's menu sets the effort on a slider ("Мощность"), a level per arrow key, and
+// announces the level it is at ("Высокий, 3 из 3."). Its levels from the lightest:
+const EFFORT_SLIDERS = '[data-reasoning-slider], [role="menuitem"][aria-keyshortcuts~="ArrowRight"]';
+const SLIDER_ORDER = ["instant", "medium", "high", "extra"];
 const SKIPPED_NODES = 'button, svg, style, script, [hidden], [aria-hidden="true"], .sr-only, [class*="shimmer"], ' +
   "[data-message-content-controls], [data-message-actions], [data-message-attribution], [data-assistant-placeholder-slot]";
 const INLINE_TAGS = new Set(["A", "ABBR", "B", "BR", "CODE", "DEL", "EM", "I", "IMG", "KBD", "MARK", "S", "SMALL", "SPAN", "STRONG", "SUB", "SUP", "U"]);
@@ -166,19 +187,24 @@ async function handlePrompt(request) {
   const job = {
     requestId: request.requestId,
     conversationId: request.conversationId,
-    // How the prompt starts, to find it among the chat's messages.
-    head: normalize(request.prompt.split("\n").find(line => line.trim()) ?? "").slice(0, 80),
+    // The prompt's first words, to find it among the chat's messages however the chat renders it.
+    head: looseText(request.prompt).slice(0, 60),
     stopReason: null,
     wake: null,
     resumed: false,
     sentAt: 0,
+    // What became of the answer mode, for the diagnostics.
+    mode: null,
     baseline: null,
     lastUserKey: null,
     prompt: null,
     promptKey: null,
     thread: null,
     response: null,
-    turn: null
+    // The answer's turn, and the answer and prompt it was worked out for.
+    turn: null,
+    turnFor: null,
+    turnPrompt: null
   };
   current = job;
   job.done = runPrompt(request, job);
@@ -212,9 +238,11 @@ async function runPrompt(request, job) {
   } catch (error) {
     if (error instanceof RetiredError) return;
     void forgetRequestState(request.requestId);
+    // A prompt that never went out does not stay behind in ChatGPT's composer.
+    if (!job.sentAt && !job.resumed) takeBackPrompt(job);
     if (error instanceof EndedError) {
-      // Stop/Esc in LINK stops ChatGPT too; an answer LINK has taken otherwise is left alone.
-      if (error.reason === "cancelled") findStopButton(composerForm())?.click();
+      // Stop/Esc in LINK stops ChatGPT's answer to the prompt too; an answer LINK has taken otherwise is left alone.
+      if (error.reason === "cancelled" && (job.sentAt || job.resumed)) findStopButton(composerForm())?.click();
       return;
     }
     await reportQuietly(request.requestId, "error", {
@@ -227,7 +255,7 @@ async function runPrompt(request, job) {
 async function sendPrompt(request, job) {
   await report(request.requestId, "sending");
   const composer = await waitFor(findComposer, 15000, "ChatGPT message composer was not found.");
-  await applyEffort(request, composer.closest("form"));
+  job.mode = await applyEffort(request, composer.closest("form"));
   if (request.attachments?.length) await attachImages(composer, request.attachments);
   setComposerText(composer, request.prompt);
   job.baseline = takeBaseline();
@@ -235,8 +263,14 @@ async function sendPrompt(request, job) {
   job.thread = findThread();
   await saveRequestState(request.requestId, { phase: "sending", lastUserKey: job.lastUserKey });
 
-  const sendButton = await waitFor(findEnabledSendButton, 15000, "ChatGPT Send button did not become available.");
-  // A copy replaced meanwhile sends nothing: the newer one does.
+  const sendButton = await waitFor(findEnabledSendButton, 15000, null);
+  if (!sendButton) {
+    throw new Error(findStopButton(composerForm())
+      ? "ChatGPT is still answering the previous message. Send again once it has finished, or stop it in the chat."
+      : "ChatGPT Send button did not become available.");
+  }
+  // LINK may have been stopped while the chat was busy; a copy replaced meanwhile sends nothing: the newer one does.
+  await report(request.requestId, "sending");
   if (job.stopReason) throw job.stopReason;
   if (!chrome.runtime?.id) throw new RetiredError("The extension was reloaded.");
   sendButton.click();
@@ -245,15 +279,26 @@ async function sendPrompt(request, job) {
   await report(request.requestId, "waiting");
 }
 
+function takeBackPrompt(job) {
+  const composer = findComposer();
+  if (composer && job.head && looseText(composerText(composer)).includes(job.head)) setComposerText(composer, "");
+}
+
+/**
+ * The messages LINK saw before sending, by id (or as elements, without one): whatever is new after it is the prompt
+ * and its answer, wherever the chat puts them.
+ */
 function takeBaseline() {
-  const messages = getAssistantMessages(document);
-  const last = messages.at(-1) ?? null;
+  const users = [...document.querySelectorAll(USER_MESSAGES)];
+  const messages = [...users, ...document.querySelectorAll(ASSISTANT_MESSAGES)];
   return {
-    keys: new Set(messages.map(messageKey).filter(Boolean)),
-    last,
-    text: last ? readAnswer(last).markdown : "",
-    lastUser: getUserMessages(document).at(-1) ?? null
+    seen: new Set(messages.map(message => messageKey(message) ?? message)),
+    lastUser: users.at(-1) ?? null
   };
+}
+
+function isNewMessage(message, baseline) {
+  return !baseline.seen.has(messageKey(message) ?? message);
 }
 
 async function handleRead(request) {
@@ -267,46 +312,109 @@ async function handleRead(request) {
  */
 function readSnapshot() {
   const job = current;
-  const prompt = job ? (job.prompt?.isConnected ? job.prompt : null) : getUserMessages(document).at(-1) ?? null;
-  const latest = getAssistantMessages(document).at(-1) ?? null;
-  const response = latest && (job ? prompt && follows(prompt, latest) : !prompt || follows(prompt, latest)) ? latest : null;
+  let prompt;
+  let response;
+  if (job) {
+    // The same search as the watch's, which may be stuck or not have looked yet.
+    prompt = job.prompt?.isConnected ? job.prompt : findPromptMessage(job);
+    response = job.response?.isConnected ? job.response : searchResponse({ ...job, prompt });
+  } else {
+    prompt = lastMatch(document, USER_MESSAGES);
+    const latest = lastMatch(document, ASSISTANT_MESSAGES);
+    response = latest && (!prompt || follows(prompt, latest)) ? latest : null;
+  }
   const signs = answerSigns(response, response ? turnOf(response, prompt) : null, composerForm());
   const read = response ? readAnswer(response) : { markdown: "", plain: "" };
   const generating = !signs.actions && Boolean(signs.stop || signs.streaming);
   return {
-    answerTo: job && prompt ? job.requestId : null,
+    answerTo: job && response ? job.requestId : null,
     text: read.markdown || (!generating && !isStatusLine(read.plain) ? read.plain : ""),
     generating,
-    diagnostics: JSON.stringify(diagnose(job, response))
+    diagnostics: JSON.stringify(diagnose(job, response, prompt))
   };
 }
 
-function diagnose(job, response = job?.response) {
+function diagnose(job, response = job?.response, prompt = job?.prompt) {
   const form = composerForm();
   const answer = response?.isConnected ? response : null;
-  const turn = answer ? turnOf(answer, job?.prompt) : null;
+  const turn = answer ? turnOf(answer, prompt) : null;
   const read = answer ? readAnswer(answer) : null;
+  const found = Boolean(prompt?.isConnected);
   return {
     version: VERSION,
     busy: current?.requestId ?? null,
     resumed: job?.resumed ?? null,
-    prompt: job ? (job.prompt?.isConnected ? messageKey(job.prompt) ?? "found" : "not found") : null,
+    mode: job?.mode ?? null,
+    prompt: job ? (found ? messageKey(prompt) ?? "found" : "not found") : null,
+    // What the page offers as messages when the prompt or the answer is not among them, and how it marks them when
+    // the selectors find none at all: how to tell them next time.
+    messages: !found || !answer ? describeMessages(job) : undefined,
+    markup: document.querySelector(`${USER_MESSAGES}, ${ASSISTANT_MESSAGES}`) ? undefined : describeMarkup(),
     answer: answer ? {
       tag: answer.tagName.toLowerCase(),
       id: messageKey(answer),
-      markdownRoots: markdownRoots(answer).length,
+      markdownRoots: answer.querySelectorAll(MARKDOWN_ROOTS).length,
       markdownLength: read.markdown.length,
       plainLength: read.plain.length,
       complete: Boolean(answer.closest("[data-message-complete]")),
       streaming: Boolean(answer.matches(STREAMING) || answer.querySelector(STREAMING)),
-      turnButtons: [...turn.querySelectorAll("button[data-testid]")].map(button => button.dataset.testid).slice(0, 12)
+      turnButtons: answerActions(turn).map(button => button.dataset.testid ?? button.getAttribute("aria-label")).slice(0, 12)
     } : null,
     stopButtons: [...(form ?? document).querySelectorAll(STOP_BUTTONS)].slice(0, 6).map(button =>
       `${button.dataset.testid ?? ""}|${button.getAttribute("aria-label") ?? ""}|${isShown(button) ? "shown" : "hidden"}`),
-    picker: pickerLabel(findModePicker(form))
+    // The composer's buttons by label: a Stop or Send the selectors miss shows up here.
+    composerButtons: [...(form?.querySelectorAll("button[aria-label]") ?? [])].map(button => button.getAttribute("aria-label")),
+    picker: describeElement(findModePicker(form))
   };
 }
 
+/** The last messages of each kind: their element, id, whether they are new since sending and match the prompt. */
+function describeMessages(job) {
+  const describe = (selector, count) => [...document.querySelectorAll(selector)].slice(-count).map(message => ({
+    element: describeElement(message),
+    new: job?.baseline ? isNewMessage(message, job.baseline) : null,
+    matches: job ? matchesPrompt(message, job) : null,
+    text: normalize(message.textContent).slice(0, 60),
+    parents: [message.parentElement, message.parentElement?.parentElement].map(describeElement)
+  }));
+  return { head: job?.head, lastUserKey: job?.lastUserKey, users: describe(USER_MESSAGES, 4), assistants: describe(ASSISTANT_MESSAGES, 2) };
+}
+
+/**
+ * How the page marks its messages when the selectors miss them: the attributes that name messages or turns, how
+ * often each occurs, and the way down to the thread through the largest element, with the last ones of crowded levels.
+ */
+function describeMarkup() {
+  const root = document.querySelector("main") ?? document.body;
+  const attributes = new Map();
+  for (const element of root.querySelectorAll("*")) {
+    for (const { name, value } of element.attributes) {
+      if (!/message|turn|author|transcript/i.test(name)) continue;
+      const key = `${element.tagName.toLowerCase()}[${name}${/^[a-z-]{1,20}$/i.test(value) ? `=${value}` : ""}]`;
+      attributes.set(key, (attributes.get(key) ?? 0) + 1);
+    }
+  }
+  const path = [];
+  const size = element => element.getElementsByTagName("*").length;
+  for (let node = root, depth = 0; node && size(node) >= 10 && depth < 20; depth++) {
+    const children = [...node.children];
+    path.push(`${describeElement(node)} x${children.length}`);
+    if (children.length > 2) path.push(...children.slice(-3).map(child => `  ${describeElement(child)}`));
+    node = children.reduce((largest, child) => !largest || size(child) > size(largest) ? child : largest, null);
+  }
+  return { attributes: Object.fromEntries([...attributes].slice(0, 40)), path };
+}
+
+/** An element as a short line: its tag, label and attributes, for link.log. */
+function describeElement(element) {
+  if (!element) return null;
+  const attributes = [...element.attributes]
+    .filter(attribute => attribute.name !== "class" && attribute.name !== "style")
+    .map(attribute => attribute.value ? `${attribute.name}=${attribute.value.slice(0, 40)}` : attribute.name);
+  return `${element.tagName.toLowerCase()}[${attributes.join(" ")}] "${firstLine(element.textContent).slice(0, 30)}"`;
+}
+
+/** Puts the chat into the mode for LINK's effort; what became of it, in a few words. */
 async function applyEffort(request, form) {
   const effort = EFFORT_MODES[request.effort] ? request.effort : "normal";
   const appliedKey = `effort:${request.conversationId}`;
@@ -319,14 +427,14 @@ async function applyEffort(request, form) {
   }
   const applied = saved[appliedKey] ?? "normal";
   // Normal leaves the user's own mode alone until LINK has changed it, and then gives that mode back.
-  if (effort === "normal" && applied === "normal") return;
+  if (effort === "normal" && applied === "normal") return "normal: the user's own mode";
 
   const own = effort === "normal" ? saved[ownKey] : null;
   const targets = own ? [modeOf(own) ?? own, ...EFFORT_MODES.normal] : EFFORT_MODES[effort];
   const result = await switchChatMode(form, targets);
   if (!result.ok) {
     await report(request.requestId, "notice", { notice: `ChatGPT mode not switched (${result.reason}); the answer hint was still sent` });
-    return;
+    return `${effort}: not switched (${result.reason})`;
   }
 
   try {
@@ -338,6 +446,7 @@ async function applyEffort(request, form) {
     // The chat is in the right mode anyway; the next request checks it again.
   }
   if (result.changed) await report(request.requestId, "notice", { notice: `ChatGPT mode: ${result.label}` });
+  return `${effort}: ${result.changed ? `switched from "${result.previous}" to` : "already"} "${result.label}"`;
 }
 
 /**
@@ -353,6 +462,8 @@ async function switchChatMode(form, targets) {
 
   const menu = await openMenu(picker);
   if (!menu) return { ok: false, reason: `the "${previous}" picker did not open` };
+  const slider = menu.querySelector(EFFORT_SLIDERS);
+  if (slider) return slideToMode(menu, slider, targets, previous);
   const offered = menuItems(menu);
   const choice = targets
     .map(target => [target, offered.find(item => matchesMode(firstLine(item.innerText), target) && !isDisabled(item))])
@@ -376,6 +487,39 @@ async function switchChatMode(form, targets) {
     return { ok: false, reason: `the picker still shows "${pickerLabel(findModePicker(composerForm())) || previous}"` };
   }
   return { ok: true, changed: true, label, previous };
+}
+
+/**
+ * Moves the menu's effort slider towards the first target it can hold, a level per arrow key, as far as the target or
+ * the slider's end (for Fast, the lightest level there is), and checks that the picker shows the level then.
+ */
+async function slideToMode(menu, slider, targets, previous) {
+  const target = targets.find(mode => SLIDER_ORDER.includes(mode));
+  const level = () => [...menu.querySelectorAll('[role="status"]')]
+    .map(status => firstLine(status.textContent).split(",")[0].trim())
+    .find(modeOf) ?? "";
+  let label = level();
+  for (let step = 0; target && modeOf(label) !== target && step < SLIDER_ORDER.length; step++) {
+    const at = SLIDER_ORDER.indexOf(modeOf(label));
+    if (at < 0) break;
+    const key = at > SLIDER_ORDER.indexOf(target) ? "ArrowLeft" : "ArrowRight";
+    slider.focus();
+    slider.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, bubbles: true, cancelable: true }));
+    const moved = await waitFor(() => level() !== label ? level() : null, 1500, null);
+    if (!moved) break;
+    label = moved;
+  }
+  closeMenu(menu);
+  const reached = modeOf(label);
+  if (!reached || reached === modeOf(previous) && reached !== target) {
+    return { ok: false, reason: `the effort slider stays at "${label || previous}"` };
+  }
+  const shown = await waitFor(() => {
+    const now = pickerLabel(findModePicker(composerForm()));
+    return modeOf(now) === modeOf(label) ? now : null;
+  }, 2000, null);
+  if (!shown) return { ok: false, reason: `the picker still shows "${pickerLabel(findModePicker(composerForm())) || previous}"` };
+  return { ok: true, changed: modeOf(shown) !== modeOf(previous), label: shown, previous };
 }
 
 /**
@@ -435,7 +579,10 @@ function matchesMode(label, target) {
 
 async function openMenu(picker) {
   const before = new Set(document.querySelectorAll(MENUS));
+  // A native popover is the picker's own target and shows as :popover-open; it opens on a click.
+  const popover = picker.popoverTargetElement ?? null;
   const opened = () => {
+    if (popover) return popover.matches(":popover-open") ? popover : null;
     const id = picker.getAttribute("aria-controls");
     const own = id ? document.getElementById(id) : null;
     if (own) return own;
@@ -444,11 +591,12 @@ async function openMenu(picker) {
       (picker.getAttribute("aria-expanded") === "true" ? menus.find(isShown) : null) ?? null;
   };
   // Radix menus open on pointerdown, and a synthetic click alone does not open them; other menus open on click or Enter.
-  const ways = [
+  const click = () => picker.click();
+  const ways = popover ? [click] : [
     () => picker.dispatchEvent(new PointerEvent("pointerdown", {
       bubbles: true, cancelable: true, button: 0, pointerType: "mouse", isPrimary: true
     })),
-    () => picker.click(),
+    click,
     () => {
       picker.focus();
       picker.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
@@ -461,7 +609,7 @@ async function openMenu(picker) {
     if (menu) return menu;
   }
   // A menu that opened where LINK could not see it must not stay open over the chat.
-  closeMenu(picker);
+  closeMenu(popover ?? picker);
   return null;
 }
 
@@ -476,7 +624,12 @@ function isDisabled(item) {
   return item.getAttribute("aria-disabled") === "true" || item.hasAttribute("data-disabled") || item.disabled === true;
 }
 
+/** Closes a menu: a native popover by its own call, since a synthetic Escape does not close one; others by Escape. */
 function closeMenu(menu) {
+  if (menu.matches?.(":popover-open")) {
+    menu.hidePopover();
+    return;
+  }
   (menu.isConnected ? menu : document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", {
     key: "Escape", code: "Escape", bubbles: true, cancelable: true
   }));
@@ -535,17 +688,15 @@ function hasAttachmentPreviews(form, attachments, baseline) {
   return countAttachmentPreviews(form) >= baseline + attachments.length;
 }
 
+/** The first composer on screen, else the first one at all; the page is searched only as far as needed. */
 function findComposer() {
-  const selectors = [
-    "#prompt-textarea",
-    'textarea[data-testid="prompt-textarea"]',
-    'textarea[name="prompt"]',
-    "[data-mobile-composer-prompt]",
-    'textarea[placeholder*="Message"]',
-    '[contenteditable="true"][data-virtualkeyboard]'
-  ];
-  const candidates = selectors.map(selector => document.querySelector(selector)).filter(Boolean);
-  return candidates.find(element => element.getClientRects().length > 0) ?? candidates[0] ?? null;
+  let hidden = null;
+  for (const selector of COMPOSERS) {
+    const composer = document.querySelector(selector);
+    if (composer?.getClientRects().length) return composer;
+    hidden ??= composer;
+  }
+  return hidden;
 }
 
 function composerForm() {
@@ -579,13 +730,11 @@ function setComposerText(composer, text) {
 }
 
 function findEnabledSendButton() {
-  const selectors = [
-    'button[data-testid="send-button"]',
-    "button[data-composer-submit]",
-    'button[aria-label="Send prompt"]',
-    'form button[type="submit"]'
-  ];
-  const button = selectors.map(selector => document.querySelector(selector)).find(Boolean);
+  let button = null;
+  for (const selector of SEND_BUTTONS) {
+    button = document.querySelector(selector);
+    if (button) break;
+  }
   // The new composer keeps one submit button that is only aria-disabled and turns into Stop while answering.
   return button instanceof HTMLButtonElement && !button.disabled &&
     button.getAttribute("aria-disabled") !== "true" && !isStopState(button) ? button : null;
@@ -628,24 +777,31 @@ function answerSigns(response, turn, form) {
   return {
     stop: findStopButton(form),
     streaming: Boolean(response?.matches(STREAMING) || response?.querySelector(STREAMING)),
-    actions: Boolean(turn?.querySelector(TURN_ACTIONS)),
+    actions: answerActions(turn).length > 0,
     flagged: Boolean(response?.closest("[data-message-complete]"))
   };
 }
 
-function getAssistantMessages(root) {
-  return [...new Set(root.querySelectorAll(ASSISTANT_MESSAGES))];
+/** The action buttons of the answer's turn: those of a prompt in the same turn are not the answer's. */
+function answerActions(turn) {
+  return turn ? [...turn.querySelectorAll(TURN_ACTIONS)].filter(button => !button.closest(USER_MESSAGES)) : [];
 }
 
-function getUserMessages(root) {
-  return [...new Set(root.querySelectorAll(USER_MESSAGES))];
+/** The last element under `root` that a selector matches; a selector list matches each element once, in page order. */
+function lastMatch(root, selector) {
+  const matches = root.querySelectorAll(selector);
+  return matches[matches.length - 1] ?? null;
 }
 
-/** The element that holds the turns: the nearest one around both the last prompt and the last answer. */
+/**
+ * The element that holds the turns: the nearest one around both the last prompt and the last answer, or around the
+ * turn that holds them both (the newest UI), where the next turn will land.
+ */
 function findThread() {
-  const answer = getAssistantMessages(document).at(-1);
-  const prompt = getUserMessages(document).at(-1);
-  return answer && prompt ? commonAncestor(answer, prompt) : null;
+  const answer = lastMatch(document, ASSISTANT_MESSAGES);
+  const prompt = lastMatch(document, USER_MESSAGES);
+  const ancestor = answer && prompt ? commonAncestor(answer, prompt) : null;
+  return ancestor?.closest(TURNS)?.parentElement ?? ancestor;
 }
 
 function commonAncestor(first, second) {
@@ -659,7 +815,7 @@ function latestAssistantMessage(thread) {
   if (!thread?.isConnected) return null;
   let child = thread.lastElementChild;
   for (let looked = 0; child && looked < 4; looked++, child = child.previousElementSibling) {
-    const message = getAssistantMessages(child).at(-1) ?? (child.matches(ASSISTANT_MESSAGES) ? child : null);
+    const message = lastMatch(child, ASSISTANT_MESSAGES) ?? (child.matches(ASSISTANT_MESSAGES) ? child : null);
     if (message) return message;
   }
   return null;
@@ -669,6 +825,7 @@ function latestAssistantMessage(thread) {
 function messageKey(element) {
   return element.getAttribute("data-message-id") ??
     (element.matches("li[data-message-role]") ? element.id || null : null) ??
+    element.getAttribute("data-chatgpt-search-message-ids")?.split(" ")[0] ??
     element.querySelector("[data-message-id]")?.getAttribute("data-message-id") ?? null;
 }
 
@@ -676,44 +833,75 @@ function follows(first, second) {
   return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
 }
 
-/** The chat's message with the job's prompt: the newest user message sent after the messages LINK saw before. */
+/**
+ * The chat's message with the job's prompt: a user message new since LINK looked before sending, the one that holds
+ * the prompt's words or else the only new one, wherever the chat put it and however it renders it. Picked up after a
+ * reload, it is the message seen as the prompt before, or the newest one with its words after those from before it.
+ */
 function findPromptMessage(job) {
-  const users = getUserMessages(document);
-  for (let index = users.length - 1; index >= Math.max(0, users.length - 6); index--) {
+  // Searched from the end, where a new prompt usually is. A count of messages would not do to skip the search: a chat
+  // that keeps only its latest messages on the page drops one as it adds one.
+  const users = document.querySelectorAll(USER_MESSAGES);
+  const fresh = new Map();
+  for (let index = users.length - 1; index >= 0; index--) {
     const user = users[index];
     const key = messageKey(user);
     if (job.promptKey && key === job.promptKey) return user;
-    if (user === job.baseline?.lastUser || (key && key === job.lastUserKey)) return null;
-    if (job.head && normalize(user.textContent).includes(job.head)) return user;
+    if (job.baseline) {
+      if (!isNewMessage(user, job.baseline)) continue;
+      if (matchesPrompt(user, job)) return user;
+      if (!fresh.has(key ?? user)) fresh.set(key ?? user, user);
+    } else {
+      if (key && key === job.lastUserKey) return null;
+      if (matchesPrompt(user, job)) return user;
+    }
+  }
+  return fresh.size === 1 ? fresh.values().next().value : null;
+}
+
+function matchesPrompt(message, job) {
+  return Boolean(job.head) && looseText(message.textContent).includes(job.head);
+}
+
+/**
+ * Whether a message answers the job's prompt: it is new since LINK sent the prompt and comes after it. Until the
+ * prompt shows up, a new message counts only a while after sending, so that an older answer the chat re-renders
+ * under a new id cannot pass for it.
+ */
+function isAnswerTo(message, job) {
+  if (job.baseline && !isNewMessage(message, job.baseline)) return false;
+  if (job.prompt?.isConnected) return follows(job.prompt, message);
+  return Boolean(job.baseline) && Date.now() - job.sentAt >= PROMPT_GRACE_MS;
+}
+
+/**
+ * The answer searched for on the whole page, from its end; the thread follows it, so the next looks find it cheaply.
+ * In page order everything before the prompt is older than it, so the search stops there.
+ */
+function searchResponse(job) {
+  const messages = document.querySelectorAll(ASSISTANT_MESSAGES);
+  for (let index = messages.length - 1; index >= 0; index--) {
+    const message = messages[index];
+    if (isAnswerTo(message, job)) {
+      const anchor = job.prompt?.isConnected ? job.prompt : job.baseline?.lastUser;
+      if (anchor?.isConnected) job.thread = commonAncestor(message, anchor) ?? job.thread;
+      return message;
+    }
+    if (job.prompt?.isConnected && follows(message, job.prompt)) break;
   }
   return null;
 }
 
-/** Whether a message answers the job's prompt: it comes after the prompt, or is new since LINK sent it. */
-function isAnswerTo(message, job) {
-  if (job.prompt?.isConnected) return follows(job.prompt, message);
-  if (!job.baseline) return false;
-  const key = messageKey(message);
-  if (key) return !job.baseline.keys.has(key);
-  return message !== job.baseline.last && readAnswer(message).markdown !== job.baseline.text;
-}
-
-/** The answer searched for on the whole page; the thread follows it, so the next looks find it cheaply. */
-function searchResponse(job) {
-  const latest = getAssistantMessages(document).at(-1);
-  if (!latest || !isAnswerTo(latest, job)) return null;
-  const anchor = job.prompt?.isConnected ? job.prompt : job.baseline?.last;
-  if (anchor?.isConnected) job.thread = commonAncestor(latest, anchor) ?? job.thread;
-  return latest;
-}
-
 /**
  * The answer's turn: the largest element around it without the prompt, so the buttons in it are the answer's own.
- * Without the prompt, the turn ChatGPT marks.
+ * Without the prompt, the turn ChatGPT marks; also when that turn holds the prompt and its answer (the newest UI),
+ * whose buttons then sit around both.
  */
 function turnOf(response, prompt) {
   const marked = () => response.closest(TURNS) ?? response;
   if (!prompt?.isConnected) return marked();
+  const shared = response.closest(TURNS);
+  if (shared?.contains(prompt) && shared.querySelectorAll(USER_MESSAGES).length === 1) return shared;
   let turn = response;
   while (turn.parentElement && turn.parentElement !== document.body && !turn.parentElement.contains(prompt)) {
     turn = turn.parentElement;
@@ -783,7 +971,10 @@ async function watchAnswer(job) {
       // them elsewhere, and in between the answer found last is kept.
       let response = latestAssistantMessage(job.thread);
       if (response && !isAnswerTo(response, job)) response = null;
-      if (!response && now - searchedAt >= 1000) {
+      const searchInterval = job.prompt?.isConnected && job.thread?.contains(job.prompt)
+        ? SEARCH_INTERVAL_IN_THREAD_MS
+        : SEARCH_INTERVAL_MS;
+      if (!response && now - searchedAt >= searchInterval) {
         searchedAt = now;
         response = searchResponse(job);
       }
@@ -792,10 +983,16 @@ async function watchAnswer(job) {
         job.response = response;
         stale = true;
       }
-      const turn = response ? turnOf(response, job.prompt) : null;
-      if (turn !== job.turn) {
-        job.turn = turn;
-        page.follow(turn);
+      // Working the answer's turn out walks up the page and through the turn, so it is redone only when the answer or
+      // the prompt changes.
+      if (response !== job.turnFor || job.prompt !== job.turnPrompt || (response && !job.turn?.contains(response))) {
+        job.turnFor = response;
+        job.turnPrompt = job.prompt;
+        const turn = response ? turnOf(response, job.prompt) : null;
+        if (turn !== job.turn) {
+          job.turn = turn;
+          page.follow(turn);
+        }
       }
 
       const signs = answerSigns(response, job.turn, form);
@@ -816,18 +1013,18 @@ async function watchAnswer(job) {
 
       // A finished turn settles it even if some Stop-like button lingers. Otherwise only the answer's own text
       // completes it, never a status such as "Thinking", and only once ChatGPT has stopped writing.
+      const answered = Boolean(text || (plain && !isStatusLine(plain)));
+      const settle = text && !document.hidden ? SETTLE_MS : LONG_SETTLE_MS;
       let reason = null;
-      const settle = document.hidden ? PLAIN_SETTLE_MS : SETTLE_MS;
       if (response && signs.actions) reason = "turn actions";
-      else if ((text || plain) && !generating && signs.flagged) reason = "completion flag";
-      else if (text && !generating && now - changedAt >= settle) reason = "settled";
-      else if (plain && !generating && now - changedAt >= PLAIN_SETTLE_MS && !isStatusLine(plain)) reason = "settled without Markdown";
+      else if (answered && !generating && signs.flagged) reason = "completion flag";
+      else if (answered && !generating && now - changedAt >= settle) reason = text ? "settled" : "settled without Markdown";
       else if (text && now - changedAt >= STALL_MS && now - page.turnChangedAt() >= STALL_MS) reason = "unchanged for a minute";
       if (reason) return finishAnswer(job, response, reason, text || plain);
 
       if (!job.resumed && !job.prompt && !response && !signs.stop && now - job.sentAt >= SEND_CONFIRM_MS) {
         const composer = findComposer();
-        if (composer && job.head && normalize(composerText(composer)).includes(job.head)) {
+        if (composer && job.head && looseText(composerText(composer)).includes(job.head)) {
           throw new Error("ChatGPT did not take the prompt: it is still in the ChatGPT composer and was not sent.");
         }
       }
@@ -853,7 +1050,7 @@ async function watchAnswer(job) {
 
       let wait = HEARTBEAT_INTERVAL_MS - (Date.now() - eventAt);
       if (response && stale) wait = Math.min(wait, readAt + readInterval - now);
-      if ((text || plain) && !generating) wait = Math.min(wait, changedAt + (text ? settle : PLAIN_SETTLE_MS) - now);
+      if (answered && !generating) wait = Math.min(wait, changedAt + settle - now);
       if (!job.prompt || !response) wait = Math.min(wait, 500);
       await page.next(wait);
     }
@@ -886,13 +1083,15 @@ function watchPage() {
     if (turn && records.some(record => turn.contains(record.target))) turnChangedAt = Date.now();
     wake?.();
   });
-  // Text streams in as nodes and characters; Stop, its visibility and ChatGPT's completion flag change attributes.
+  // Text streams in as nodes and characters; Stop and ChatGPT's completion flags change attributes. Classes and styles
+  // change all the time on the page (hover, animations) and would only wake the watch: a Stop hidden by them is seen
+  // at the next heartbeat.
   observer.observe(document.body, {
     subtree: true,
     childList: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ["aria-label", "data-testid", "data-message-complete", "class", "hidden", "style"]
+    attributeFilter: ["aria-label", "data-testid", "data-message-complete", "data-markdown-animated", "hidden"]
   });
   return {
     takeChanges() {
@@ -924,8 +1123,13 @@ function watchPage() {
   };
 }
 
-function markdownRoots(message) {
-  return [...message.querySelectorAll(MARKDOWN_ROOTS)].filter(root => !root.parentElement?.closest(MARKDOWN_ROOTS));
+/** The message's last Markdown root that is not inside another one: found from the end, the first such one. */
+function markdownRoot(message) {
+  const roots = message.querySelectorAll(MARKDOWN_ROOTS);
+  for (let index = roots.length - 1; index >= 0; index--) {
+    if (!roots[index].parentElement?.closest(MARKDOWN_ROOTS)) return roots[index];
+  }
+  return null;
 }
 
 /**
@@ -934,8 +1138,8 @@ function markdownRoots(message) {
  * it are not the answer. A message without a Markdown root is read whole, as `plain`, for ChatGPT's end signs only.
  */
 function readAnswer(message) {
-  const roots = markdownRoots(message);
-  return roots.length ? { markdown: toMarkdown(roots.at(-1)), plain: "" } : { markdown: "", plain: toMarkdown(message) };
+  const root = markdownRoot(message);
+  return root ? { markdown: toMarkdown(root), plain: "" } : { markdown: "", plain: toMarkdown(message) };
 }
 
 function toMarkdown(root) {
@@ -1089,6 +1293,11 @@ function collapseWhitespace(text) {
 
 function normalize(text) {
   return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+/** Letters and digits only: however a chat renders text (Markdown, typographic dashes, line breaks), its words stay. */
+function looseText(text) {
+  return (text ?? "").toLowerCase().replace(/[^\p{L}\p{N}]+/gu, "");
 }
 
 /**

@@ -171,7 +171,9 @@ internal sealed class BrowserBridgeServer : IDisposable
             lock (request)
             {
                 request.EndReason ??= EndReason.Failed;
-                request.Completion.TrySetException(new InvalidOperationException("Browser bridge stopped."));
+                var stopped = new InvalidOperationException("Browser bridge stopped.");
+                request.Completion.TrySetException(stopped);
+                request.Snapshot.TrySetException(stopped);
             }
         }
 
@@ -403,9 +405,8 @@ internal sealed class BrowserBridgeServer : IDisposable
             string? ended;
             lock (_gate)
             {
-                _pending.TryGetValue(bridgeEvent.RequestId, out pending);
-                if (pending is not null) pending.HeardAt = Stopwatch.GetTimestamp();
-                ended = pending?.EndReason ?? _ended.GetValueOrDefault(bridgeEvent.RequestId);
+                if (_pending.TryGetValue(bridgeEvent.RequestId, out pending)) pending.HeardAt = Stopwatch.GetTimestamp();
+                _ended.TryGetValue(bridgeEvent.RequestId, out ended);
             }
 
             // The tab learns why LINK no longer waits: only a cancelled request makes it stop ChatGPT.

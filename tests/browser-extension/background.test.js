@@ -80,3 +80,13 @@ check("a companion of another version steps aside for the current one", async ()
   expect("the old copy was retired", browser.log.retired, [6]);
   expect("the current one was started", browser.log.injections, [6]);
 });
+
+check("a companion updated on disk reloads itself, and only then", async () => {
+  const browser = fakeBrowser([chatTab(8)]);
+  const bridge = fakeHttpBridge();
+  await startWorker(browser, bridge);
+  await sleep(25000);
+  expect("the same version on disk: no reload", browser.log.extensionReloads, 0);
+  bridge.diskVersion = "9.9.9";
+  await until("a newer version on disk reloads the extension", () => browser.log.extensionReloads > 0, 12000);
+});
