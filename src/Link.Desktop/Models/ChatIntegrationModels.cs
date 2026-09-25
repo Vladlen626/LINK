@@ -47,6 +47,9 @@ public sealed class ChatProgress
 
     /// <summary>Transport information that does not change the response, e.g. which chat mode was applied.</summary>
     public string? Notice { get; init; }
+
+    /// <summary>What the transport saw when the answer ended unusually, kept in link.log to find out why.</summary>
+    public string? Diagnostics { get; init; }
 }
 
 public enum ChatConnectionState
@@ -61,6 +64,14 @@ public enum ChatProgressState
     Sending,
     Waiting,
     Receiving,
+
+    /// <summary>The transport lost the chat for a moment and restores it; the request goes on.</summary>
+    Reconnecting,
+
     Completed,
+
+    /// <summary>The user stopped the request.</summary>
+    Cancelled,
+
     Error
 }

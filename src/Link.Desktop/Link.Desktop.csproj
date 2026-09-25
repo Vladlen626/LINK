@@ -26,6 +26,11 @@
     <PackageReference Include="Whisper.net.Runtime.Vulkan" Version="1.9.1" PrivateAssets="all" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The browser bridge is checked over real loopback HTTP, on a free port. -->
+    <InternalsVisibleTo Include="Link.Desktop.Tests" />
+  </ItemGroup>
+
   <!-- The Vulkan runtime copies its Linux build too, unconditionally; Link runs on Windows only. -->
   <Target Name="SkipLinuxVulkanRuntime" BeforeTargets="AssignTargetPaths">
     <ItemGroup>

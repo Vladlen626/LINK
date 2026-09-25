@@ -1,0 +1,321 @@
+// The content script in a mock ChatGPT conversation: how it sends a prompt, watches the answer and ends it.
+
+async function startCompanion(page, bridge = fakeBridge(), storage = memoryStorage()) {
+  const api = contentApi(bridge, storage);
+  await page.start(api);
+  return { api, bridge, storage };
+}
+
+async function ask(api, request) {
+  return sendToTab(api, { type: "link-request", request });
+}
+
+function completedOf(bridge, request, timeout = 20000) {
+  return until("the answer completes", () => bridge.of(request.requestId, "completed")[0], timeout);
+}
+
+check("streams the answer and completes it", async () => {
+  const page = await openChat();
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Как дела?");
+  expect("the tab takes the request", await ask(api, request), { accepted: true, version: VERSION });
+  const completed = await completedOf(bridge, request);
+  expect("the complete answer comes as Markdown", completed?.text, ANSWER_MARKDOWN);
+  expect("a usual end needs no diagnostics", completed?.diagnostics, undefined);
+  const states = bridge.of(request.requestId).map(event => event.state).filter(state => state !== "heartbeat");
+  expect("the request goes through its states", [...new Set(states)], ["sending", "waiting", "receiving", "completed"]);
+  const streamed = bridge.of(request.requestId, "receiving").map(event => event.text);
+  expect("the answer streams in steps before it ends", streamed.length >= 3, true);
+  expect("each step is the answer so far", streamed.every(text => ANSWER_MARKDOWN.startsWith(text)), true);
+  expect("the thinking status is never the answer", streamed.some(text => text.includes("Думаю")), false);
+  expect("the prompt is sent once", page.chat.sent, ["Как дела?"]);
+});
+
+check("a hidden Stop left in the composer does not hold the answer", async () => {
+  const page = await openChat({ actions: false, stopAfter: "hidden" });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  await until("ChatGPT finishes", () => page.chat.finished);
+  const finishedAt = Date.now();
+  const completed = await completedOf(bridge, request);
+  expect("the answer completes", completed?.text, ANSWER_MARKDOWN);
+  expect("within seconds of ChatGPT finishing", Date.now() - finishedAt < 3000, true);
+});
+
+check("a stuck visible Stop does not hold an answer whose turn has its buttons", async () => {
+  const page = await openChat({ stopAfter: "visible" });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  await until("ChatGPT finishes", () => page.chat.finished);
+  const finishedAt = Date.now();
+  const completed = await completedOf(bridge, request);
+  expect("the answer completes", completed?.text, ANSWER_MARKDOWN);
+  expect("at once", Date.now() - finishedAt < 1000, true);
+  expect("the stuck Stop is not pressed", page.chat.stopClicks, 0);
+});
+
+check("an answer without a Markdown root completes on its turn's buttons", async () => {
+  const page = await openChat({ markdown: false });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  const completed = await completedOf(bridge, request);
+  expect("the whole message is the answer", completed?.text, ANSWER_MARKDOWN);
+  expect("nothing unsure streams meanwhile", bridge.of(request.requestId, "receiving").length, 0);
+  expect("the unusual end is explained for link.log", JSON.parse(completed?.diagnostics ?? "{}").answer?.markdownRoots, 0);
+});
+
+check("an answer without a Markdown root or buttons completes once Stop is gone, never on Думаю", async () => {
+  const page = await openChat({ markdown: false, actions: false, placeholderInMessage: true, thinkingMs: 5000 });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  await until("ChatGPT finishes", () => page.chat.finished, 30000);
+  expect("the status in the message never ended it", bridge.of(request.requestId, "completed").length, 0);
+  const completed = await completedOf(bridge, request);
+  expect("the whole message is the answer", completed?.text, ANSWER_MARKDOWN);
+  expect("why it ended is kept", JSON.parse(completed?.diagnostics ?? "{}").completedBy, "settled without Markdown");
+});
+
+check("an answer that stops changing completes even if Stop never goes away", async () => {
+  const page = await openChat({ actions: false, stopAfter: "visible" });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  await until("ChatGPT finishes", () => page.chat.finished);
+  const finishedAt = Date.now();
+  expect("a quiet answer under Stop is not cut short", await poll(() => bridge.of(request.requestId, "completed")[0], 50000), null);
+  const completed = await completedOf(bridge, request, 30000);
+  expect("after a minute without change", Date.now() - finishedAt >= 55000, true);
+  expect("the answer", completed?.text, ANSWER_MARKDOWN);
+  expect("why it ended is kept", JSON.parse(completed?.diagnostics ?? "{}").completedBy, "unchanged for a minute");
+});
+
+check("an offer of the same prompt again does not send it twice", async () => {
+  const page = await openChat();
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Один раз");
+  await ask(api, request);
+  await until("the prompt is sent", () => page.chat.sent.length === 1);
+  const beats = bridge.of(request.requestId, "heartbeat").length;
+  await ask(api, { ...request, attempt: 2 });
+  await until("the copy says it is still on it", () => bridge.of(request.requestId, "heartbeat").length > beats, 500);
+  await completedOf(bridge, request);
+  expect("the prompt is sent once", page.chat.sent, ["Один раз"]);
+});
+
+check("a second copy started in the same page stays out", async () => {
+  const page = await openChat();
+  const bridge = fakeBridge();
+  const api = contentApi(bridge, memoryStorage());
+  await page.start(api);
+  // The service worker starts one while the manifest's copy runs.
+  await page.start(api);
+  expect("only one copy listens", api.listeners.length, 1);
+  const request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  await completedOf(bridge, request);
+  expect("the prompt is sent once", page.chat.sent, ["Вопрос"]);
+  expect("one answer", bridge.of(request.requestId, "completed").length, 1);
+});
+
+check("after an extension reload the new copy takes the prompt over without sending it again", async () => {
+  const page = await openChat({ tokenMs: 400 });
+  const bridge = fakeBridge();
+  const storage = memoryStorage();
+  const oldApi = contentApi(bridge, storage);
+  await page.start(oldApi);
+  const request = promptRequest(page.conversationId, "Длинный вопрос");
+  await ask(oldApi, request);
+  await until("the answer streams", () => bridge.of(request.requestId, "receiving").length);
+
+  // The extension is reloaded: the running copy's API goes dead and the service worker starts a new copy.
+  oldApi.valid = false;
+  const newApi = contentApi(bridge, storage);
+  await page.start(newApi);
+  expect("the old copy stepped aside", oldApi.listeners.length, 0);
+  expect("the new copy listens", newApi.listeners.length, 1);
+  // LINK heard nothing for a while and offers the prompt again, as one that reached the chat.
+  await ask(newApi, { ...request, attempt: 2, sent: true });
+  const completed = await completedOf(bridge, request);
+  expect("the answer is complete", completed?.text, ANSWER_MARKDOWN);
+  expect("the prompt was sent once", page.chat.sent, ["Длинный вопрос"]);
+  expect("ChatGPT was not stopped", page.chat.stopClicks, 0);
+});
+
+check("after a page reload the prompt's answer is picked up where it is", async () => {
+  const bridge = fakeBridge();
+  const storage = memoryStorage();
+  const first = await openChat({ tokenMs: 400 });
+  const firstApi = contentApi(bridge, storage);
+  await first.start(firstApi);
+  const request = promptRequest(first.conversationId, "Длинный вопрос");
+  await ask(firstApi, request);
+  await until("the answer streams", () => bridge.of(request.requestId, "receiving").length);
+  const kept = await until("the prompt's place is kept", () => storage.data.get(`request:${request.requestId}`)?.promptKey);
+
+  // The page reloads; ChatGPT shows the prompt with its answer, finished meanwhile.
+  first.frame.remove();
+  firstApi.valid = false;
+  const second = await openChat();
+  second.chat.addAnsweredTurn("Длинный вопрос", kept);
+  const { api } = await startCompanion(second, bridge, storage);
+  // Offered again without "sent" (LINK had not heard it): the kept state still says it was.
+  await ask(api, { ...request, attempt: 2 });
+  const completed = await completedOf(bridge, request);
+  expect("the answer is picked up", completed?.text, ANSWER_MARKDOWN);
+  expect("nothing is sent from the reloaded page", second.chat.sent, []);
+  expect("the kept state is gone with the answer", await poll(() => !storage.data.has(`request:${request.requestId}`), 1000), true);
+});
+
+check("a prompt that reached the chat just before its copy went is not sent again", async () => {
+  const page = await openChat();
+  const bridge = fakeBridge();
+  const storage = memoryStorage();
+  const request = promptRequest(page.conversationId, "Уже отправлено");
+  const lastUserKey = [...page.frame.contentDocument.querySelectorAll('[data-message-author-role="user"]')].at(-1)
+    .getAttribute("data-message-id");
+  // The copy before had clicked Send when the extension was reloaded: ChatGPT answers the prompt.
+  await storage.set({ [`request:${request.requestId}`]: { phase: "sending", lastUserKey, savedAt: Date.now() } });
+  void page.chat.answer("Уже отправлено");
+  const { api } = await startCompanion(page, bridge, storage);
+  await ask(api, { ...request, attempt: 2 });
+  const completed = await completedOf(bridge, request);
+  expect("its answer completes", completed?.text, ANSWER_MARKDOWN);
+  expect("the prompt is not sent again", page.chat.sent, []);
+
+  // A prompt that had not reached the chat is sent.
+  const next = promptRequest(page.conversationId, "Ещё не отправлено");
+  const current = [...page.frame.contentDocument.querySelectorAll('[data-message-author-role="user"]')].at(-1)
+    .getAttribute("data-message-id");
+  await storage.set({ [`request:${next.requestId}`]: { phase: "sending", lastUserKey: current, savedAt: Date.now() } });
+  await ask(api, { ...next, attempt: 2 });
+  await completedOf(bridge, next);
+  expect("an unsent prompt is sent once", page.chat.sent, ["Ещё не отправлено"]);
+});
+
+check("Fast switches the composer's picker from Высокий to Мгновенный", async () => {
+  const page = await openChat({ mode: "Высокий" });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Быстрый вопрос", { effort: "fast" });
+  await ask(api, request);
+  await completedOf(bridge, request);
+  expect("the picker shows Мгновенный", page.chat.mode, "Мгновенный");
+  expect("LINK is told the mode", bridge.of(request.requestId, "notice").map(event => event.notice), ["ChatGPT mode: Мгновенный"]);
+  expect("the header's model picker is left alone", page.chat.headerOpens, 0);
+  expect("the menu is closed", page.chat.menu, null);
+  expect("the prompt is sent", page.chat.sent, ["Быстрый вопрос"]);
+});
+
+check("Fast, Deep and Normal follow the picker; Normal gives the user's mode back", async () => {
+  const page = await openChat({ mode: "Средний", tokenMs: 20 });
+  const { api, bridge, storage } = await startCompanion(page);
+  const run = async effort => {
+    const request = promptRequest(page.conversationId, `Вопрос ${effort}`, { effort });
+    await ask(api, request);
+    await completedOf(bridge, request);
+    return bridge.of(request.requestId, "notice").map(event => event.notice);
+  };
+  expect("Fast", [await run("fast"), page.chat.mode], [["ChatGPT mode: Мгновенный"], "Мгновенный"]);
+  expect("the user's own mode is kept", storage.data.get(`mode:${page.conversationId}`), "Средний");
+  // The user picks High by hand; Fast puts Instant back.
+  page.chat.mode = "Высокий";
+  expect("Fast again", [await run("fast"), page.chat.mode], [["ChatGPT mode: Мгновенный"], "Мгновенный"]);
+  expect("Deep", [await run("deep"), page.chat.mode], [["ChatGPT mode: Высокий"], "Высокий"]);
+  expect("Deep again changes nothing", [await run("deep"), page.chat.mode], [[], "Высокий"]);
+  expect("Normal", [await run("normal"), page.chat.mode], [["ChatGPT mode: Средний"], "Средний"]);
+  expect("Normal again leaves it alone", [await run("normal"), page.chat.mode], [[], "Средний"]);
+});
+
+check("a picker that names its kind before the mode is read by the mode", async () => {
+  const page = await openChat({ mode: "Высокий", pickerPrefix: "Рассуждение · " });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Вопрос", { effort: "fast" });
+  await ask(api, request);
+  await completedOf(bridge, request);
+  expect("the picker shows Мгновенный", page.chat.mode, "Мгновенный");
+  expect("LINK is told the mode", bridge.of(request.requestId, "notice").map(event => event.notice),
+    ["ChatGPT mode: Рассуждение · Мгновенный"]);
+});
+
+check("the older header picker is used when the composer has none", async () => {
+  const page = await openChat({ composerPicker: false, tokenMs: 20 });
+  const { api, bridge, storage } = await startCompanion(page);
+  const run = async effort => {
+    const request = promptRequest(page.conversationId, `Вопрос ${effort}`, { effort });
+    await ask(api, request);
+    await completedOf(bridge, request);
+    return bridge.of(request.requestId, "notice").map(event => event.notice);
+  };
+  expect("Fast picks Instant there", [await run("fast"), page.chat.headerMode], [["ChatGPT mode: Instant"], "Instant"]);
+  expect("its label names no mode to keep", storage.data.has(`mode:${page.conversationId}`), false);
+  expect("Normal picks Auto", [await run("normal"), page.chat.headerMode], [["ChatGPT mode: Auto"], "Auto"]);
+});
+
+check("a mode the picker does not take is reported, and the prompt still goes", async () => {
+  const page = await openChat({ mode: "Высокий", itemsChoose: false });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Вопрос", { effort: "fast" });
+  await ask(api, request);
+  await completedOf(bridge, request);
+  expect("the notice says what the picker shows", bridge.of(request.requestId, "notice").map(event => event.notice),
+    ['ChatGPT mode not switched (the picker still shows "Высокий"); the answer hint was still sent']);
+  expect("the menu is closed", page.chat.menu, null);
+  expect("the prompt is sent", page.chat.sent, ["Вопрос"]);
+});
+
+check("Stop in LINK stops ChatGPT; an answer LINK took elsewhere is left alone", async () => {
+  let page = await openChat({ tokenMs: 400 });
+  let { api, bridge } = await startCompanion(page);
+  let request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  await until("the answer streams", () => bridge.of(request.requestId, "receiving").length);
+  bridge.ended.set(request.requestId, "cancelled");
+  await until("ChatGPT is stopped", () => page.chat.stopClicks === 1, 5000);
+  expect("no answer is reported after Stop", bridge.of(request.requestId, "completed").length, 0);
+  page.frame.remove();
+
+  page = await openChat({ tokenMs: 400 });
+  ({ api, bridge } = await startCompanion(page));
+  request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  await until("the answer streams", () => bridge.of(request.requestId, "receiving").length);
+  bridge.ended.set(request.requestId, "completed");
+  // Its next event tells the copy; after that it reports nothing more.
+  await sleep(3000);
+  const events = bridge.events.length;
+  await sleep(3000);
+  expect("the copy stopped reporting", bridge.events.length, events);
+  expect("ChatGPT is not stopped", page.chat.stopClicks, 0);
+});
+
+check("a prompt ChatGPT does not take ends with an error instead of waiting", async () => {
+  const page = await openChat({ takesPrompt: false });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  const error = await until("an error is reported", () => bridge.of(request.requestId, "error")[0], 30000);
+  expect("it says the prompt was not sent", error?.error.startsWith("ChatGPT did not take the prompt"), true);
+  expect("with what the tab saw", JSON.parse(error?.diagnostics ?? "{}").prompt, "not found");
+});
+
+check("Check chat reads the answer and says which prompt it belongs to", async () => {
+  const page = await openChat({ tokenMs: 300 });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Вопрос");
+  await ask(api, request);
+  await until("the answer streams", () => bridge.of(request.requestId, "receiving").length);
+  const read = { requestId: crypto.randomUUID(), conversationId: page.conversationId, kind: "read" };
+  await sendToTab(api, { type: "link-request", request: read });
+  const during = await until("a snapshot comes", () => bridge.of(read.requestId, "snapshot")[0]);
+  expect("while ChatGPT writes", [during?.generating, during?.answerTo, ANSWER_MARKDOWN.startsWith(during?.text)],
+    [true, request.requestId, true]);
+
+  await completedOf(bridge, request);
+  const after = { requestId: crypto.randomUUID(), conversationId: page.conversationId, kind: "read" };
+  await sendToTab(api, { type: "link-request", request: after });
+  const snapshot = await until("a snapshot comes", () => bridge.of(after.requestId, "snapshot")[0]);
+  expect("once it is done", [snapshot?.generating, snapshot?.answerTo, snapshot?.text], [false, null, ANSWER_MARKDOWN]);
+});

@@ -80,6 +80,7 @@ internal static class VoiceSessionTests
         Program.Equal("a new request silences the answer", (rig.Speech.Cancelled, rig.Session.Phase), (true, VoicePhase.Sending));
 
         await StreamingAsync();
+        await OverBridgeAsync();
         await WaitingCuesAsync();
         await LiveDraftAsync();
 
@@ -168,6 +169,45 @@ internal static class VoiceSessionTests
         rig.Session.EndRequest();
         Program.Equal("a failed request silences its answer", (rig.Speech.Cancelled, rig.Session.Phase),
             (true, VoicePhase.Idle));
+    }
+
+    /// <summary>
+    /// Over the browser bridge: the answer is read while the tab streams it, each sentence once, and a tab that goes
+    /// quiet for good ends the wait instead of leaving Link waiting.
+    /// </summary>
+    private static async Task OverBridgeAsync()
+    {
+        var rig = new Rig();
+        rig.Speech.Instant = true;
+        await rig.DictateAsync();
+        using (var bridge = await BridgeRig.StartAsync())
+        {
+            rig.Session.BeginRequest();
+            var answer = bridge.Send("Как дела?", new SessionProgress(rig.Session));
+            var delivery = await bridge.NextDeliveryAsync();
+            await bridge.ReportAsync(delivery.Id, "sending");
+            await bridge.ReportAsync(delivery.Id, "waiting");
+            Program.Equal("voice waits with the chat", rig.Session.Phase, VoicePhase.Waiting);
+            await bridge.ReportAsync(delivery.Id, "receiving", "Всё хорошо. Спаси");
+            Program.Equal("a streamed sentence is said before the answer is in", rig.Speech.Said, "Всё хорошо.");
+            await bridge.ReportAsync(delivery.Id, "completed", "Всё хорошо. Спасибо.\n\nДальше подробности.");
+            await rig.Session.CompleteRequestAsync((await answer).Text);
+            Program.Equal("the rest follows and nothing is said twice", rig.Speech.Said,
+                "Всё хорошо. | Спасибо. Подробности на экране.");
+        }
+
+        rig = new Rig();
+        await rig.DictateAsync();
+        using (var bridge = await BridgeRig.StartAsync())
+        {
+            rig.Session.BeginRequest();
+            var answer = bridge.Send("Как дела?", new SessionProgress(rig.Session));
+            var delivery = await bridge.NextDeliveryAsync();
+            await bridge.ReportAsync(delivery.Id, "waiting");
+            await Program.ThrowsAsync<InvalidOperationException>("a lost tab ends the spoken request", () => answer);
+            rig.Session.EndRequest();
+            Program.Equal("voice is idle after a lost tab", rig.Session.Phase, VoicePhase.Idle);
+        }
     }
 
     /// <summary>A long wait gets one short cue in the language of the question.</summary>
@@ -278,6 +318,12 @@ internal static class VoiceSessionTests
     private static ChatProgress Waiting() => new() { State = ChatProgressState.Waiting };
 
     private static ChatProgress Receiving(string text) => new() { State = ChatProgressState.Receiving, Text = text };
+
+    /// <summary>The chat's progress straight into the session, as the overlay passes it on.</summary>
+    private sealed class SessionProgress(VoiceSession session) : IProgress<ChatProgress>
+    {
+        public void Report(ChatProgress value) => session.ReportProgress(value);
+    }
 
     private sealed class Rig
     {

@@ -1,64 +1,141 @@
 (() => {
+// This copy's own extension API: when the extension is reloaded it goes dead here, and a newer copy gets a new one.
+const chrome = globalThis.chrome;
+const VERSION = chrome.runtime.getManifest().version;
+// One working copy per page: the manifest and the service worker may both start this script, and two copies would
+// both answer every LINK request.
+if (globalThis.linkCompanion?.alive()) return;
+
 const ANNOUNCE_INTERVAL_MS = 2500;
 const RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 2000;
 // ChatGPT re-renders the answer on every token. While the page changes, LINK looks at it at most this often, and
 // only at the composer and the last turns, so even a long chat stays cheap...
 const CHECK_INTERVAL_MS = 150;
-// ...and turns the growing answer into Markdown at most this often, for the overlay and reading aloud.
+// ...and turns the growing answer into Markdown at most this often (less often for an answer slow to convert), for the
+// overlay and reading aloud.
 const PROGRESS_INTERVAL_MS = 250;
-// Without ChatGPT's own sign of completion, a quiet period after its Stop button disappears ends the answer.
+// Without ChatGPT's own sign of completion, a quiet period after its Stop button disappears ends the answer; a longer
+// one in a hidden tab, whose throttled timers may still be putting the last words on the page, and for an answer
+// without a Markdown root, so that a status line cannot pass for it.
 const SETTLE_MS = 1200;
+const PLAIN_SETTLE_MS = 3000;
+// An answer that has not changed at all for this long is complete even if a Stop-like button lingers.
+const STALL_MS = 60 * 1000;
+// A prompt still in the composer this long after Send was not taken by ChatGPT.
+const SEND_CONFIRM_MS = 20 * 1000;
+// A prompt picked up again (after a reload) that the chat does not show by then has gone from the page.
+const RESUME_TIMEOUT_MS = 20 * 1000;
+// LINK counts as gone when no event of a prompt has reached it for this long.
+const BRIDGE_TIMEOUT_MS = 30 * 1000;
+const REQUEST_STATE_TTL_MS = 60 * 60 * 1000;
 const MARKDOWN_ROOTS = "[data-assistant-markdown], .markdown, [class*='markdown']";
 const ASSISTANT_MESSAGES = '[data-message-author-role="assistant"], article[data-turn="assistant"], li[data-message-role="assistant"]';
 const USER_MESSAGES = '[data-message-author-role="user"], article[data-turn="user"], li[data-message-role="user"]';
-// LINK's Fast / Normal / Deep on ChatGPT's mode picker. Since June 2026 it sits in the composer and offers Instant,
-// Medium, High and Extra High; the older header picker offered Instant, Auto and Thinking. Labels are matched by
-// their first word, so "Extra High" / "Очень высокий" never pass for High.
-const EFFORT_MODES = {
-  fast: { label: "Instant", patterns: [/^(instant|мгновен|быстр)/i] },
-  normal: { label: "Medium", patterns: [/^(medium|средн|auto|авто)/i] },
-  deep: { label: "High", patterns: [/^(high|высок|thinking|думающ)/i] }
-};
-const MODE_LABELS = /instant|medium|high|auto|thinking|мгновен|средн|высок|авто|думающ/i;
+const TURNS = "article, [data-turn-id], [data-testid^='conversation-turn']";
+// ChatGPT gives a finished turn its action buttons (copy, rate, read aloud…); a turn still being written has none.
+const TURN_ACTIONS = '[data-testid$="turn-action-button"]';
+const STREAMING = '[data-message-streaming]:not([data-message-streaming="false"]), .result-streaming';
+const STOP_BUTTONS = 'button[data-testid="stop-button"], button[data-composer-submit], ' +
+  'button[aria-label*="stop" i], button[aria-label*="останов" i]';
+// Status lines that stand in for an answer while ChatGPT thinks or searches.
+const STATUS_LINE = /^(thinking|thought|reasoning|searching|analy[sz]|думаю|думал|размышл|рассужд|ищу|поиск|анализ)/i;
+// ChatGPT's answer modes as its picker names them. Since June 2026 the picker sits in the composer (Instant, Medium,
+// High, Extra High; "Мгновенный", "Средний", "Высокий", "Очень высокий"); the older header picker offered Instant,
+// Auto and Thinking. Extra High is tried first, so it never passes for High.
+const MODES = [
+  ["extra", /^(extra[\s-]*high|очень\s+высок|максимал)/i],
+  ["instant", /^(instant|мгновен|быстр)/i],
+  ["medium", /^(medium|средн|standard|стандарт)/i],
+  ["high", /^(high|высок)/i],
+  ["auto", /^(auto|авто)/i],
+  ["thinking", /^(thinking|думающ|рассужд)/i]
+];
+const MODE_NAMES = { extra: "Extra High", instant: "Instant", medium: "Medium", high: "High", auto: "Auto", thinking: "Thinking" };
+// LINK's Fast / Normal / Deep: the chat's modes to use, the first one it offers.
+const EFFORT_MODES = { fast: ["instant"], normal: ["medium", "auto"], deep: ["high", "thinking"] };
 const EXCLUDED_MODES = /\bpro\b|upgrade|legacy|улучш|устаревш/i;
-const SKIPPED_NODES = 'button, svg, style, script, [hidden], [aria-hidden="true"], .sr-only, ' +
+const PICKER_BUTTONS = 'button[aria-haspopup], [role="combobox"]';
+const MENUS = '[role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]';
+const SKIPPED_NODES = 'button, svg, style, script, [hidden], [aria-hidden="true"], .sr-only, [class*="shimmer"], ' +
   "[data-message-content-controls], [data-message-actions], [data-message-attribution], [data-assistant-placeholder-slot]";
 const INLINE_TAGS = new Set(["A", "ABBR", "B", "BR", "CODE", "DEL", "EM", "I", "IMG", "KBD", "MARK", "S", "SMALL", "SPAN", "STRONG", "SUB", "SUP", "U"]);
+const instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
 const pendingDelays = new Set();
-let processingRequestId = null;
+// The prompt this copy works on.
+let current = null;
+let retired = false;
 let announceTimer = null;
 
-class CancelledError extends Error {}
+/** LINK no longer waits for the request: its reason is "cancelled" after Stop/Esc, otherwise it ended elsewhere. */
+class EndedError extends Error {
+  constructor(reason) {
+    super(`LINK no longer waits for this request (${reason}).`);
+    this.reason = reason;
+  }
+}
 
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  if (message?.type === "link-discover") {
-    sendResponse({ conversation: getConversation() });
-    announceConversation();
-    return;
+/** A newer copy of the companion took over this page; it carries on with the prompt. */
+class RetiredError extends Error {}
+
+globalThis.linkCompanion = { version: VERSION, instanceId, alive: () => !retired && Boolean(chrome.runtime?.id) };
+chrome.runtime.onMessage.addListener(onMessage);
+document.addEventListener("link-companion-started", onCompanionStarted);
+// A copy left behind by a reloaded extension runs in its own world and steps aside for this one.
+document.dispatchEvent(new CustomEvent("link-companion-started", { detail: instanceId }));
+
+function onMessage(message, _sender, sendResponse) {
+  if (retired) return;
+  switch (message?.type) {
+    case "link-hello":
+      sendResponse({ version: VERSION, instanceId, conversation: getConversation(), busy: current?.requestId ?? null });
+      return;
+    case "link-request":
+      sendResponse({ accepted: true, version: VERSION });
+      // "Check chat" only reads the page, so it works while an answer is still awaited, or stuck.
+      if (message.request?.kind === "read") void handleRead(message.request);
+      else void handlePrompt(message.request);
+      return;
+    case "link-tick":
+      // Hidden tabs get their timers throttled down to once a minute; the service worker's ticks keep waits on time.
+      flushDelays();
+      return;
+    case "link-retire":
+      retire();
+      sendResponse({ retired: true });
+      return;
   }
-  if (message?.type === "link-request") {
-    sendResponse({ accepted: true });
-    // "Check chat" only reads the page, so it works while an answer is still awaited, or stuck.
-    if (message.request?.kind === "read") void handleRead(message.request);
-    else void handleRequest(message.request);
-    return;
+}
+
+function onCompanionStarted(event) {
+  if (event.detail !== instanceId) retire();
+}
+
+/** Stops everything this copy does. Its prompt is left as it is: LINK hands it to the copy that took over. */
+function retire() {
+  if (retired) return;
+  retired = true;
+  clearInterval(announceTimer);
+  document.removeEventListener("link-companion-started", onCompanionStarted);
+  try {
+    chrome.runtime.onMessage.removeListener(onMessage);
+  } catch {
+    // An orphaned copy's API may throw; it receives nothing anyway.
   }
-  if (message?.type === "link-tick") {
-    // Hidden tabs get their timers throttled down to once a minute; the service worker's ticks keep waits on time.
-    flushDelays();
-  }
-});
+  if (current) stopJob(current, new RetiredError("A newer copy of the LINK companion took over."));
+  if (globalThis.linkCompanion?.instanceId === instanceId) delete globalThis.linkCompanion;
+}
 
 function announceConversation() {
   if (!chrome.runtime?.id) {
     // The extension was reloaded; this orphaned copy can no longer reach it.
-    clearInterval(announceTimer);
+    retire();
     return;
   }
   const conversation = getConversation();
   if (!conversation) return;
-  void chrome.runtime.sendMessage({ type: "link-announce", conversation }).catch(() => {});
+  void chrome.runtime.sendMessage({ type: "link-announce", conversation, busy: current?.requestId ?? null })
+    .catch(() => {});
 }
 
 function getConversation() {
@@ -66,105 +143,171 @@ function getConversation() {
   return conversationId ? { conversationId, title: getConversationTitle(), url: location.href } : null;
 }
 
-async function handleRequest(request) {
-  if (processingRequestId) {
-    await report(request.requestId, "error", { error: "This ChatGPT tab is already processing another LINK request." })
-      .catch(() => {});
+async function handlePrompt(request) {
+  if (current?.requestId === request.requestId) {
+    // LINK offers a prompt again when it has heard nothing about it for a while; this copy is still on it.
+    void reportQuietly(request.requestId, "heartbeat");
     return;
   }
-
-  if (getConversationId() !== request.conversationId) {
-    await report(request.requestId, "error", { error: "The linked ChatGPT tab navigated to another conversation." })
-      .catch(() => {});
-    return;
+  if (current) {
+    // LINK sends a prompt only when it is done with the previous one; this copy may not have heard yet.
+    const previous = current;
+    try {
+      await report(previous.requestId, "heartbeat");
+      await reportQuietly(request.requestId, "error", { error: "The ChatGPT tab is still busy with the previous LINK request." });
+      return;
+    } catch (error) {
+      stopJob(previous, error);
+      await previous.done;
+    }
   }
+  if (retired || current) return;
 
-  processingRequestId = request.requestId;
+  const job = {
+    requestId: request.requestId,
+    conversationId: request.conversationId,
+    // How the prompt starts, to find it among the chat's messages.
+    head: normalize(request.prompt.split("\n").find(line => line.trim()) ?? "").slice(0, 80),
+    stopReason: null,
+    wake: null,
+    resumed: false,
+    sentAt: 0,
+    baseline: null,
+    lastUserKey: null,
+    prompt: null,
+    promptKey: null,
+    thread: null,
+    response: null,
+    turn: null
+  };
+  current = job;
+  job.done = runPrompt(request, job);
+  await job.done;
+  if (current === job) current = null;
+}
+
+function stopJob(job, reason) {
+  job.stopReason ??= reason;
+  job.wake?.();
+}
+
+async function runPrompt(request, job) {
   try {
-    await report(request.requestId, "sending");
-    await applyEffort(request);
-    const composer = await waitFor(findComposer, 15000, "ChatGPT message composer was not found.");
-    if (request.attachments?.length) await attachImages(composer, request.attachments);
-    setComposerText(composer, request.prompt);
-    const messages = getAssistantMessages(document);
-    const last = messages.at(-1) ?? null;
-    const baseline = {
-      keys: new Set(messages.map(messageKey).filter(Boolean)),
-      last,
-      text: last ? readAssistantMarkdown(last) : ""
-    };
+    if (getConversationId() !== job.conversationId) {
+      throw new Error("The linked ChatGPT tab shows another conversation.");
+    }
+    const saved = await loadRequestState(request.requestId);
+    job.lastUserKey = saved?.lastUserKey ?? null;
+    job.promptKey = saved?.promptKey ?? null;
+    // A prompt that reached the chat before, from this page or one it replaced, is never sent twice: its answer is
+    // picked up where it is. One only on its way when that page went counts as sent if the chat shows it.
+    job.resumed = Boolean(request.sent || saved?.phase === "sent" ||
+      (saved?.phase === "sending" && job.lastUserKey && findPromptMessage(job)));
+    if (job.resumed) job.thread = findThread();
+    else await sendPrompt(request, job);
 
-    const sendButton = await waitFor(findEnabledSendButton, 15000, "ChatGPT Send button did not become available.");
-    sendButton.click();
-    await report(request.requestId, "waiting");
-    const response = await waitForAssistantResponse(request.requestId, baseline);
-    await report(request.requestId, "completed", { text: response });
+    const answer = await watchAnswer(job);
+    await report(request.requestId, "completed", answer, 8);
+    void forgetRequestState(request.requestId);
   } catch (error) {
-    if (error instanceof CancelledError) {
-      // LINK no longer waits for this answer (Stop/Esc): free the chat for the next request.
-      findStopButton(findComposer()?.closest("form"))?.click();
+    if (error instanceof RetiredError) return;
+    void forgetRequestState(request.requestId);
+    if (error instanceof EndedError) {
+      // Stop/Esc in LINK stops ChatGPT too; an answer LINK has taken otherwise is left alone.
+      if (error.reason === "cancelled") findStopButton(composerForm())?.click();
       return;
     }
-    try {
-      await report(request.requestId, "error", { error: error instanceof Error ? error.message : String(error) });
-    } catch {
-      // LINK may have closed while the ChatGPT request was in progress.
-    }
-  } finally {
-    processingRequestId = null;
+    await reportQuietly(request.requestId, "error", {
+      error: error instanceof Error ? error.message : String(error),
+      diagnostics: JSON.stringify(diagnose(job))
+    });
   }
 }
 
+async function sendPrompt(request, job) {
+  await report(request.requestId, "sending");
+  const composer = await waitFor(findComposer, 15000, "ChatGPT message composer was not found.");
+  await applyEffort(request, composer.closest("form"));
+  if (request.attachments?.length) await attachImages(composer, request.attachments);
+  setComposerText(composer, request.prompt);
+  job.baseline = takeBaseline();
+  job.lastUserKey = job.baseline.lastUser ? messageKey(job.baseline.lastUser) : null;
+  job.thread = findThread();
+  await saveRequestState(request.requestId, { phase: "sending", lastUserKey: job.lastUserKey });
+
+  const sendButton = await waitFor(findEnabledSendButton, 15000, "ChatGPT Send button did not become available.");
+  // A copy replaced meanwhile sends nothing: the newer one does.
+  if (job.stopReason) throw job.stopReason;
+  if (!chrome.runtime?.id) throw new RetiredError("The extension was reloaded.");
+  sendButton.click();
+  job.sentAt = Date.now();
+  await saveRequestState(request.requestId, { phase: "sent", lastUserKey: job.lastUserKey });
+  await report(request.requestId, "waiting");
+}
+
+function takeBaseline() {
+  const messages = getAssistantMessages(document);
+  const last = messages.at(-1) ?? null;
+  return {
+    keys: new Set(messages.map(messageKey).filter(Boolean)),
+    last,
+    text: last ? readAnswer(last).markdown : "",
+    lastUser: getUserMessages(document).at(-1) ?? null
+  };
+}
+
 async function handleRead(request) {
-  try {
-    await report(request.requestId, "snapshot", readSnapshot());
-  } catch {
-    // LINK may have stopped waiting for the check.
-  }
+  await reportQuietly(request.requestId, "snapshot", readSnapshot());
 }
 
 /**
  * The answer to the last prompt as the page shows it now, whether ChatGPT is still writing it, and what LINK's
- * selectors see, so a missed answer can be taken over and its cause found in link.log.
+ * selectors see, so a missed answer can be taken over and its cause found in link.log. While this copy works on a
+ * prompt, only an answer to that prompt counts.
  */
 function readSnapshot() {
-  const answer = getAssistantMessages(document).at(-1) ?? null;
-  const prompt = [...document.querySelectorAll(USER_MESSAGES)].at(-1) ?? null;
-  // An answer counts only after the last prompt; before that ChatGPT has not answered it yet.
-  const current = answer && (!prompt || prompt.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING)
-    ? answer
-    : null;
-  const form = findComposer()?.closest("form") ?? null;
-  const generating = isGenerating(form, current);
-  const finished = current ? hasTurnActions(current) : false;
-  const text = current ? readAssistantMarkdown(current) || (finished ? toMarkdown(current) : "") : "";
-  return { text, generating: generating && !finished, diagnostics: JSON.stringify(diagnose(current, form)) };
-}
-
-function diagnose(answer, form) {
-  const turn = answer?.closest("article, [data-turn-id]");
+  const job = current;
+  const prompt = job ? (job.prompt?.isConnected ? job.prompt : null) : getUserMessages(document).at(-1) ?? null;
+  const latest = getAssistantMessages(document).at(-1) ?? null;
+  const response = latest && (job ? prompt && follows(prompt, latest) : !prompt || follows(prompt, latest)) ? latest : null;
+  const signs = answerSigns(response, response ? turnOf(response, prompt) : null, composerForm());
+  const read = response ? readAnswer(response) : { markdown: "", plain: "" };
+  const generating = !signs.actions && Boolean(signs.stop || signs.streaming);
   return {
-    version: chrome.runtime.getManifest().version,
-    waiting: processingRequestId !== null,
-    answer: answer ? {
-      tag: answer.tagName.toLowerCase(),
-      id: messageKey(answer),
-      markdownRoots: answer.querySelectorAll(MARKDOWN_ROOTS).length,
-      markdownLength: readAssistantMarkdown(answer).length,
-      textLength: (answer.innerText ?? "").length,
-      complete: Boolean(answer.closest("[data-message-complete]")),
-      turnButtons: [...(turn?.querySelectorAll("button[data-testid]") ?? [])].map(button => button.dataset.testid).slice(0, 12)
-    } : null,
-    stopButton: Boolean(findStopButton(form)),
-    streaming: Boolean(answer?.querySelector("[data-message-streaming], .result-streaming")),
-    stopLabels: [...(form ?? document).querySelectorAll("button[aria-label]")]
-      .map(button => button.getAttribute("aria-label"))
-      .filter(label => /stop|останов/i.test(label)),
-    picker: firstLine(findModePicker()?.innerText)
+    answerTo: job && prompt ? job.requestId : null,
+    text: read.markdown || (!generating && !isStatusLine(read.plain) ? read.plain : ""),
+    generating,
+    diagnostics: JSON.stringify(diagnose(job, response))
   };
 }
 
-async function applyEffort(request) {
+function diagnose(job, response = job?.response) {
+  const form = composerForm();
+  const answer = response?.isConnected ? response : null;
+  const turn = answer ? turnOf(answer, job?.prompt) : null;
+  const read = answer ? readAnswer(answer) : null;
+  return {
+    version: VERSION,
+    busy: current?.requestId ?? null,
+    resumed: job?.resumed ?? null,
+    prompt: job ? (job.prompt?.isConnected ? messageKey(job.prompt) ?? "found" : "not found") : null,
+    answer: answer ? {
+      tag: answer.tagName.toLowerCase(),
+      id: messageKey(answer),
+      markdownRoots: markdownRoots(answer).length,
+      markdownLength: read.markdown.length,
+      plainLength: read.plain.length,
+      complete: Boolean(answer.closest("[data-message-complete]")),
+      streaming: Boolean(answer.matches(STREAMING) || answer.querySelector(STREAMING)),
+      turnButtons: [...turn.querySelectorAll("button[data-testid]")].map(button => button.dataset.testid).slice(0, 12)
+    } : null,
+    stopButtons: [...(form ?? document).querySelectorAll(STOP_BUTTONS)].slice(0, 6).map(button =>
+      `${button.dataset.testid ?? ""}|${button.getAttribute("aria-label") ?? ""}|${isShown(button) ? "shown" : "hidden"}`),
+    picker: pickerLabel(findModePicker(form))
+  };
+}
+
+async function applyEffort(request, form) {
   const effort = EFFORT_MODES[request.effort] ? request.effort : "normal";
   const appliedKey = `effort:${request.conversationId}`;
   const ownKey = `mode:${request.conversationId}`;
@@ -179,10 +322,8 @@ async function applyEffort(request) {
   if (effort === "normal" && applied === "normal") return;
 
   const own = effort === "normal" ? saved[ownKey] : null;
-  const mode = own
-    ? { label: own, patterns: [new RegExp(`^${escapeRegExp(own)}$`, "i"), ...EFFORT_MODES.normal.patterns] }
-    : EFFORT_MODES[effort];
-  const result = await switchChatMode(mode);
+  const targets = own ? [modeOf(own) ?? own, ...EFFORT_MODES.normal] : EFFORT_MODES[effort];
+  const result = await switchChatMode(form, targets);
   if (!result.ok) {
     await report(request.requestId, "notice", { notice: `ChatGPT mode not switched (${result.reason}); the answer hint was still sent` });
     return;
@@ -190,7 +331,8 @@ async function applyEffort(request) {
 
   try {
     const update = { [appliedKey]: effort };
-    if (applied === "normal" && result.previous) update[ownKey] = result.previous;
+    // Only a picker that names the mode tells which one was the user's.
+    if (applied === "normal" && modeOf(result.previous)) update[ownKey] = result.previous;
     await chrome.storage.local.set(update);
   } catch {
     // The chat is in the right mode anyway; the next request checks it again.
@@ -199,72 +341,149 @@ async function applyEffort(request) {
 }
 
 /**
- * Puts the chat into the first mode of `mode.patterns` it offers. The picker shows the current mode, so a chat
- * already in it is left alone; the user may have changed it by hand since LINK last did.
+ * Puts the chat into the first of `targets` it offers (mode ids, or a mode's own label) and checks that the picker
+ * shows it then. The picker shows the current mode, so a chat already in it is left alone; the user may have changed
+ * it by hand since LINK last did.
  */
-async function switchChatMode(mode) {
-  const trigger = findModePicker();
-  if (!trigger) return { ok: false, reason: "model picker not found" };
-  const previous = firstLine(trigger.innerText);
-  if (mode.patterns[0].test(previous)) return { ok: true, changed: false, label: previous, previous };
+async function switchChatMode(form, targets) {
+  const picker = findModePicker(form);
+  if (!picker) return { ok: false, reason: "mode picker not found" };
+  const previous = pickerLabel(picker);
+  if (matchesMode(previous, targets[0])) return { ok: true, changed: false, label: previous, previous };
 
-  // Radix menus open on pointerdown; a synthetic click alone does not open them.
-  trigger.dispatchEvent(new PointerEvent("pointerdown", {
-    bubbles: true, cancelable: true, button: 0, pointerType: "mouse", isPrimary: true
-  }));
-  let items = await waitFor(() => findModeItems(trigger), 1500, null);
-  if (!items) {
-    trigger.click();
-    items = await waitFor(() => findModeItems(trigger), 1500, null);
-  }
-  if (!items) return { ok: false, reason: "model menu did not open" };
-
-  const offered = items.filter(item => !isExcludedMode(item));
-  const target = mode.patterns
-    .map(pattern => offered.find(item => pattern.test(firstLine(item.innerText))))
-    .find(Boolean);
-  if (!target) {
-    (document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", {
-      key: "Escape", code: "Escape", bubbles: true, cancelable: true
-    }));
+  const menu = await openMenu(picker);
+  if (!menu) return { ok: false, reason: `the "${previous}" picker did not open` };
+  const offered = menuItems(menu);
+  const choice = targets
+    .map(target => [target, offered.find(item => matchesMode(firstLine(item.innerText), target) && !isDisabled(item))])
+    .find(([, item]) => item);
+  if (!choice) {
+    closeMenu(menu);
     // The labels on offer tell what a changed picker calls its modes now.
     const labels = offered.map(item => firstLine(item.innerText)).filter(Boolean).join(", ");
-    return { ok: false, reason: `${mode.label} is not offered${labels ? `: ${labels}` : ""}` };
+    return { ok: false, reason: `${MODE_NAMES[targets[0]] ?? targets[0]} is not offered${labels ? `: ${labels}` : ""}` };
   }
 
-  const label = firstLine(target.innerText) || mode.label;
-  target.click();
-  await delay(300);
+  const [target, item] = choice;
+  // The picker may name the chat's mode differently from the menu: the first mode on offer may be the current one.
+  if (matchesMode(previous, target)) {
+    closeMenu(menu);
+    return { ok: true, changed: false, label: previous, previous };
+  }
+  const label = await chooseMode(picker, menu, item, target);
+  if (!label) {
+    closeMenu(menu);
+    return { ok: false, reason: `the picker still shows "${pickerLabel(findModePicker(composerForm())) || previous}"` };
+  }
   return { ok: true, changed: true, label, previous };
 }
 
-function findModePicker() {
-  const form = findComposer()?.closest("form");
-  const menuButtons = root => [...(root?.querySelectorAll('button[aria-haspopup="menu"], button[aria-haspopup="listbox"]') ?? [])];
-  return document.querySelector('[data-testid="model-switcher-dropdown-button"]') ??
-    // The composer's picker is labelled with the current mode ("Высокий"), the header's with "model".
-    menuButtons(form).find(button => MODE_LABELS.test(firstLine(button.innerText))) ??
-    menuButtons(document).find(button => /model|модел/i.test(button.getAttribute("aria-label") ?? "")) ??
-    null;
+/**
+ * Chooses a menu item; the mode's label once the picker shows it, or null when it never does. A picker that does
+ * not show the mode (the header's "ChatGPT") only tells that it took the choice by closing its menu.
+ */
+async function chooseMode(picker, menu, item, target) {
+  const labelled = Boolean(modeOf(pickerLabel(picker)));
+  // Read while the menu is open: a closed menu's item has no lines any more.
+  const itemLabel = firstLine(item.innerText);
+  const shown = () => {
+    if (!labelled) return !menu.isConnected || picker.getAttribute("aria-expanded") === "false" ? itemLabel : null;
+    const label = pickerLabel(findModePicker(composerForm()));
+    return matchesMode(label, target) ? label : null;
+  };
+  item.click();
+  let label = await waitFor(shown, 2000, null);
+  if (!label && item.isConnected) {
+    // Some menus choose on Enter rather than on a click.
+    item.focus();
+    item.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
+    label = await waitFor(shown, 1500, null);
+  }
+  return label;
+}
+
+/**
+ * The composer's mode picker, labelled with the current mode ("Высокий"); it may sit just outside the composer's
+ * form. The header's model picker ("ChatGPT") only when the composer has none: it held the modes before June 2026.
+ */
+function findModePicker(form) {
+  for (let root = form, level = 0; root && level < 3; root = root.parentElement, level++) {
+    const pickers = [...root.querySelectorAll(PICKER_BUTTONS)]
+      .filter(button => !button.closest(`${TURNS}, [data-message-author-role]`) && modeOf(pickerLabel(button)));
+    if (pickers.length) return pickers.find(isShown) ?? pickers[0];
+  }
+  return document.querySelector('[data-testid="model-switcher-dropdown-button"]');
+}
+
+function pickerLabel(picker) {
+  return firstLine(picker?.innerText) || picker?.getAttribute("aria-label")?.trim() || "";
+}
+
+/** The mode a label names, by its first word; a label may name its kind first ("Reasoning · High"). */
+function modeOf(label) {
+  const parts = firstLine(label).split(/\s*[·:|•—–]\s*/);
+  for (const part of [...parts.slice(1).reverse(), parts[0]]) {
+    const mode = MODES.find(([, pattern]) => pattern.test(part));
+    if (mode) return mode[0];
+  }
+  return null;
+}
+
+function matchesMode(label, target) {
+  return MODE_NAMES[target] ? modeOf(label) === target : firstLine(label).toLowerCase() === target.toLowerCase();
+}
+
+async function openMenu(picker) {
+  const before = new Set(document.querySelectorAll(MENUS));
+  const opened = () => {
+    const id = picker.getAttribute("aria-controls");
+    const own = id ? document.getElementById(id) : null;
+    if (own) return own;
+    const menus = [...document.querySelectorAll(MENUS)];
+    return menus.find(menu => !before.has(menu)) ??
+      (picker.getAttribute("aria-expanded") === "true" ? menus.find(isShown) : null) ?? null;
+  };
+  // Radix menus open on pointerdown, and a synthetic click alone does not open them; other menus open on click or Enter.
+  const ways = [
+    () => picker.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true, cancelable: true, button: 0, pointerType: "mouse", isPrimary: true
+    })),
+    () => picker.click(),
+    () => {
+      picker.focus();
+      picker.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
+    }
+  ];
+  for (const open of ways) {
+    if (!picker.isConnected) return null;
+    open();
+    const menu = await waitFor(opened, 1500, null);
+    if (menu) return menu;
+  }
+  // A menu that opened where LINK could not see it must not stay open over the chat.
+  closeMenu(picker);
+  return null;
+}
+
+function menuItems(menu) {
+  const items = [...menu.querySelectorAll('[role^="menuitem"], [role="option"], [role="radio"], [data-testid^="model-switcher-"]')];
+  return (items.length ? items : [...menu.querySelectorAll("button")])
+    .filter(item => item.getAttribute("aria-haspopup") !== "menu" &&
+      !EXCLUDED_MODES.test(`${item.getAttribute("data-testid") ?? ""} ${item.innerText ?? ""}`));
+}
+
+function isDisabled(item) {
+  return item.getAttribute("aria-disabled") === "true" || item.hasAttribute("data-disabled") || item.disabled === true;
+}
+
+function closeMenu(menu) {
+  (menu.isConnected ? menu : document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", {
+    key: "Escape", code: "Escape", bubbles: true, cancelable: true
+  }));
 }
 
 function firstLine(text) {
   return (text ?? "").trim().split("\n")[0].trim();
-}
-
-function escapeRegExp(text) {
-  return text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-}
-
-function findModeItems(trigger) {
-  const items = [...document.querySelectorAll('[role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]')]
-    .flatMap(menu => [...menu.querySelectorAll('[role^="menuitem"], [role="option"], [data-testid^="model-switcher-"]')])
-    .filter(item => item !== trigger && !item.contains(trigger) && item.getAttribute("aria-haspopup") !== "menu");
-  return items.length ? items : null;
-}
-
-function isExcludedMode(item) {
-  return EXCLUDED_MODES.test(`${item.getAttribute("data-testid") ?? ""} ${item.innerText ?? ""}`);
 }
 
 async function attachImages(composer, attachments) {
@@ -329,6 +548,14 @@ function findComposer() {
   return candidates.find(element => element.getClientRects().length > 0) ?? candidates[0] ?? null;
 }
 
+function composerForm() {
+  return findComposer()?.closest("form") ?? null;
+}
+
+function composerText(composer) {
+  return composer instanceof HTMLTextAreaElement ? composer.value : composer.innerText ?? "";
+}
+
 function setComposerText(composer, text) {
   composer.focus();
   if (composer instanceof HTMLTextAreaElement) {
@@ -364,13 +591,23 @@ function findEnabledSendButton() {
     button.getAttribute("aria-disabled") !== "true" && !isStopState(button) ? button : null;
 }
 
-// The composer's form is searched when known: a long chat holds tens of thousands of nodes.
+/**
+ * ChatGPT's Stop button while it writes. Only one the user can see counts: some composers keep a hidden Stop around
+ * after the answer. The composer's form is searched when known: a long chat holds tens of thousands of nodes.
+ */
 function findStopButton(form) {
   const root = form?.isConnected ? form : document;
-  const classic = root.querySelector('button[data-testid="stop-button"]');
-  if (classic instanceof HTMLButtonElement) return classic;
-  const submit = root.querySelector("button[data-composer-submit]");
-  return submit instanceof HTMLButtonElement && isStopState(submit) ? submit : null;
+  for (const button of root.querySelectorAll(STOP_BUTTONS)) {
+    if (isStopButton(button) && isShown(button)) return button;
+  }
+  return null;
+}
+
+function isStopButton(button) {
+  if (button.dataset.testid === "stop-button" || isStopState(button)) return true;
+  // A button labelled Stop, but not one that stops dictation, voice mode or reading aloud.
+  const label = button.getAttribute("aria-label") ?? "";
+  return /stop|останов/i.test(label) && !/dictat|диктов|voice|голос|record|запис|read|чтени|озвуч/i.test(label);
 }
 
 function isStopState(button) {
@@ -378,37 +615,54 @@ function isStopState(button) {
   return Boolean(stopLabel) && button.getAttribute("aria-label") === stopLabel;
 }
 
-// ChatGPT still writes while its composer shows Stop or the answer is flagged as streaming.
-function isGenerating(form, answer) {
-  return Boolean(findStopButton(form) ||
-    answer?.querySelector("[data-message-streaming], .result-streaming") ||
-    // Only the composer's own button: "Stop" elsewhere (e.g. reading aloud) says nothing about the answer.
-    (form?.isConnected ? form : document)
-      .querySelector('form button[aria-label*="stop" i], form button[aria-label*="останов" i]'));
+function isShown(element) {
+  return element.checkVisibility?.({ opacityProperty: true, visibilityProperty: true }) ??
+    element.getClientRects().length > 0;
+}
+
+/**
+ * ChatGPT's signs of where the answer stands: its Stop button or streaming marks while it writes, the finished
+ * turn's action buttons and the new UI's completion flag when it is done.
+ */
+function answerSigns(response, turn, form) {
+  return {
+    stop: findStopButton(form),
+    streaming: Boolean(response?.matches(STREAMING) || response?.querySelector(STREAMING)),
+    actions: Boolean(turn?.querySelector(TURN_ACTIONS)),
+    flagged: Boolean(response?.closest("[data-message-complete]"))
+  };
 }
 
 function getAssistantMessages(root) {
   return [...new Set(root.querySelectorAll(ASSISTANT_MESSAGES))];
 }
 
+function getUserMessages(root) {
+  return [...new Set(root.querySelectorAll(USER_MESSAGES))];
+}
+
 /** The element that holds the turns: the nearest one around both the last prompt and the last answer. */
 function findThread() {
   const answer = getAssistantMessages(document).at(-1);
-  const prompt = [...document.querySelectorAll(USER_MESSAGES)].at(-1);
-  let thread = answer && prompt ? answer.parentElement : null;
-  while (thread && !thread.contains(prompt)) thread = thread.parentElement;
-  return thread;
+  const prompt = getUserMessages(document).at(-1);
+  return answer && prompt ? commonAncestor(answer, prompt) : null;
 }
 
-/** The last assistant message. New turns land at the end of the thread, so only its last children are searched. */
+function commonAncestor(first, second) {
+  let ancestor = first.parentElement;
+  while (ancestor && !ancestor.contains(second)) ancestor = ancestor.parentElement;
+  return ancestor;
+}
+
+/** The last assistant message at the end of the thread, where new turns land: only its last children are searched. */
 function latestAssistantMessage(thread) {
-  if (!thread?.isConnected) return getAssistantMessages(document).at(-1) ?? null;
+  if (!thread?.isConnected) return null;
   let child = thread.lastElementChild;
   for (let looked = 0; child && looked < 4; looked++, child = child.previousElementSibling) {
     const message = getAssistantMessages(child).at(-1) ?? (child.matches(ASSISTANT_MESSAGES) ? child : null);
     if (message) return message;
   }
-  return getAssistantMessages(thread).at(-1) ?? null;
+  return null;
 }
 
 // Message ids survive re-renders, so an old answer that React re-mounts is not mistaken for the new one.
@@ -418,15 +672,54 @@ function messageKey(element) {
     element.querySelector("[data-message-id]")?.getAttribute("data-message-id") ?? null;
 }
 
-function isNewResponse(element, baseline) {
-  const key = messageKey(element);
-  if (key) return !baseline.keys.has(key);
-  return element !== baseline.last && readAssistantMarkdown(element) !== baseline.text;
+function follows(first, second) {
+  return Boolean(first.compareDocumentPosition(second) & Node.DOCUMENT_POSITION_FOLLOWING);
 }
 
-// ChatGPT gives a finished turn its action buttons (copy, rate…); a turn still being written has none.
-function hasTurnActions(message) {
-  return Boolean(message.closest("article, [data-turn-id]")?.querySelector('[data-testid="copy-turn-action-button"]'));
+/** The chat's message with the job's prompt: the newest user message sent after the messages LINK saw before. */
+function findPromptMessage(job) {
+  const users = getUserMessages(document);
+  for (let index = users.length - 1; index >= Math.max(0, users.length - 6); index--) {
+    const user = users[index];
+    const key = messageKey(user);
+    if (job.promptKey && key === job.promptKey) return user;
+    if (user === job.baseline?.lastUser || (key && key === job.lastUserKey)) return null;
+    if (job.head && normalize(user.textContent).includes(job.head)) return user;
+  }
+  return null;
+}
+
+/** Whether a message answers the job's prompt: it comes after the prompt, or is new since LINK sent it. */
+function isAnswerTo(message, job) {
+  if (job.prompt?.isConnected) return follows(job.prompt, message);
+  if (!job.baseline) return false;
+  const key = messageKey(message);
+  if (key) return !job.baseline.keys.has(key);
+  return message !== job.baseline.last && readAnswer(message).markdown !== job.baseline.text;
+}
+
+/** The answer searched for on the whole page; the thread follows it, so the next looks find it cheaply. */
+function searchResponse(job) {
+  const latest = getAssistantMessages(document).at(-1);
+  if (!latest || !isAnswerTo(latest, job)) return null;
+  const anchor = job.prompt?.isConnected ? job.prompt : job.baseline?.last;
+  if (anchor?.isConnected) job.thread = commonAncestor(latest, anchor) ?? job.thread;
+  return latest;
+}
+
+/**
+ * The answer's turn: the largest element around it without the prompt, so the buttons in it are the answer's own.
+ * Without the prompt, the turn ChatGPT marks.
+ */
+function turnOf(response, prompt) {
+  const marked = () => response.closest(TURNS) ?? response;
+  if (!prompt?.isConnected) return marked();
+  let turn = response;
+  while (turn.parentElement && turn.parentElement !== document.body && !turn.parentElement.contains(prompt)) {
+    turn = turn.parentElement;
+  }
+  // A turn holding older prompts spans the chat before it, so its buttons are not the answer's.
+  return turn.querySelector(USER_MESSAGES) ? marked() : turn;
 }
 
 /**
@@ -434,89 +727,172 @@ function hasTurnActions(message) {
  * and while it does, the composer and the last turns are looked at every CHECK_INTERVAL_MS at most. The complete
  * answer is read once more at the end, the moment ChatGPT is done with it.
  */
-async function waitForAssistantResponse(requestId, baseline) {
+async function watchAnswer(job) {
   const page = watchPage();
-  try {
-    const startedAt = Date.now();
-    const thread = findThread();
-    let form = findComposer()?.closest("form") ?? null;
-    let candidate = null;
-    let response = null;
-    let stale = true;
-    let text = "";
-    let convertedAt = 0;
-    let changedAt = Date.now();
-    let reportedText = "";
-    let eventAt = Date.now();
+  job.wake = page.wake;
+  const startedAt = Date.now();
+  let bridgeAt = startedAt;
+  // Events LINK does not take are tried again on the next look; only a long silence of LINK ends the wait.
+  const tell = async (state, details) => {
+    try {
+      await report(job.requestId, state, details, 1);
+      bridgeAt = Date.now();
+      return true;
+    } catch (error) {
+      if (error instanceof EndedError || error instanceof RetiredError || Date.now() - bridgeAt > BRIDGE_TIMEOUT_MS) throw error;
+      return false;
+    }
+  };
 
-    while (Date.now() - startedAt < RESPONSE_TIMEOUT_MS) {
+  try {
+    let form = null;
+    let text = "";
+    let plain = "";
+    let changedAt = startedAt;
+    let readAt = 0;
+    let readInterval = PROGRESS_INTERVAL_MS;
+    let stale = true;
+    let reported = "";
+    let eventAt = startedAt;
+    // A prompt picked up again first tells LINK where its answer stands.
+    let told = !job.resumed;
+    let promptLookAt = 0;
+    let searchedAt = 0;
+
+    while (true) {
+      if (job.stopReason) throw job.stopReason;
+      const now = Date.now();
+      if (now - startedAt > RESPONSE_TIMEOUT_MS) throw new Error("Timed out waiting for ChatGPT to finish the response.");
+      if (getConversationId() !== job.conversationId) {
+        throw new Error("The linked ChatGPT tab switched to another conversation; the answer stays in that chat.");
+      }
       stale = page.takeChanges() || stale;
-      if (!form?.isConnected) form = findComposer()?.closest("form") ?? null;
-      const latest = latestAssistantMessage(thread);
-      if (latest !== candidate) {
-        // Telling a new answer from an old one can take reading it, so each element is judged once.
-        candidate = latest;
-        response = latest && isNewResponse(latest, baseline) ? latest : null;
-        stale = true;
+      if (!form?.isConnected) form = composerForm();
+
+      if (!job.prompt?.isConnected && now - promptLookAt >= 500) {
+        promptLookAt = now;
+        job.prompt = findPromptMessage(job);
+        const key = job.prompt ? messageKey(job.prompt) : null;
+        if (key && key !== job.promptKey) {
+          job.promptKey = key;
+          void saveRequestState(job.requestId, { phase: "sent", lastUserKey: job.lastUserKey, promptKey: key });
+        }
       }
 
-      const generating = isGenerating(form, response);
-      if (response && stale && (!generating || Date.now() - convertedAt >= PROGRESS_INTERVAL_MS)) {
+      // New turns land at the end of the thread; the whole page is searched only now and then, for a chat that put
+      // them elsewhere, and in between the answer found last is kept.
+      let response = latestAssistantMessage(job.thread);
+      if (response && !isAnswerTo(response, job)) response = null;
+      if (!response && now - searchedAt >= 1000) {
+        searchedAt = now;
+        response = searchResponse(job);
+      }
+      if (!response && job.response?.isConnected && isAnswerTo(job.response, job)) response = job.response;
+      if (response !== job.response) {
+        job.response = response;
+        stale = true;
+      }
+      const turn = response ? turnOf(response, job.prompt) : null;
+      if (turn !== job.turn) {
+        job.turn = turn;
+        page.follow(turn);
+      }
+
+      const signs = answerSigns(response, job.turn, form);
+      const generating = Boolean(signs.stop || signs.streaming);
+      if (response && stale && (!generating || now - readAt >= readInterval)) {
         stale = false;
-        convertedAt = Date.now();
-        const next = readAssistantMarkdown(response);
-        if (next !== text) {
-          text = next;
-          changedAt = Date.now();
+        readAt = now;
+        const started = performance.now();
+        const read = readAnswer(response);
+        // A long answer is converted less often, so the page keeps its time for ChatGPT.
+        readInterval = Math.max(PROGRESS_INTERVAL_MS, (performance.now() - started) * 10);
+        if (read.markdown !== text || read.plain !== plain) {
+          text = read.markdown;
+          plain = read.plain;
+          changedAt = now;
         }
       }
 
       // A finished turn settles it even if some Stop-like button lingers. Otherwise only the answer's own text
       // completes it, never a status such as "Thinking", and only once ChatGPT has stopped writing.
-      const finished = response !== null && hasTurnActions(response);
-      if (finished || (text && !generating && (response.closest("[data-message-complete]") || Date.now() - changedAt >= SETTLE_MS))) {
-        const answer = readAssistantMarkdown(response) || (finished ? toMarkdown(response) : "") || text;
-        if (answer) return answer;
-        throw new Error("ChatGPT's answer has no text LINK can show. Look at the ChatGPT tab.");
+      let reason = null;
+      const settle = document.hidden ? PLAIN_SETTLE_MS : SETTLE_MS;
+      if (response && signs.actions) reason = "turn actions";
+      else if ((text || plain) && !generating && signs.flagged) reason = "completion flag";
+      else if (text && !generating && now - changedAt >= settle) reason = "settled";
+      else if (plain && !generating && now - changedAt >= PLAIN_SETTLE_MS && !isStatusLine(plain)) reason = "settled without Markdown";
+      else if (text && now - changedAt >= STALL_MS && now - page.turnChangedAt() >= STALL_MS) reason = "unchanged for a minute";
+      if (reason) return finishAnswer(job, response, reason, text || plain);
+
+      if (!job.resumed && !job.prompt && !response && !signs.stop && now - job.sentAt >= SEND_CONFIRM_MS) {
+        const composer = findComposer();
+        if (composer && job.head && normalize(composerText(composer)).includes(job.head)) {
+          throw new Error("ChatGPT did not take the prompt: it is still in the ChatGPT composer and was not sent.");
+        }
+      }
+      if (job.resumed && !job.prompt && !response && now - startedAt >= RESUME_TIMEOUT_MS) {
+        throw new Error("The prompt is not in the linked chat any more. Check chat reads the chat's last answer.");
       }
 
-      if (text && text !== reportedText) {
-        reportedText = text;
-        eventAt = Date.now();
-        await report(requestId, "receiving", { text });
-      } else if (Date.now() - eventAt >= HEARTBEAT_INTERVAL_MS) {
-        // A cancelled request answers 404, which ends the wait through CancelledError.
-        eventAt = Date.now();
-        await report(requestId, "heartbeat");
+      if (text && text !== reported) {
+        if (await tell("receiving", { text })) {
+          reported = text;
+          told = true;
+          eventAt = now;
+        }
+      } else if (!told) {
+        if (await tell("waiting")) {
+          told = true;
+          eventAt = now;
+        }
+      } else if (now - eventAt >= HEARTBEAT_INTERVAL_MS) {
+        // A cancelled request answers 404, which ends the wait through EndedError.
+        if (await tell("heartbeat")) eventAt = now;
       }
 
-      const now = Date.now();
-      let wait = HEARTBEAT_INTERVAL_MS - (now - eventAt);
-      if (response && stale) wait = Math.min(wait, PROGRESS_INTERVAL_MS - (now - convertedAt));
-      if (text && !generating) wait = Math.min(wait, SETTLE_MS - (now - changedAt));
+      let wait = HEARTBEAT_INTERVAL_MS - (Date.now() - eventAt);
+      if (response && stale) wait = Math.min(wait, readAt + readInterval - now);
+      if ((text || plain) && !generating) wait = Math.min(wait, changedAt + (text ? settle : PLAIN_SETTLE_MS) - now);
+      if (!job.prompt || !response) wait = Math.min(wait, 500);
       await page.next(wait);
     }
-
-    throw new Error("Timed out waiting for ChatGPT to finish the response.");
   } finally {
+    job.wake = null;
     page.disconnect();
   }
+}
+
+/** The complete answer, read once more; what LINK logs when ChatGPT's own signs of the end were missing. */
+function finishAnswer(job, response, reason, seen) {
+  const read = readAnswer(response);
+  const text = read.markdown || read.plain || seen;
+  if (!text) throw new Error("ChatGPT's answer has no text LINK can show. Look at the ChatGPT tab.");
+  const usual = (reason === "turn actions" || reason === "completion flag" || reason === "settled") && read.markdown;
+  return usual ? { text } : { text, diagnostics: JSON.stringify({ completedBy: reason, ...diagnose(job, response) }) };
+}
+
+function isStatusLine(text) {
+  return text.length < 80 && STATUS_LINE.test(text);
 }
 
 function watchPage() {
   let changed = false;
   let wake = null;
-  const observer = new MutationObserver(() => {
+  let turn = null;
+  let turnChangedAt = Date.now();
+  const observer = new MutationObserver(records => {
     changed = true;
+    if (turn && records.some(record => turn.contains(record.target))) turnChangedAt = Date.now();
     wake?.();
   });
-  // Text streams in as nodes and characters; the Stop button and ChatGPT's completion flag change attributes.
+  // Text streams in as nodes and characters; Stop, its visibility and ChatGPT's completion flag change attributes.
   observer.observe(document.body, {
     subtree: true,
     childList: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ["aria-label", "data-testid", "data-message-complete"]
+    attributeFilter: ["aria-label", "data-testid", "data-message-complete", "class", "hidden", "style"]
   });
   return {
     takeChanges() {
@@ -524,6 +900,13 @@ function watchPage() {
       changed = false;
       return result;
     },
+    /** The answer's turn: how long it has not changed tells a finished answer whose Stop lingers. */
+    follow(element) {
+      turn = element;
+      turnChangedAt = Date.now();
+    },
+    turnChangedAt: () => turnChangedAt,
+    wake: () => wake?.(),
     // Until the page changes or `ms` pass, but never less than CHECK_INTERVAL_MS: a busy page costs a few looks a second.
     async next(ms) {
       await delay(CHECK_INTERVAL_MS);
@@ -541,12 +924,18 @@ function watchPage() {
   };
 }
 
-// ChatGPT renders Markdown to HTML; LINK needs the Markdown back, so code, lists and tables keep their shape.
-// Only rendered answer Markdown counts: status lines ("Thinking", "Думаю") and placeholders around it are not the answer.
-function readAssistantMarkdown(message) {
-  const roots = [...message.querySelectorAll(MARKDOWN_ROOTS)]
-    .filter(root => !root.parentElement?.closest(MARKDOWN_ROOTS));
-  return roots.length ? toMarkdown(roots.at(-1)) : "";
+function markdownRoots(message) {
+  return [...message.querySelectorAll(MARKDOWN_ROOTS)].filter(root => !root.parentElement?.closest(MARKDOWN_ROOTS));
+}
+
+/**
+ * The answer as Markdown. ChatGPT renders Markdown to HTML; LINK needs the Markdown back, so code, lists and tables
+ * keep their shape. Only rendered answer Markdown streams: status lines ("Thinking", "Думаю") and placeholders around
+ * it are not the answer. A message without a Markdown root is read whole, as `plain`, for ChatGPT's end signs only.
+ */
+function readAnswer(message) {
+  const roots = markdownRoots(message);
+  return roots.length ? { markdown: toMarkdown(roots.at(-1)), plain: "" } : { markdown: "", plain: toMarkdown(message) };
 }
 
 function toMarkdown(root) {
@@ -698,13 +1087,72 @@ function collapseWhitespace(text) {
   return text.replace(/\s+/g, " ");
 }
 
-async function report(requestId, state, details = {}) {
-  const result = await chrome.runtime.sendMessage({
-    type: "link-event",
-    event: { requestId, state, ...details }
+function normalize(text) {
+  return (text ?? "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Tells LINK about a request. The service worker may be starting or LINK busy for a moment, so a failed event is
+ * sent again up to `attempts` times; a request LINK has dropped ends the caller through EndedError.
+ */
+async function report(requestId, state, details = {}, attempts = 3) {
+  for (let attempt = 1; ; attempt++) {
+    if (retired || !chrome.runtime?.id) throw new RetiredError("The extension was reloaded.");
+    let result;
+    try {
+      result = await chrome.runtime.sendMessage({ type: "link-event", event: { requestId, state, ...details } });
+    } catch (error) {
+      result = { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+    if (result?.ok) return;
+    if (result?.status === 404) throw new EndedError(result.reason ?? "unknown");
+    if (attempt >= attempts) throw new Error(result?.error ?? "LINK bridge did not accept the event.");
+    await delay(400 * attempt);
+  }
+}
+
+function reportQuietly(requestId, state, details) {
+  return report(requestId, state, details).catch(() => {
+    // LINK may have stopped waiting, or closed.
   });
-  if (result?.status === 404) throw new CancelledError("LINK no longer waits for this request.");
-  if (!result?.ok) throw new Error(result?.error ?? "LINK bridge did not accept the event.");
+}
+
+// Where a prompt stands, kept outside the page's memory: a copy started after an extension or page reload picks the
+// prompt up from here instead of sending it again.
+async function loadRequestState(requestId) {
+  try {
+    return (await chrome.storage.local.get(`request:${requestId}`))[`request:${requestId}`] ?? null;
+  } catch {
+    return null;
+  }
+}
+
+async function saveRequestState(requestId, state) {
+  try {
+    await chrome.storage.local.set({ [`request:${requestId}`]: { ...state, savedAt: Date.now() } });
+  } catch {
+    // Without storage a reloaded page finds the prompt by its text.
+  }
+}
+
+async function forgetRequestState(requestId) {
+  try {
+    await chrome.storage.local.remove(`request:${requestId}`);
+  } catch {
+    // Old entries are pruned when a copy starts.
+  }
+}
+
+async function pruneRequestStates() {
+  try {
+    const saved = await chrome.storage.local.get(null);
+    const old = Object.entries(saved)
+      .filter(([key, state]) => key.startsWith("request:") && !(Date.now() - (state?.savedAt ?? 0) < REQUEST_STATE_TTL_MS))
+      .map(([key]) => key);
+    if (old.length) await chrome.storage.local.remove(old);
+  } catch {
+    // Pruning is housekeeping only.
+  }
 }
 
 async function waitFor(producer, timeoutMs, errorMessage) {
@@ -750,6 +1198,7 @@ function flushDelays() {
   }
 }
 
+void pruneRequestStates();
 announceConversation();
 announceTimer = setInterval(announceConversation, ANNOUNCE_INTERVAL_MS);
 })();

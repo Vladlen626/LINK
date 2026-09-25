@@ -17,14 +17,23 @@ internal static class Program
         Console.OutputEncoding = Encoding.UTF8;
         SpokenAnswerTests.Run();
         PromptDraftTests.Run();
-        var voiceChecks = VoiceSessionTests.RunAsync();
-        if (await Task.WhenAny(voiceChecks, Task.Delay(Timeout)) != voiceChecks)
+        foreach (var (name, checks) in new (string, Func<Task>)[]
+                 {
+                     ("voice session", VoiceSessionTests.RunAsync),
+                     ("browser bridge", BrowserBridgeTests.RunAsync)
+                 })
         {
-            Console.WriteLine($"FAIL voice session checks did not finish in {Timeout.TotalSeconds} s.");
-            return _failures + 1;
+            var run = checks();
+            if (await Task.WhenAny(run, Task.Delay(Timeout)) != run)
+            {
+                Console.WriteLine($"FAIL {name} checks did not finish in {Timeout.TotalSeconds} s.");
+                return _failures + 1;
+            }
+
+            await run;
         }
 
-        await voiceChecks;
+        BrowserExtensionTests.Run();
         Console.WriteLine(_failures == 0
             ? $"All {_checks} checks passed."
             : $"{_failures} of {_checks} checks failed.");
@@ -37,6 +46,15 @@ internal static class Program
         if (Equals(actual, expected)) return;
         _failures++;
         Console.WriteLine($"FAIL {name}\n  expected: {expected}\n  actual:   {actual}");
+    }
+
+    /// <summary>A check made elsewhere, e.g. in the browser, with what it said when it failed.</summary>
+    public static void Record(string description, bool passed)
+    {
+        _checks++;
+        if (passed) return;
+        _failures++;
+        Console.WriteLine($"FAIL {description}");
     }
 
     /// <summary>Checks a value that work finishing on another thread (e.g. the end of speech) settles soon.</summary>

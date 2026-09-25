@@ -182,7 +182,7 @@ public partial class MainWindow
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
-            ShowResponse(ChatProgressState.Error, "Request cancelled.");
+            ShowResponse(ChatProgressState.Cancelled, "Request cancelled.");
             SetStatus("Request cancelled. Your prompt and context were kept.", "Cancelled");
         }
         catch (Exception exception)
@@ -371,6 +371,11 @@ public partial class MainWindow
     private void OnChatProgress(ChatProgress progress)
     {
         _chatHeardAt = DateTime.UtcNow;
+        if (progress.Diagnostics is { } diagnostics)
+        {
+            DiagnosticsReported?.Invoke($"Chat {progress.State.ToString().ToLowerInvariant()}: {diagnostics}");
+        }
+
         _voice.ReportProgress(progress);
         if (progress.Notice is not null)
         {
@@ -388,6 +393,7 @@ public partial class MainWindow
             ChatProgressState.Sending => "Sending to ChatGPT…",
             ChatProgressState.Waiting => "Waiting for ChatGPT…",
             ChatProgressState.Receiving => "Receiving response…",
+            ChatProgressState.Reconnecting => "Reconnecting to the ChatGPT tab…",
             ChatProgressState.Completed => "Response received",
             ChatProgressState.Error => $"Error: {progress.Error}",
             _ => "Working…"
@@ -396,6 +402,7 @@ public partial class MainWindow
             ChatProgressState.Sending => "Sending",
             ChatProgressState.Waiting => "Waiting",
             ChatProgressState.Receiving => "Receiving",
+            ChatProgressState.Reconnecting => "Reconnecting",
             ChatProgressState.Completed => "Done",
             _ => "Attention"
         });
@@ -409,7 +416,9 @@ public partial class MainWindow
             ChatProgressState.Sending => "Sending",
             ChatProgressState.Waiting => "Waiting for response",
             ChatProgressState.Receiving => "Receiving",
+            ChatProgressState.Reconnecting => "Reconnecting",
             ChatProgressState.Completed => "Assistant",
+            ChatProgressState.Cancelled => "Cancelled",
             ChatProgressState.Error => "Error",
             _ => "Assistant"
         };
@@ -417,6 +426,7 @@ public partial class MainWindow
         ResponseStateDot.Fill = (Brush)FindResource(state switch
         {
             ChatProgressState.Completed => "SuccessOrbBrush",
+            ChatProgressState.Cancelled => "IdleOrbBrush",
             ChatProgressState.Error => "ErrorOrbBrush",
             _ => "BusyOrbBrush"
         });

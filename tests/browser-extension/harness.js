@@ -1,0 +1,561 @@
+// Checks for the browser companion, run by Link.Desktop.Tests in headless Edge with virtual time, or by opening
+// run.html in a browser started with --allow-file-access-from-files. Each check gets fresh pages in iframes: a mock
+// ChatGPT conversation (c/chat-1.html) with the real content.js, or a blank page with the real background.js, and
+// stubs of the extension API and the LINK bridge.
+const VERSION = "0.7.0";
+const checks = [];
+const output = [];
+let failures = 0;
+let currentCheck = "";
+
+function check(name, body) {
+  checks.push({ name, body });
+}
+
+function expect(what, actual, expected) {
+  const passed = JSON.stringify(actual) === JSON.stringify(expected);
+  if (!passed) failures++;
+  output.push(passed
+    ? `PASS ${currentCheck}: ${what}`
+    : `FAIL ${currentCheck}: ${what}\n  expected: ${JSON.stringify(expected)}\n  actual:   ${JSON.stringify(actual)}`);
+}
+
+const sleep = milliseconds => new Promise(resolve => setTimeout(resolve, milliseconds));
+
+/** What a condition gives once it holds, or null when it does not within the time. Times are virtual in the test run. */
+async function poll(condition, timeout) {
+  const started = Date.now();
+  while (Date.now() - started < timeout) {
+    const value = condition();
+    if (value) return value;
+    await sleep(20);
+  }
+  return condition() || null;
+}
+
+/** Waits for a condition; the check fails if it never holds. */
+async function until(what, condition, timeout = 15000) {
+  const value = await poll(condition, timeout);
+  if (!value) expect(`${what} (within ${timeout} ms)`, false, true);
+  return value;
+}
+
+async function runChecks() {
+  const results = document.getElementById("results");
+  for (const { name, body } of checks) {
+    currentCheck = name;
+    // Shown as it goes, so a run cut short still tells where it stopped.
+    results.textContent = `${output.join("\n")}\nRUNNING ${name}`;
+    try {
+      await body();
+    } catch (error) {
+      failures++;
+      output.push(`FAIL ${name}: threw ${error?.stack ?? error}`);
+    }
+    for (const frame of document.querySelectorAll("iframe")) frame.remove();
+  }
+  output.push(`DONE ${checks.length} scenarios, ${failures} failed`);
+  results.textContent = output.join("\n");
+}
+
+/** chrome.storage.local kept outside the pages, so it outlives a page or extension reload like the real one. */
+function memoryStorage() {
+  const data = new Map();
+  const copy = value => JSON.parse(JSON.stringify(value));
+  return {
+    data,
+    async get(keys) {
+      if (keys === null) return Object.fromEntries([...data].map(([key, value]) => [key, copy(value)]));
+      const wanted = Array.isArray(keys) ? keys : [keys];
+      return Object.fromEntries(wanted.filter(key => data.has(key)).map(key => [key, copy(data.get(key))]));
+    },
+    async set(items) {
+      for (const [key, value] of Object.entries(items)) data.set(key, copy(value));
+    },
+    async remove(keys) {
+      for (const key of Array.isArray(keys) ? keys : [keys]) data.delete(key);
+    }
+  };
+}
+
+/** The LINK bridge as the companion's events reach it: it records them and says which requests it dropped. */
+function fakeBridge() {
+  const bridge = {
+    events: [],
+    ended: new Map(),
+    event(event) {
+      bridge.events.push(event);
+      const reason = bridge.ended.get(event.requestId);
+      return reason ? { ok: false, status: 404, reason } : { ok: true };
+    },
+    of(requestId, state) {
+      return bridge.events.filter(event => event.requestId === requestId && (!state || event.state === state));
+    }
+  };
+  return bridge;
+}
+
+/**
+ * One copy's extension API in a ChatGPT tab. Invalidating it is what an extension reload does to the copies
+ * already running: their API goes dead.
+ */
+function contentApi(bridge, storage) {
+  const api = {
+    valid: true,
+    listeners: [],
+    runtime: {
+      get id() {
+        return api.valid ? "link-companion" : undefined;
+      },
+      getManifest: () => ({ version: VERSION }),
+      onMessage: {
+        addListener: listener => api.listeners.push(listener),
+        removeListener: listener => api.listeners.splice(api.listeners.indexOf(listener) >>> 0, 1)
+      },
+      async sendMessage(message) {
+        if (!api.valid) throw new Error("Extension context invalidated.");
+        if (message.type === "link-event") return bridge.event(message.event);
+        return { ok: true };
+      }
+    },
+    storage: { local: storage }
+  };
+  return api;
+}
+
+/** chrome.tabs.sendMessage to one copy: its listeners get the message and the first answer wins. */
+function sendToTab(api, message) {
+  return new Promise(resolve => {
+    let answered = false;
+    for (const listener of [...api.listeners]) {
+      listener(message, { id: "link-companion" }, response => {
+        if (!answered) {
+          answered = true;
+          resolve(response);
+        }
+      });
+    }
+    setTimeout(() => resolve(undefined), 0);
+  });
+}
+
+function promptRequest(conversationId, prompt, extra = {}) {
+  return { requestId: crypto.randomUUID(), conversationId, kind: "prompt", prompt, effort: "normal", attachments: [], attempt: 1, sent: false, ...extra };
+}
+
+async function openFrame(src) {
+  const frame = document.createElement("iframe");
+  frame.style.cssText = "width: 1000px; height: 700px";
+  frame.src = src;
+  // A blank frame loads while it is being added, so the listener comes first.
+  const loaded = new Promise(resolve => frame.addEventListener("load", resolve, { once: true }));
+  document.body.append(frame);
+  await loaded;
+  return frame;
+}
+
+async function loadScript(frame, api, src) {
+  frame.contentWindow.chrome = api;
+  const script = frame.contentDocument.createElement("script");
+  script.src = src;
+  await new Promise((resolve, reject) => {
+    script.onload = resolve;
+    script.onerror = () => reject(new Error(`${src} did not load`));
+    frame.contentDocument.head.append(script);
+  });
+}
+
+/** A ChatGPT conversation page with the mock chat in it. */
+async function openChat(options = {}) {
+  const frame = await openFrame("c/chat-1.html");
+  const chat = new ChatGptMock(frame.contentWindow, options);
+  const conversationId = frame.contentWindow.location.pathname.match(/\/c\/([^/?#]+)/)[1];
+  return {
+    frame,
+    chat,
+    conversationId,
+    /** Starts a copy of the real content script in the page, with its own extension API. */
+    start: api => loadScript(frame, api, "../../../browser-extension/content.js")
+  };
+}
+
+const ANSWER_BLOCKS = [
+  { html: "<p></p>", words: "Первый абзац готов. Второе предложение здесь.".split(" ") },
+  { html: "<ul><li>пункт один</li><li>пункт два</li></ul>" },
+  { html: '<pre><code class="language-js">let x = 1;</code></pre>' }
+];
+const ANSWER_MARKDOWN = "Первый абзац готов. Второе предложение здесь.\n\n- пункт один\n- пункт два\n\n```js\nlet x = 1;\n```";
+const MODES = [
+  ["Мгновенный", "Отвечает сразу"],
+  ["Средний", "Думает, когда нужно"],
+  ["Высокий", "Думает дольше"],
+  ["Очень высокий", "Думает дольше всего"]
+];
+
+/**
+ * ChatGPT's conversation page as the companion sees it: articles with user and assistant messages, the composer
+ * form with its Send / Stop button and its mode picker (a Radix menu opened on pointerdown, rendered in a portal),
+ * and the header's model picker. Options vary what the real page was seen to do or might do.
+ */
+class ChatGptMock {
+  constructor(window, options = {}) {
+    this.window = window;
+    this.document = window.document;
+    this.options = {
+      markdown: true,       // the answer sits in a Markdown root
+      actions: true,        // a finished turn gets its action buttons
+      stopAfter: "removed", // Stop after the answer: "removed", "hidden" (kept, display: none) or "visible" (stuck)
+      thinkingMs: 400,      // "Думаю" before the answer starts
+      tokenMs: 80,
+      takesPrompt: true,    // false: Send does nothing
+      itemsChoose: true,    // false: the mode menu's items ignore clicks
+      composerPicker: true, // false: the older UI, whose header picker ("ChatGPT") offers Auto, Instant and Thinking
+      pickerPrefix: "",     // what the composer's picker shows before the mode, e.g. "Рассуждение · "
+      mode: "Средний",
+      turns: 2,
+      ...options
+    };
+    this.sent = [];
+    this.stopClicks = 0;
+    this.headerOpens = 0;
+    this.generating = false;
+    this.finished = false;
+    this.nextId = 1;
+    this.build();
+  }
+
+  element(tag, attributes = {}, html = "") {
+    const element = this.document.createElement(tag);
+    for (const [name, value] of Object.entries(attributes)) element.setAttribute(name, value);
+    element.innerHTML = html;
+    return element;
+  }
+
+  wait(milliseconds) {
+    return new Promise(resolve => this.window.setTimeout(resolve, milliseconds));
+  }
+
+  build() {
+    this.document.body.innerHTML = `
+      <header><button data-testid="model-switcher-dropdown-button" aria-haspopup="menu" aria-label="Селектор модели">ChatGPT</button></header>
+      <main>
+        <div id="thread"><div class="turns"></div><div aria-hidden="true" class="spacer"></div></div>
+        <form data-type="unified-composer">
+          <div contenteditable="true" id="prompt-textarea" class="ProseMirror" role="textbox"></div>
+          <div class="footer">
+            <button type="button" data-testid="composer-plus-btn" aria-haspopup="menu" aria-label="Добавить файлы и другое">+</button>
+            <button type="button" class="mode-picker" aria-haspopup="menu" aria-expanded="false" data-state="closed"><span></span><svg width="8" height="8"></svg></button>
+            <button type="button" aria-label="Начало диктовки">mic</button>
+            <span class="submit"></span>
+          </div>
+        </form>
+      </main>`;
+    this.turns = this.document.querySelector(".turns");
+    this.form = this.document.querySelector("form");
+    this.composer = this.document.getElementById("prompt-textarea");
+    this.picker = this.document.querySelector(".mode-picker");
+    this.header = this.document.querySelector('[data-testid="model-switcher-dropdown-button"]');
+    this.headerMode = "Auto";
+    this.mode = this.options.mode;
+    if (!this.options.composerPicker) this.picker.remove();
+    for (let turn = 0; turn < this.options.turns; turn++) {
+      this.addUserTurn(`Старый вопрос ${turn + 1}`);
+      const { article, root } = this.addAssistantTurn();
+      root.innerHTML = `<p>Старый ответ ${turn + 1}.</p>`;
+      this.addActions(article);
+    }
+    this.setSubmit("speech");
+
+    this.composer.addEventListener("input", () => {
+      if (!this.generating) this.setSubmit(this.composer.innerText.trim() ? "send" : "speech");
+    });
+    for (const [trigger, modes, choose] of [
+      [this.picker, MODES, label => {
+        this.mode = label;
+      }],
+      [this.header, [["Auto", "Решает сам"], ["Instant", "Сразу"], ["Thinking", "Думает"], ["Pro", "Для исследований"]], label => {
+        this.headerMode = label;
+      }]
+    ]) {
+      trigger.addEventListener("pointerdown", event => {
+        if (event.button !== 0 || event.ctrlKey) return;
+        event.preventDefault();
+        if (trigger === this.header) this.headerOpens++;
+        if (this.menu) this.closeMenu();
+        // The logged-in header picker offered modes before June 2026; now it is a model picker without them.
+        else this.openMenu(trigger, trigger === this.picker || !this.options.composerPicker ? modes : [], choose);
+      });
+    }
+    this.document.addEventListener("keydown", event => {
+      if (event.key === "Escape") this.closeMenu();
+    });
+  }
+
+  get mode() {
+    return this.picker.querySelector("span").textContent.slice(this.options.pickerPrefix.length);
+  }
+
+  set mode(label) {
+    this.picker.querySelector("span").textContent = this.options.pickerPrefix + label;
+  }
+
+  /** A Radix menu in a portal at the end of the page, named by the trigger's aria-controls while open. */
+  openMenu(trigger, modes, choose) {
+    const wrapper = this.element("div", { "data-radix-popper-content-wrapper": "" });
+    const menu = this.element("div", { role: "menu", id: "radix-menu", "data-state": "open" });
+    for (const [label, description] of modes) {
+      const item = this.element("div", { role: "menuitemradio", "aria-checked": "false" },
+        `<div>${label}</div><div class="text-xs">${description}</div>`);
+      if (this.options.itemsChoose) {
+        item.addEventListener("click", () => {
+          choose(label);
+          this.closeMenu();
+        });
+      }
+      menu.append(item);
+    }
+    if (!modes.length) menu.append(this.element("div", { role: "menuitem" }, "Войти"));
+    wrapper.append(menu);
+    this.document.body.append(wrapper);
+    this.menu = wrapper;
+    this.trigger = trigger;
+    trigger.setAttribute("aria-expanded", "true");
+    trigger.setAttribute("aria-controls", "radix-menu");
+  }
+
+  closeMenu() {
+    this.menu?.remove();
+    this.menu = null;
+    this.trigger?.setAttribute("aria-expanded", "false");
+    this.trigger?.removeAttribute("aria-controls");
+  }
+
+  setSubmit(kind, slot = this.form.querySelector(".submit")) {
+    const buttons = {
+      speech: '<button type="button" data-testid="composer-speech-button" aria-label="Запустить голосовой режим">voice</button>',
+      send: '<button type="button" id="composer-submit-button" data-testid="send-button" aria-label="Отправить подсказку">send</button>',
+      stop: '<button type="button" id="composer-submit-button" data-testid="stop-button" aria-label="Остановить потоковую передачу">stop</button>'
+    };
+    slot.innerHTML = buttons[kind];
+    const button = slot.querySelector("button");
+    if (kind === "send") button.addEventListener("click", () => this.takePrompt());
+    if (kind === "stop") button.addEventListener("click", () => this.stop());
+  }
+
+  addUserTurn(text, id = `user-${this.nextId++}`) {
+    const article = this.element("article", { "data-turn": "user", "data-testid": `conversation-turn-${this.nextId}` },
+      `<h5 class="sr-only">Вы сказали:</h5><div data-message-author-role="user" data-message-id="${id}"><div class="whitespace-pre-wrap"></div></div>`);
+    article.querySelector(".whitespace-pre-wrap").textContent = text;
+    this.addActions(article);
+    this.turns.append(article);
+    return article;
+  }
+
+  addAssistantTurn(id = `answer-${this.nextId++}`) {
+    const article = this.element("article", { "data-turn": "assistant", "data-testid": `conversation-turn-${this.nextId}` },
+      `<h6 class="sr-only">ChatGPT сказал:</h6><div data-message-author-role="assistant" data-message-id="${id}"></div>`);
+    const message = article.querySelector("[data-message-author-role]");
+    const root = this.options.markdown ? this.element("div", { class: "markdown prose" }) : message;
+    if (root !== message) message.append(root);
+    this.turns.append(article);
+    return { article, message, root };
+  }
+
+  addActions(article) {
+    if (!this.options.actions) return;
+    const bar = this.element("div", { class: "turn-actions" },
+      '<button data-testid="copy-turn-action-button" aria-label="Копировать">c</button>' +
+      '<button data-testid="good-response-turn-action-button" aria-label="Хороший ответ">+</button>');
+    article.append(bar);
+  }
+
+  /** A prompt ChatGPT has already answered, as a reloaded page shows it. */
+  addAnsweredTurn(prompt, userId) {
+    this.addUserTurn(prompt, userId);
+    const { article, root } = this.addAssistantTurn();
+    root.innerHTML = '<p>Первый абзац готов. Второе предложение здесь.</p><ul><li>пункт один</li><li>пункт два</li></ul>' +
+      '<pre><code class="language-js">let x = 1;</code></pre>';
+    this.addActions(article);
+  }
+
+  takePrompt() {
+    if (!this.options.takesPrompt) return;
+    const text = this.composer.innerText;
+    this.composer.replaceChildren();
+    this.sent.push(text);
+    void this.answer(text);
+  }
+
+  stop() {
+    this.stopClicks++;
+    this.stopped = true;
+  }
+
+  /**
+   * Answers a prompt: the prompt's turn, "Думаю" while thinking (next to the answer's message, or inside it), the
+   * answer word by word, then the end signs.
+   */
+  async answer(prompt) {
+    this.generating = true;
+    this.stopped = false;
+    this.setSubmit("stop");
+    this.addUserTurn(prompt);
+    const article = this.element("article", { "data-turn": "assistant", "data-testid": `conversation-turn-${this.nextId++}` },
+      '<h6 class="sr-only">ChatGPT сказал:</h6>');
+    const message = this.element("div", { "data-message-author-role": "assistant", "data-message-id": `answer-${this.nextId++}` });
+    const thinking = this.element("div", { class: "thinking" }, '<span class="loading-shimmer">Думаю</span>');
+    if (this.options.placeholderInMessage) {
+      message.append(thinking);
+      article.append(message);
+    } else {
+      article.append(thinking);
+    }
+    this.turns.append(article);
+    await this.wait(this.options.thinkingMs);
+
+    const root = this.options.markdown ? this.element("div", { class: "markdown prose" }) : message;
+    if (root !== message) message.append(root);
+    thinking.remove();
+    article.append(message);
+    for (const block of ANSWER_BLOCKS) {
+      if (this.stopped) break;
+      root.insertAdjacentHTML("beforeend", block.html);
+      const paragraph = root.lastElementChild;
+      for (const [index, word] of (block.words ?? []).entries()) {
+        if (this.stopped) break;
+        paragraph.append(this.document.createTextNode(index ? ` ${word}` : word));
+        await this.wait(this.options.tokenMs);
+      }
+      await this.wait(this.options.tokenMs);
+    }
+    this.finish(article);
+  }
+
+  finish(article) {
+    this.generating = false;
+    this.finished = true;
+    if (this.options.stopAfter !== "visible") {
+      this.setSubmit("speech");
+      if (this.options.stopAfter === "hidden") {
+        this.form.querySelector(".submit").insertAdjacentHTML("beforeend",
+          '<button type="button" data-testid="stop-button" aria-label="Остановить потоковую передачу" style="display: none">stop</button>');
+      }
+    }
+    this.addActions(article);
+  }
+}
+
+/**
+ * The extension API as the service worker sees it, over fake ChatGPT tabs. A tab's `companion` is "live" (answers
+ * the handshake), "none" (no copy it can reach, e.g. after an extension reload), "old" (another version) or "busy"
+ * (a page too busy to answer for now).
+ */
+function fakeBrowser(tabs) {
+  const log = { injections: [], reloads: [], delivered: [], retired: [] };
+  const listeners = { message: [], installed: [], startup: [], updated: [], removed: [] };
+  const tab = id => tabs.find(candidate => candidate.id === id);
+  const unreachable = () => new Error("Could not establish connection. Receiving end does not exist.");
+  const api = {
+    log,
+    listeners,
+    runtime: {
+      getManifest: () => ({ version: VERSION }),
+      getPlatformInfo: async () => ({ os: "win" }),
+      onMessage: { addListener: listener => listeners.message.push(listener) },
+      onInstalled: { addListener: listener => listeners.installed.push(listener) },
+      onStartup: { addListener: listener => listeners.startup.push(listener) }
+    },
+    tabs: {
+      query: async () => tabs.map(({ id, url, discarded }) => ({ id, url, discarded })),
+      get: async id => ({ id, url: tab(id).url, discarded: tab(id).discarded }),
+      update: async () => ({}),
+      async reload(id) {
+        log.reloads.push(id);
+        const reloaded = tab(id);
+        reloaded.discarded = false;
+        reloaded.companion = "none";
+        setTimeout(() => {
+          reloaded.companion = "live";
+        }, 1500);
+      },
+      async sendMessage(id, message) {
+        const target = tab(id);
+        if (target.discarded || target.companion === "none") throw unreachable();
+        if (target.companion === "busy") return new Promise(() => {});
+        switch (message.type) {
+          case "link-hello":
+            return {
+              version: target.companion === "old" ? "0.6.9" : VERSION,
+              instanceId: `copy-${id}`,
+              conversation: { conversationId: target.conversationId, title: "Чат", url: target.url },
+              busy: null
+            };
+          case "link-retire":
+            log.retired.push(id);
+            target.companion = "none";
+            return { retired: true };
+          case "link-request":
+            log.delivered.push({ tab: id, request: message.request });
+            return { accepted: true };
+          default:
+            return undefined;
+        }
+      },
+      onUpdated: { addListener: listener => listeners.updated.push(listener) },
+      onRemoved: { addListener: listener => listeners.removed.push(listener) }
+    },
+    scripting: {
+      async executeScript({ target }) {
+        log.injections.push(target.tabId);
+        // Starting a copy takes a moment, so repairs asked for side by side overlap.
+        await new Promise(resolve => setTimeout(resolve, 30));
+        const injected = tab(target.tabId);
+        if (injected.discarded || injected.injectable === false) throw new Error("Cannot access contents of the page.");
+        // A busy page's own copy is still there and keeps the new one out.
+        if (injected.companion !== "busy") injected.companion = "live";
+        return [];
+      }
+    }
+  };
+  return api;
+}
+
+/** LINK's HTTP bridge as the service worker calls it: requests to hand out per conversation, events it got. */
+function fakeHttpBridge() {
+  const bridge = {
+    queued: new Map(),
+    events: [],
+    announced: new Set(),
+    offer(request) {
+      const list = bridge.queued.get(request.conversationId) ?? [];
+      list.push(request);
+      bridge.queued.set(request.conversationId, list);
+    },
+    async fetch(url, init = {}) {
+      const path = new URL(url).pathname;
+      const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
+      if (path.endsWith("/request")) {
+        const next = bridge.queued.get(new URL(url).searchParams.get("conversationId"))?.shift();
+        return next ? json(200, next) : new Response(null, { status: 204 });
+      }
+      if (path.endsWith("/event")) {
+        bridge.events.push(JSON.parse(init.body));
+        return json(200, { status: "accepted" });
+      }
+      if (path.endsWith("/announce")) {
+        bridge.announced.add(JSON.parse(init.body).conversationId);
+        return json(200, { status: "registered" });
+      }
+      return json(404, { error: "Not found" });
+    }
+  };
+  return bridge;
+}
+
+/** A service worker: the real background.js in a blank page, over the fake browser and bridge. */
+async function startWorker(browser, bridge) {
+  const frame = await openFrame("about:blank");
+  frame.contentWindow.fetch = bridge.fetch;
+  await loadScript(frame, browser, new URL("../../browser-extension/background.js", location.href).href);
+  return frame;
+}
