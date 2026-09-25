@@ -13,7 +13,7 @@ C#, .NET 10, WPF, one assembly.
   of what to try instead of long self-verification (at most ~10 minutes of own checks).
 
 ## Token hygiene
-- PROJECT_CONTEXT.md is long: grep for the section you need (status, milestone, decision) instead of reading it all.
+- Read only the section of PROJECT_CONTEXT.md you need (status, decisions, open problems); history is in git log.
 - Locate code with Grep/Glob and read only the relevant part of big files (MainWindow.Chat.cs, browser-extension/content.js).
 
 ## Build and run
@@ -21,7 +21,8 @@ C#, .NET 10, WPF, one assembly.
 - The user runs `src/Link.Desktop/bin/Release/net10.0-windows/Link.exe`. A running Link locks it and is
   single-instance: ask the user to quit via tray → Exit before rebuilding; never kill their Link without asking.
 - Never run Link on the real data in `%LocalAppData%\Link` without an exact backup and restore; never leave test data there.
-- After changing `browser-extension/*` the user must press Reload in chrome://extensions and reload the ChatGPT tab.
+- After changing `browser-extension/*`, bump `version` in its `manifest.json`: the companion reloads itself from disk
+  within ~10 s (no Reload in chrome://extensions, no tab refresh).
 
 ## Code map
 - `Models/` settings, projects, `PromptRequest`, `ContextItem`.

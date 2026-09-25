@@ -1,53 +1,94 @@
 # LINK ChatGPT Companion
 
-Unpacked Chrome/Edge extension used by LINK as a local ChatGPT transport.
+Unpacked Chrome / Edge / Opera extension that LINK uses as its ChatGPT transport. It talks only to LINK's loopback
+bridge at `127.0.0.1:43127`.
 
 ## Install
 
-1. Start the LINK desktop app.
-2. Open `chrome://extensions` or `edge://extensions`.
-3. Enable **Developer mode** and choose **Load unpacked**.
-4. Select this `browser-extension` folder. If it was already loaded, click **Reload** on its card.
-5. Open the ChatGPT conversation that should be linked and keep its tab open.
-6. In LINK, click the chat status row, select the discovered conversation, and click **Link**.
+1. Start LINK.
+2. Open `chrome://extensions` (or `edge://extensions`), enable **Developer mode**, choose **Load unpacked** and select
+   this folder.
+3. Open the ChatGPT conversation to link and keep its tab open. A new chat needs one message first, so that its URL
+   has `/c/<id>`.
+4. In LINK, click the chat status row, pick the conversation and click **Link**.
 
-Since 0.7.2 the companion updates itself: every 10 s its service worker reads `manifest.json` from disk, and when that names another version it reloads the extension (`chrome.runtime.reload()`), so the new files take effect without a click. Only the step to 0.7.2 itself needs **Reload** on the card. Since 0.7.0 the service worker starts the new content script in every open ChatGPT tab (the tab does not need to be reloaded), and a prompt that was running meanwhile carries on. The card shows the version (0.3.0 adds effort modes, Markdown extraction and background-tab fixes; 0.4.0 watches answers without polling; 0.5.0 streams every change of the answer and switches the composer's picker; 0.6.0 looks only at the composer and the last turns and answers LINK's "Check chat"; 0.7.0 makes the flow survive reloads, never counts a hidden Stop, and verifies the mode switch; 0.7.1 watches more lightly: no wakeups on class and style changes, the answer's turn worked out once, whole-page searches rarer; 0.7.2 finds the prompt and its answer wherever and however the chat renders them, switches the new composer's popover picker, and updates itself; 0.7.3 reads the logged-in UI of late September 2026, moves its effort slider, sees the Russian Stop, and takes back a prompt that never went out).
-
-The extension talks only to the loopback bridge at `127.0.0.1:43127`. The ChatGPT tab may remain in the background or in a minimized browser window: the service worker stays alive while a conversation is registered and sends ticks to the tab while it works on a request, because Chrome throttles timers in hidden tabs to about once a minute. A tab that receives a LINK request is excluded from Memory Saver discarding.
+**Updates.** The service worker reads `manifest.json` from disk every 10 s and reloads the extension when its
+version changes; the new `content.js` starts in the open ChatGPT tabs, and a running prompt carries on. Bump
+`version` with every change. Only the step to 0.7.2 needed **Reload** on the card.
 
 ## Request lifecycle
 
-- **One copy per tab.** The manifest and the service worker may both start `content.js`; a copy that finds a live one in the page stays out, so a request is never handled twice. A copy started by a reloaded extension tells older copies (from 0.7.0 on) to step aside through a DOM event; copies of a reloaded extension can no longer reach it anyway.
-- **Version handshake.** Before each delivery, and every 15 s for every ChatGPT tab, the service worker sends `link-hello`. A tab without a copy that answers (for example after the extension was reloaded) gets the current `content.js` injected, once: repairs of one tab never run side by side. A copy of another version is told to retire first. LINK shows "Reconnecting" while this happens.
-- **Reloads only when nothing is lost.** A tab that cannot run the companion at all (discarded, crashed, an error page) is reloaded for a prompt that has not reached the chat yet, or when it is discarded; never twice within a minute, and never a live page whose prompt ChatGPT may still be answering. A page that is merely busy is left alone.
-- **Redelivery.** LINK offers a request again whenever the tab has been quiet about it for 10 s. A copy still working on it answers with a heartbeat; a new copy (after a page or extension reload) picks the prompt up. Where a prompt stands is kept in `chrome.storage.local` (`request:<id>`: sending / sent, the last user message before it, the prompt's own message id), and the chat itself is checked for the prompt, so a prompt is never sent twice. A prompt that reached the chat is only watched when picked up again, and its images are not sent again.
-- **No endless waiting.** LINK ends a request with an error when the tab does not answer within 20 s, or goes quiet for 45 s while it answers; the tab ends it when ChatGPT does not take the prompt (it is still in the composer 20 s after Send), when the page switches to another conversation, or after 10 minutes.
-- **Stop.** Stop/Esc in LINK makes the bridge answer the tab's next event (at most 2 s later) with 404 and reason `cancelled`; only then does the tab press ChatGPT's Stop. A request LINK ended otherwise (`completed`, e.g. through Check chat, or `failed`) makes the tab stop watching without touching ChatGPT.
-- **A busy chat.** While ChatGPT still writes an earlier answer, Send is not offered: after 15 s the request ends with "ChatGPT is still answering the previous message". The tab asks LINK once more right before pressing Send, so a prompt stopped meanwhile is not sent, and a prompt that never went out is taken back from ChatGPT's composer; Stop is pressed only for a prompt that reached the chat.
+- **One copy per tab.** A copy that finds a live one stays out; a copy of a reloaded extension makes older ones
+  retire through the DOM event `link-companion-started`.
+- **Handshake.** Before each delivery and every 15 s the worker sends `link-hello`. A tab without a matching copy
+  gets `content.js` injected once (a copy of another version is told to retire first); LINK shows "Reconnecting".
+- **Reloads only when nothing is lost.** Only a page that cannot run the companion (discarded, crashed, error page)
+  is reloaded, at most once a minute, and never a page whose prompt ChatGPT may be answering.
+- **Redelivery.** LINK offers a request again after 10 s of silence: a copy working on it answers with a heartbeat,
+  a new copy picks it up. Where a prompt stands is kept in `chrome.storage.local` (`request:<id>`), so it is never
+  sent twice, and its images are not sent again.
+- **No endless waiting.** LINK fails a request after 20 s without an answer from the tab or 45 s of silence. The tab
+  fails it when ChatGPT does not take the prompt within 20 s, when the page switches to another conversation, or
+  after 10 minutes.
+- **Stop.** Stop/Esc in LINK makes the bridge answer the tab's next event with 404 and reason `cancelled`; the tab
+  then presses ChatGPT's Stop, but only for a prompt that reached the chat. `completed` or `failed` make the tab stop
+  watching without touching ChatGPT.
+- **Busy chat.** While ChatGPT still writes an earlier answer, Send is not offered, and after 15 s the request fails
+  with "ChatGPT is still answering the previous message". The tab asks LINK once more right before Send, so a
+  stopped prompt is not sent; a prompt that never went out is taken back from ChatGPT's composer.
+- **Hidden tabs.** Chrome throttles timers in hidden tabs, so the worker ticks a tab that works on a request, and
+  such a tab is kept out of Memory Saver. ChatGPT itself still types an answer out slowly in a hidden tab.
 
 ## Reading the answer
 
-- Before sending, the companion notes every message on the page by its id (`data-message-id`, or the `li`'s id in the new UI). The prompt is then a user message that is new since, preferably the one holding the prompt's first words compared by letters and digits only (so Markdown in the bubble, typographic dashes or line breaks do not matter), else the only new one. The answer is the last new assistant message after it, wherever the chat puts the new turns; without the prompt in sight, a new assistant message counts only 5 s after sending. Picked up after a reload, the prompt is the message seen as the prompt before, or the newest one with its words.
-- Three markups are read: the classic one (`article[data-turn]`, `[data-message-author-role]`); the logged-out new UI ("octane": `ol[data-conversation-transcript] > li[data-message-role]`, `div[data-assistant-markdown]`, `data-message-complete`, a submit button whose `aria-label` turns into its `data-stop-label`); and the logged-in UI of late September 2026, where a turn (`div[data-turn-key]`) holds the prompt and its answer as units named by `data-chatgpt-search-unit-key` (`…:user`, `…:assistant`, ids in `data-chatgpt-search-message-ids`), the answer's root is `[data-markdown-text-style]`, and Stop is a plain `button[aria-label="Остановить"]`. Attribute selectors fold only Latin case, so Russian labels are matched as ChatGPT writes them.
-- While ChatGPT writes, only the answer's rendered Markdown is sent to LINK, at most every 250 ms (less often for an answer slow to convert). Status lines such as "Thinking" / "Думаю", shimmering placeholders and controls are never reported as the answer.
-- The answer is complete when:
-  - its turn shows the action buttons (`…-turn-action-button`: copy, rate, read aloud; in the newest UI `.turn-action-controls`, not counting the prompt's own in the same turn), even if a Stop-like button lingers; or
-  - ChatGPT flags it (`data-message-complete`), or no **visible** Stop button is left, the answer is not being typed out (`data-markdown-animated`) and it has not changed for 1.2 s (3 s for an answer without a Markdown root, which is then read as a whole); a hidden Stop left in the composer does not count; or
-  - the answer and its turn have not changed at all for a minute (a Stop button that never goes away).
-- Then the whole answer is read once more and sent. Unusual ends (no Markdown root, the one-minute rule) and errors carry a diagnostics snapshot that LINK writes to `link.log`.
-- A MutationObserver wakes the watch when the page changes (text, nodes, and the few attributes that tell Stop and completion; not classes or styles, which the page changes all the time); it looks at most every 150 ms, and only at the composer's form and the last turns of the thread. The whole page is searched only while the answer has not been found: once a second, or every 5 s when the prompt sits where new turns land. The answer's turn is worked out once per answer. A long chat costs microseconds per look; nothing runs while the page is quiet.
+- **New since sending.** Before sending, the companion notes every message id on the page. The prompt is the new
+  user message holding the prompt's first words (letters and digits only, so Markdown and dashes do not matter), else
+  the only new one; the answer is the last new assistant message after it, wherever the chat puts it.
+- **Three markups:**
+  - classic: `article[data-turn]`, `[data-message-author-role]`;
+  - logged-out "octane": `li[data-message-role]`, `div[data-assistant-markdown]`, `data-message-complete`, and one
+    submit button whose `aria-label` turns into its `data-stop-label`;
+  - logged-in, late September 2026: a `div[data-turn-key]` holds the prompt and its answer as units named by
+    `data-chatgpt-search-unit-key` (`…:user`, `…:assistant`); the answer root is `[data-markdown-text-style]`,
+    typed out under `data-markdown-animated`; Stop is a plain `button[aria-label="Остановить"]`. The CSS `i` flag
+    folds only Latin case, so Russian labels are matched as ChatGPT writes them.
+- **Streaming.** Only the answer's Markdown (headings, lists, code, tables, quotes, links, KaTeX source) goes to LINK,
+  at most every 250 ms. Status lines ("Thinking", "Думаю") and placeholders never count as the answer.
+- **Complete** when any of these holds:
+  - the turn shows the answer's action buttons: `…-turn-action-button`, or `.turn-action-controls` outside the
+    prompt;
+  - ChatGPT flags it (`data-message-complete`);
+  - no visible Stop is left, the answer is not being typed out, and it has not changed for 1.2 s (3 s without a
+    Markdown root or in a hidden tab);
+  - nothing has changed for a minute.
+- **Cheap watching.** A MutationObserver wakes the watch on text, nodes and a few attributes (not classes or styles).
+  It looks at most every 150 ms, and only at the composer and the last turns; the whole page is searched only until
+  the answer is found.
 
 ## Response effort
 
-LINK's Fast / Normal / Deep setting reaches the tab as `effort`. Since June 2026 ChatGPT's mode picker sits in the composer and shows the current mode (Instant, Medium, High, Extra High; "Мгновенный", "Средний", "Высокий", "Очень высокий" in Russian). The companion looks for a menu button labelled with a mode in and around the composer's form; the header's model picker (`model-switcher-dropdown-button`, "ChatGPT") is used only when the composer has none (the older UI with Instant / Auto / Thinking). A Radix menu is opened with `pointerdown`, then click, then Enter, and found through the picker's `aria-controls` in its portal; the new composer's native popover (`popovertarget`) is opened with a click, found as the picker's `popoverTargetElement` in `:popover-open`, and closed with `hidePopover()` (a synthetic Escape does not close it). Fast and Deep switch to Instant / High only when the chat is in another mode; after choosing, the companion waits until the picker shows the new mode, tries Enter on the item once more, and otherwise reports "ChatGPT mode not switched (the picker still shows "…")". Normal leaves the user's own mode alone until LINK has changed it, and then gives back the mode the chat had before (kept as `mode:<conversation>`), or Medium / Auto. Labels match by their first word, so Extra High and Pro modes are never picked; a label that names its kind first ("Рассуждение · Высокий") is read by the mode. The logged-in menu of late September 2026 sets the effort on a slider ("Мощность", `[data-reasoning-slider]`) and announces its level ("Высокий, 3 из 3."): the companion presses ArrowLeft / ArrowRight on it one level at a time towards the target, reading each announced level, as far as the target or the slider's end (Fast takes the lightest level there is, "Instant"), closes the menu and checks the picker. If the picker or the mode is not found, the request is still sent and LINK's status shows the reason with the labels the picker offered.
+LINK's Fast / Normal / Deep reaches the tab as `effort`. The companion finds the mode picker in and around the
+composer (the header's model picker only when the composer has none) and switches only when the chat is in another
+mode:
+
+- menu items ("Instant / Medium / High", «Мгновенный / Средний / Высокий») in a Radix menu opened with `pointerdown`,
+  or in a native popover (`popovertarget`, closed with `hidePopover()`);
+- the logged-in effort slider ("Мощность", `[data-reasoning-slider]`): arrow keys move it one level at a time, read
+  from its announcement ("Высокий, 3 из 3."); Fast goes to the lightest level.
+
+It then waits until the picker shows the new mode. Normal gives back the mode the chat had before LINK changed it
+(`mode:<conversation>`). Extra High and Pro modes are never picked. If switching fails, the prompt still goes, and
+LINK's status says why.
 
 ## Diagnostics
 
-- LINK must be running before the conversation can appear in its picker.
-- The URL must contain a stable `/c/<conversation-id>` segment. Send one message in a new chat first if needed.
-- Extension logs are available from **Extensions → LINK ChatGPT Companion → Service worker**.
-- Page-side errors are available in DevTools for the linked ChatGPT tab.
-- "Check chat" in LINK sends a `read` request that the tab answers at once: the answer after the prompt (while a prompt is watched, only an answer to that prompt, with its id), whether ChatGPT is still writing, and a snapshot of what the selectors see (stop buttons with their visibility, the composer's button labels, Markdown roots, turn buttons, picker label; the last messages when the prompt or its answer is missing, and, when no message is found at all, how the page marks its messages and the way down to its thread). A waiting prompt that reached the chat is completed with a finished answer. LINK also checks by itself when a waiting prompt has had no news for 20 s.
-- Image requests use ChatGPT's composer upload control. LINK waits for an attachment preview before sending; if ChatGPT changes its composer, the request fails without sending text and the image stays attached in LINK for a retry.
-- Answers are converted from ChatGPT's rendered HTML back to Markdown (headings, lists, code with language, tables, quotes, links, KaTeX source), so LINK can render and copy them faithfully.
-- The checks in `tests/browser-extension` run these scripts against a mock ChatGPT page; `dotnet run --project tests/Link.Desktop.Tests` runs them in headless Edge or Chrome.
+- Service worker logs: **Extensions → LINK ChatGPT Companion → Service worker**; page errors: DevTools of the tab.
+- **Check chat** in LINK sends a `read` request that the tab answers at once: the answer (while a prompt is watched,
+  only the answer to it), whether ChatGPT is still writing, and what the selectors see — Stop buttons with their
+  visibility, the composer's button labels, Markdown roots, turn buttons, the picker; the last messages when the
+  prompt or its answer is missing; and, when no message is found at all, how the page marks its messages. LINK writes
+  it to `link.log`, as it does the diagnostics of unusual ends and errors.
+- Images go through ChatGPT's upload control. LINK waits for the attachment preview; if the composer has changed,
+  the request fails without sending text, and the image stays attached in LINK.
+- `tests/browser-extension` runs these scripts against mock ChatGPT pages (all three markups);
+  `dotnet run --project tests/Link.Desktop.Tests` runs them in headless Edge or Chrome.
