@@ -66,29 +66,7 @@ internal sealed class BrowserBridgeServer : IDisposable
         IProgress<ChatProgress>? progress,
         CancellationToken cancellationToken)
     {
-        if (!IsRunning)
-        {
-            throw new InvalidOperationException($"Browser bridge could not start: {StartError ?? "unknown error"}");
-        }
-
-        if (!IsConversationAvailable(request.ConversationId))
-        {
-            throw new InvalidOperationException("The linked ChatGPT conversation is not available. Open it in a browser with the LINK companion enabled.");
-        }
-
-        var pending = new PendingRequest(request, progress);
-        lock (_gate)
-        {
-            _pending.Add(request.RequestId, pending);
-            if (!_queues.TryGetValue(request.ConversationId, out var queue))
-            {
-                queue = new Queue<Guid>();
-                _queues.Add(request.ConversationId, queue);
-            }
-
-            queue.Enqueue(request.RequestId);
-        }
-
+        var pending = Enqueue(request, progress);
         progress?.Report(new ChatProgress { State = ChatProgressState.Sending });
 
         // Every exit removes the request, so a failed or cancelled prompt can never be picked up later.
@@ -111,6 +89,36 @@ internal sealed class BrowserBridgeServer : IDisposable
         catch (TimeoutException exception)
         {
             throw new InvalidOperationException("Timed out waiting for the browser companion.", exception);
+        }
+        finally
+        {
+            lock (_gate)
+            {
+                _pending.Remove(request.RequestId);
+            }
+        }
+    }
+
+    /// <summary>What the linked tab shows now; the tab answers at once, even while a prompt there still waits.</summary>
+    public async Task<ChatSnapshot> ReadAsync(string conversationId, CancellationToken cancellationToken)
+    {
+        var request = new BrowserBridgeRequest
+        {
+            RequestId = Guid.NewGuid(),
+            ConversationId = conversationId,
+            Kind = BrowserBridgeRequest.ReadKind,
+            Prompt = string.Empty
+        };
+        var pending = Enqueue(request, null);
+        try
+        {
+            return await pending.Snapshot.Task.WaitAsync(AcknowledgeTimeout, cancellationToken);
+        }
+        catch (TimeoutException exception)
+        {
+            throw new InvalidOperationException(
+                "The ChatGPT tab did not respond. Reload the linked tab (and the LINK companion after updates), then try again.",
+                exception);
         }
         finally
         {
@@ -148,6 +156,34 @@ internal sealed class BrowserBridgeServer : IDisposable
         }
 
         _shutdown.Dispose();
+    }
+
+    private PendingRequest Enqueue(BrowserBridgeRequest request, IProgress<ChatProgress>? progress)
+    {
+        if (!IsRunning)
+        {
+            throw new InvalidOperationException($"Browser bridge could not start: {StartError ?? "unknown error"}");
+        }
+
+        if (!IsConversationAvailable(request.ConversationId))
+        {
+            throw new InvalidOperationException("The linked ChatGPT conversation is not available. Open it in a browser with the LINK companion enabled.");
+        }
+
+        var pending = new PendingRequest(request, progress);
+        lock (_gate)
+        {
+            _pending.Add(request.RequestId, pending);
+            if (!_queues.TryGetValue(request.ConversationId, out var queue))
+            {
+                queue = new Queue<Guid>();
+                _queues.Add(request.ConversationId, queue);
+            }
+
+            queue.Enqueue(request.RequestId);
+        }
+
+        return pending;
     }
 
     private async Task AcceptLoopAsync(CancellationToken cancellationToken)
@@ -305,13 +341,24 @@ internal sealed class BrowserBridgeServer : IDisposable
         return Task.FromResult(JsonResponse(404, new { error = "Not found" }));
     }
 
-    private static void ApplyEvent(PendingRequest pending, BrowserBridgeEvent bridgeEvent)
+    private void ApplyEvent(PendingRequest pending, BrowserBridgeEvent bridgeEvent)
     {
         pending.Acknowledged.TrySetResult();
         switch (bridgeEvent.State.ToLowerInvariant())
         {
             case "heartbeat":
                 // Keeps the tab informed that the request is still wanted; a cancelled one answers 404.
+                break;
+            case "snapshot":
+                var answer = bridgeEvent.Text?.Trim() ?? string.Empty;
+                pending.Snapshot.TrySetResult(new ChatSnapshot
+                {
+                    Text = answer,
+                    Generating = bridgeEvent.Generating,
+                    CompletedWaitingPrompt = !bridgeEvent.Generating && answer.Length > 0 &&
+                                             CompleteWaitingPrompts(pending.Request.ConversationId, answer),
+                    Diagnostics = bridgeEvent.Diagnostics
+                });
                 break;
             case "notice":
                 if (!string.IsNullOrWhiteSpace(bridgeEvent.Notice))
@@ -327,9 +374,11 @@ internal sealed class BrowserBridgeServer : IDisposable
                 pending.Progress?.Report(new ChatProgress { State = ChatProgressState.Sending });
                 break;
             case "waiting":
+                pending.Sent = true;
                 pending.Progress?.Report(new ChatProgress { State = ChatProgressState.Waiting });
                 break;
             case "receiving":
+                pending.Sent = true;
                 pending.Progress?.Report(new ChatProgress
                 {
                     State = ChatProgressState.Receiving,
@@ -344,8 +393,7 @@ internal sealed class BrowserBridgeServer : IDisposable
                     break;
                 }
 
-                pending.Progress?.Report(new ChatProgress { State = ChatProgressState.Completed, Text = text });
-                pending.Completion.TrySetResult(new ChatResponse { Text = text });
+                Complete(pending, text);
                 break;
             case "error":
                 var error = string.IsNullOrWhiteSpace(bridgeEvent.Error)
@@ -355,6 +403,30 @@ internal sealed class BrowserBridgeServer : IDisposable
                 pending.Completion.TrySetException(new InvalidOperationException(error));
                 break;
         }
+    }
+
+    private static void Complete(PendingRequest pending, string text)
+    {
+        pending.Progress?.Report(new ChatProgress { State = ChatProgressState.Completed, Text = text });
+        pending.Completion.TrySetResult(new ChatResponse { Text = text });
+    }
+
+    /// <summary>
+    /// A finished answer read from the chat completes the prompt there that still waits: the tab's own watch missed
+    /// the answer's end. Only a prompt that reached the chat is answered by what the chat shows after it.
+    /// </summary>
+    private bool CompleteWaitingPrompts(string conversationId, string answer)
+    {
+        PendingRequest[] waiting;
+        lock (_gate)
+        {
+            waiting = _pending.Values
+                .Where(pending => pending.Sent && pending.Request.ConversationId == conversationId)
+                .ToArray();
+        }
+
+        foreach (var pending in waiting) Complete(pending, answer);
+        return waiting.Length > 0;
     }
 
     private void RemoveStaleConversations()
@@ -389,8 +461,14 @@ internal sealed class BrowserBridgeServer : IDisposable
 
         public BrowserBridgeRequest Request { get; }
         public IProgress<ChatProgress>? Progress { get; }
+
+        /// <summary>The prompt reached the chat: what the chat shows after it is its answer.</summary>
+        public bool Sent { get; set; }
+
         public TaskCompletionSource Acknowledged { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public TaskCompletionSource<ChatResponse> Completion { get; } =
+            new(TaskCreationOptions.RunContinuationsAsynchronously);
+        public TaskCompletionSource<ChatSnapshot> Snapshot { get; } =
             new(TaskCreationOptions.RunContinuationsAsynchronously);
     }
 
@@ -398,8 +476,12 @@ internal sealed class BrowserBridgeServer : IDisposable
 
 internal sealed class BrowserBridgeRequest
 {
+    /// <summary>A read of what the chat shows now, answered by the tab at once instead of a prompt.</summary>
+    public const string ReadKind = "read";
+
     public required Guid RequestId { get; init; }
     public required string ConversationId { get; init; }
+    public string Kind { get; init; } = "prompt";
     public required string Prompt { get; init; }
     public string Effort { get; init; } = "normal";
     public IReadOnlyList<BrowserBridgeAttachment> Attachments { get; init; } = [];
@@ -426,4 +508,6 @@ internal sealed class BrowserBridgeEvent
     public string? Text { get; init; }
     public string? Error { get; init; }
     public string? Notice { get; init; }
+    public bool Generating { get; init; }
+    public string? Diagnostics { get; init; }
 }

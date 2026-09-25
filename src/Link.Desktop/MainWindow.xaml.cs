@@ -59,7 +59,11 @@ public partial class MainWindow : Window
         _voice.DraftChanged += OnVoiceDraftChanged;
         _resizeBorder = WindowChrome.GetWindowChrome(this).ResizeBorderThickness;
         _connectionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
-        _connectionTimer.Tick += (_, _) => UpdateConnectionState();
+        _connectionTimer.Tick += (_, _) =>
+        {
+            UpdateConnectionState();
+            CheckQuietChat();
+        };
         ContextItemsControl.ItemsSource = _context;
         _context.CollectionChanged += Context_OnCollectionChanged;
         LoadProject(_projects.ActiveProject);

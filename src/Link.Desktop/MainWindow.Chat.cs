@@ -13,6 +13,9 @@ namespace Link.Desktop;
 public partial class MainWindow
 {
     private static readonly Geometry StopIconGeometry = CreateFrozenGeometry("M8,8 L16,8 L16,16 L8,16 Z");
+    // When a waiting prompt has heard nothing from the chat for this long, Link looks at the chat itself: the tab's
+    // watch may have missed the end of the answer. A chat that still thinks or writes is only looked at.
+    private static readonly TimeSpan QuietChatCheck = TimeSpan.FromSeconds(20);
     private static readonly (ResponseEffort Effort, string Label, string Description)[] EffortOptions =
     [
         (ResponseEffort.Fast, "Fast", "Fast — short answer, no long thinking"),
@@ -28,6 +31,11 @@ public partial class MainWindow
     private string _responseText = string.Empty;
     private int _nextResponseBlock;
     private string? _chatNotice;
+    private DateTime _chatHeardAt;
+    private bool _checkingChat;
+
+    /// <summary>What a check of the chat saw on the page, for link.log.</summary>
+    public event Action<string>? DiagnosticsReported;
 
     /// <summary>
     /// The global Send hotkey: works from any app and never cancels a running request.
@@ -111,6 +119,7 @@ public partial class MainWindow
         _chatNotice = null;
         _voice.BeginRequest();
         SetSending(true);
+        _chatHeardAt = DateTime.UtcNow;
         ShowResponse(ChatProgressState.Sending, string.Empty);
         ContextItem? transientContext = null;
 
@@ -361,6 +370,7 @@ public partial class MainWindow
 
     private void OnChatProgress(ChatProgress progress)
     {
+        _chatHeardAt = DateTime.UtcNow;
         _voice.ReportProgress(progress);
         if (progress.Notice is not null)
         {
@@ -449,6 +459,75 @@ public partial class MainWindow
 
     private void CloseResponse_OnClick(object sender, RoutedEventArgs e) =>
         ResponsePanel.Visibility = Visibility.Collapsed;
+
+    private async void CheckChat_OnClick(object sender, RoutedEventArgs e) => await CheckChatAsync(automatic: false);
+
+    /// <summary>Runs every two seconds: a waiting prompt the chat has been quiet about for a while gets it checked.</summary>
+    private void CheckQuietChat()
+    {
+        if (!_sending || _checkingChat || DateTime.UtcNow - _chatHeardAt < QuietChatCheck) return;
+        _chatHeardAt = DateTime.UtcNow;
+        _ = CheckChatAsync(automatic: true);
+    }
+
+    /// <summary>
+    /// Reads the linked chat's answer to its last prompt. A waiting prompt that the chat has finished answering is
+    /// completed with it by the transport and ends as usual; otherwise the answer is shown and kept for the project.
+    /// </summary>
+    private async Task CheckChatAsync(bool automatic)
+    {
+        var project = _projects.ActiveProject;
+        if (project.LinkedConversation is not { } conversation)
+        {
+            if (!automatic) SetError("Link this project to a ChatGPT conversation first.");
+            return;
+        }
+
+        _checkingChat = true;
+        CheckChatButton.IsEnabled = false;
+        if (!automatic) SetStatus("Checking the chat…", "Checking");
+        try
+        {
+            var snapshot = await _chat.CheckAsync(conversation, CancellationToken.None);
+            // A finished answer that Link missed is what the log is for; routine automatic looks stay out of it.
+            var finished = snapshot.Text.Length > 0 && !snapshot.Generating;
+            if (snapshot.Diagnostics is { } diagnostics && (!automatic || finished))
+            {
+                DiagnosticsReported?.Invoke($"Check chat ({(automatic ? "automatic" : "button")}): {diagnostics}");
+            }
+
+            if (snapshot.CompletedWaitingPrompt || automatic) return;
+            if (snapshot.Text.Length == 0)
+            {
+                SetStatus(snapshot.Generating ? "ChatGPT is still working on the answer" : "The chat has no answer to its last prompt yet");
+            }
+            else if (snapshot.Generating)
+            {
+                ShowResponse(ChatProgressState.Receiving, snapshot.Text);
+                SetStatus("ChatGPT is still writing — this is the answer so far", "Receiving");
+            }
+            else if (_sending)
+            {
+                SetStatus("The prompt has not reached the chat yet; its last answer belongs to an earlier one");
+            }
+            else
+            {
+                project.LastResponse = new ProjectResponse { ConversationId = conversation.ConversationId, Text = snapshot.Text };
+                _projects.Save();
+                ShowResponse(ChatProgressState.Completed, snapshot.Text);
+                SetStatus("Answer taken from the chat", "Done");
+            }
+        }
+        catch (Exception exception)
+        {
+            if (!automatic) SetError(exception.Message);
+        }
+        finally
+        {
+            _checkingChat = false;
+            CheckChatButton.IsEnabled = true;
+        }
+    }
 
     private void RenderResponse(string text)
     {

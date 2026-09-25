@@ -80,6 +80,7 @@ public partial class App : System.Windows.Application
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
         _mainWindow.NotificationRequested += ShowNotification;
+        _mainWindow.DiagnosticsReported += Log;
         _mainWindow.Show();
 
         _hotkeys = new GlobalHotkeyService(_mainWindow, Dispatcher);
@@ -136,14 +137,16 @@ public partial class App : System.Windows.Application
         _mainWindow?.ShowNonBlockingWarning($"Unexpected error: {e.Exception.Message} Details are in link.log.");
     }
 
-    private void LogError(Exception exception)
+    private void LogError(Exception exception) => Log(exception.ToString());
+
+    private void Log(string text)
     {
         if (_logPath is null) return;
         try
         {
             var log = new FileInfo(_logPath);
             if (log.Exists && log.Length > MaxLogBytes) log.Delete();
-            File.AppendAllText(_logPath, $"[{DateTimeOffset.Now:O}] {exception}{Environment.NewLine}{Environment.NewLine}");
+            File.AppendAllText(_logPath, $"[{DateTimeOffset.Now:O}] {text}{Environment.NewLine}{Environment.NewLine}");
         }
         catch (IOException)
         {

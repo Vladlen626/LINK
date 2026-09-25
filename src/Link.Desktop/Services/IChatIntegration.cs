@@ -16,4 +16,10 @@ public interface IChatIntegration
         ChatConversationLink conversation,
         IProgress<ChatProgress>? progress,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Reads what the linked chat shows now, for an answer that did not arrive. A prompt that reached the chat and
+    /// still waits is completed with the chat's answer once that answer is finished.
+    /// </summary>
+    Task<ChatSnapshot> CheckAsync(ChatConversationLink conversation, CancellationToken cancellationToken);
 }

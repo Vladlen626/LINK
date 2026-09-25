@@ -2,12 +2,16 @@
 const ANNOUNCE_INTERVAL_MS = 2500;
 const RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;
 const HEARTBEAT_INTERVAL_MS = 2000;
-// ChatGPT re-renders the answer on every token. While the page changes, LINK reads the growing answer at most this
-// often: smooth enough for the overlay and reading aloud, and a few cheap looks a second for the page.
+// ChatGPT re-renders the answer on every token. While the page changes, LINK looks at it at most this often, and
+// only at the composer and the last turns, so even a long chat stays cheap...
 const CHECK_INTERVAL_MS = 150;
+// ...and turns the growing answer into Markdown at most this often, for the overlay and reading aloud.
+const PROGRESS_INTERVAL_MS = 250;
 // Without ChatGPT's own sign of completion, a quiet period after its Stop button disappears ends the answer.
 const SETTLE_MS = 1200;
 const MARKDOWN_ROOTS = "[data-assistant-markdown], .markdown, [class*='markdown']";
+const ASSISTANT_MESSAGES = '[data-message-author-role="assistant"], article[data-turn="assistant"], li[data-message-role="assistant"]';
+const USER_MESSAGES = '[data-message-author-role="user"], article[data-turn="user"], li[data-message-role="user"]';
 // LINK's Fast / Normal / Deep on ChatGPT's mode picker. Since June 2026 it sits in the composer and offers Instant,
 // Medium, High and Extra High; the older header picker offered Instant, Auto and Thinking. Labels are matched by
 // their first word, so "Extra High" / "Очень высокий" never pass for High.
@@ -35,7 +39,9 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   }
   if (message?.type === "link-request") {
     sendResponse({ accepted: true });
-    void handleRequest(message.request);
+    // "Check chat" only reads the page, so it works while an answer is still awaited, or stuck.
+    if (message.request?.kind === "read") void handleRead(message.request);
+    else void handleRequest(message.request);
     return;
   }
   if (message?.type === "link-tick") {
@@ -80,7 +86,7 @@ async function handleRequest(request) {
     const composer = await waitFor(findComposer, 15000, "ChatGPT message composer was not found.");
     if (request.attachments?.length) await attachImages(composer, request.attachments);
     setComposerText(composer, request.prompt);
-    const messages = getAssistantMessages();
+    const messages = getAssistantMessages(document);
     const last = messages.at(-1) ?? null;
     const baseline = {
       keys: new Set(messages.map(messageKey).filter(Boolean)),
@@ -96,7 +102,7 @@ async function handleRequest(request) {
   } catch (error) {
     if (error instanceof CancelledError) {
       // LINK no longer waits for this answer (Stop/Esc): free the chat for the next request.
-      findStopButton()?.click();
+      findStopButton(findComposer()?.closest("form"))?.click();
       return;
     }
     try {
@@ -107,6 +113,55 @@ async function handleRequest(request) {
   } finally {
     processingRequestId = null;
   }
+}
+
+async function handleRead(request) {
+  try {
+    await report(request.requestId, "snapshot", readSnapshot());
+  } catch {
+    // LINK may have stopped waiting for the check.
+  }
+}
+
+/**
+ * The answer to the last prompt as the page shows it now, whether ChatGPT is still writing it, and what LINK's
+ * selectors see, so a missed answer can be taken over and its cause found in link.log.
+ */
+function readSnapshot() {
+  const answer = getAssistantMessages(document).at(-1) ?? null;
+  const prompt = [...document.querySelectorAll(USER_MESSAGES)].at(-1) ?? null;
+  // An answer counts only after the last prompt; before that ChatGPT has not answered it yet.
+  const current = answer && (!prompt || prompt.compareDocumentPosition(answer) & Node.DOCUMENT_POSITION_FOLLOWING)
+    ? answer
+    : null;
+  const form = findComposer()?.closest("form") ?? null;
+  const generating = isGenerating(form, current);
+  const finished = current ? hasTurnActions(current) : false;
+  const text = current ? readAssistantMarkdown(current) || (finished ? toMarkdown(current) : "") : "";
+  return { text, generating: generating && !finished, diagnostics: JSON.stringify(diagnose(current, form)) };
+}
+
+function diagnose(answer, form) {
+  const turn = answer?.closest("article, [data-turn-id]");
+  return {
+    version: chrome.runtime.getManifest().version,
+    waiting: processingRequestId !== null,
+    answer: answer ? {
+      tag: answer.tagName.toLowerCase(),
+      id: messageKey(answer),
+      markdownRoots: answer.querySelectorAll(MARKDOWN_ROOTS).length,
+      markdownLength: readAssistantMarkdown(answer).length,
+      textLength: (answer.innerText ?? "").length,
+      complete: Boolean(answer.closest("[data-message-complete]")),
+      turnButtons: [...(turn?.querySelectorAll("button[data-testid]") ?? [])].map(button => button.dataset.testid).slice(0, 12)
+    } : null,
+    stopButton: Boolean(findStopButton(form)),
+    streaming: Boolean(answer?.querySelector("[data-message-streaming], .result-streaming")),
+    stopLabels: [...(form ?? document).querySelectorAll("button[aria-label]")]
+      .map(button => button.getAttribute("aria-label"))
+      .filter(label => /stop|останов/i.test(label)),
+    picker: firstLine(findModePicker()?.innerText)
+  };
 }
 
 async function applyEffort(request) {
@@ -309,10 +364,12 @@ function findEnabledSendButton() {
     button.getAttribute("aria-disabled") !== "true" && !isStopState(button) ? button : null;
 }
 
-function findStopButton() {
-  const classic = document.querySelector('button[data-testid="stop-button"]');
+// The composer's form is searched when known: a long chat holds tens of thousands of nodes.
+function findStopButton(form) {
+  const root = form?.isConnected ? form : document;
+  const classic = root.querySelector('button[data-testid="stop-button"]');
   if (classic instanceof HTMLButtonElement) return classic;
-  const submit = document.querySelector("button[data-composer-submit]");
+  const submit = root.querySelector("button[data-composer-submit]");
   return submit instanceof HTMLButtonElement && isStopState(submit) ? submit : null;
 }
 
@@ -321,17 +378,37 @@ function isStopState(button) {
   return Boolean(stopLabel) && button.getAttribute("aria-label") === stopLabel;
 }
 
-function isGenerating() {
-  return Boolean(findStopButton() ||
-    document.querySelector("[data-message-streaming], .result-streaming") ||
+// ChatGPT still writes while its composer shows Stop or the answer is flagged as streaming.
+function isGenerating(form, answer) {
+  return Boolean(findStopButton(form) ||
+    answer?.querySelector("[data-message-streaming], .result-streaming") ||
     // Only the composer's own button: "Stop" elsewhere (e.g. reading aloud) says nothing about the answer.
-    document.querySelector('form button[aria-label*="stop" i], form button[aria-label*="останов" i]'));
+    (form?.isConnected ? form : document)
+      .querySelector('form button[aria-label*="stop" i], form button[aria-label*="останов" i]'));
 }
 
-function getAssistantMessages() {
-  const nodes = document.querySelectorAll(
-    '[data-message-author-role="assistant"], article[data-turn="assistant"], li[data-message-role="assistant"]');
-  return [...new Set(nodes)];
+function getAssistantMessages(root) {
+  return [...new Set(root.querySelectorAll(ASSISTANT_MESSAGES))];
+}
+
+/** The element that holds the turns: the nearest one around both the last prompt and the last answer. */
+function findThread() {
+  const answer = getAssistantMessages(document).at(-1);
+  const prompt = [...document.querySelectorAll(USER_MESSAGES)].at(-1);
+  let thread = answer && prompt ? answer.parentElement : null;
+  while (thread && !thread.contains(prompt)) thread = thread.parentElement;
+  return thread;
+}
+
+/** The last assistant message. New turns land at the end of the thread, so only its last children are searched. */
+function latestAssistantMessage(thread) {
+  if (!thread?.isConnected) return getAssistantMessages(document).at(-1) ?? null;
+  let child = thread.lastElementChild;
+  for (let looked = 0; child && looked < 4; looked++, child = child.previousElementSibling) {
+    const message = getAssistantMessages(child).at(-1) ?? (child.matches(ASSISTANT_MESSAGES) ? child : null);
+    if (message) return message;
+  }
+  return getAssistantMessages(thread).at(-1) ?? null;
 }
 
 // Message ids survive re-renders, so an old answer that React re-mounts is not mistaken for the new one.
@@ -347,32 +424,35 @@ function isNewResponse(element, baseline) {
   return element !== baseline.last && readAssistantMarkdown(element) !== baseline.text;
 }
 
-// ChatGPT's own sign that the turn is over: the new UI flags the message, the classic one gives the turn its actions.
-function isMarkedComplete(message) {
-  return Boolean(message.closest("[data-message-complete]") ||
-    message.closest("article, [data-turn-id]")?.querySelector('[data-testid="copy-turn-action-button"]'));
+// ChatGPT gives a finished turn its action buttons (copy, rate…); a turn still being written has none.
+function hasTurnActions(message) {
+  return Boolean(message.closest("article, [data-turn-id]")?.querySelector('[data-testid="copy-turn-action-button"]'));
 }
 
 /**
  * Waits for the answer without polling the page: a MutationObserver wakes the loop when ChatGPT changes something,
- * and the page is looked at every CHECK_INTERVAL_MS at most while it changes. The complete answer is read once more
- * at the end, the moment ChatGPT is done with it.
+ * and while it does, the composer and the last turns are looked at every CHECK_INTERVAL_MS at most. The complete
+ * answer is read once more at the end, the moment ChatGPT is done with it.
  */
 async function waitForAssistantResponse(requestId, baseline) {
   const page = watchPage();
   try {
     const startedAt = Date.now();
+    const thread = findThread();
+    let form = findComposer()?.closest("form") ?? null;
     let candidate = null;
     let response = null;
     let stale = true;
     let text = "";
+    let convertedAt = 0;
     let changedAt = Date.now();
     let reportedText = "";
     let eventAt = Date.now();
 
     while (Date.now() - startedAt < RESPONSE_TIMEOUT_MS) {
       stale = page.takeChanges() || stale;
-      const latest = getAssistantMessages().at(-1) ?? null;
+      if (!form?.isConnected) form = findComposer()?.closest("form") ?? null;
+      const latest = latestAssistantMessage(thread);
       if (latest !== candidate) {
         // Telling a new answer from an old one can take reading it, so each element is judged once.
         candidate = latest;
@@ -380,9 +460,10 @@ async function waitForAssistantResponse(requestId, baseline) {
         stale = true;
       }
 
-      const generating = isGenerating();
-      if (response && stale) {
+      const generating = isGenerating(form, response);
+      if (response && stale && (!generating || Date.now() - convertedAt >= PROGRESS_INTERVAL_MS)) {
         stale = false;
+        convertedAt = Date.now();
         const next = readAssistantMarkdown(response);
         if (next !== text) {
           text = next;
@@ -390,9 +471,13 @@ async function waitForAssistantResponse(requestId, baseline) {
         }
       }
 
-      // Only the answer's own text completes it: a status such as "Thinking" is never the answer.
-      if (text && !generating && (isMarkedComplete(response) || Date.now() - changedAt >= SETTLE_MS)) {
-        return readAssistantMarkdown(response) || text;
+      // A finished turn settles it even if some Stop-like button lingers. Otherwise only the answer's own text
+      // completes it, never a status such as "Thinking", and only once ChatGPT has stopped writing.
+      const finished = response !== null && hasTurnActions(response);
+      if (finished || (text && !generating && (response.closest("[data-message-complete]") || Date.now() - changedAt >= SETTLE_MS))) {
+        const answer = readAssistantMarkdown(response) || (finished ? toMarkdown(response) : "") || text;
+        if (answer) return answer;
+        throw new Error("ChatGPT's answer has no text LINK can show. Look at the ChatGPT tab.");
       }
 
       if (text && text !== reportedText) {
@@ -407,6 +492,7 @@ async function waitForAssistantResponse(requestId, baseline) {
 
       const now = Date.now();
       let wait = HEARTBEAT_INTERVAL_MS - (now - eventAt);
+      if (response && stale) wait = Math.min(wait, PROGRESS_INTERVAL_MS - (now - convertedAt));
       if (text && !generating) wait = Math.min(wait, SETTLE_MS - (now - changedAt));
       await page.next(wait);
     }

@@ -23,6 +23,22 @@ public sealed class ChatResponse
     public required string Text { get; init; }
 }
 
+/// <summary>
+/// What the linked chat shows now: the answer to its last prompt, empty when there is none yet, and whether it is
+/// still being written.
+/// </summary>
+public sealed class ChatSnapshot
+{
+    public required string Text { get; init; }
+    public bool Generating { get; init; }
+
+    /// <summary>A prompt that waited for this answer has been completed with it.</summary>
+    public bool CompletedWaitingPrompt { get; init; }
+
+    /// <summary>What the transport saw on the page, kept in link.log to find out why an answer went missing.</summary>
+    public string? Diagnostics { get; init; }
+}
+
 public sealed class ChatProgress
 {
     public required ChatProgressState State { get; init; }

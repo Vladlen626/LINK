@@ -58,6 +58,16 @@ public sealed class BrowserChatIntegration : IChatIntegration, IDisposable
         return await _bridge.EnqueueAsync(bridgeRequest, progress, cancellationToken).ConfigureAwait(false);
     }
 
+    public Task<ChatSnapshot> CheckAsync(ChatConversationLink conversation, CancellationToken cancellationToken)
+    {
+        if (conversation.TransportId != TransportId)
+        {
+            throw new InvalidOperationException($"Unsupported chat transport: {conversation.TransportId}");
+        }
+
+        return _bridge.ReadAsync(conversation.ConversationId, cancellationToken);
+    }
+
     public void Dispose() => _bridge.Dispose();
 
     private static string FormatPrompt(PromptRequest request)

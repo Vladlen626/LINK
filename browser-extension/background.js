@@ -138,7 +138,8 @@ async function pollConversation(conversation) {
 
     const request = await response.json();
     try {
-      activeTabs.add(conversation.tabId);
+      // A read answers at once; only a prompt keeps the tab waiting on timers for a while.
+      if (request.kind !== "read") activeTabs.add(conversation.tabId);
       // Memory Saver must not discard the tab LINK talks to.
       void chrome.tabs.update(conversation.tabId, { autoDiscardable: false }).catch(() => {});
       await chrome.tabs.sendMessage(conversation.tabId, { type: "link-request", request });
