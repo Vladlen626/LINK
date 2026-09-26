@@ -12,15 +12,6 @@
     </shell:WindowChrome.WindowChrome>
 
     <Window.Resources>
-        <ControlTemplate x:Key="LinkGlyphTemplate" TargetType="Control">
-            <Viewbox Stretch="Uniform">
-                <Grid Width="24" Height="24">
-                    <Path Data="{StaticResource LinkIconGeometry}" Fill="Transparent" Stroke="{TemplateBinding Foreground}"
-                          StrokeThickness="2.3" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                </Grid>
-            </Viewbox>
-        </ControlTemplate>
-
         <Style x:Key="InputTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource BareTextBoxStyle}">
             <Setter Property="Padding" Value="10,8,42,8" />
             <Setter Property="FontSize" Value="13.5" />
@@ -295,7 +286,7 @@
                                                                 <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><Viewbox><Path Data="{StaticResource MicrophoneIconGeometry}" Fill="Transparent" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.9" StrokeStartLineCap="Round" /></Viewbox></DataTemplate></Setter.Value></Setter>
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Type}" Value="ChatSummary">
-                                                                <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><Viewbox><Path Data="{StaticResource LinkIconGeometry}" Fill="Transparent" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.9" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox></DataTemplate></Setter.Value></Setter>
+                                                                <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><Viewbox><Path Data="{StaticResource ChainIconGeometry}" Fill="Transparent" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.9" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox></DataTemplate></Setter.Value></Setter>
                                                             </DataTrigger>
                                                         </Style.Triggers>
                                                     </Style>

@@ -1,7 +1,7 @@
 <Window x:Class="Link.Desktop.RegionSelectionWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Select Region" AllowsTransparency="True" Background="#2E0B2430"
+        Title="Select Region" AllowsTransparency="True" Background="#2E000000"
         WindowStyle="None" ResizeMode="NoResize" ShowInTaskbar="False" Topmost="True"
         WindowStartupLocation="Manual" Style="{StaticResource LinkWindowStyle}"
         Cursor="Cross" KeyDown="Window_OnKeyDown"
@@ -9,7 +9,7 @@
         MouseMove="Window_OnMouseMove"
         MouseLeftButtonUp="Window_OnMouseLeftButtonUp">
     <Canvas x:Name="SelectionCanvas">
-        <Border x:Name="SelectionBorder" Background="#1F2A84DE" BorderBrush="#FF3D9BEA" BorderThickness="2"
+        <Border x:Name="SelectionBorder" Background="#1FF5781E" BorderBrush="#FFF5781E" BorderThickness="2"
                 Visibility="Collapsed">
             <Border BorderBrush="#B3FFFFFF" BorderThickness="1" />
         </Border>

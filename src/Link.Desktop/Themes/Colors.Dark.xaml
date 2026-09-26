@@ -2,23 +2,21 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Color x:Key="InkColor">#F2F5F8</Color>
     <Color x:Key="MutedInkColor">#BAC5D0</Color>
-    <Color x:Key="AccentColor">#2A84DE</Color>
+    <Color x:Key="AccentColor">#D95E0E</Color>
     <Color x:Key="ShadowColor">#000000</Color>
 
     <SolidColorBrush x:Key="TextBrush" Color="{StaticResource InkColor}" />
     <SolidColorBrush x:Key="MutedBrush" Color="{StaticResource MutedInkColor}" />
-    <SolidColorBrush x:Key="AccentBrush" Color="#66B5FF" />
+    <SolidColorBrush x:Key="AccentBrush" Color="#FF9F4A" />
     <SolidColorBrush x:Key="AccentActionBrush" Color="{StaticResource AccentColor}" />
     <SolidColorBrush x:Key="AccentForegroundBrush" Color="White" />
-    <SolidColorBrush x:Key="AccentBorderBrush" Color="#66B5FF" />
+    <SolidColorBrush x:Key="AccentBorderBrush" Color="#FF9F4A" />
     <SolidColorBrush x:Key="AquaBrush" Color="#4ACFDF" />
     <SolidColorBrush x:Key="SuccessBrush" Color="#5AD26E" />
     <SolidColorBrush x:Key="ErrorBrush" Color="#FF6B70" />
-    <SolidColorBrush x:Key="LinkTextBrush" Color="#7FC1FF" />
-    <LinearGradientBrush x:Key="BrandBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#FF5FD0FF" />
-        <GradientStop Offset="1" Color="#FF3B95F2" />
-    </LinearGradientBrush>
+    <SolidColorBrush x:Key="LinkTextBrush" Color="#FFB066" />
+    <SolidColorBrush x:Key="BrandBrush" Color="#F5843F" />
+    <SolidColorBrush x:Key="GlyphEyeBrush" Color="#2B1810" />
 
     <!-- Window glass: the tint sits over the blurred backdrop, MainWindow scales its opacity. -->
     <LinearGradientBrush x:Key="PanelBrush" StartPoint="0,0" EndPoint="0,1">
@@ -52,15 +50,15 @@
     <SolidColorBrush x:Key="HoverBrush" Color="#17FFFFFF" />
     <SolidColorBrush x:Key="PressedBrush" Color="#38000000" />
     <SolidColorBrush x:Key="AccentHoverBrush" Color="#21FFFFFF" />
-    <SolidColorBrush x:Key="ActiveContextBrush" Color="#3D2A84DE" />
+    <SolidColorBrush x:Key="ActiveContextBrush" Color="#3DD95E0E" />
     <SolidColorBrush x:Key="RecordingGelBrush" Color="#475AD26E" />
     <SolidColorBrush x:Key="SuccessBorderBrush" Color="#B35AD26E" />
-    <SolidColorBrush x:Key="SelectionBrush" Color="#8066B5FF" />
+    <SolidColorBrush x:Key="SelectionBrush" Color="#80FF9F4A" />
     <SolidColorBrush x:Key="ScrollThumbBrush" Color="#4DFFFFFF" />
     <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#85FFFFFF" />
 
     <SolidColorBrush x:Key="SuccessOrbBrush" Color="#3FB950" />
     <SolidColorBrush x:Key="ErrorOrbBrush" Color="#F85149" />
-    <SolidColorBrush x:Key="BusyOrbBrush" Color="#66B5FF" />
+    <SolidColorBrush x:Key="BusyOrbBrush" Color="#FF9F4A" />
     <SolidColorBrush x:Key="IdleOrbBrush" Color="#7D8894" />
 </ResourceDictionary>

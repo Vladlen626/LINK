@@ -2,7 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
                     xmlns:sys="clr-namespace:System;assembly=System.Runtime">
     <!-- Theme-independent tokens. Colors live in Colors.Light.xaml / Colors.Dark.xaml. -->
-    <Geometry x:Key="LinkIconGeometry">M10,13 A5,5 0 0 0 17.5,13.5 L20.5,10.5 A5,5 0 0 0 13.5,3.5 L11.7,5.3 M14,11 A5,5 0 0 0 6.5,10.5 L3.5,13.5 A5,5 0 0 0 10.5,20.5 L12.3,18.7</Geometry>
+    <Geometry x:Key="ChainIconGeometry">M10,13 A5,5 0 0 0 17.5,13.5 L20.5,10.5 A5,5 0 0 0 13.5,3.5 L11.7,5.3 M14,11 A5,5 0 0 0 6.5,10.5 L3.5,13.5 A5,5 0 0 0 10.5,20.5 L12.3,18.7</Geometry>
     <Geometry x:Key="SettingsIconGeometry">M12,8.5 A3.5,3.5 0 1 0 12,15.5 A3.5,3.5 0 1 0 12,8.5 M19.4,15 A8,8 0 0 0 19.5,9 L21,7.8 L19,4.3 L17.1,5 A8,8 0 0 0 12,2 L11.7,4 A8,8 0 0 0 6.8,5 L5,4.3 L3,7.8 L4.5,9 A8,8 0 0 0 4.6,15 L3,16.2 L5,19.7 L6.9,19 A8,8 0 0 0 12,22 L12.3,20 A8,8 0 0 0 17.2,19 L19,19.7 L21,16.2 Z</Geometry>
     <Geometry x:Key="ScreenIconGeometry">M3,4 L21,4 L21,17 L3,17 Z M8,21 L16,21 M12,17 L12,21</Geometry>
     <Geometry x:Key="MicrophoneIconGeometry">M12,3 A3,3 0 0 0 9,6 L9,11 A3,3 0 0 0 15,11 L15,6 A3,3 0 0 0 12,3 M6.5,11 A5.5,5.5 0 0 0 17.5,11 M12,16.5 L12,21 M9,21 L15,21</Geometry>

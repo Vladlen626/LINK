@@ -5,29 +5,23 @@ namespace Link.Desktop.Windows;
 
 public static class LinkIconFactory
 {
+    // The jellyfish of LinkGlyphTemplate (Themes/Controls.xaml) on the same 24-unit grid: change both together.
+    private static readonly float[] Legs =
+    [
+        6.5f, 13.4f, 4.2f, 17.6f, 9.75f, 13.9f, 8.9f, 18.3f,
+        17.5f, 13.4f, 19.8f, 17.6f, 14.25f, 13.9f, 15.1f, 18.3f
+    ];
+
     public static Icon CreateTrayIcon()
     {
-        using var bitmap = new Bitmap(32, 32, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
+        // Drawn at the tray's own size: a scaled icon blurs the eyes.
+        var size = System.Windows.Forms.SystemInformation.SmallIconSize.Width;
+        using var bitmap = new Bitmap(size, size, System.Drawing.Imaging.PixelFormat.Format32bppArgb);
         using var graphics = Graphics.FromImage(bitmap);
         graphics.SmoothingMode = SmoothingMode.AntiAlias;
         graphics.Clear(Color.Transparent);
-
-        using var pen = new Pen(Color.FromArgb(255, 80, 210, 218), 3.2f)
-        {
-            StartCap = LineCap.Round,
-            EndCap = LineCap.Round,
-            LineJoin = LineJoin.Round
-        };
-        using var highlight = new Pen(Color.FromArgb(145, 255, 255, 255), 1.0f)
-        {
-            StartCap = LineCap.Round,
-            EndCap = LineCap.Round
-        };
-
-        DrawLink(graphics, pen, 4, 10);
-        DrawLink(graphics, highlight, 4, 9.4f);
-        DrawLink(graphics, pen, 13, 14);
-        DrawLink(graphics, highlight, 13, 13.4f);
+        graphics.ScaleTransform(size / 24f, size / 24f);
+        DrawGlyph(graphics);
 
         var handle = bitmap.GetHicon();
         try
@@ -41,24 +35,16 @@ public static class LinkIconFactory
         }
     }
 
-    private static void DrawLink(Graphics graphics, Pen pen, float x, float y)
+    private static void DrawGlyph(Graphics graphics)
     {
-        var state = graphics.Save();
-        graphics.TranslateTransform(x + 7.5f, y + 4.5f);
-        graphics.RotateTransform(-35);
-        graphics.TranslateTransform(-(x + 7.5f), -(y + 4.5f));
-        using var path = RoundedCapsule(new RectangleF(x, y, 15, 9));
-        graphics.DrawPath(pen, path);
-        graphics.Restore(state);
-    }
+        using var body = new SolidBrush(Color.FromArgb(236, 106, 38));
+        using var leg = new Pen(body, 2.7f) { StartCap = LineCap.Round, EndCap = LineCap.Round };
+        using var eye = new SolidBrush(Color.FromArgb(43, 24, 16));
 
-    private static GraphicsPath RoundedCapsule(RectangleF bounds)
-    {
-        var radius = bounds.Height;
-        var path = new GraphicsPath();
-        path.AddArc(bounds.Left, bounds.Top, radius, radius, 90, 180);
-        path.AddArc(bounds.Right - radius, bounds.Top, radius, radius, 270, 180);
-        path.CloseFigure();
-        return path;
+        for (var i = 0; i < Legs.Length; i += 4) graphics.DrawLine(leg, Legs[i], Legs[i + 1], Legs[i + 2], Legs[i + 3]);
+        // FillRoundedRectangle takes the corners' diameter, not their radius.
+        graphics.FillRoundedRectangle(body, new RectangleF(3.25f, 4f, 17.5f, 10.9f), new SizeF(7.6f, 7.6f));
+        graphics.FillRoundedRectangle(eye, new RectangleF(7.5f, 6.7f, 2.6f, 4.4f), new SizeF(2.6f, 2.6f));
+        graphics.FillRoundedRectangle(eye, new RectangleF(13.9f, 6.7f, 2.6f, 4.4f), new SizeF(2.6f, 2.6f));
     }
 }

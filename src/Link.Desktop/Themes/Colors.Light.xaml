@@ -2,7 +2,7 @@
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
     <Color x:Key="InkColor">#15212C</Color>
     <Color x:Key="MutedInkColor">#3F4D5B</Color>
-    <Color x:Key="AccentColor">#1F7FDB</Color>
+    <Color x:Key="AccentColor">#D9580D</Color>
     <Color x:Key="ShadowColor">#0B1A2A</Color>
 
     <SolidColorBrush x:Key="TextBrush" Color="{StaticResource InkColor}" />
@@ -14,11 +14,9 @@
     <SolidColorBrush x:Key="AquaBrush" Color="#16A9BE" />
     <SolidColorBrush x:Key="SuccessBrush" Color="#2B9A47" />
     <SolidColorBrush x:Key="ErrorBrush" Color="#CC2F46" />
-    <SolidColorBrush x:Key="LinkTextBrush" Color="#1462A6" />
-    <LinearGradientBrush x:Key="BrandBrush" StartPoint="0,0" EndPoint="1,1">
-        <GradientStop Offset="0" Color="#FF2BB0E6" />
-        <GradientStop Offset="1" Color="#FF1B78CF" />
-    </LinearGradientBrush>
+    <SolidColorBrush x:Key="LinkTextBrush" Color="#B4470A" />
+    <SolidColorBrush x:Key="BrandBrush" Color="#EC6A26" />
+    <SolidColorBrush x:Key="GlyphEyeBrush" Color="#2B1810" />
 
     <!-- Window glass: the tint sits over the blurred backdrop, MainWindow scales its opacity. -->
     <LinearGradientBrush x:Key="PanelBrush" StartPoint="0,0" EndPoint="0,1">
@@ -52,10 +50,10 @@
     <SolidColorBrush x:Key="HoverBrush" Color="#80FFFFFF" />
     <SolidColorBrush x:Key="PressedBrush" Color="#14000000" />
     <SolidColorBrush x:Key="AccentHoverBrush" Color="#26FFFFFF" />
-    <SolidColorBrush x:Key="ActiveContextBrush" Color="#241F7FDB" />
+    <SolidColorBrush x:Key="ActiveContextBrush" Color="#24D9580D" />
     <SolidColorBrush x:Key="RecordingGelBrush" Color="#4D3DBF5C" />
     <SolidColorBrush x:Key="SuccessBorderBrush" Color="#B32B9A47" />
-    <SolidColorBrush x:Key="SelectionBrush" Color="#661F7FDB" />
+    <SolidColorBrush x:Key="SelectionBrush" Color="#66D9580D" />
     <SolidColorBrush x:Key="ScrollThumbBrush" Color="#47000000" />
     <SolidColorBrush x:Key="ScrollThumbHoverBrush" Color="#80000000" />
 

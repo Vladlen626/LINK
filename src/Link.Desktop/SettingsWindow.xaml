@@ -10,10 +10,8 @@
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
 
             <StackPanel Orientation="Horizontal">
-                <Viewbox Width="30" Height="30">
-                    <Path Data="{StaticResource LinkIconGeometry}" Fill="Transparent" Stroke="{StaticResource BrandBrush}"
-                          StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                </Viewbox>
+                <Control Width="30" Height="30" Focusable="False" Foreground="{StaticResource BrandBrush}"
+                         Template="{StaticResource LinkGlyphTemplate}" />
                 <StackPanel Margin="12,-1,0,0">
                     <TextBlock FontSize="19" FontWeight="SemiBold" Text="Settings" />
                     <TextBlock Style="{StaticResource SecondaryTextStyle}" Text="Make Link feel at home on your desktop" />

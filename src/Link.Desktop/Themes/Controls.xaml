@@ -30,6 +30,23 @@
         <Setter Property="FontWeight" Value="SemiBold" />
     </Style>
 
+    <!-- LINK's orange jellyfish on a 24-unit grid: legs, body, eyes. It takes Foreground, so voice states recolor it;
+         LinkIconFactory draws the same one for the tray. -->
+    <ControlTemplate x:Key="LinkGlyphTemplate" TargetType="Control">
+        <Viewbox Stretch="Uniform">
+            <Canvas Width="24" Height="24">
+                <Path Stroke="{TemplateBinding Foreground}" StrokeThickness="2.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                      Data="M6.5,13.4 L4.2,17.6 M9.75,13.9 L8.9,18.3 M17.5,13.4 L19.8,17.6 M14.25,13.9 L15.1,18.3" />
+                <Rectangle Canvas.Left="3.25" Canvas.Top="4" Width="17.5" Height="10.9" RadiusX="3.8" RadiusY="3.8"
+                           Fill="{TemplateBinding Foreground}" />
+                <Rectangle Canvas.Left="7.5" Canvas.Top="6.7" Width="2.6" Height="4.4" RadiusX="1.3" RadiusY="1.3"
+                           Fill="{StaticResource GlyphEyeBrush}" />
+                <Rectangle Canvas.Left="13.9" Canvas.Top="6.7" Width="2.6" Height="4.4" RadiusX="1.3" RadiusY="1.3"
+                           Fill="{StaticResource GlyphEyeBrush}" />
+            </Canvas>
+        </Viewbox>
+    </ControlTemplate>
+
     <Style x:Key="GlassCardStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource CardBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
