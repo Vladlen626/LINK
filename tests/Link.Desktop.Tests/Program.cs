@@ -20,7 +20,6 @@ internal static class Program
         foreach (var (name, checks) in new (string, Func<Task>)[]
                  {
                      ("voice session", VoiceSessionTests.RunAsync),
-                     ("browser bridge", BrowserBridgeTests.RunAsync),
                      ("embedded chat", EmbeddedChatTests.RunAsync)
                  })
         {
@@ -34,7 +33,7 @@ internal static class Program
             await run;
         }
 
-        BrowserExtensionTests.Run();
+        CompanionTests.Run();
         Console.WriteLine(_failures == 0
             ? $"All {_checks} checks passed."
             : $"{_failures} of {_checks} checks failed.");

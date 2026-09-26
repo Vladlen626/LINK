@@ -4,31 +4,22 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// The life of LINK's requests to a ChatGPT page, however the page is reached: a browser tab through the companion
-/// extension or LINK's own embedded page. A request is offered to the page, followed through the events the page
-/// reports and ended when it is answered, fails, goes quiet or is stopped.
+/// The life of LINK's requests to the ChatGPT page: a request is offered to the page's companion, followed through the
+/// events it reports and ended when it is answered, fails, goes quiet or is stopped. The page is reached by
+/// <see cref="ChatPageHost"/>.
 /// </summary>
 internal sealed class ChatRequestBroker : IDisposable
 {
     // Requests that ended recently stay known, so a page still working on one learns why LINK dropped it.
     private const int EndedRequestsKept = 64;
+    private const string Unresponsive = "The ChatGPT page did not respond. Open chat shows it; try again once it is there.";
     private readonly object _gate = new();
     private readonly BridgeTimings _timings;
-    private readonly string _page;
-    private readonly string _unresponsive;
     private readonly Dictionary<Guid, PendingRequest> _pending = [];
     private readonly Dictionary<Guid, string> _ended = [];
     private readonly Queue<Guid> _endedOrder = new();
 
-    /// <param name="timings">How long to wait at each step.</param>
-    /// <param name="page">The page as the user knows it, for messages: "ChatGPT tab".</param>
-    /// <param name="unresponsiveHint">What to do when the page does not respond.</param>
-    public ChatRequestBroker(BridgeTimings timings, string page, string unresponsiveHint)
-    {
-        _timings = timings;
-        _page = page;
-        _unresponsive = $"The {page} did not respond. {unresponsiveHint}";
-    }
+    public ChatRequestBroker(BridgeTimings timings) => _timings = timings;
 
     /// <summary>A request was queued for a conversation: its page may take it now rather than at its next look.</summary>
     public event Action<string>? RequestQueued;
@@ -100,7 +91,7 @@ internal sealed class ChatRequestBroker : IDisposable
         }
         catch (TimeoutException exception)
         {
-            throw new InvalidOperationException(_unresponsive, exception);
+            throw new InvalidOperationException(Unresponsive, exception);
         }
         finally
         {
@@ -222,14 +213,14 @@ internal sealed class ChatRequestBroker : IDisposable
         {
             if (pending.HeardAt is not { } heardAt)
             {
-                return Since(pending.QueuedAt) > _timings.Acknowledge ? _unresponsive : null;
+                return Since(pending.QueuedAt) > _timings.Acknowledge ? Unresponsive : null;
             }
 
             if (Since(heardAt) > _timings.Silence)
             {
                 return pending.Sent
-                    ? $"Lost contact with the {_page} while it answered. The answer stays in the chat: Check chat reads it."
-                    : $"Lost contact with the {_page} before the prompt was sent. Try again.";
+                    ? "Lost contact with the ChatGPT page while it answered. The answer stays in the chat: Check chat reads it."
+                    : "Lost contact with the ChatGPT page before the prompt was sent. Try again.";
             }
 
             return Since(pending.QueuedAt) > _timings.Request ? "Timed out waiting for ChatGPT's answer." : null;
@@ -301,7 +292,7 @@ internal sealed class ChatRequestBroker : IDisposable
                     Fail(
                         pending,
                         string.IsNullOrWhiteSpace(pageEvent.Error)
-                            ? $"The {_page} could not complete the request."
+                            ? "The ChatGPT page could not complete the request."
                             : pageEvent.Error.Trim(),
                         pageEvent.Diagnostics);
                     break;

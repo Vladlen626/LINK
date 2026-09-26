@@ -4,7 +4,7 @@
 висит маленьким overlay поверх: собирает нужный контекст — текст, голос, скриншоты, clipboard, текущее приложение —
 отправляет его в связанную беседу ChatGPT и показывает ответ, не заставляя переключаться в окно чата.
 
-**UI для пользователя — Link. Встроенная страница ChatGPT, расширение или API — внутренняя реализация.**
+**UI для пользователя — Link. Встроенная страница ChatGPT или API — внутренняя реализация.**
 
 ## Возможности
 
@@ -61,7 +61,7 @@ dotnet run --project src/Link.Desktop/Link.Desktop.csproj
 ```
 
 Проверки логики без микрофона и настоящего ChatGPT — консольный раннер, код выхода равен числу ошибок. Он же
-прогоняет browser companion на мок-страницах ChatGPT в headless Edge или Chrome (без них эти проверки пропускаются).
+прогоняет companion на мок-страницах ChatGPT в headless Edge или Chrome (без них эти проверки пропускаются).
 CI запускает раннер после сборки.
 
 ```powershell
@@ -79,13 +79,9 @@ Settings.
 3. Открыть нужную беседу в окне ChatGPT, закрыть окно, в Link нажать строку статуса ChatGPT, выбрать беседу и нажать
    **Link**. Или сразу нажать **New chat** — первое сообщение из Link создаст беседу и свяжет её с проектом.
 
-Пока ChatGPT не вошёл в аккаунт, статус пишет «Sign in to ChatGPT». Проектам, связанным через расширение, заново
-связываться не нужно.
-
-Запасной путь на время перехода — браузер с расширением: Settings → ChatGPT → Connection → **Browser extension**,
-перезапустить Link, в `chrome://extensions` (в Edge и Opera — так же) включить Developer mode и через **Load unpacked**
-выбрать папку `browser-extension`. В фоновой вкладке ChatGPT печатает ответ медленно. Диагностика —
-[`browser-extension/README.md`](browser-extension/README.md).
+Пока ChatGPT не вошёл в аккаунт, статус пишет «Sign in to ChatGPT». Проектам, связанным раньше через браузерное
+расширение, заново связываться не нужно, а само расширение больше не нужно — его можно удалить из браузера. Как
+companion работает со страницей и что пишет в диагностику — [`companion/README.md`](companion/README.md).
 
 ### Hotkeys по умолчанию
 
@@ -121,15 +117,15 @@ src/Link.Desktop/
 ├── MainWindow*    overlay; части по темам: Chat, Capture, Voice, Sizing
 ├── ChatPageWindow встроенная страница ChatGPT (WebView2) за краем экрана
 ├── SettingsWindow*, RegionSelectionWindow*, ...
-browser-extension/          companion: content.js работает с DOM ChatGPT и во встроенной странице, и в расширении
+companion/                  content.js работает с DOM ChatGPT во встроенной странице
 tests/Link.Desktop.Tests/   проверки логики без тестового фреймворка
-tests/browser-extension/    проверки companion на мок-страницах ChatGPT
+tests/companion/            проверки companion на мок-страницах ChatGPT
 ```
 
-- `PromptRequest` и контекст принадлежат Link; `IChatIntegration` отделяет их от транспорта. По умолчанию это
-  `EmbeddedChatIntegration`: страница ChatGPT в собственном окне Link, где `content.js` работает поверх адаптера
-  `embedded-host.js` и говорит с Link через канал WebView2. Запасной `BrowserChatIntegration` — локальный HTTP-мост к
-  расширению. Жизнь запроса (повторная выдача, тишина, Stop, Check chat) у обоих одна — `ChatRequestBroker`.
+- `PromptRequest` и контекст принадлежат Link; `IChatIntegration` отделяет их от транспорта. Для ChatGPT это
+  `EmbeddedChatIntegration`: страница ChatGPT в собственном окне Link, где `content.js` работает поверх
+  `embedded-host.js` и говорит с Link через канал WebView2. Жизнь запроса (повторная выдача, тишина, Stop,
+  Check chat) ведёт `ChatRequestBroker`.
 - Окно страницы никогда не прячется и не сворачивается — иначе движок притормозит страницу, — а ждёт за краем экрана
   с флагами Chromium против фонового троттлинга.
 - `VoiceSession` — единственный владелец голосового состояния (Idle → Listening → Finalizing → Sending → Waiting →
@@ -143,7 +139,7 @@ tests/browser-extension/    проверки companion на мок-страни�
   длинном она занимает пару минут. Встроенная страница — это процессы Edge WebView2:
   около 350–400 МБ памяти и почти ноль CPU в простое; раз в 6 часов простоя Link загружает её заново.
 - **DOM ChatGPT.** Конец ответа companion узнаёт по нескольким признакам, а при смене разметки пишет в `link.log`, что
-  видела вкладка. Переключение режима эвристическое: если не вышло, статус пишет «ChatGPT mode not switched (…)», а
+  видела страница. Переключение режима эвристическое: если не вышло, статус пишет «ChatGPT mode not switched (…)», а
   подсказка всё равно уходит в запрос.
 - **Голос.** При первом использовании скачиваются модели (Whisper Base 148 МБ; turbo 574 МБ, если есть видеокарта с
   Vulkan; live-модели 30–45 МБ; всё проверяется по SHA-256). Нужен Microsoft Visual C++ Redistributable 2022 x64.
@@ -154,6 +150,5 @@ tests/browser-extension/    проверки companion на мок-страни�
 
 ## Дальше
 
-- убрать путь через браузерное расширение, когда встроенный ChatGPT проверен в работе;
 - локальный TTS и Conversation Mode — [docs/VOICE_CONVERSATION_PLAN.md](docs/VOICE_CONVERSATION_PLAN.md);
 - память проектов, context router, handoff между чатами, команды.

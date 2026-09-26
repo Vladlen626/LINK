@@ -80,7 +80,7 @@ internal static class VoiceSessionTests
         Program.Equal("a new request silences the answer", (rig.Speech.Cancelled, rig.Session.Phase), (true, VoicePhase.Sending));
 
         await StreamingAsync();
-        await OverBridgeAsync();
+        await OverChatPageAsync();
         await WaitingCuesAsync();
         await LiveDraftAsync();
 
@@ -172,25 +172,26 @@ internal static class VoiceSessionTests
     }
 
     /// <summary>
-    /// Over the browser bridge: the answer is read while the tab streams it, each sentence once, and a tab that goes
+    /// Over the ChatGPT page: the answer is read while the page streams it, each sentence once, and a page that goes
     /// quiet for good ends the wait instead of leaving Link waiting.
     /// </summary>
-    private static async Task OverBridgeAsync()
+    private static async Task OverChatPageAsync()
     {
         var rig = new Rig();
         rig.Speech.Instant = true;
         await rig.DictateAsync();
-        using (var bridge = await BridgeRig.StartAsync())
+        using (var chat = new EmbeddedChatTests.EmbeddedRig())
         {
+            await chat.Page.AnnounceAsync("chat-1");
             rig.Session.BeginRequest();
-            var answer = bridge.Send("Как дела?", new SessionProgress(rig.Session));
-            var delivery = await bridge.NextDeliveryAsync();
-            await bridge.ReportAsync(delivery.Id, "sending");
-            await bridge.ReportAsync(delivery.Id, "waiting");
+            var answer = chat.SendAsync("Как дела?", progress: new SessionProgress(rig.Session));
+            var request = await chat.Page.NextRequestAsync();
+            await chat.Page.ReportAsync(request.Id, "sending");
+            await chat.Page.ReportAsync(request.Id, "waiting");
             Program.Equal("voice waits with the chat", rig.Session.Phase, VoicePhase.Waiting);
-            await bridge.ReportAsync(delivery.Id, "receiving", "Всё хорошо. Спаси");
+            await chat.Page.ReportAsync(request.Id, "receiving", "Всё хорошо. Спаси");
             Program.Equal("a streamed sentence is said before the answer is in", rig.Speech.Said, "Всё хорошо.");
-            await bridge.ReportAsync(delivery.Id, "completed", "Всё хорошо. Спасибо.\n\nДальше подробности.");
+            await chat.Page.ReportAsync(request.Id, "completed", "Всё хорошо. Спасибо.\n\nДальше подробности.");
             await rig.Session.CompleteRequestAsync((await answer).Text);
             Program.Equal("the rest follows and nothing is said twice", rig.Speech.Said,
                 "Всё хорошо. | Спасибо. Подробности на экране.");
@@ -198,15 +199,16 @@ internal static class VoiceSessionTests
 
         rig = new Rig();
         await rig.DictateAsync();
-        using (var bridge = await BridgeRig.StartAsync())
+        using (var chat = new EmbeddedChatTests.EmbeddedRig())
         {
+            await chat.Page.AnnounceAsync("chat-1");
             rig.Session.BeginRequest();
-            var answer = bridge.Send("Как дела?", new SessionProgress(rig.Session));
-            var delivery = await bridge.NextDeliveryAsync();
-            await bridge.ReportAsync(delivery.Id, "waiting");
-            await Program.ThrowsAsync<InvalidOperationException>("a lost tab ends the spoken request", () => answer);
+            var answer = chat.SendAsync("Как дела?", progress: new SessionProgress(rig.Session));
+            var request = await chat.Page.NextRequestAsync();
+            await chat.Page.ReportAsync(request.Id, "waiting");
+            await Program.ThrowsAsync<InvalidOperationException>("a lost page ends the spoken request", () => answer);
             rig.Session.EndRequest();
-            Program.Equal("voice is idle after a lost tab", rig.Session.Phase, VoicePhase.Idle);
+            Program.Equal("voice is idle after a lost page", rig.Session.Phase, VoicePhase.Idle);
         }
     }
 

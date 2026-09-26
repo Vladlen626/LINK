@@ -17,18 +17,18 @@ public sealed class ChatConversationLink
     public bool IsNew => ConversationId.Length == 0;
 }
 
-/// <summary>How LINK reaches ChatGPT: a link made through either way names the same conversation.</summary>
+/// <summary>How a project's ChatGPT conversation was linked.</summary>
 public static class ChatTransports
 {
-    /// <summary>A ChatGPT tab in the user's browser, through the companion extension.</summary>
-    public const string Browser = "browser-chatgpt";
-
     /// <summary>LINK's own ChatGPT page.</summary>
     public const string Embedded = "embedded-chatgpt";
 
-    /// <summary>A ChatGPT conversation, linked either way: a project keeps its chat when LINK changes the way.</summary>
+    /// <summary>Through the browser extension LINK used before; such links name the same conversations.</summary>
+    public const string Browser = "browser-chatgpt";
+
+    /// <summary>A ChatGPT conversation, linked either way: projects keep the chats they had.</summary>
     public static bool IsChatGpt(ChatConversationLink conversation) =>
-        conversation.TransportId is Browser or Embedded;
+        conversation.TransportId is Embedded or Browser;
 }
 
 public sealed class AvailableChatConversation

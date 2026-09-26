@@ -1,10 +1,9 @@
-// Checks for the browser companion, run by Link.Desktop.Tests in headless Edge with virtual time, or by opening
-// run.html in a browser started with --allow-file-access-from-files. Each check gets fresh pages in iframes: a mock
-// ChatGPT conversation (c/chat-1.html) with the real content.js, or a blank page with the real background.js, and
-// stubs of the extension API and the LINK bridge.
+// Checks for the companion, run by Link.Desktop.Tests in headless Edge with virtual time, or by opening run.html in a
+// browser started with --allow-file-access-from-files. Each check gets fresh pages in iframes: a mock ChatGPT
+// conversation (c/chat-1.html) or new chat (new-chat.html) with the real content.js, and a stand-in for LINK.
 const VERSION = "0.7.0";
 // The companion's own files, for mock pages wherever they are.
-const COMPANION = new URL("../../browser-extension/", location.href).href;
+const COMPANION = new URL("../../companion/", location.href).href;
 const checks = [];
 const output = [];
 let failures = 0;
@@ -60,7 +59,7 @@ async function runChecks() {
   results.textContent = output.join("\n");
 }
 
-/** chrome.storage.local kept outside the pages, so it outlives a page or extension reload like the real one. */
+/** LINK's storage for the companion, kept outside the pages, so that it outlives a page reload like LINK's does. */
 function memoryStorage() {
   const data = new Map();
   const copy = value => JSON.parse(JSON.stringify(value));
@@ -80,7 +79,7 @@ function memoryStorage() {
   };
 }
 
-/** The LINK bridge as the companion's events reach it: it records them and says which requests it dropped. */
+/** LINK as the companion's events reach it: it records them and says which requests it dropped. */
 function fakeBridge() {
   const bridge = {
     events: [],
@@ -97,40 +96,29 @@ function fakeBridge() {
   return bridge;
 }
 
-/**
- * One copy's extension API in a ChatGPT tab. Invalidating it is what an extension reload does to the copies
- * already running: their API goes dead.
- */
-function contentApi(bridge, storage) {
+/** LINK's end of the page's channel, as embedded-host.js gives it to the companion. */
+function hostApi(bridge, storage) {
   const api = {
-    valid: true,
+    version: VERSION,
     listeners: [],
-    runtime: {
-      get id() {
-        return api.valid ? "link-companion" : undefined;
-      },
-      getManifest: () => ({ version: VERSION }),
-      onMessage: {
-        addListener: listener => api.listeners.push(listener),
-        removeListener: listener => api.listeners.splice(api.listeners.indexOf(listener) >>> 0, 1)
-      },
-      async sendMessage(message) {
-        if (!api.valid) throw new Error("Extension context invalidated.");
-        if (message.type === "link-event") return bridge.event(message.event);
-        return { ok: true };
-      }
+    onMessage: listener => {
+      api.listeners.push(listener);
     },
-    storage: { local: storage }
+    async sendMessage(message) {
+      if (message.type === "link-event") return bridge.event(message.event);
+      return { ok: true };
+    },
+    storage
   };
   return api;
 }
 
-/** chrome.tabs.sendMessage to one copy: its listeners get the message and the first answer wins. */
-function sendToTab(api, message) {
+/** LINK hands the page's companion a message: its listeners get it, and the first answer wins. */
+function sendToPage(api, message) {
   return new Promise(resolve => {
     let answered = false;
     for (const listener of [...api.listeners]) {
-      listener(message, { id: "link-companion" }, response => {
+      listener(message, response => {
         if (!answered) {
           answered = true;
           resolve(response);
@@ -156,8 +144,9 @@ async function openFrame(src) {
   return frame;
 }
 
+/** Runs a script in the page; with `api`, the companion there finds it as LINK's end of the channel. */
 async function loadScript(frame, api, src) {
-  frame.contentWindow.chrome = api;
+  if (api) frame.contentWindow.linkHostApi = api;
   const script = frame.contentDocument.createElement("script");
   script.src = src;
   await new Promise((resolve, reject) => {
@@ -181,7 +170,7 @@ async function openChat(options = {}) {
     frame,
     chat,
     conversationId,
-    /** Starts a copy of the real content script in the page, with its own extension API. */
+    /** Starts a copy of the real content script in the page, on the given host API. */
     start: api => loadScript(frame, api, `${COMPANION}content.js`)
   };
 }
@@ -854,128 +843,4 @@ class ShellMock {
     this.finished = !busyMs;
     this.setPrimary(this.composer.innerText.trim() ? "send" : "voice");
   }
-}
-
-/**
- * The extension API as the service worker sees it, over fake ChatGPT tabs. A tab's `companion` is "live" (answers
- * the handshake), "none" (no copy it can reach, e.g. after an extension reload), "old" (another version) or "busy"
- * (a page too busy to answer for now).
- */
-function fakeBrowser(tabs) {
-  const log = { injections: [], reloads: [], delivered: [], retired: [], extensionReloads: 0 };
-  const listeners = { message: [], installed: [], startup: [], updated: [], removed: [] };
-  const tab = id => tabs.find(candidate => candidate.id === id);
-  const unreachable = () => new Error("Could not establish connection. Receiving end does not exist.");
-  const api = {
-    log,
-    listeners,
-    runtime: {
-      getManifest: () => ({ version: VERSION }),
-      getURL: path => `chrome-extension://link-companion/${path}`,
-      reload: () => {
-        log.extensionReloads++;
-      },
-      getPlatformInfo: async () => ({ os: "win" }),
-      onMessage: { addListener: listener => listeners.message.push(listener) },
-      onInstalled: { addListener: listener => listeners.installed.push(listener) },
-      onStartup: { addListener: listener => listeners.startup.push(listener) }
-    },
-    tabs: {
-      query: async () => tabs.map(({ id, url, discarded }) => ({ id, url, discarded })),
-      get: async id => ({ id, url: tab(id).url, discarded: tab(id).discarded }),
-      update: async () => ({}),
-      async reload(id) {
-        log.reloads.push(id);
-        const reloaded = tab(id);
-        reloaded.discarded = false;
-        reloaded.companion = "none";
-        setTimeout(() => {
-          reloaded.companion = "live";
-        }, 1500);
-      },
-      async sendMessage(id, message) {
-        const target = tab(id);
-        if (target.discarded || target.companion === "none") throw unreachable();
-        if (target.companion === "busy") return new Promise(() => {});
-        switch (message.type) {
-          case "link-hello":
-            return {
-              version: target.companion === "old" ? "0.6.9" : VERSION,
-              instanceId: `copy-${id}`,
-              conversation: { conversationId: target.conversationId, title: "Чат", url: target.url },
-              busy: null
-            };
-          case "link-retire":
-            log.retired.push(id);
-            target.companion = "none";
-            return { retired: true };
-          case "link-request":
-            log.delivered.push({ tab: id, request: message.request });
-            return { accepted: true };
-          default:
-            return undefined;
-        }
-      },
-      onUpdated: { addListener: listener => listeners.updated.push(listener) },
-      onRemoved: { addListener: listener => listeners.removed.push(listener) }
-    },
-    scripting: {
-      async executeScript({ target }) {
-        log.injections.push(target.tabId);
-        // Starting a copy takes a moment, so repairs asked for side by side overlap.
-        await new Promise(resolve => setTimeout(resolve, 30));
-        const injected = tab(target.tabId);
-        if (injected.discarded || injected.injectable === false) throw new Error("Cannot access contents of the page.");
-        // A busy page's own copy is still there and keeps the new one out.
-        if (injected.companion !== "busy") injected.companion = "live";
-        return [];
-      }
-    }
-  };
-  return api;
-}
-
-/**
- * LINK's HTTP bridge as the service worker calls it: requests to hand out per conversation, events it got. It also
- * serves the extension's own manifest as it is on disk, in `diskVersion`.
- */
-function fakeHttpBridge() {
-  const bridge = {
-    queued: new Map(),
-    events: [],
-    announced: new Set(),
-    diskVersion: VERSION,
-    offer(request) {
-      const list = bridge.queued.get(request.conversationId) ?? [];
-      list.push(request);
-      bridge.queued.set(request.conversationId, list);
-    },
-    async fetch(url, init = {}) {
-      const path = new URL(url).pathname;
-      const json = (status, body) => new Response(JSON.stringify(body), { status, headers: { "Content-Type": "application/json" } });
-      if (path.endsWith("/request")) {
-        const next = bridge.queued.get(new URL(url).searchParams.get("conversationId"))?.shift();
-        return next ? json(200, next) : new Response(null, { status: 204 });
-      }
-      if (path.endsWith("/event")) {
-        bridge.events.push(JSON.parse(init.body));
-        return json(200, { status: "accepted" });
-      }
-      if (path.endsWith("/announce")) {
-        bridge.announced.add(JSON.parse(init.body).conversationId);
-        return json(200, { status: "registered" });
-      }
-      if (path.endsWith("/manifest.json")) return json(200, { manifest_version: 3, version: bridge.diskVersion });
-      return json(404, { error: "Not found" });
-    }
-  };
-  return bridge;
-}
-
-/** A service worker: the real background.js in a blank page, over the fake browser and bridge. */
-async function startWorker(browser, bridge) {
-  const frame = await openFrame("about:blank");
-  frame.contentWindow.fetch = bridge.fetch;
-  await loadScript(frame, browser, new URL("../../browser-extension/background.js", location.href).href);
-  return frame;
 }

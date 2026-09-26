@@ -8,8 +8,8 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// LINK's end of its embedded ChatGPT page. The page runs the browser companion (content.js) on a stand-in for the
-/// extension API (embedded-host.js): what the companion announces, reports and keeps in storage comes here, and LINK's
+/// LINK's end of its embedded ChatGPT page. The page runs the companion (content.js) on its end of WebView2's message
+/// channel (embedded-host.js): what the companion announces, reports and keeps in storage comes here, and LINK's
 /// requests go to it from the broker. Everything the page sends is data from a web page: a message without the
 /// session's token is dropped, and nothing in one is followed as an instruction.
 /// </summary>
@@ -18,10 +18,6 @@ internal sealed partial class ChatPageHost : IDisposable
     // The companion announces its page every 2.5 s; one quiet for longer is gone.
     private static readonly TimeSpan CompanionLifetime = TimeSpan.FromSeconds(10);
     private static readonly TimeSpan OpenTimeout = TimeSpan.FromSeconds(20);
-    // A page kept for hours runs ChatGPT's code of that morning and holds what it collected since; it is loaded afresh
-    // when nobody needs it.
-    private static readonly TimeSpan PageLifetime = TimeSpan.FromHours(6);
-    private static readonly TimeSpan IdleCheck = TimeSpan.FromMinutes(10);
     private const int MaxMessageLength = 4 * 1024 * 1024;
     private const int MaxStoredValueLength = 16 * 1024;
     private const int MaxStoredEntries = 500;
@@ -30,7 +26,7 @@ internal sealed partial class ChatPageHost : IDisposable
     private readonly object _gate = new();
     private readonly ChatRequestBroker _broker;
     private readonly string _stateFile;
-    private readonly TimeSpan _deliveryInterval;
+    private readonly PageTimings _timings;
     private readonly byte[] _token;
     private readonly Timer _timer;
     private readonly JsonSerializerOptions _json = new(JsonSerializerDefaults.Web);
@@ -47,13 +43,13 @@ internal sealed partial class ChatPageHost : IDisposable
 
     /// <param name="broker">Follows the requests the page works on.</param>
     /// <param name="stateFile">Keeps the chat modes the companion set, across restarts.</param>
-    /// <param name="deliveryInterval">How often a waiting request is offered to a page that has gone quiet about it.</param>
+    /// <param name="timings">How often the page is looked after.</param>
     /// <param name="token">The session's secret that the page's messages carry.</param>
-    public ChatPageHost(ChatRequestBroker broker, string stateFile, TimeSpan deliveryInterval, string token)
+    public ChatPageHost(ChatRequestBroker broker, string stateFile, PageTimings timings, string token)
     {
         _broker = broker;
         _stateFile = stateFile;
-        _deliveryInterval = deliveryInterval;
+        _timings = timings;
         _token = Encoding.UTF8.GetBytes(token);
         var saved = AtomicJsonFile.Read<Dictionary<string, JsonElement>>(stateFile, _json);
         foreach (var (key, value) in saved ?? [])
@@ -61,7 +57,7 @@ internal sealed partial class ChatPageHost : IDisposable
             if (IsKeptKey(key)) _storage[key] = value;
         }
 
-        _timer = new Timer(_ => OnTimer(), null, IdleCheck, Timeout.InfiniteTimeSpan);
+        _timer = new Timer(_ => OnTimer(), null, timings.IdleCheck, Timeout.InfiniteTimeSpan);
         _broker.RequestQueued += OnRequestQueued;
     }
 
@@ -454,7 +450,7 @@ internal sealed partial class ChatPageHost : IDisposable
 
         lock (_gate)
         {
-            if (!_disposed) _timer.Change(_broker.HasPending ? _deliveryInterval : IdleCheck, Timeout.InfiniteTimeSpan);
+            if (!_disposed) _timer.Change(_broker.HasPending ? _timings.Delivery : _timings.IdleCheck, Timeout.InfiniteTimeSpan);
         }
     }
 
@@ -466,7 +462,7 @@ internal sealed partial class ChatPageHost : IDisposable
         lock (_gate)
         {
             if (_page is null || _companion is not { Busy: false } companion || _broker.HasPending ||
-                Since(_documentStartedAt) < PageLifetime)
+                Since(_documentStartedAt) < _timings.PageLifetime)
             {
                 return;
             }
@@ -566,4 +562,19 @@ internal sealed partial class ChatPageHost : IDisposable
         bool? SignedIn,
         bool Busy,
         long HeardAt);
+}
+
+/// <summary>How often LINK looks after its ChatGPT page.</summary>
+/// <param name="Delivery">Between offers of a waiting request to a page that has gone quiet about it.</param>
+/// <param name="IdleCheck">Between looks at a page that nothing waits on.</param>
+/// <param name="PageLifetime">
+/// Of a page's age before an idle one is loaded afresh: a page kept for hours runs ChatGPT's code of that morning and
+/// holds what it collected since.
+/// </param>
+internal sealed record PageTimings(TimeSpan Delivery, TimeSpan IdleCheck, TimeSpan PageLifetime)
+{
+    public static PageTimings Default { get; } = new(
+        Delivery: TimeSpan.FromSeconds(1),
+        IdleCheck: TimeSpan.FromMinutes(10),
+        PageLifetime: TimeSpan.FromHours(6));
 }

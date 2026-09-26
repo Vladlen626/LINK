@@ -1,5 +1,5 @@
-// The companion in LINK's embedded ChatGPT page: content.js on the stand-in API from embedded-host.js, talking to
-// LINK over WebView2's message channel instead of an extension.
+// The companion as it runs in LINK's ChatGPT page: content.js on embedded-host.js, LINK's end of the page's channel,
+// over a stand-in for WebView2's message channel with LINK's end played by the check.
 
 /**
  * WebView2's chrome.webview in the embedded page, with LINK's end played by the check: a message that carries the
@@ -60,8 +60,9 @@ check("embedded: the companion works over LINK's page channel, and the page neve
   const storage = memoryStorage();
   const webview = fakeWebview(bridge, storage, "check-token");
   const win = page.frame.contentWindow;
-  // As LINK composes the page's script: the stand-in API is made before the page's scripts run, content.js takes it.
-  await loadScript(page.frame, { webview }, `${COMPANION}embedded-host.js`);
+  // As LINK composes the page's script: its end of the channel is made before the page's scripts run.
+  win.chrome = { webview };
+  await loadScript(page.frame, null, `${COMPANION}embedded-host.js`);
   win.linkHostApi = win.createLinkHostApi({ token: "check-token", version: VERSION });
   // A page script that runs later and looks at everything the companion turns into JSON.
   let looked = 0;
@@ -74,7 +75,7 @@ check("embedded: the companion works over LINK's page channel, and the page neve
       return this;
     }
   });
-  await loadScript(page.frame, { webview }, `${COMPANION}content.js`);
+  await loadScript(page.frame, null, `${COMPANION}content.js`);
 
   const announced = await until("the companion announces its page",
     () => webview.posted.find(message => message.message?.type === "link-announce"));
@@ -103,9 +104,10 @@ check("embedded: a page offering to log in is announced as signed out", async ()
   page.frame.contentDocument.body.append(login);
   const webview = fakeWebview(fakeBridge(), memoryStorage(), "check-token");
   const win = page.frame.contentWindow;
-  await loadScript(page.frame, { webview }, `${COMPANION}embedded-host.js`);
+  win.chrome = { webview };
+  await loadScript(page.frame, null, `${COMPANION}embedded-host.js`);
   win.linkHostApi = win.createLinkHostApi({ token: "check-token", version: VERSION });
-  await loadScript(page.frame, { webview }, `${COMPANION}content.js`);
+  await loadScript(page.frame, null, `${COMPANION}content.js`);
   const announced = await until("the companion announces its page",
     () => webview.posted.find(message => message.message?.type === "link-announce"));
   expect("not signed in", announced?.message.signedIn, false);

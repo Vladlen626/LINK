@@ -20,6 +20,7 @@ internal static class EmbeddedChatTests
     {
         await StreamedAnswerAsync();
         await OtherChatAsync();
+        await LostPageAsync();
         await CancelAsync();
         await RedeliveryAsync();
         await CheckChatAsync();
@@ -29,6 +30,7 @@ internal static class EmbeddedChatTests
         await LoadFailureAsync();
         await NewChatAsync();
         await NewChatSignedOutAsync();
+        await StalePageAsync();
         NewChatPlaces();
         ComposedScript();
     }
@@ -84,6 +86,36 @@ internal static class EmbeddedChatTests
         await rig.Page.AnnounceNewChatAsync("copy-2", signedIn: false);
         var error = await ErrorOfAsync(answer);
         Program.Equal("a new chat without a signed-in account says so", error?.StartsWith("ChatGPT is not signed in", StringComparison.Ordinal), true);
+    }
+
+    /// <summary>A page kept for hours is loaded afresh, but only while nothing waits on it and the user does not look at it.</summary>
+    private static async Task StalePageAsync()
+    {
+        var aged = new PageTimings(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
+        using (var rig = new EmbeddedRig(pageTimings: aged))
+        {
+            rig.Page.StartDocument();
+            await rig.Page.AnnounceAsync("chat-1");
+            await Program.EventuallyAsync("an idle page past its lifetime is loaded again, on its chat",
+                () => rig.Page.Navigations.FirstOrDefault()?.AbsoluteUri, "https://chatgpt.com/c/chat-1");
+        }
+
+        using (var rig = new EmbeddedRig(pageTimings: aged))
+        {
+            rig.Page.StartDocument();
+            rig.Page.Reveal();
+            await rig.Page.AnnounceAsync("chat-1");
+            await Task.Delay(400);
+            Program.Equal("a page the user looks at is left alone", rig.Page.Navigations.Count, 0);
+        }
+
+        using (var rig = new EmbeddedRig(pageTimings: aged))
+        {
+            rig.Page.StartDocument();
+            await rig.Page.AnnounceAsync("chat-1", busy: Guid.NewGuid().ToString());
+            await Task.Delay(400);
+            Program.Equal("and so is a page busy with an answer", rig.Page.Navigations.Count, 0);
+        }
     }
 
     private static void NewChatPlaces()
@@ -145,6 +177,39 @@ internal static class EmbeddedChatTests
         var request = await rig.Page.NextRequestAsync();
         await rig.Page.ReportAsync(request.Id, "completed", "Done.");
         Program.Equal("the prompt is answered in the linked chat", (await answer).Text, "Done.");
+    }
+
+    /// <summary>No request waits forever: a page that never answers or goes quiet for good ends it with an error.</summary>
+    private static async Task LostPageAsync()
+    {
+        using (var rig = new EmbeddedRig())
+        {
+            await rig.Page.AnnounceAsync("chat-1");
+            var error = await ErrorOfAsync(rig.SendAsync("Hi"));
+            Program.Equal("a page that never answers ends the request",
+                error?.StartsWith("The ChatGPT page did not respond", StringComparison.Ordinal), true);
+        }
+
+        using (var rig = new EmbeddedRig())
+        {
+            await rig.Page.AnnounceAsync("chat-1");
+            var answer = rig.SendAsync("Hi");
+            var request = await rig.Page.NextRequestAsync();
+            await rig.Page.ReportAsync(request.Id, "waiting");
+            var error = await ErrorOfAsync(answer);
+            Program.Equal("a page gone quiet for good ends the request", error?.StartsWith("Lost contact", StringComparison.Ordinal), true);
+            Program.Equal("its page is told the request failed", await rig.Page.ReportAsync(request.Id, "heartbeat"), "404 failed");
+        }
+
+        using (var rig = new EmbeddedRig())
+        {
+            await rig.Page.AnnounceAsync("chat-1");
+            var answer = rig.SendAsync("Hi");
+            var request = await rig.Page.NextRequestAsync();
+            await rig.Page.ReportAsync(request.Id, "error", error: "ChatGPT did not take the prompt.", diagnostics: "{\"version\":\"1\"}");
+            Program.Equal("the page's error ends the request", await ErrorOfAsync(answer), "ChatGPT did not take the prompt.");
+            Program.Equal("an error carries what the page saw", rig.Progress.Last?.Diagnostics, "{\"version\":\"1\"}");
+        }
     }
 
     private static async Task CancelAsync()
@@ -267,17 +332,17 @@ internal static class EmbeddedChatTests
         Program.Equal("and LINK shows ChatGPT as unavailable", rig.State, ChatConnectionState.BridgeUnavailable);
     }
 
-    /// <summary>The page's script: the companion on the stand-in API, only in ChatGPT's own top-level page.</summary>
+    /// <summary>The page's script: the companion on LINK's end of the channel, only in ChatGPT's own top-level page.</summary>
     private static void ComposedScript()
     {
         var script = ChatPageScript.Compose("secret-token");
+        var config = JsonSerializer.Serialize(new { token = "secret-token", version = ChatPageScript.Version });
         Program.Equal("the script runs only in ChatGPT's top-level page",
             script.Contains("if (window.top !== window || location.origin !== \"https://chatgpt.com\") return;", StringComparison.Ordinal), true);
-        Program.Equal("the stand-in API gets the token and the companion's version",
-            script.Contains($"createLinkHostApi({{\"token\":\"secret-token\",\"version\":\"{ChatPageScript.CompanionVersion()}\"}})", StringComparison.Ordinal),
-            true);
-        Program.Equal("the companion itself is in it", script.Contains("typeof linkHostApi === \"undefined\"", StringComparison.Ordinal), true);
-        Program.Equal("the stand-in comes before the companion",
+        Program.Equal("LINK's end of the channel gets the token and LINK's version",
+            script.Contains($"createLinkHostApi({config})", StringComparison.Ordinal), true);
+        Program.Equal("the companion itself is in it", script.Contains("const host = linkHostApi;", StringComparison.Ordinal), true);
+        Program.Equal("the channel comes before the companion",
             script.IndexOf("function createLinkHostApi", StringComparison.Ordinal) < script.IndexOf("const startCompanion", StringComparison.Ordinal),
             true);
     }
@@ -299,8 +364,10 @@ internal static class EmbeddedChatTests
     }
 
     /// <summary>An embedded integration with short waits on a page the test plays.</summary>
-    private sealed class EmbeddedRig : IDisposable
+    internal sealed class EmbeddedRig : IDisposable
     {
+        public static readonly PageTimings PageTimingsForTests = PageTimings.Default with { Delivery = TimeSpan.FromMilliseconds(20) };
+
         public static readonly BridgeTimings Timings = new(
             Acknowledge: TimeSpan.FromMilliseconds(600),
             Redeliver: TimeSpan.FromMilliseconds(250),
@@ -329,11 +396,11 @@ internal static class EmbeddedChatTests
         private readonly bool _ownsState;
         private readonly List<string> _screenshots = [];
 
-        public EmbeddedRig(string? stateFile = null)
+        public EmbeddedRig(string? stateFile = null, PageTimings? pageTimings = null)
         {
             _ownsState = stateFile is null;
             StateFile = stateFile ?? Path.Combine(Path.GetTempPath(), $"link-companion-state-{Guid.NewGuid():N}.json");
-            Chat = new EmbeddedChatIntegration(StateFile, Timings, TimeSpan.FromMilliseconds(20), FakeChatPage.Token);
+            Chat = new EmbeddedChatIntegration(StateFile, Timings, pageTimings ?? PageTimingsForTests, FakeChatPage.Token);
             Chat.Attach(Page);
         }
 
@@ -347,7 +414,8 @@ internal static class EmbeddedChatTests
             string prompt,
             CancellationToken cancellation = default,
             bool attachment = false,
-            ChatConversationLink? link = null) =>
+            ChatConversationLink? link = null,
+            IProgress<ChatProgress>? progress = null) =>
             Chat.SendAsync(
                 new PromptRequest
                 {
@@ -357,7 +425,7 @@ internal static class EmbeddedChatTests
                     Context = attachment ? [Screenshot()] : []
                 },
                 link ?? Link,
-                Progress,
+                progress ?? Progress,
                 cancellation);
 
         /// <summary>The keys of the companion's storage kept on disk.</summary>
@@ -450,7 +518,7 @@ internal sealed class FakeChatPage : IChatPage
     public async Task<JsonElement> CallAsync(object fields, string kind = "send")
     {
         var id = Interlocked.Increment(ref _nextCall);
-        // An extension message travels whole; a storage call carries its fields beside the envelope's.
+        // A companion message travels whole; a storage call carries its fields beside the envelope's.
         var call = kind == "send"
             ? new Dictionary<string, object?> { ["message"] = fields }
             : JsonSerializer.SerializeToElement(fields).EnumerateObject()
@@ -470,12 +538,17 @@ internal sealed class FakeChatPage : IChatPage
         throw new TimeoutException("LINK did not answer the page.");
     }
 
-    public Task<JsonElement> AnnounceAsync(string conversationId, bool? signedIn = true, string instance = "copy-1", string? url = null) =>
+    public Task<JsonElement> AnnounceAsync(
+        string conversationId,
+        bool? signedIn = true,
+        string instance = "copy-1",
+        string? url = null,
+        string? busy = null) =>
         CallAsync(new
         {
             type = "link-announce",
             conversation = new { conversationId, title = $"Chat {conversationId}", url = url ?? $"https://chatgpt.com/c/{conversationId}" },
-            busy = (string?)null,
+            busy,
             signedIn,
             instanceId = instance
         });
@@ -488,9 +561,19 @@ internal sealed class FakeChatPage : IChatPage
     /// Reports on a request as the companion does: "ok", or the status and reason LINK turned it away with. A new chat's
     /// events carry the conversation ChatGPT started for it.
     /// </summary>
-    public async Task<string> ReportAsync(Guid requestId, string state, string? text = null, object? conversation = null)
+    public async Task<string> ReportAsync(
+        Guid requestId,
+        string state,
+        string? text = null,
+        object? conversation = null,
+        string? error = null,
+        string? diagnostics = null)
     {
-        var response = await CallAsync(new { type = "link-event", @event = new { requestId, state, text, conversation } });
+        var response = await CallAsync(new
+        {
+            type = "link-event",
+            @event = new { requestId, state, text, conversation, error, diagnostics }
+        });
         return response.GetProperty("ok").GetBoolean()
             ? "ok"
             : $"{response.GetProperty("status").GetInt32()} {response.GetProperty("reason").GetString()}";
@@ -531,4 +614,36 @@ internal sealed class FakeChatPage : IChatPage
     }
 
     public sealed record Delivery(Guid Id, string? ConversationId, string? Kind, string? Prompt, int Attempt, bool Sent, int Attachments);
+}
+
+/// <summary>Progress kept in the order LINK reports it.</summary>
+internal sealed class ProgressLog : IProgress<ChatProgress>
+{
+    private readonly List<ChatProgress> _reports = [];
+
+    public string States
+    {
+        get
+        {
+            lock (_reports) return string.Join(", ", _reports.Select(report => report.State));
+        }
+    }
+
+    public ChatProgress? Last
+    {
+        get
+        {
+            lock (_reports) return _reports.LastOrDefault();
+        }
+    }
+
+    public ChatProgress? Find(ChatProgressState state)
+    {
+        lock (_reports) return _reports.FirstOrDefault(report => report.State == state);
+    }
+
+    public void Report(ChatProgress value)
+    {
+        lock (_reports) _reports.Add(value);
+    }
 }

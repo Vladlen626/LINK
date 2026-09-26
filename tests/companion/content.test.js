@@ -1,13 +1,13 @@
 // The content script in a mock ChatGPT conversation: how it sends a prompt, watches the answer and ends it.
 
 async function startCompanion(page, bridge = fakeBridge(), storage = memoryStorage()) {
-  const api = contentApi(bridge, storage);
+  const api = hostApi(bridge, storage);
   await page.start(api);
   return { page, api, bridge, storage };
 }
 
 async function ask(api, request) {
-  return sendToTab(api, { type: "link-request", request });
+  return sendToPage(api, { type: "link-request", request });
 }
 
 function completedOf(bridge, request, timeout = 20000) {
@@ -42,7 +42,7 @@ check("streams the answer and completes it", async () => {
   const page = await openChat();
   const { api, bridge } = await startCompanion(page);
   const request = promptRequest(page.conversationId, "Как дела?");
-  expect("the tab takes the request", await ask(api, request), { accepted: true, version: VERSION });
+  expect("the page takes the request", await ask(api, request), { accepted: true, version: VERSION });
   const completed = await completedOf(bridge, request);
   expect("the complete answer comes as Markdown", completed?.text, ANSWER_MARKDOWN);
   expect("a usual end needs no diagnostics", completed?.diagnostics, undefined);
@@ -125,55 +125,16 @@ check("an offer of the same prompt again does not send it twice", async () => {
   await until("the prompt is sent", () => page.chat.sent.length === 1);
   const beats = bridge.of(request.requestId, "heartbeat").length;
   await ask(api, { ...request, attempt: 2 });
-  await until("the copy says it is still on it", () => bridge.of(request.requestId, "heartbeat").length > beats, 500);
+  await until("the companion says it is still on it", () => bridge.of(request.requestId, "heartbeat").length > beats, 500);
   await completedOf(bridge, request);
   expect("the prompt is sent once", page.chat.sent, ["Один раз"]);
-});
-
-check("a second copy started in the same page stays out", async () => {
-  const page = await openChat();
-  const bridge = fakeBridge();
-  const api = contentApi(bridge, memoryStorage());
-  await page.start(api);
-  // The service worker starts one while the manifest's copy runs.
-  await page.start(api);
-  expect("only one copy listens", api.listeners.length, 1);
-  const request = promptRequest(page.conversationId, "Вопрос");
-  await ask(api, request);
-  await completedOf(bridge, request);
-  expect("the prompt is sent once", page.chat.sent, ["Вопрос"]);
-  expect("one answer", bridge.of(request.requestId, "completed").length, 1);
-});
-
-check("after an extension reload the new copy takes the prompt over without sending it again", async () => {
-  const page = await openChat({ tokenMs: 400 });
-  const bridge = fakeBridge();
-  const storage = memoryStorage();
-  const oldApi = contentApi(bridge, storage);
-  await page.start(oldApi);
-  const request = promptRequest(page.conversationId, "Длинный вопрос");
-  await ask(oldApi, request);
-  await until("the answer streams", () => bridge.of(request.requestId, "receiving").length);
-
-  // The extension is reloaded: the running copy's API goes dead and the service worker starts a new copy.
-  oldApi.valid = false;
-  const newApi = contentApi(bridge, storage);
-  await page.start(newApi);
-  expect("the old copy stepped aside", oldApi.listeners.length, 0);
-  expect("the new copy listens", newApi.listeners.length, 1);
-  // LINK heard nothing for a while and offers the prompt again, as one that reached the chat.
-  await ask(newApi, { ...request, attempt: 2, sent: true });
-  const completed = await completedOf(bridge, request);
-  expect("the answer is complete", completed?.text, ANSWER_MARKDOWN);
-  expect("the prompt was sent once", page.chat.sent, ["Длинный вопрос"]);
-  expect("ChatGPT was not stopped", page.chat.stopClicks, 0);
 });
 
 check("after a page reload the prompt's answer is picked up where it is", async () => {
   const bridge = fakeBridge();
   const storage = memoryStorage();
   const first = await openChat({ tokenMs: 400 });
-  const firstApi = contentApi(bridge, storage);
+  const firstApi = hostApi(bridge, storage);
   await first.start(firstApi);
   const request = promptRequest(first.conversationId, "Длинный вопрос");
   await ask(firstApi, request);
@@ -182,7 +143,6 @@ check("after a page reload the prompt's answer is picked up where it is", async 
 
   // The page reloads; ChatGPT shows the prompt with its answer, finished meanwhile.
   first.frame.remove();
-  firstApi.valid = false;
   const second = await openChat();
   second.chat.addAnsweredTurn("Длинный вопрос", kept);
   const { api } = await startCompanion(second, bridge, storage);
@@ -194,14 +154,14 @@ check("after a page reload the prompt's answer is picked up where it is", async 
   expect("the kept state is gone with the answer", await poll(() => !storage.data.has(`request:${request.requestId}`), 1000), true);
 });
 
-check("a prompt that reached the chat just before its copy went is not sent again", async () => {
+check("a prompt that reached the chat just before its page went is not sent again", async () => {
   const page = await openChat();
   const bridge = fakeBridge();
   const storage = memoryStorage();
   const request = promptRequest(page.conversationId, "Уже отправлено");
   const lastUserKey = [...page.frame.contentDocument.querySelectorAll('[data-message-author-role="user"]')].at(-1)
     .getAttribute("data-message-id");
-  // The copy before had clicked Send when the extension was reloaded: ChatGPT answers the prompt.
+  // The page before had clicked Send when it was reloaded: ChatGPT answers the prompt.
   await storage.set({ [`request:${request.requestId}`]: { phase: "sending", lastUserKey, savedAt: Date.now() } });
   void page.chat.answer("Уже отправлено");
   const { api } = await startCompanion(page, bridge, storage);
@@ -287,11 +247,11 @@ check("Stop in LINK stops ChatGPT; an answer LINK took elsewhere is left alone",
   await ask(api, request);
   await until("the answer streams", () => bridge.of(request.requestId, "receiving").length);
   bridge.ended.set(request.requestId, "completed");
-  // Its next event tells the copy; after that it reports nothing more.
+  // Its next event tells the companion; after that it reports nothing more.
   await sleep(3000);
   const events = bridge.events.length;
   await sleep(3000);
-  expect("the copy stopped reporting", bridge.events.length, events);
+  expect("the companion stopped reporting", bridge.events.length, events);
   expect("ChatGPT is not stopped", page.chat.stopClicks, 0);
 });
 
@@ -302,7 +262,7 @@ check("a prompt ChatGPT does not take ends with an error instead of waiting", as
   await ask(api, request);
   const error = await until("an error is reported", () => bridge.of(request.requestId, "error")[0], 30000);
   expect("it says the prompt was not sent", error?.error.startsWith("ChatGPT did not take the prompt"), true);
-  expect("with what the tab saw", JSON.parse(error?.diagnostics ?? "{}").prompt, "not found");
+  expect("with what the page saw", JSON.parse(error?.diagnostics ?? "{}").prompt, "not found");
 });
 
 check("Check chat reads the answer and says which prompt it belongs to", async () => {
@@ -312,14 +272,14 @@ check("Check chat reads the answer and says which prompt it belongs to", async (
   await ask(api, request);
   await until("the answer streams", () => bridge.of(request.requestId, "receiving").length);
   const read = { requestId: crypto.randomUUID(), conversationId: page.conversationId, kind: "read" };
-  await sendToTab(api, { type: "link-request", request: read });
+  await sendToPage(api, { type: "link-request", request: read });
   const during = await until("a snapshot comes", () => bridge.of(read.requestId, "snapshot")[0]);
   expect("while ChatGPT writes", [during?.generating, during?.answerTo, ANSWER_MARKDOWN.startsWith(during?.text)],
     [true, request.requestId, true]);
 
   await completedOf(bridge, request);
   const after = { requestId: crypto.randomUUID(), conversationId: page.conversationId, kind: "read" };
-  await sendToTab(api, { type: "link-request", request: after });
+  await sendToPage(api, { type: "link-request", request: after });
   const snapshot = await until("a snapshot comes", () => bridge.of(after.requestId, "snapshot")[0]);
   expect("once it is done", [snapshot?.generating, snapshot?.answerTo, snapshot?.text], [false, null, ANSWER_MARKDOWN]);
 });
@@ -388,7 +348,7 @@ check("shell: Check chat sees ChatGPT writing, and Stop in LINK presses its Ос
   await ask(api, request);
   await until("the answer streams", () => bridge.of(request.requestId, "receiving").length);
   const read = { requestId: crypto.randomUUID(), conversationId: page.conversationId, kind: "read" };
-  await sendToTab(api, { type: "link-request", request: read });
+  await sendToPage(api, { type: "link-request", request: read });
   const snapshot = await until("a snapshot comes", () => bridge.of(read.requestId, "snapshot")[0]);
   expect("ChatGPT is still writing", [snapshot?.generating, snapshot?.answerTo], [true, request.requestId]);
   bridge.ended.set(request.requestId, "cancelled");

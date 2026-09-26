@@ -21,10 +21,7 @@ public partial class LinkConversationWindow : Window
         InitializeComponent();
         SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
 
-        // New chats are started in the built-in ChatGPT window; a summary needs a chat to write it.
-        var newChats = chat.TransportId != ChatTransports.Browser;
-        NewChatButton.Visibility = newChats ? Visibility.Visible : Visibility.Collapsed;
-        SummaryBox.Visibility = newChats ? Visibility.Visible : Visibility.Collapsed;
+        // A summary needs a chat to write it.
         SummaryBox.IsEnabled = current is { IsNew: false };
 
         _refreshTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(1) };
@@ -60,13 +57,9 @@ public partial class LinkConversationWindow : Window
         }
 
         LinkButton.IsEnabled = ConversationList.SelectedItem is not null;
-        StatusText.Text = _chat.TransportId == ChatTransports.Browser
-            ? conversations.Count > 0
-                ? "Select the conversation this project should use."
-                : "No conversations detected. Reload the companion on the Extensions page, then reload an open ChatGPT conversation."
-            : conversations.Count > 0
-                ? "Select the conversation this project should use, or start a new chat."
-                : "Start a new chat, or open ChatGPT, go to the chat for this project and come back here.";
+        StatusText.Text = conversations.Count > 0
+            ? "Select the conversation this project should use, or start a new chat."
+            : "Start a new chat, or open ChatGPT, go to the chat for this project and come back here.";
     }
 
     private void OpenChat_OnClick(object sender, RoutedEventArgs e)

@@ -1,11 +1,7 @@
 (() => {
-// This copy's own extension API: when the extension is reloaded it goes dead here, and a newer copy gets a new one.
-// In LINK's embedded ChatGPT page there is no extension: LINK wraps this script with its own stand-in for the API.
-const chrome = typeof linkHostApi === "undefined" ? globalThis.chrome : linkHostApi;
-const VERSION = chrome.runtime.getManifest().version;
-// One working copy per page: the manifest and the service worker may both start this script, and two copies would
-// both answer every LINK request.
-if (globalThis.linkCompanion?.alive()) return;
+// LINK's end of the page's message channel (embedded-host.js), which LINK puts in front of this script.
+const host = linkHostApi;
+const VERSION = host.version;
 
 const ANNOUNCE_INTERVAL_MS = 2500;
 const RESPONSE_TIMEOUT_MS = 10 * 60 * 1000;
@@ -17,8 +13,7 @@ const CHECK_INTERVAL_MS = 150;
 // overlay and reading aloud.
 const PROGRESS_INTERVAL_MS = 250;
 // Without ChatGPT's own sign of completion, a quiet period after its Stop button disappears ends the answer; a longer
-// one in a hidden tab, whose throttled timers may still be putting the last words on the page, and for an answer
-// without a Markdown root, so that a status line cannot pass for it.
+// one for an answer without a Markdown root, so that a status line cannot pass for it.
 const SETTLE_MS = 1200;
 const LONG_SETTLE_MS = 3000;
 // An answer that has not changed at all for this long is complete even if a Stop-like button lingers.
@@ -84,12 +79,10 @@ const SLIDER_ORDER = ["instant", "medium", "high", "extra"];
 const SKIPPED_NODES = 'button, svg, style, script, [hidden], [aria-hidden="true"], .sr-only, [class*="shimmer"], ' +
   "[data-message-content-controls], [data-message-actions], [data-message-attribution], [data-assistant-placeholder-slot]";
 const INLINE_TAGS = new Set(["A", "ABBR", "B", "BR", "CODE", "DEL", "EM", "I", "IMG", "KBD", "MARK", "S", "SMALL", "SPAN", "STRONG", "SUB", "SUP", "U"]);
+// Each document of the page runs its own companion; LINK tells a reloaded page's new one by this id.
 const instanceId = `${Date.now().toString(36)}-${Math.random().toString(36).slice(2)}`;
-const pendingDelays = new Set();
-// The prompt this copy works on.
+// The prompt the companion works on.
 let current = null;
-let retired = false;
-let announceTimer = null;
 
 /** LINK no longer waits for the request: its reason is "cancelled" after Stop/Esc, otherwise it ended elsewhere. */
 class EndedError extends Error {
@@ -99,67 +92,17 @@ class EndedError extends Error {
   }
 }
 
-/** A newer copy of the companion took over this page; it carries on with the prompt. */
-class RetiredError extends Error {}
-
-globalThis.linkCompanion = { version: VERSION, instanceId, alive: () => !retired && Boolean(chrome.runtime?.id) };
-chrome.runtime.onMessage.addListener(onMessage);
-document.addEventListener("link-companion-started", onCompanionStarted);
-// A copy left behind by a reloaded extension runs in its own world and steps aside for this one.
-document.dispatchEvent(new CustomEvent("link-companion-started", { detail: instanceId }));
-
-function onMessage(message, _sender, sendResponse) {
-  if (retired) return;
-  switch (message?.type) {
-    case "link-hello":
-      sendResponse({
-        version: VERSION, instanceId, conversation: getConversation(), busy: current?.requestId ?? null, signedIn: isSignedIn()
-      });
-      return;
-    case "link-request":
-      sendResponse({ accepted: true, version: VERSION });
-      // "Check chat" only reads the page, so it works while an answer is still awaited, or stuck.
-      if (message.request?.kind === "read") void handleRead(message.request);
-      else void handlePrompt(message.request);
-      return;
-    case "link-tick":
-      // Hidden tabs get their timers throttled down to once a minute; the service worker's ticks keep waits on time.
-      flushDelays();
-      return;
-    case "link-retire":
-      retire();
-      sendResponse({ retired: true });
-      return;
-  }
-}
-
-function onCompanionStarted(event) {
-  if (event.detail !== instanceId) retire();
-}
-
-/** Stops everything this copy does. Its prompt is left as it is: LINK hands it to the copy that took over. */
-function retire() {
-  if (retired) return;
-  retired = true;
-  clearInterval(announceTimer);
-  document.removeEventListener("link-companion-started", onCompanionStarted);
-  try {
-    chrome.runtime.onMessage.removeListener(onMessage);
-  } catch {
-    // An orphaned copy's API may throw; it receives nothing anyway.
-  }
-  if (current) stopJob(current, new RetiredError("A newer copy of the LINK companion took over."));
-  if (globalThis.linkCompanion?.instanceId === instanceId) delete globalThis.linkCompanion;
+/** LINK's requests: a prompt, or "Check chat", which only reads the page and so works while an answer is awaited. */
+function onMessage(message, respond) {
+  if (message?.type !== "link-request") return;
+  respond({ accepted: true, version: VERSION });
+  if (message.request?.kind === "read") void handleRead(message.request);
+  else void handlePrompt(message.request);
 }
 
 /** Tells LINK what the page shows: a page without a conversation too, since whether it is signed in matters there. */
 function announceConversation() {
-  if (!chrome.runtime?.id) {
-    // The extension was reloaded; this orphaned copy can no longer reach it.
-    retire();
-    return;
-  }
-  void chrome.runtime.sendMessage({
+  void host.sendMessage({
     type: "link-announce", conversation: getConversation(), busy: current?.requestId ?? null, signedIn: isSignedIn(), instanceId
   }).catch(() => {});
 }
@@ -177,12 +120,12 @@ function isSignedIn() {
 
 async function handlePrompt(request) {
   if (current?.requestId === request.requestId) {
-    // LINK offers a prompt again when it has heard nothing about it for a while; this copy is still on it.
+    // LINK offers a prompt again when it has heard nothing about it for a while; the companion is still on it.
     void reportQuietly(request.requestId, "heartbeat");
     return;
   }
   if (current) {
-    // LINK sends a prompt only when it is done with the previous one; this copy may not have heard yet.
+    // LINK sends a prompt only when it is done with the previous one; the companion may not have heard yet.
     const previous = current;
     try {
       await report(previous.requestId, "heartbeat");
@@ -193,7 +136,7 @@ async function handlePrompt(request) {
       await previous.done;
     }
   }
-  if (retired || current) return;
+  if (current) return;
 
   const job = {
     requestId: request.requestId,
@@ -265,7 +208,6 @@ async function runPrompt(request, job) {
     await report(request.requestId, "completed", withStarted(job, answer), 8);
     void forgetRequestState(request.requestId);
   } catch (error) {
-    if (error instanceof RetiredError) return;
     void forgetRequestState(request.requestId);
     // A prompt that never went out does not stay behind in ChatGPT's composer.
     if (!job.sentAt && !job.resumed) takeBackPrompt(job);
@@ -298,10 +240,9 @@ async function sendPrompt(request, job) {
       ? "ChatGPT is still answering the previous message. Send again once it has finished, or stop it in the chat."
       : "ChatGPT Send button did not become available.");
   }
-  // LINK may have been stopped while the chat was busy; a copy replaced meanwhile sends nothing: the newer one does.
+  // LINK may have been stopped while the chat was busy: then the prompt is not sent.
   await report(request.requestId, "sending");
   if (job.stopReason) throw job.stopReason;
-  if (!chrome.runtime?.id) throw new RetiredError("The extension was reloaded.");
   sendButton.click();
   job.sentAt = Date.now();
   await saveRequestState(request.requestId, { phase: "sent", lastUserKey: job.lastUserKey });
@@ -336,7 +277,7 @@ async function handleRead(request) {
 
 /**
  * The answer to the last prompt as the page shows it now, whether ChatGPT is still writing it, and what LINK's
- * selectors see, so a missed answer can be taken over and its cause found in link.log. While this copy works on a
+ * selectors see, so a missed answer can be taken over and its cause found in link.log. While the companion works on a
  * prompt, only an answer to that prompt counts.
  */
 function readSnapshot() {
@@ -450,7 +391,7 @@ async function applyEffort(request, form) {
   const ownKey = `mode:${request.conversationId}`;
   let saved = {};
   try {
-    saved = await chrome.storage.local.get([appliedKey, ownKey]);
+    saved = await host.storage.get([appliedKey, ownKey]);
   } catch {
     // Without storage the chat's mode is simply checked again.
   }
@@ -470,7 +411,7 @@ async function applyEffort(request, form) {
     const update = { [appliedKey]: effort };
     // Only a picker that names the mode tells which one was the user's.
     if (applied === "normal" && modeOf(result.previous)) update[ownKey] = result.previous;
-    await chrome.storage.local.set(update);
+    await host.storage.set(update);
   } catch {
     // The chat is in the right mode anyway; the next request checks it again.
   }
@@ -691,7 +632,7 @@ async function attachImages(composer, attachments) {
   input.files = transfer.files;
   input.dispatchEvent(new Event("change", { bubbles: true }));
   await waitFor(() => hasAttachmentPreviews(form, attachments, baseline), 30000,
-    "ChatGPT did not attach the image. The request was not sent; retry after reloading the linked tab.");
+    "ChatGPT did not attach the image. The request was not sent; retry after reloading the ChatGPT page.");
   await waitFor(() => !form?.querySelector('[role="progressbar"], [aria-label*="Uploading" i]'),
     30000, "ChatGPT did not finish uploading the image. The request was not sent.");
 }
@@ -956,7 +897,7 @@ async function watchAnswer(job) {
       bridgeAt = Date.now();
       return true;
     } catch (error) {
-      if (error instanceof EndedError || error instanceof RetiredError || Date.now() - bridgeAt > BRIDGE_TIMEOUT_MS) throw error;
+      if (error instanceof EndedError || Date.now() - bridgeAt > BRIDGE_TIMEOUT_MS) throw error;
       return false;
     }
   };
@@ -1044,7 +985,7 @@ async function watchAnswer(job) {
       // A finished turn settles it even if some Stop-like button lingers. Otherwise only the answer's own text
       // completes it, never a status such as "Thinking", and only once ChatGPT has stopped writing.
       const answered = Boolean(text || (plain && !isStatusLine(plain)));
-      const settle = text && !document.hidden ? SETTLE_MS : LONG_SETTLE_MS;
+      const settle = text ? SETTLE_MS : LONG_SETTLE_MS;
       let reason = null;
       if (response && signs.actions) reason = "turn actions";
       else if (answered && !generating && signs.flagged) reason = "completion flag";
@@ -1331,21 +1272,20 @@ function looseText(text) {
 }
 
 /**
- * Tells LINK about a request. The service worker may be starting or LINK busy for a moment, so a failed event is
- * sent again up to `attempts` times; a request LINK has dropped ends the caller through EndedError.
+ * Tells LINK about a request. LINK may be busy for a moment, so a failed event is sent again up to `attempts` times;
+ * a request LINK has dropped ends the caller through EndedError.
  */
 async function report(requestId, state, details = {}, attempts = 3) {
   for (let attempt = 1; ; attempt++) {
-    if (retired || !chrome.runtime?.id) throw new RetiredError("The extension was reloaded.");
     let result;
     try {
-      result = await chrome.runtime.sendMessage({ type: "link-event", event: { requestId, state, ...details } });
+      result = await host.sendMessage({ type: "link-event", event: { requestId, state, ...details } });
     } catch (error) {
       result = { ok: false, error: error instanceof Error ? error.message : String(error) };
     }
     if (result?.ok) return;
     if (result?.status === 404) throw new EndedError(result.reason ?? "unknown");
-    if (attempt >= attempts) throw new Error(result?.error ?? "LINK bridge did not accept the event.");
+    if (attempt >= attempts) throw new Error(result?.error ?? "LINK did not accept the event.");
     await delay(400 * attempt);
   }
 }
@@ -1356,11 +1296,11 @@ function reportQuietly(requestId, state, details) {
   });
 }
 
-// Where a prompt stands, kept outside the page's memory: a copy started after an extension or page reload picks the
-// prompt up from here instead of sending it again.
+// Where a prompt stands, kept in LINK rather than in the page: the companion of a reloaded page picks the prompt up
+// from here instead of sending it again.
 async function loadRequestState(requestId) {
   try {
-    return (await chrome.storage.local.get(`request:${requestId}`))[`request:${requestId}`] ?? null;
+    return (await host.storage.get(`request:${requestId}`))[`request:${requestId}`] ?? null;
   } catch {
     return null;
   }
@@ -1368,7 +1308,7 @@ async function loadRequestState(requestId) {
 
 async function saveRequestState(requestId, state) {
   try {
-    await chrome.storage.local.set({ [`request:${requestId}`]: { ...state, savedAt: Date.now() } });
+    await host.storage.set({ [`request:${requestId}`]: { ...state, savedAt: Date.now() } });
   } catch {
     // Without storage a reloaded page finds the prompt by its text.
   }
@@ -1376,19 +1316,19 @@ async function saveRequestState(requestId, state) {
 
 async function forgetRequestState(requestId) {
   try {
-    await chrome.storage.local.remove(`request:${requestId}`);
+    await host.storage.remove(`request:${requestId}`);
   } catch {
-    // Old entries are pruned when a copy starts.
+    // Old entries are pruned when a page's companion starts.
   }
 }
 
 async function pruneRequestStates() {
   try {
-    const saved = await chrome.storage.local.get(null);
+    const saved = await host.storage.get(null);
     const old = Object.entries(saved)
       .filter(([key, state]) => key.startsWith("request:") && !(Date.now() - (state?.savedAt ?? 0) < REQUEST_STATE_TTL_MS))
       .map(([key]) => key);
-    if (old.length) await chrome.storage.local.remove(old);
+    if (old.length) await host.storage.remove(old);
   } catch {
     // Pruning is housekeeping only.
   }
@@ -1401,7 +1341,7 @@ async function waitFor(producer, timeoutMs, errorMessage) {
     if (value) return value;
     await delay(100);
   }
-  // A throttled timer can oversleep the whole timeout, so look once more before giving up.
+  // A busy page can make the last wait overshoot the timeout, so look once more before giving up.
   const value = producer();
   if (value || errorMessage === null) return value || null;
   throw new Error(errorMessage);
@@ -1423,25 +1363,11 @@ function getConversationTitle() {
 }
 
 function delay(milliseconds) {
-  return new Promise(resolve => {
-    const entry = { deadline: Date.now() + milliseconds, resolve };
-    pendingDelays.add(entry);
-    setTimeout(() => settleDelay(entry), milliseconds);
-  });
+  return new Promise(resolve => setTimeout(resolve, milliseconds));
 }
 
-function settleDelay(entry) {
-  if (pendingDelays.delete(entry)) entry.resolve();
-}
-
-function flushDelays() {
-  const now = Date.now();
-  for (const entry of [...pendingDelays]) {
-    if (entry.deadline <= now) settleDelay(entry);
-  }
-}
-
+host.onMessage(onMessage);
 void pruneRequestStates();
 announceConversation();
-announceTimer = setInterval(announceConversation, ANNOUNCE_INTERVAL_MS);
+setInterval(announceConversation, ANNOUNCE_INTERVAL_MS);
 })();

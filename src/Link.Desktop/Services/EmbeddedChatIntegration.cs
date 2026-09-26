@@ -15,16 +15,16 @@ public sealed class EmbeddedChatIntegration : IChatIntegration, IDisposable
 
     /// <param name="stateFile">Keeps the chat modes the companion set, across restarts.</param>
     public EmbeddedChatIntegration(string stateFile)
-        : this(stateFile, BridgeTimings.Default, TimeSpan.FromSeconds(1), Convert.ToHexString(RandomNumberGenerator.GetBytes(32)))
+        : this(stateFile, BridgeTimings.Default, PageTimings.Default, Convert.ToHexString(RandomNumberGenerator.GetBytes(32)))
     {
     }
 
     /// <summary>An integration with other waits and a known token, for tests.</summary>
-    internal EmbeddedChatIntegration(string stateFile, BridgeTimings timings, TimeSpan deliveryInterval, string token)
+    internal EmbeddedChatIntegration(string stateFile, BridgeTimings timings, PageTimings pageTimings, string token)
     {
         _token = token;
-        _broker = new ChatRequestBroker(timings, "ChatGPT page", "Open chat shows it; try again once it is there.");
-        _host = new ChatPageHost(_broker, stateFile, deliveryInterval, token);
+        _broker = new ChatRequestBroker(timings);
+        _host = new ChatPageHost(_broker, stateFile, pageTimings, token);
     }
 
     public string TransportId => ChatTransports.Embedded;

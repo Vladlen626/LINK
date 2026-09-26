@@ -34,10 +34,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The embedded ChatGPT page runs the browser companion's own files, built in so they always match this LINK. -->
-    <EmbeddedResource Include="..\..\browser-extension\content.js" LogicalName="ChatPage.content.js" />
-    <EmbeddedResource Include="..\..\browser-extension\embedded-host.js" LogicalName="ChatPage.embedded-host.js" />
-    <EmbeddedResource Include="..\..\browser-extension\manifest.json" LogicalName="ChatPage.manifest.json" />
+    <!-- The embedded ChatGPT page runs the companion's files, built in so that they always match this LINK. -->
+    <EmbeddedResource Include="..\..\companion\content.js" LogicalName="ChatPage.content.js" />
+    <EmbeddedResource Include="..\..\companion\embedded-host.js" LogicalName="ChatPage.embedded-host.js" />
   </ItemGroup>
 
   <!-- The Vulkan runtime copies its Linux build too, unconditionally; Link runs on Windows only. -->

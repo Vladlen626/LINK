@@ -26,10 +26,6 @@ public sealed class AppSettings
 
     public double VoiceReplySpeed { get; set; } = DefaultVoiceReplySpeed;
     public ResponseEffort ResponseEffort { get; set; } = ResponseEffort.Normal;
-
-    /// <summary>How LINK reaches ChatGPT; a change applies after a restart.</summary>
-    public ChatTransport ChatTransport { get; set; } = ChatTransport.Embedded;
-
     public int ScreenshotHistorySize { get; set; } = 5;
     public bool LaunchWithWindows { get; set; }
     public bool AutoCaptureActiveWindowOnSend { get; set; }
@@ -59,7 +55,6 @@ public sealed class AppSettings
         if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);
         if (!Enum.IsDefined(ResponseEffort)) ResponseEffort = ResponseEffort.Normal;
-        if (!Enum.IsDefined(ChatTransport)) ChatTransport = ChatTransport.Embedded;
         if (string.IsNullOrWhiteSpace(MicrophoneDeviceId))
         {
             MicrophoneDeviceId = null;
@@ -149,13 +144,4 @@ public enum VoiceLanguage
     Auto,
     Russian,
     English
-}
-
-public enum ChatTransport
-{
-    /// <summary>LINK's own ChatGPT page, kept off screen.</summary>
-    Embedded,
-
-    /// <summary>A ChatGPT tab in the user's browser, through the companion extension.</summary>
-    Browser
 }

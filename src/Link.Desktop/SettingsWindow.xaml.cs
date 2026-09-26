@@ -13,11 +13,6 @@ namespace Link.Desktop;
 public partial class SettingsWindow : Window
 {
     private static readonly TimeSpan MicrophoneTestDuration = TimeSpan.FromSeconds(3);
-    private static readonly TransportOption[] TransportOptions =
-    [
-        new(ChatTransport.Embedded, "Built-in ChatGPT window"),
-        new(ChatTransport.Browser, "Browser extension")
-    ];
     private readonly SettingsService _settings;
     private readonly IAudioRecorder _audio;
     private readonly ITextToSpeech _textToSpeech;
@@ -56,8 +51,6 @@ public partial class SettingsWindow : Window
         HistorySizeBox.Text = current.ScreenshotHistorySize.ToString();
         AlwaysOnTopBox.IsChecked = current.AlwaysOnTop;
         LaunchWithWindowsBox.IsChecked = current.LaunchWithWindows;
-        ChatTransportCombo.ItemsSource = TransportOptions;
-        ChatTransportCombo.SelectedItem = TransportOptions.First(option => option.Value == current.ChatTransport);
         SetHotkey(ShowHideHotkey, current.Hotkeys.ShowHide);
         SetHotkey(PushToTalkHotkey, current.Hotkeys.PushToTalk);
         SetHotkey(SendHotkey, current.Hotkeys.Send);
@@ -379,7 +372,6 @@ public partial class SettingsWindow : Window
         current.ScreenshotHistorySize = historySize;
         current.AlwaysOnTop = AlwaysOnTopBox.IsChecked == true;
         current.LaunchWithWindows = LaunchWithWindowsBox.IsChecked == true;
-        current.ChatTransport = (ChatTransportCombo.SelectedItem as TransportOption)?.Value ?? current.ChatTransport;
         current.Hotkeys.ShowHide = GetHotkey(ShowHideHotkey);
         current.Hotkeys.PushToTalk = GetHotkey(PushToTalkHotkey);
         current.Hotkeys.Send = GetHotkey(SendHotkey);
@@ -414,11 +406,6 @@ public partial class SettingsWindow : Window
 
     /// <summary>A reply voice choice; a null <see cref="Name"/> picks a voice for the answer's language.</summary>
     private sealed record VoiceOption(string? Name, string Label)
-    {
-        public override string ToString() => Label;
-    }
-
-    private sealed record TransportOption(ChatTransport Value, string Label)
     {
         public override string ToString() => Label;
     }

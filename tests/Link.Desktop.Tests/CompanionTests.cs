@@ -8,10 +8,10 @@ using System.Text.RegularExpressions;
 namespace Link.Desktop.Tests;
 
 /// <summary>
-/// The browser companion's own checks (tests/browser-extension): the real content and background scripts against a
-/// mock ChatGPT page and stubbed extension APIs, run in headless Edge or Chrome with virtual time.
+/// The companion's own checks (tests/companion): the real content.js and embedded-host.js against mock ChatGPT
+/// pages and a stand-in for LINK, run in headless Edge or Chrome with virtual time.
 /// </summary>
-internal static class BrowserExtensionTests
+internal static class CompanionTests
 {
     private static readonly TimeSpan Timeout = TimeSpan.FromMinutes(2);
 
@@ -20,11 +20,11 @@ internal static class BrowserExtensionTests
         var browser = FindBrowser();
         if (browser is null)
         {
-            Console.WriteLine("SKIP browser companion checks: neither Edge nor Chrome is installed.");
+            Console.WriteLine("SKIP companion checks: neither Edge nor Chrome is installed.");
             return;
         }
 
-        var page = Path.Combine(FindRepository(), "tests", "browser-extension", "run.html");
+        var page = Path.Combine(FindRepository(), "tests", "companion", "run.html");
         var profile = Path.Combine(Path.GetTempPath(), $"link-companion-checks-{Guid.NewGuid():N}");
         try
         {
@@ -58,7 +58,7 @@ internal static class BrowserExtensionTests
             if (!process.WaitForExit(Timeout))
             {
                 process.Kill(entireProcessTree: true);
-                Program.Equal("browser companion checks finish", "timed out", "finished");
+                Program.Equal("companion checks finish", "timed out", "finished");
                 return;
             }
 
@@ -90,7 +90,7 @@ internal static class BrowserExtensionTests
         }
 
         var end = lines.LastOrDefault(line => line.Length > 0) ?? "no results";
-        Program.Equal("browser companion checks ran to the end", end.StartsWith("DONE", StringComparison.Ordinal) ? "DONE" : end, "DONE");
+        Program.Equal("companion checks ran to the end", end.StartsWith("DONE", StringComparison.Ordinal) ? "DONE" : end, "DONE");
     }
 
     private static string? FindBrowser()
