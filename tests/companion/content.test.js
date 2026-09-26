@@ -367,6 +367,13 @@ check("shell: a new chat's page takes the prompt that starts it", async () => {
   expect("the prompt is sent once", page.chat.sent, ["Первый вопрос нового чата"]);
 });
 
+check("shell: a new chat's picker is waited for while the composer's buttons are not there yet", async () => {
+  const page = await openChat({ ui: "shell", src: "new-chat.html", turns: 0, controlsMs: 600 });
+  const companion = await startCompanion(page);
+  expect("LINK is told the mode", await askWithEffort(companion, "fast"), ["ChatGPT mode: Instant"]);
+  expect("the picker shows Instant", page.chat.mode, "Instant");
+});
+
 check("a prompt for a linked chat is not sent on a new chat's page", async () => {
   const page = await openChat({ ui: "shell", src: "new-chat.html", turns: 0 });
   const { api, bridge } = await startCompanion(page);

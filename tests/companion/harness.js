@@ -634,6 +634,7 @@ class ShellMock {
       mode: "Высокий",
       typedAfterStop: false, // true: Stop goes when the first paragraph is there, and the rest is typed out slowly
       busyMs: 0,             // ChatGPT is still writing an earlier answer this long when the page opens
+      controlsMs: 0,         // the composer's buttons appear this long after the composer, as on a new chat's page
       turns: 2,
       ...options
     };
@@ -693,6 +694,11 @@ class ShellMock {
       if (event.key === "Escape") this.closeMenu();
     });
     if (this.options.busyMs) void this.answer("Вопрос из самого чата", this.options.busyMs);
+    if (this.options.controlsMs) {
+      const controls = [...this.form.querySelectorAll(":scope > button")];
+      for (const control of controls) control.remove();
+      this.window.setTimeout(() => this.composer.after(...controls), this.options.controlsMs);
+    }
   }
 
   get mode() {

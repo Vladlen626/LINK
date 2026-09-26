@@ -19,7 +19,7 @@ LINK's `ChatRequestBroker` follows every request; `ChatPageHost` hands it to the
 - **The linked chat.** A page on another conversation is taken to the linked one before the prompt is handed over;
   LINK waits up to 20 s for it to be there.
 - **Never hidden, resting when unused.** The window waits off screen and is never hidden or minimized, so its engine
-  does not throttle ChatGPT's typing. A minute after LINK last needed it, the page rests out of its engine's sight:
+  does not throttle ChatGPT's typing. Half a minute after LINK last needed it, the page rests out of its engine's sight:
   it draws nothing (ChatGPT's animations would otherwise cost a tenth of a core all day) and keeps less memory, while
   its timers, the companion's announcements too, run on. LINK wakes it before handing it a request. Open chat brings
   it on screen, awake; the user can sign in or look at the chat there.

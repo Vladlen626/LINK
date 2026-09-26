@@ -596,6 +596,6 @@ internal sealed record PageTimings(TimeSpan Delivery, TimeSpan IdleCheck, TimeSp
     public static PageTimings Default { get; } = new(
         Delivery: TimeSpan.FromSeconds(1),
         IdleCheck: TimeSpan.FromMinutes(10),
-        Rest: TimeSpan.FromMinutes(1),
+        Rest: TimeSpan.FromSeconds(30),
         PageLifetime: TimeSpan.FromHours(6));
 }

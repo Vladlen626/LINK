@@ -28,6 +28,8 @@ const SEND_CONFIRM_MS = 20 * 1000;
 const RESUME_TIMEOUT_MS = 20 * 1000;
 // The chat shows a sent prompt at once; an answer is taken without the prompt in sight only after this long.
 const PROMPT_GRACE_MS = 5000;
+// A new chat's page shows its composer a moment before the buttons around it, the mode picker among them.
+const PICKER_WAIT_MS = 3000;
 // LINK counts as gone when no event of a prompt has reached it for this long.
 const BRIDGE_TIMEOUT_MS = 30 * 1000;
 const REQUEST_STATE_TTL_MS = 60 * 60 * 1000;
@@ -425,7 +427,8 @@ async function applyEffort(request, form) {
  * it by hand since LINK last did.
  */
 async function switchChatMode(form, targets) {
-  const picker = findModePicker(form);
+  const picker = findModePicker(form) ??
+    (hasComposerButtons(form) ? null : await waitFor(() => findModePicker(composerForm()), PICKER_WAIT_MS, null));
   if (!picker) return { ok: false, reason: "mode picker not found" };
   const previous = pickerLabel(picker);
   if (matchesMode(previous, targets[0])) return { ok: true, changed: false, label: previous, previous };
@@ -527,6 +530,14 @@ function findModePicker(form) {
     if (pickers.length) return pickers.find(isShown) ?? pickers[0];
   }
   return document.querySelector('[data-testid="model-switcher-dropdown-button"]');
+}
+
+/** Whether the buttons around the composer are there yet; the mode picker is one of them when the chat has one. */
+function hasComposerButtons(form) {
+  for (let root = form, level = 0; root && level < 3; root = root.parentElement, level++) {
+    if (root.querySelector(PICKER_BUTTONS)) return true;
+  }
+  return false;
 }
 
 function pickerLabel(picker) {
