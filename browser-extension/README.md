@@ -1,11 +1,23 @@
 # LINK ChatGPT Companion
 
-Unpacked Chrome / Edge / Opera extension that LINK uses as its ChatGPT transport. It talks only to LINK's loopback
-bridge at `127.0.0.1:43127`.
+The script that works with ChatGPT's page for LINK. It runs in two places:
 
-## Install
+- **LINK's embedded page (default).** LINK keeps ChatGPT in its own WebView2 window off screen and builds
+  `content.js` into itself together with `embedded-host.js`, a stand-in for the part of the extension API that
+  `content.js` uses. Messages go over WebView2's channel (`chrome.webview.postMessage`), each with a per-session token
+  that only the stand-in's closure holds; LINK drops anything else. The script runs in each new top-level
+  `https://chatgpt.com` document before the page's own scripts and starts the companion at `DOMContentLoaded`. Its
+  storage lives in LINK: where a prompt stands (`request:*`) for the session, the chat modes it set (`effort:*`,
+  `mode:*`) in `%LocalAppData%\Link\companion-state.json`. A change here needs a LINK rebuild.
+- **This unpacked Chrome / Edge / Opera extension** — the fallback while the embedded page proves itself
+  (Settings → ChatGPT → Connection → Browser extension). It talks only to LINK's loopback bridge at
+  `127.0.0.1:43127`.
 
-1. Start LINK.
+Both ways the requests are followed by LINK's `ChatRequestBroker`: redelivery, silence, Stop, Check chat.
+
+## Install (browser fallback)
+
+1. In LINK choose Settings → ChatGPT → Connection → **Browser extension** and restart LINK.
 2. Open `chrome://extensions` (or `edge://extensions`), enable **Developer mode**, choose **Load unpacked** and select
    this folder.
 3. Open the ChatGPT conversation to link and keep its tab open. A new chat needs one message first, so that its URL
@@ -37,7 +49,15 @@ version changes; the new `content.js` starts in the open ChatGPT tabs, and a run
   with "ChatGPT is still answering the previous message". The tab asks LINK once more right before Send, so a
   stopped prompt is not sent; a prompt that never went out is taken back from ChatGPT's composer.
 - **Hidden tabs.** Chrome throttles timers in hidden tabs, so the worker ticks a tab that works on a request, and
-  such a tab is kept out of Memory Saver. ChatGPT itself still types an answer out slowly in a hidden tab.
+  such a tab is kept out of Memory Saver. ChatGPT itself still types an answer out slowly in a hidden tab — the reason
+  for LINK's embedded page, which its engine never sees hidden.
+- **Announcements.** Every 2.5 s the page says what it shows: its conversation (or none), whether it is busy, whether
+  an account is signed in (`signedIn`: false when the page offers to log in) and which copy of the companion speaks.
+- **New chats** (embedded page only). A prompt with an empty `conversationId` goes to a page without a conversation:
+  ChatGPT's home or a project's page (`/g/g-p-<id>/project`). ChatGPT first shows the new chat under a local id
+  (`/c/local-chatgpt:…`) and about two seconds later under its real one; a local id counts as no conversation. Once
+  the real `/c/<id>` is there, the companion takes it as the prompt's conversation and its events carry
+  `conversation`; LINK links the project to it, and a reloaded page gets the prompt in that conversation.
 
 ## Reading the answer
 
@@ -90,5 +110,6 @@ LINK's status says why.
   it to `link.log`, as it does the diagnostics of unusual ends and errors.
 - Images go through ChatGPT's upload control. LINK waits for the attachment preview; if the composer has changed,
   the request fails without sending text, and the image stays attached in LINK.
-- `tests/browser-extension` runs these scripts against mock ChatGPT pages (all three markups);
-  `dotnet run --project tests/Link.Desktop.Tests` runs them in headless Edge or Chrome.
+- `tests/browser-extension` runs these scripts against mock ChatGPT pages (all three markups), and `content.js` on
+  `embedded-host.js` over a fake WebView2 channel; `dotnet run --project tests/Link.Desktop.Tests` runs them in
+  headless Edge or Chrome.

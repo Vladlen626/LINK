@@ -3,6 +3,8 @@
 // ChatGPT conversation (c/chat-1.html) with the real content.js, or a blank page with the real background.js, and
 // stubs of the extension API and the LINK bridge.
 const VERSION = "0.7.0";
+// The companion's own files, for mock pages wherever they are.
+const COMPANION = new URL("../../browser-extension/", location.href).href;
 const checks = [];
 const output = [];
 let failures = 0;
@@ -170,16 +172,17 @@ async function loadScript(frame, api, src) {
  * the logged-in one of late September 2026 with `ui: "shell"`.
  */
 async function openChat(options = {}) {
-  const frame = await openFrame("c/chat-1.html");
+  // A conversation's page, or with `src: "new-chat.html"` a new chat's, which has no conversation yet.
+  const frame = await openFrame(options.src ?? "c/chat-1.html");
   const mocks = { octane: OctaneMock, shell: ShellMock };
   const chat = new (mocks[options.ui] ?? ChatGptMock)(frame.contentWindow, options);
-  const conversationId = frame.contentWindow.location.pathname.match(/\/c\/([^/?#]+)/)[1];
+  const conversationId = frame.contentWindow.location.pathname.match(/\/c\/([^/?#]+)/)?.[1] ?? null;
   return {
     frame,
     chat,
     conversationId,
     /** Starts a copy of the real content script in the page, with its own extension API. */
-    start: api => loadScript(frame, api, "../../../browser-extension/content.js")
+    start: api => loadScript(frame, api, `${COMPANION}content.js`)
   };
 }
 

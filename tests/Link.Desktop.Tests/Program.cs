@@ -20,7 +20,8 @@ internal static class Program
         foreach (var (name, checks) in new (string, Func<Task>)[]
                  {
                      ("voice session", VoiceSessionTests.RunAsync),
-                     ("browser bridge", BrowserBridgeTests.RunAsync)
+                     ("browser bridge", BrowserBridgeTests.RunAsync),
+                     ("embedded chat", EmbeddedChatTests.RunAsync)
                  })
         {
             var run = checks();

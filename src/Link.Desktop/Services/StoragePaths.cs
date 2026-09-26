@@ -25,4 +25,10 @@ public sealed class StoragePaths
     public string SettingsFile => Path.Combine(Root, "settings.json");
     public string ProjectsFile => Path.Combine(Root, "projects.json");
     public string LastRequestFile => Path.Combine(Root, "last-request.json");
+
+    /// <summary>The embedded ChatGPT page's browser profile, with its session cookies.</summary>
+    public string ChatPageProfile => Path.Combine(Root, "WebView2");
+
+    /// <summary>What the embedded page's companion keeps across restarts: the chat modes it set.</summary>
+    public string CompanionStateFile => Path.Combine(Root, "companion-state.json");
 }

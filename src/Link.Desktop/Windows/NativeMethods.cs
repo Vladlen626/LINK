@@ -38,9 +38,16 @@ internal static class NativeMethods
     internal const int SmYVirtualScreen = 77;
     internal const int SmCxVirtualScreen = 78;
     internal const int SmCyVirtualScreen = 79;
+    internal const uint SwpNoSize = 0x0001;
+    internal const uint SwpNoZOrder = 0x0004;
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpShowWindow = 0x0040;
     internal const int WmExitSizeMove = 0x0232;
+    internal const int WmDisplayChange = 0x007E;
+    internal const long WsExToolWindow = 0x00000080;
+    internal const long WsExNoActivate = 0x08000000;
+    internal const uint MonitorDefaultToPrimary = 0x00000001;
+    internal const uint MonitorDefaultToNearest = 0x00000002;
     internal const int WaveMapper = -1;
     internal const int WaveFormatPcm = 1;
     internal const int WaveMapped = 0x0004;
@@ -144,6 +151,13 @@ internal static class NativeMethods
         int width,
         int height,
         uint flags);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr MonitorFromWindow(IntPtr hWnd, uint flags);
+
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetMonitorInfo(IntPtr monitor, ref MonitorInfo info);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -281,6 +295,15 @@ internal struct NativePoint
 {
     public int X;
     public int Y;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct MonitorInfo
+{
+    public int Size;
+    public NativeRect Monitor;
+    public NativeRect Work;
+    public uint Flags;
 }
 
 [StructLayout(LayoutKind.Sequential)]

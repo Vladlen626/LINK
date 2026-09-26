@@ -1,6 +1,7 @@
 using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
+using Link.Desktop.Models;
 using Link.Desktop.Services;
 using Link.Desktop.Windows;
 
@@ -20,7 +21,8 @@ public partial class App : System.Windows.Application
     private AudioRecorderService? _audio;
     private SherpaStreamingSpeechToText? _streamingSpeech;
     private TextToSpeechService? _textToSpeech;
-    private BrowserChatIntegration? _chat;
+    private IChatIntegration? _chat;
+    private ChatPageWindow? _chatPage;
     private MainWindow? _mainWindow;
     private bool _started;
     private bool _disposed;
@@ -54,7 +56,10 @@ public partial class App : System.Windows.Application
         _currentApplication = new CurrentApplicationService();
         var clipboard = new ClipboardContextService(history);
         var requests = new RequestService(paths);
-        _chat = new BrowserChatIntegration();
+        var embeddedChat = _settings.Current.ChatTransport == ChatTransport.Embedded
+            ? new EmbeddedChatIntegration(paths.CompanionStateFile)
+            : null;
+        _chat = embeddedChat ?? (IChatIntegration)new BrowserChatIntegration();
         _audio = new AudioRecorderService(paths);
         var speechModels = new SpeechModelManager(paths);
         _streamingSpeech = new SherpaStreamingSpeechToText(speechModels);
@@ -82,6 +87,11 @@ public partial class App : System.Windows.Application
         _mainWindow.NotificationRequested += ShowNotification;
         _mainWindow.DiagnosticsReported += Log;
         _mainWindow.Show();
+        if (embeddedChat is not null)
+        {
+            // The page loads once the overlay is up, so Link starts as fast as without it.
+            Dispatcher.InvokeAsync(() => StartChatPage(embeddedChat, paths), DispatcherPriority.ApplicationIdle);
+        }
 
         _hotkeys = new GlobalHotkeyService(_mainWindow, Dispatcher);
         _hotkeys.Pressed += OnHotkeyPressed;
@@ -180,6 +190,22 @@ public partial class App : System.Windows.Application
             case HotkeyAction.CaptureRegion:
                 await _mainWindow.CaptureRegionAsync();
                 break;
+        }
+    }
+
+    /// <summary>Starts the embedded ChatGPT page off screen; if it cannot start, Link runs on without its chat.</summary>
+    private async void StartChatPage(EmbeddedChatIntegration chat, StoragePaths paths)
+    {
+        try
+        {
+            _chatPage = new ChatPageWindow(paths.ChatPageProfile, chat.ComposePageScript());
+            chat.Attach(_chatPage);
+            await _chatPage.StartAsync();
+        }
+        catch (Exception exception)
+        {
+            LogError(exception);
+            _mainWindow?.ShowNonBlockingWarning($"The ChatGPT page could not start: {exception.Message}");
         }
     }
 
@@ -307,7 +333,8 @@ public partial class App : System.Windows.Application
         _audio?.Dispose();
         _streamingSpeech?.Dispose();
         _textToSpeech?.Dispose();
-        _chat?.Dispose();
+        (_chat as IDisposable)?.Dispose();
+        _chatPage?.Shutdown();
         _tray?.Dispose();
         _singleInstance?.Dispose();
     }

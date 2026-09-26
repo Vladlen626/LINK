@@ -15,5 +15,8 @@ public enum ContextItemType
 {
     Screenshot,
     Clipboard,
-    Voice
+    Voice,
+
+    /// <summary>A short summary of the chat a project left, for the new chat's first prompt.</summary>
+    ChatSummary
 }

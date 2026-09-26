@@ -101,6 +101,62 @@ public static class WindowStyleService
         }
     }
 
+    /// <summary>
+    /// Keeps a helper window off the taskbar and Alt+Tab. With <paramref name="noActivate"/> neither a click nor the
+    /// system makes it the active window, so a page working in it cannot take the keyboard from the user.
+    /// </summary>
+    public static void SetToolWindow(Window window, bool noActivate)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero) return;
+        var style = NativeMethods.GetWindowLongPtr(handle, NativeMethods.GwlExStyle).ToInt64() | NativeMethods.WsExToolWindow;
+        style = noActivate ? style | NativeMethods.WsExNoActivate : style & ~NativeMethods.WsExNoActivate;
+        NativeMethods.SetWindowLongPtr(handle, NativeMethods.GwlExStyle, new IntPtr(style));
+    }
+
+    /// <summary>Moves a window just past the right edge of all monitors: shown as far as Windows knows, seen by nobody.</summary>
+    public static void MoveOffScreen(Window window)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero) return;
+        var right = NativeMethods.GetSystemMetrics(NativeMethods.SmXVirtualScreen) +
+                    NativeMethods.GetSystemMetrics(NativeMethods.SmCxVirtualScreen);
+        NativeMethods.SetWindowPos(
+            handle,
+            IntPtr.Zero,
+            right + 64,
+            NativeMethods.GetSystemMetrics(NativeMethods.SmYVirtualScreen),
+            0,
+            0,
+            NativeMethods.SwpNoSize | NativeMethods.SwpNoZOrder | NativeMethods.SwpNoActivate);
+    }
+
+    /// <summary>Centers a window on the monitor <paramref name="anchor"/> is on, within that monitor's work area.</summary>
+    public static void CenterOnMonitorOf(Window window, Window? anchor)
+    {
+        var handle = new WindowInteropHelper(window).Handle;
+        if (handle == IntPtr.Zero || !NativeMethods.GetWindowRect(handle, out var bounds)) return;
+        var anchorHandle = anchor is null ? IntPtr.Zero : new WindowInteropHelper(anchor).Handle;
+        var monitor = NativeMethods.MonitorFromWindow(
+            anchorHandle,
+            anchorHandle == IntPtr.Zero ? NativeMethods.MonitorDefaultToPrimary : NativeMethods.MonitorDefaultToNearest);
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (!NativeMethods.GetMonitorInfo(monitor, ref info)) return;
+
+        const int margin = 24;
+        var work = info.Work;
+        var width = Math.Min(bounds.Width, work.Width - 2 * margin);
+        var height = Math.Min(bounds.Height, work.Height - 2 * margin);
+        NativeMethods.SetWindowPos(
+            handle,
+            IntPtr.Zero,
+            work.Left + (work.Width - width) / 2,
+            work.Top + (work.Height - height) / 2,
+            width,
+            height,
+            NativeMethods.SwpNoZOrder | NativeMethods.SwpNoActivate);
+    }
+
     public static void EnsureVisible(Window window)
     {
         const double visibleEdge = 48;

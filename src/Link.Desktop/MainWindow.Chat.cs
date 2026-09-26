@@ -16,6 +16,15 @@ public partial class MainWindow
     // When a waiting prompt has heard nothing from the chat for this long, Link looks at the chat itself: the tab's
     // watch may have missed the end of the answer. A chat that still thinks or writes is only looked at.
     private static readonly TimeSpan QuietChatCheck = TimeSpan.FromSeconds(20);
+    // ChatGPT itself answers slowly in a chat that has grown very long, while a new chat answers at hundreds of
+    // characters a second; an answer this slow over this long gets a hint to start one.
+    private const double SlowChatCharactersPerSecond = 25;
+    private static readonly TimeSpan SlowChatSample = TimeSpan.FromSeconds(15);
+    // Asked of the chat a project leaves: short, because a long chat writes slowly.
+    private const string SummaryPrompt =
+        "Summarize this conversation so that the work can continue in a new chat: the goal, key decisions and facts, " +
+        "the current state, the next step and open questions. At most 120 words, only the summary, no preamble. " +
+        "Write it in the language of this conversation.";
     private static readonly (ResponseEffort Effort, string Label, string Description)[] EffortOptions =
     [
         (ResponseEffort.Fast, "Fast", "Fast — short answer, no long thinking"),
@@ -33,6 +42,9 @@ public partial class MainWindow
     private string? _chatNotice;
     private DateTime _chatHeardAt;
     private bool _checkingChat;
+    // When the answer began to arrive and how much of it came at once, for the slow-chat hint.
+    private DateTime? _receivingSince;
+    private int _receivingFrom;
 
     /// <summary>What a check of the chat saw on the page, for link.log.</summary>
     public event Action<string>? DiagnosticsReported;
@@ -117,6 +129,7 @@ public partial class MainWindow
         var cancellation = new CancellationTokenSource();
         _sendCancellation = cancellation;
         _chatNotice = null;
+        _receivingSince = null;
         _voice.BeginRequest();
         SetSending(true);
         _chatHeardAt = DateTime.UtcNow;
@@ -162,9 +175,11 @@ public partial class MainWindow
                 _settings.Current.ResponseEffort);
             var progress = new Progress<ChatProgress>(OnChatProgress);
             var response = await _chat.SendAsync(request, conversation, progress, cancellation.Token);
+            // A new chat is linked by now: the answer belongs to the conversation it started.
+            RefreshLinkedTitle(project);
             project.LastResponse = new ProjectResponse
             {
-                ConversationId = conversation.ConversationId,
+                ConversationId = project.LinkedConversation?.ConversationId ?? conversation.ConversationId,
                 Text = response.Text
             };
             _projects.Save();
@@ -175,7 +190,7 @@ public partial class MainWindow
                 ? PromptBox.Text[sent.Length..].Trim()
                 : string.Empty;
             ClearContext(prune: true);
-            SetStatus(ResponseReceivedStatus(), "Done");
+            SetStatus(SlowChatHint(response.Text) ?? ResponseReceivedStatus(), "Done");
             NotifyIfAway(project, "Answer ready", ToNotificationText(response.Text));
             _ = ReadAnswerAloudAsync(response.Text);
             if (_voice.Phase == VoicePhase.Speaking) SetStatus(SpeakingStatus, "Speaking");
@@ -205,6 +220,16 @@ public partial class MainWindow
 
     private string ResponseReceivedStatus() =>
         _chatNotice is null ? "Response received" : $"Response received · {_chatNotice}";
+
+    /// <summary>A hint to start a new chat when ChatGPT typed this answer out slowly: its chat has grown too long.</summary>
+    private string? SlowChatHint(string answer)
+    {
+        if (_receivingSince is not { } since || DateTime.UtcNow - since < SlowChatSample) return null;
+        var rate = (answer.Length - _receivingFrom) / (DateTime.UtcNow - since).TotalSeconds;
+        return rate < SlowChatCharactersPerSecond
+            ? $"Slow answer ({rate:0} characters/s): this chat has grown long, a new one is faster (chat row → New chat)"
+            : null;
+    }
 
     private async Task ReadAnswerAloudAsync(string answer)
     {
@@ -298,7 +323,21 @@ public partial class MainWindow
     {
         if (_sending) return;
         var dialog = new LinkConversationWindow(_chat, _projects.ActiveProject.LinkedConversation) { Owner = this };
-        if (dialog.ShowDialog() != true || dialog.SelectedConversation is not { } conversation) return;
+        var linked = dialog.ShowDialog() == true;
+        // The chat is opened once the dialog is gone: while it is open, Link's other windows take no input.
+        if (dialog.OpenChatRequested)
+        {
+            OpenChat(null);
+            return;
+        }
+
+        if (dialog.NewChatRequested)
+        {
+            _ = StartNewChatAsync(dialog.WithSummary);
+            return;
+        }
+
+        if (!linked || dialog.SelectedConversation is not { } conversation) return;
 
         _projects.ActiveProject.LinkedConversation = new ChatConversationLink
         {
@@ -313,6 +352,115 @@ public partial class MainWindow
         SetStatus($"Linked to {conversation.Title}");
     }
 
+    /// <summary>
+    /// Moves the project to a new chat, in the ChatGPT project of its current one: the next message starts it and links
+    /// the project to it. With a summary, the current chat writes a short one first; it waits in the context stack and
+    /// goes with that message, visible and removable like any context.
+    /// </summary>
+    private async Task StartNewChatAsync(bool withSummary)
+    {
+        if (_sending) return;
+        var project = _projects.ActiveProject;
+        var current = project.LinkedConversation;
+        ChatConversationLink next;
+        try
+        {
+            next = _chat.NewChat(current);
+        }
+        catch (InvalidOperationException exception)
+        {
+            SetError(exception.Message);
+            return;
+        }
+
+        if (withSummary && current is { IsNew: false })
+        {
+            var summary = await WriteSummaryAsync(project, current);
+            if (summary is null) return;
+            foreach (var old in _context.Where(item => item.Type == ContextItemType.ChatSummary).ToArray()) _context.Remove(old);
+            AddContext(new ContextItem { Type = ContextItemType.ChatSummary, Label = "Summary of the previous chat", Text = summary });
+        }
+
+        project.LinkedConversation = next;
+        _projects.Save();
+        UpdateConnectionState();
+        // The previous chat's answer stays on screen only when it is the summary that goes on.
+        if (!withSummary) ShowProjectResponse(project);
+        SetStatus(withSummary
+            ? "Summary ready: your next message starts the new chat and takes it along"
+            : "Your next message starts a new chat");
+    }
+
+    /// <summary>The current chat's summary of itself, or null when it could not be written (the reason is shown).</summary>
+    private async Task<string?> WriteSummaryAsync(LinkProject project, ChatConversationLink conversation)
+    {
+        var cancellation = new CancellationTokenSource();
+        _sendCancellation = cancellation;
+        _chatNotice = null;
+        _receivingSince = null;
+        SetSending(true);
+        _chatHeardAt = DateTime.UtcNow;
+        ShowResponse(ChatProgressState.Sending, string.Empty);
+        SetStatus("Asking the current chat for a summary…", "Sending");
+        try
+        {
+            // Fast: a summary needs no long thinking, and a long chat writes slowly as it is.
+            var request = _requests.BuildAndLog(project, SummaryPrompt, [], null, ResponseEffort.Fast);
+            var response = await _chat.SendAsync(request, conversation, new Progress<ChatProgress>(OnChatProgress), cancellation.Token);
+            ShowResponse(ChatProgressState.Completed, response.Text);
+            return response.Text;
+        }
+        catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
+        {
+            ShowResponse(ChatProgressState.Cancelled, "Summary cancelled.");
+            SetStatus("Summary cancelled; the project stays with its chat.", "Cancelled");
+            return null;
+        }
+        catch (Exception exception)
+        {
+            ShowResponse(ChatProgressState.Error, exception.Message);
+            SetError($"No summary: {exception.Message} The project stays with its chat.");
+            return null;
+        }
+        finally
+        {
+            _sendCancellation = null;
+            cancellation.Dispose();
+            SetSending(false);
+        }
+    }
+
+    /// <summary>The prompt started the project's new chat: the project is linked to that conversation from now on.</summary>
+    private void LinkStartedChat(AvailableChatConversation? started)
+    {
+        var project = _projects.ActiveProject;
+        if (started is null || project.LinkedConversation is not { IsNew: true } link) return;
+        project.LinkedConversation = new ChatConversationLink
+        {
+            TransportId = link.TransportId,
+            ConversationId = started.ConversationId,
+            Title = started.Title,
+            Url = started.Url
+        };
+        _projects.Save();
+        UpdateConnectionState();
+    }
+
+    /// <summary>ChatGPT names a new chat once it has answered, and a chat can be renamed there: the link follows.</summary>
+    private void RefreshLinkedTitle(LinkProject project)
+    {
+        if (project.LinkedConversation is not { IsNew: false } link) return;
+        var seen = _chat.GetAvailableConversations().FirstOrDefault(conversation => conversation.ConversationId == link.ConversationId);
+        if (seen is null || seen.Title == link.Title) return;
+        project.LinkedConversation = new ChatConversationLink
+        {
+            TransportId = link.TransportId,
+            ConversationId = link.ConversationId,
+            Title = seen.Title,
+            Url = link.Url
+        };
+    }
+
     private void UnlinkConversation()
     {
         if (_sending) return;
@@ -325,6 +473,20 @@ public partial class MainWindow
 
     private void ChatConnection_OnClick(object sender, RoutedEventArgs e) => LinkConversation();
 
+    private void OpenChat_OnClick(object sender, RoutedEventArgs e) => OpenChat(_projects.ActiveProject.LinkedConversation);
+
+    private void OpenChat(ChatConversationLink? conversation)
+    {
+        try
+        {
+            _chat.OpenChat(conversation);
+        }
+        catch (Exception exception)
+        {
+            SetError(exception.Message);
+        }
+    }
+
     private void UpdateConnectionState()
     {
         var conversation = _projects.ActiveProject.LinkedConversation;
@@ -332,14 +494,16 @@ public partial class MainWindow
         ChatConnectionText.Text = state switch
         {
             ChatConnectionState.NoLinkedConversation => "No linked conversation",
+            ChatConnectionState.Connecting => $"Connecting to ChatGPT… · {conversation?.Title}",
             ChatConnectionState.BridgeUnavailable => $"ChatGPT unavailable · {conversation?.Title}",
+            ChatConnectionState.SignInRequired => "Sign in to ChatGPT: Open chat",
             ChatConnectionState.ConversationAvailable => $"ChatGPT connected · {conversation?.Title}",
             _ => "ChatGPT unavailable"
         };
         ChatStatusDot.Fill = (Brush)FindResource(state switch
         {
             ChatConnectionState.ConversationAvailable => "SuccessOrbBrush",
-            ChatConnectionState.BridgeUnavailable => "ErrorOrbBrush",
+            ChatConnectionState.BridgeUnavailable or ChatConnectionState.SignInRequired => "ErrorOrbBrush",
             _ => "IdleOrbBrush"
         });
     }
@@ -371,6 +535,18 @@ public partial class MainWindow
     private void OnChatProgress(ChatProgress progress)
     {
         _chatHeardAt = DateTime.UtcNow;
+        if (progress.State == ChatProgressState.ChatStarted)
+        {
+            LinkStartedChat(progress.StartedConversation);
+            return;
+        }
+
+        if (progress.State == ChatProgressState.Receiving && _receivingSince is null)
+        {
+            _receivingSince = DateTime.UtcNow;
+            _receivingFrom = progress.Text.Length;
+        }
+
         if (progress.Diagnostics is { } diagnostics)
         {
             DiagnosticsReported?.Invoke($"Chat {progress.State.ToString().ToLowerInvariant()}: {diagnostics}");
@@ -393,7 +569,7 @@ public partial class MainWindow
             ChatProgressState.Sending => "Sending to ChatGPT…",
             ChatProgressState.Waiting => "Waiting for ChatGPT…",
             ChatProgressState.Receiving => "Receiving response…",
-            ChatProgressState.Reconnecting => "Reconnecting to the ChatGPT tab…",
+            ChatProgressState.Reconnecting => "Reconnecting to ChatGPT…",
             ChatProgressState.Completed => "Response received",
             ChatProgressState.Error => $"Error: {progress.Error}",
             _ => "Working…"

@@ -156,7 +156,9 @@
                         </Border>
 
                         <Grid Margin="0,4,0,0">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
                             <Button x:Name="ChatConnectionButton" Style="{StaticResource GhostButtonStyle}" Height="26"
                                     Padding="8,2" HorizontalContentAlignment="Left" Click="ChatConnection_OnClick"
                                     ToolTip="Link this project to a ChatGPT conversation">
@@ -168,7 +170,11 @@
                                                Foreground="{StaticResource MutedBrush}" Text="No linked conversation" TextTrimming="CharacterEllipsis" />
                                 </Grid>
                             </Button>
-                            <Button x:Name="EffortButton" Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="4,0,0,0"
+                            <Button x:Name="OpenChatButton" Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="4,0,0,0"
+                                    Padding="8,2" Click="OpenChat_OnClick" ToolTip="Show the linked ChatGPT chat">
+                                <TextBlock VerticalAlignment="Center" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="Open chat" />
+                            </Button>
+                            <Button x:Name="EffortButton" Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="4,0,0,0"
                                     Padding="8,2" Click="Effort_OnClick" ToolTip="Response effort">
                                 <TextBlock x:Name="EffortText" VerticalAlignment="Center" FontSize="11.5"
                                            Foreground="{StaticResource MutedBrush}" Text="Normal" />
@@ -288,6 +294,9 @@
                                                             <DataTrigger Binding="{Binding Type}" Value="Voice">
                                                                 <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><Viewbox><Path Data="{StaticResource MicrophoneIconGeometry}" Fill="Transparent" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.9" StrokeStartLineCap="Round" /></Viewbox></DataTemplate></Setter.Value></Setter>
                                                             </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Type}" Value="ChatSummary">
+                                                                <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><Viewbox><Path Data="{StaticResource LinkIconGeometry}" Fill="Transparent" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.9" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox></DataTemplate></Setter.Value></Setter>
+                                                            </DataTrigger>
                                                         </Style.Triggers>
                                                     </Style>
                                                 </ContentControl.Style>
@@ -340,7 +349,7 @@
                                            FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Waiting" />
                                 <Button x:Name="CheckChatButton" Grid.Column="2" Height="22" Margin="4,0,0,0" Padding="9,0" FontSize="11"
                                         Click="CheckChat_OnClick" Content="Check chat"
-                                        ToolTip="Take the answer from the linked ChatGPT tab if it did not arrive" />
+                                        ToolTip="Take the answer from the linked chat if it did not arrive" />
                                 <Button Grid.Column="3" Height="22" Margin="4,0" Padding="9,0" FontSize="11"
                                         Click="CopyResponse_OnClick" Content="Copy" />
                                 <Button Grid.Column="4" Style="{StaticResource TinyIconButtonStyle}"

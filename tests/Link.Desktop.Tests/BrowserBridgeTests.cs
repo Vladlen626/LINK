@@ -196,13 +196,13 @@ internal sealed class BridgeRig : IDisposable
         bool attachment = false,
         CancellationToken cancellation = default) =>
         Bridge.EnqueueAsync(
-            new BrowserBridgeRequest
+            new ChatPageRequest
             {
                 RequestId = Guid.NewGuid(),
                 ConversationId = Chat,
                 Prompt = prompt,
                 Attachments = attachment
-                    ? [new BrowserBridgeAttachment { FileName = "shot.png", MimeType = "image/png", Base64 = "AA==" }]
+                    ? [new ChatPageAttachment { FileName = "shot.png", MimeType = "image/png", Base64 = "AA==" }]
                     : []
             },
             progress ?? Progress,
@@ -283,6 +283,11 @@ internal sealed class ProgressLog : IProgress<ChatProgress>
         {
             lock (_reports) return _reports.LastOrDefault();
         }
+    }
+
+    public ChatProgress? Find(ChatProgressState state)
+    {
+        lock (_reports) return _reports.FirstOrDefault(report => report.State == state);
     }
 
     public void Report(ChatProgress value)

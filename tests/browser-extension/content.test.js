@@ -395,6 +395,28 @@ check("shell: Check chat sees ChatGPT writing, and Stop in LINK presses its Ос
   await until("ChatGPT is stopped", () => page.chat.stopClicks === 1, 5000);
 });
 
+// ChatGPT then gives the chat its /c/<id> address, which a file:// page cannot take on; LINK's checks cover that part.
+check("shell: a new chat's page takes the prompt that starts it", async () => {
+  const page = await openChat({ ui: "shell", src: "new-chat.html", turns: 0 });
+  expect("a new chat's page has no conversation", page.conversationId, null);
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest("", "Первый вопрос нового чата");
+  expect("the page takes the prompt", await ask(api, request), { accepted: true, version: VERSION });
+  const completed = await completedOf(bridge, request);
+  expect("the answer completes", completed?.text, ANSWER_MARKDOWN);
+  expect("the prompt is sent once", page.chat.sent, ["Первый вопрос нового чата"]);
+});
+
+check("a prompt for a linked chat is not sent on a new chat's page", async () => {
+  const page = await openChat({ ui: "shell", src: "new-chat.html", turns: 0 });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest("chat-1.html", "Вопрос");
+  await ask(api, request);
+  const error = await until("an error is reported", () => bridge.of(request.requestId, "error")[0]);
+  expect("it says the page shows another conversation", error?.error, "The linked ChatGPT page shows another conversation.");
+  expect("nothing is sent", page.chat.sent, []);
+});
+
 check("a chat still writing an earlier answer gets no prompt, and LINK's words leave its composer", async () => {
   let page = await openChat({ ui: "shell", busyMs: 60000 });
   let { api, bridge } = await startCompanion(page);

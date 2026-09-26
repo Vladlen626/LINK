@@ -60,6 +60,20 @@
                         </Grid>
                     </Border>
 
+                    <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="CHATGPT" />
+                    <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="44" /></Grid.RowDefinitions>
+                            <TextBlock VerticalAlignment="Center" Text="Connection" />
+                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
+                                <ComboBox x:Name="ChatTransportCombo" Width="190" />
+                                <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}"
+                                           Text="applies after restart" />
+                            </StackPanel>
+                        </Grid>
+                    </Border>
+
                     <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="VOICE" />
                     <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
                         <Grid>

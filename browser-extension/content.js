@@ -1,6 +1,7 @@
 (() => {
 // This copy's own extension API: when the extension is reloaded it goes dead here, and a newer copy gets a new one.
-const chrome = globalThis.chrome;
+// In LINK's embedded ChatGPT page there is no extension: LINK wraps this script with its own stand-in for the API.
+const chrome = typeof linkHostApi === "undefined" ? globalThis.chrome : linkHostApi;
 const VERSION = chrome.runtime.getManifest().version;
 // One working copy per page: the manifest and the service worker may both start this script, and two copies would
 // both answer every LINK request.
@@ -51,6 +52,8 @@ const COMPOSERS = ["#prompt-textarea", 'textarea[data-testid="prompt-textarea"]'
   "[data-mobile-composer-prompt]", 'textarea[placeholder*="Message"]', '[contenteditable="true"][data-virtualkeyboard]'];
 const SEND_BUTTONS = ['button[data-testid="send-button"]', "button[data-composer-submit]", 'button[aria-label="Send prompt"]',
   'form button[type="submit"]'];
+// A page that offers to log in has no account signed in: the classic one's test id, the new UI's ("octane") buttons.
+const LOGIN_BUTTONS = '[data-testid="login-button"], [data-login-button], [data-mobile-auth-entry-action="login"]';
 // The `i` flag folds only Latin case, so the Russian label is matched as ChatGPT writes it ("Остановить").
 const STOP_BUTTONS = 'button[data-testid="stop-button"], button[data-composer-submit], ' +
   'button[aria-label*="stop" i], button[aria-label*="Останов"], button[aria-label*="останов"]';
@@ -109,7 +112,9 @@ function onMessage(message, _sender, sendResponse) {
   if (retired) return;
   switch (message?.type) {
     case "link-hello":
-      sendResponse({ version: VERSION, instanceId, conversation: getConversation(), busy: current?.requestId ?? null });
+      sendResponse({
+        version: VERSION, instanceId, conversation: getConversation(), busy: current?.requestId ?? null, signedIn: isSignedIn()
+      });
       return;
     case "link-request":
       sendResponse({ accepted: true, version: VERSION });
@@ -147,21 +152,27 @@ function retire() {
   if (globalThis.linkCompanion?.instanceId === instanceId) delete globalThis.linkCompanion;
 }
 
+/** Tells LINK what the page shows: a page without a conversation too, since whether it is signed in matters there. */
 function announceConversation() {
   if (!chrome.runtime?.id) {
     // The extension was reloaded; this orphaned copy can no longer reach it.
     retire();
     return;
   }
-  const conversation = getConversation();
-  if (!conversation) return;
-  void chrome.runtime.sendMessage({ type: "link-announce", conversation, busy: current?.requestId ?? null })
-    .catch(() => {});
+  void chrome.runtime.sendMessage({
+    type: "link-announce", conversation: getConversation(), busy: current?.requestId ?? null, signedIn: isSignedIn(), instanceId
+  }).catch(() => {});
 }
 
 function getConversation() {
   const conversationId = getConversationId();
   return conversationId ? { conversationId, title: getConversationTitle(), url: location.href } : null;
+}
+
+/** Whether an account is signed in: false on a page that offers to log in, null while the page has no composer yet. */
+function isSignedIn() {
+  if ([...document.querySelectorAll(LOGIN_BUTTONS)].some(isShown)) return false;
+  return findComposer() ? true : null;
 }
 
 async function handlePrompt(request) {
@@ -175,7 +186,7 @@ async function handlePrompt(request) {
     const previous = current;
     try {
       await report(previous.requestId, "heartbeat");
-      await reportQuietly(request.requestId, "error", { error: "The ChatGPT tab is still busy with the previous LINK request." });
+      await reportQuietly(request.requestId, "error", { error: "The ChatGPT page is still busy with the previous LINK request." });
       return;
     } catch (error) {
       stopJob(previous, error);
@@ -186,7 +197,9 @@ async function handlePrompt(request) {
 
   const job = {
     requestId: request.requestId,
-    conversationId: request.conversationId,
+    // None for a new chat: ChatGPT gives it an id once it takes the prompt, and LINK links the project to it.
+    conversationId: request.conversationId || null,
+    started: null,
     // The prompt's first words, to find it among the chat's messages however the chat renders it.
     head: looseText(request.prompt).slice(0, 60),
     stopReason: null,
@@ -212,6 +225,19 @@ async function handlePrompt(request) {
   if (current === job) current = null;
 }
 
+/** A new chat that has taken its prompt has an id: from then on it is the job's conversation, and LINK's. */
+function adoptConversation(job) {
+  const conversationId = getConversationId();
+  if (job.conversationId || !conversationId) return;
+  job.conversationId = conversationId;
+  job.started = getConversation();
+}
+
+/** A new chat's events tell LINK the conversation ChatGPT started for it, so the project is linked to it. */
+function withStarted(job, details = {}) {
+  return job.started ? { ...details, conversation: job.started } : details;
+}
+
 function stopJob(job, reason) {
   job.stopReason ??= reason;
   job.wake?.();
@@ -220,7 +246,9 @@ function stopJob(job, reason) {
 async function runPrompt(request, job) {
   try {
     if (getConversationId() !== job.conversationId) {
-      throw new Error("The linked ChatGPT tab shows another conversation.");
+      throw new Error(job.conversationId
+        ? "The linked ChatGPT page shows another conversation."
+        : "The ChatGPT page is not on a new chat.");
     }
     const saved = await loadRequestState(request.requestId);
     job.lastUserKey = saved?.lastUserKey ?? null;
@@ -233,7 +261,8 @@ async function runPrompt(request, job) {
     else await sendPrompt(request, job);
 
     const answer = await watchAnswer(job);
-    await report(request.requestId, "completed", answer, 8);
+    adoptConversation(job);
+    await report(request.requestId, "completed", withStarted(job, answer), 8);
     void forgetRequestState(request.requestId);
   } catch (error) {
     if (error instanceof RetiredError) return;
@@ -648,7 +677,7 @@ async function attachImages(composer, attachments) {
       document.querySelector('[data-testid="composer-plus-btn"]');
     if (addButton instanceof HTMLButtonElement) addButton.click();
     input = await waitFor(findImageInput, 3000,
-      "ChatGPT did not expose an image upload control. Reload the linked ChatGPT tab and try again.");
+      "ChatGPT did not expose an image upload control. Reload the ChatGPT page and try again.");
   }
 
   const transfer = new DataTransfer();
@@ -923,7 +952,7 @@ async function watchAnswer(job) {
   // Events LINK does not take are tried again on the next look; only a long silence of LINK ends the wait.
   const tell = async (state, details) => {
     try {
-      await report(job.requestId, state, details, 1);
+      await report(job.requestId, state, withStarted(job, details), 1);
       bridgeAt = Date.now();
       return true;
     } catch (error) {
@@ -951,8 +980,9 @@ async function watchAnswer(job) {
       if (job.stopReason) throw job.stopReason;
       const now = Date.now();
       if (now - startedAt > RESPONSE_TIMEOUT_MS) throw new Error("Timed out waiting for ChatGPT to finish the response.");
+      adoptConversation(job);
       if (getConversationId() !== job.conversationId) {
-        throw new Error("The linked ChatGPT tab switched to another conversation; the answer stays in that chat.");
+        throw new Error("The ChatGPT page switched to another conversation; the answer stays in that chat.");
       }
       stale = page.takeChanges() || stale;
       if (!form?.isConnected) form = composerForm();
@@ -1064,7 +1094,7 @@ async function watchAnswer(job) {
 function finishAnswer(job, response, reason, seen) {
   const read = readAnswer(response);
   const text = read.markdown || read.plain || seen;
-  if (!text) throw new Error("ChatGPT's answer has no text LINK can show. Look at the ChatGPT tab.");
+  if (!text) throw new Error("ChatGPT's answer has no text LINK can show. Look at the ChatGPT page.");
   const usual = (reason === "turn actions" || reason === "completion flag" || reason === "settled") && read.markdown;
   return usual ? { text } : { text, diagnostics: JSON.stringify({ completedBy: reason, ...diagnose(job, response) }) };
 }
@@ -1378,13 +1408,17 @@ async function waitFor(producer, timeoutMs, errorMessage) {
 }
 
 function getConversationId() {
-  return location.pathname.match(/\/c\/([^/?#]+)/)?.[1] ?? null;
+  const id = location.pathname.match(/\/c\/([^/?#]+)/)?.[1] ?? null;
+  // A chat ChatGPT is just starting has a local id ("local-chatgpt:…") for a moment; it is no conversation yet.
+  return id?.startsWith("local-") ? null : id;
 }
 
+// ChatGPT names itself after the chat's title: "Title - ChatGPT", or "Title | ChatGPT для мобильных устройств" in the
+// logged-out UI.
 function getConversationTitle() {
   return document.title
-    .replace(/\s*[—-]\s*ChatGPT\s*$/i, "")
-    .replace(/^ChatGPT\s*[—-]\s*/i, "")
+    .replace(/\s*[|—-]\s*ChatGPT\b[^|—-]*$/i, "")
+    .replace(/^ChatGPT\s*[|—-]\s*/i, "")
     .trim() || "ChatGPT conversation";
 }
 
