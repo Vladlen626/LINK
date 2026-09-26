@@ -22,4 +22,10 @@ internal interface IChatPage
 
     /// <summary>Brings the page in front of the user.</summary>
     void Reveal();
+
+    /// <summary>
+    /// Lets the page rest while LINK does not need it, or wakes it. A resting page is out of its engine's sight: it draws
+    /// nothing and keeps less memory, while its companion goes on. A page in front of the user never rests.
+    /// </summary>
+    void Rest(bool resting);
 }

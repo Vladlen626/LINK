@@ -31,6 +31,7 @@ internal static class EmbeddedChatTests
         await NewChatAsync();
         await NewChatSignedOutAsync();
         await StalePageAsync();
+        await RestAsync();
         NewChatPlaces();
         ComposedScript();
     }
@@ -91,7 +92,8 @@ internal static class EmbeddedChatTests
     /// <summary>A page kept for hours is loaded afresh, but only while nothing waits on it and the user does not look at it.</summary>
     private static async Task StalePageAsync()
     {
-        var aged = new PageTimings(TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
+        var aged = new PageTimings(
+            TimeSpan.FromMilliseconds(20), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(50), TimeSpan.FromMilliseconds(200));
         using (var rig = new EmbeddedRig(pageTimings: aged))
         {
             rig.Page.StartDocument();
@@ -116,6 +118,26 @@ internal static class EmbeddedChatTests
             await Task.Delay(400);
             Program.Equal("and so is a page busy with an answer", rig.Page.Navigations.Count, 0);
         }
+    }
+
+    /// <summary>A page LINK does not need rests; it is awake before it gets a request and while LINK waits on it.</summary>
+    private static async Task RestAsync()
+    {
+        using var rig = new EmbeddedRig(pageTimings: EmbeddedRig.PageTimingsForTests with { Rest = TimeSpan.FromMilliseconds(200) });
+        await rig.Page.AnnounceAsync("chat-1");
+        Program.Equal("a page just started is awake", rig.Page.IsResting, false);
+        await Program.EventuallyAsync("a page nobody needs rests", () => rig.Page.IsResting, true);
+
+        var answer = rig.SendAsync("Hi");
+        var request = await rig.Page.NextRequestAsync();
+        Program.Equal("the page is woken before it gets the request", rig.Page.RestingWhenRequested, false);
+        await rig.Page.ReportAsync(request.Id, "waiting");
+        await Task.Delay(400);
+        Program.Equal("it stays awake while LINK waits for the answer", rig.Page.IsResting, false);
+        await rig.Page.ReportAsync(request.Id, "completed", "Hello.");
+        await answer;
+        Program.Equal("and is awake for a follow-up", rig.Page.IsResting, false);
+        await Program.EventuallyAsync("it rests again once LINK has not needed it for a while", () => rig.Page.IsResting, true);
     }
 
     private static void NewChatPlaces()
@@ -480,6 +502,11 @@ internal sealed class FakeChatPage : IChatPage
 
     public bool IsRevealed { get; private set; }
 
+    public bool IsResting { get; private set; }
+
+    /// <summary>Whether the page rested when LINK last handed it a request.</summary>
+    public bool? RestingWhenRequested { get; private set; }
+
     public IReadOnlyList<Uri> Navigations
     {
         get
@@ -497,6 +524,7 @@ internal sealed class FakeChatPage : IChatPage
     {
         using var message = JsonDocument.Parse(json);
         lock (_posted) _posted.Add(message.RootElement.Clone());
+        if (message.RootElement.GetProperty("kind").GetString() == "message") RestingWhenRequested = IsResting;
     }
 
     public void Navigate(Uri address)
@@ -505,6 +533,8 @@ internal sealed class FakeChatPage : IChatPage
     }
 
     public void Reveal() => IsRevealed = true;
+
+    public void Rest(bool resting) => IsResting = resting;
 
     public void StartDocument() => DocumentStarted?.Invoke();
 

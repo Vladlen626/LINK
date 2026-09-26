@@ -30,8 +30,9 @@ C#, .NET 10, WPF, one assembly.
 - `Windows/` Win32 only: `NativeMethods`, hotkeys (RegisterHotKey, low-level hook for push-to-talk), GDI capture,
   waveIn audio, tray, window styles, `CurrentApplicationService` (latched work target).
 - `MainWindow.*.cs` partials by concern: shell/projects/context, Chat, Capture, Voice, Sizing.
-- `ChatPageWindow` the embedded ChatGPT page (WebView2). It must stay visible to its engine: never hide or minimize
-  it — it waits off screen, or ChatGPT is throttled to a few characters a second.
+- `ChatPageWindow` the embedded ChatGPT page (WebView2). Never hide or minimize the window — it waits off screen, or
+  ChatGPT is throttled to a few characters a second. Only the page inside rests, out of its engine's sight, while
+  LINK does not need it (`IChatPage.Rest`); it is awake for every request.
 - `companion/` the script that drives the ChatGPT DOM in the embedded page: `content.js` on `embedded-host.js`.
 - User data: `%LocalAppData%\Link` — settings.json, projects.json, Screenshots, Recordings, Models, link.log,
   WebView2 (the ChatGPT session: never log or copy it), companion-state.json.

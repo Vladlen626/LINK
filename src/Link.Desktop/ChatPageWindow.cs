@@ -12,11 +12,13 @@ namespace Link.Desktop;
 /// <summary>
 /// LINK's own ChatGPT page. WebView2 cannot draw in the layered overlay, so the page has a window of its own. The window
 /// is never hidden or minimized: the engine would then throttle the page, and ChatGPT would type an answer out a few
-/// characters a second. Out of the user's way, it waits off every monitor instead.
+/// characters a second. Out of the user's way, it waits off every monitor instead. While LINK does not need it, the
+/// page rests out of its engine's sight: drawn off screen, ChatGPT's animations would cost a tenth of a core all day.
 /// </summary>
 internal sealed class ChatPageWindow : Window, IChatPage
 {
-    // The engine keeps a page it does not see drawn at full speed.
+    // The engine draws a page it does not see at full speed, and a resting page's timers, the companion's too, still run
+    // on time.
     private const string BrowserArguments =
         "--disable-background-timer-throttling --disable-renderer-backgrounding --disable-backgrounding-occluded-windows";
     // Signing in may open windows of its own; they stay in the page's profile, so the session lands where LINK needs it.
@@ -34,6 +36,7 @@ internal sealed class ChatPageWindow : Window, IChatPage
     private WebView2? _view;
     private Uri _address = ChatPageAddress.Home;
     private volatile bool _revealed;
+    private bool _resting;
     private bool _closing;
     private DateTime _recoveredAt = DateTime.MinValue;
 
@@ -120,10 +123,23 @@ internal sealed class ChatPageWindow : Window, IChatPage
         }
 
         _revealed = true;
+        ShowPage();
         WindowStyleService.SetToolWindow(this, noActivate: false);
         WindowStyleService.CenterOnMonitorOf(this, Application.Current.MainWindow);
         Activate();
         _view?.Focus();
+    }
+
+    public void Rest(bool resting)
+    {
+        if (!Dispatcher.CheckAccess())
+        {
+            Dispatcher.InvokeAsync(() => Rest(resting));
+            return;
+        }
+
+        _resting = resting;
+        ShowPage();
     }
 
     /// <summary>Closes the window for good, when LINK exits.</summary>
@@ -173,7 +189,17 @@ internal sealed class ChatPageWindow : Window, IChatPage
         core.ProcessFailed += OnProcessFailed;
         core.DocumentTitleChanged += (_, _) => Title = $"{core.DocumentTitle} · Link";
         await core.AddScriptToExecuteOnDocumentCreatedAsync(_script);
+        ShowPage();
         core.Navigate(_address.AbsoluteUri);
+    }
+
+    /// <summary>Keeps the page in its engine's sight while LINK or the user needs it, and lets it rest otherwise.</summary>
+    private void ShowPage()
+    {
+        if (_view?.CoreWebView2 is not { } core) return;
+        var awake = _revealed || !_resting;
+        _view.Visibility = awake ? Visibility.Visible : Visibility.Hidden;
+        core.MemoryUsageTargetLevel = awake ? CoreWebView2MemoryUsageTargetLevel.Normal : CoreWebView2MemoryUsageTargetLevel.Low;
     }
 
     private void OnWebMessageReceived(object? sender, CoreWebView2WebMessageReceivedEventArgs e)
@@ -304,6 +330,7 @@ internal sealed class ChatPageWindow : Window, IChatPage
     {
         if (_closing) return;
         _revealed = false;
+        ShowPage();
         Hide();
         WindowState = WindowState.Normal;
         WindowStyleService.SetToolWindow(this, noActivate: true);

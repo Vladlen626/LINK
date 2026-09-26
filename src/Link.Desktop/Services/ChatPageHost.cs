@@ -35,6 +35,7 @@ internal sealed partial class ChatPageHost : IDisposable
     private IChatPage? _page;
     private Companion? _companion;
     private long _documentStartedAt;
+    private long _usedAt = Stopwatch.GetTimestamp();
     private string? _loadError;
     private TaskCompletionSource _heard = NewSignal();
     private Task _saving = Task.CompletedTask;
@@ -57,7 +58,7 @@ internal sealed partial class ChatPageHost : IDisposable
             if (IsKeptKey(key)) _storage[key] = value;
         }
 
-        _timer = new Timer(_ => OnTimer(), null, timings.IdleCheck, Timeout.InfiniteTimeSpan);
+        _timer = new Timer(_ => OnTimer(), null, timings.Rest, Timeout.InfiniteTimeSpan);
         _broker.RequestQueued += OnRequestQueued;
     }
 
@@ -110,6 +111,7 @@ internal sealed partial class ChatPageHost : IDisposable
     /// </summary>
     public async Task OpenAsync(ChatConversationLink conversation, CancellationToken cancellationToken)
     {
+        Use();
         var started = Stopwatch.GetTimestamp();
         var navigated = false;
         while (true)
@@ -168,6 +170,7 @@ internal sealed partial class ChatPageHost : IDisposable
     /// </summary>
     public async Task OpenNewChatAsync(Uri place, CancellationToken cancellationToken)
     {
+        Use();
         IChatPage page;
         string? before;
         lock (_gate)
@@ -411,6 +414,13 @@ internal sealed partial class ChatPageHost : IDisposable
 
     private void OnRequestQueued(string conversationId) => Pump();
 
+    /// <summary>Wakes the page for LINK's work with it; it rests again once LINK has not needed it for a while.</summary>
+    private void Use()
+    {
+        lock (_gate) _usedAt = Stopwatch.GetTimestamp();
+        Pump();
+    }
+
     private void OnTimer()
     {
         Pump();
@@ -433,6 +443,9 @@ internal sealed partial class ChatPageHost : IDisposable
             conversationId = _companion is { } companion && IsFresh(companion)
                 ? companion.Conversation?.ConversationId ?? string.Empty
                 : null;
+            // The page is awake while LINK has a request for it, and rests once LINK has not needed it for a while.
+            if (_broker.HasPending) _usedAt = Stopwatch.GetTimestamp();
+            page?.Rest(Since(_usedAt) >= _timings.Rest);
         }
 
         if (page is not null && conversationId is not null)
@@ -450,7 +463,11 @@ internal sealed partial class ChatPageHost : IDisposable
 
         lock (_gate)
         {
-            if (!_disposed) _timer.Change(_broker.HasPending ? _timings.Delivery : _timings.IdleCheck, Timeout.InfiniteTimeSpan);
+            if (_disposed) return;
+            var quiet = Since(_usedAt);
+            _timer.Change(
+                _broker.HasPending ? _timings.Delivery : quiet < _timings.Rest ? _timings.Rest - quiet : _timings.IdleCheck,
+                Timeout.InfiniteTimeSpan);
         }
     }
 
@@ -567,14 +584,18 @@ internal sealed partial class ChatPageHost : IDisposable
 /// <summary>How often LINK looks after its ChatGPT page.</summary>
 /// <param name="Delivery">Between offers of a waiting request to a page that has gone quiet about it.</param>
 /// <param name="IdleCheck">Between looks at a page that nothing waits on.</param>
+/// <param name="Rest">
+/// Of quiet before the page rests: long enough for a follow-up question, while waking a resting page takes no time.
+/// </param>
 /// <param name="PageLifetime">
 /// Of a page's age before an idle one is loaded afresh: a page kept for hours runs ChatGPT's code of that morning and
 /// holds what it collected since.
 /// </param>
-internal sealed record PageTimings(TimeSpan Delivery, TimeSpan IdleCheck, TimeSpan PageLifetime)
+internal sealed record PageTimings(TimeSpan Delivery, TimeSpan IdleCheck, TimeSpan Rest, TimeSpan PageLifetime)
 {
     public static PageTimings Default { get; } = new(
         Delivery: TimeSpan.FromSeconds(1),
         IdleCheck: TimeSpan.FromMinutes(10),
+        Rest: TimeSpan.FromMinutes(1),
         PageLifetime: TimeSpan.FromHours(6));
 }
