@@ -21,6 +21,7 @@ public partial class MainWindow
         {
             ShowPassive();
             var usedSelectedMicrophone = _voice.StartListening();
+            _cues.Play(SoundCue.Listening);
             SetStatus(!usedSelectedMicrophone
                 ? "Selected microphone is not connected — listening on the Windows default"
                 : _voice.DraftNote is { } note ? $"Listening — {note}" : "Listening — release to finish");

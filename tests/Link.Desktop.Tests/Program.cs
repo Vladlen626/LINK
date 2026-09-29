@@ -17,6 +17,7 @@ internal static class Program
         Console.OutputEncoding = Encoding.UTF8;
         SpeechTextTests.Run();
         PromptDraftTests.Run();
+        SoundCueTests.Run();
         foreach (var (name, checks) in new (string, Func<Task>)[]
                  {
                      ("voice session", VoiceSessionTests.RunAsync),

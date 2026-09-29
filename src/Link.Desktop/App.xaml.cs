@@ -65,11 +65,13 @@ public partial class App : System.Windows.Application
         _speechModels = speechModels;
         _streamingSpeech = new SherpaStreamingSpeechToText(speechModels);
         _geminiKey = new GeminiKeyStore(paths.GeminiKeyFile);
+        // One player for the voice and the sound cues; the voice owns it.
+        var speaker = new AudioPlayer();
         _textToSpeech = new TextToSpeechService(
             new GeminiTtsProvider(_geminiKey),
             new LocalTtsProvider(speechModels),
             new WindowsTtsProvider(),
-            new AudioPlayer(),
+            speaker,
             Log);
         var voice = new VoiceSession(
             _settings.Current,
@@ -79,6 +81,7 @@ public partial class App : System.Windows.Application
             _textToSpeech,
             TimeProvider.System,
             Log);
+        var cues = new SoundCues(speaker, _settings.Current, () => voice.Phase == VoicePhase.Speaking);
 
         _mainWindow = new MainWindow(
             _settings,
@@ -89,7 +92,8 @@ public partial class App : System.Windows.Application
             _currentApplication,
             history,
             clipboard,
-            voice);
+            voice,
+            cues);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
         _mainWindow.NotificationRequested += ShowNotification;

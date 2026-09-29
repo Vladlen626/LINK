@@ -26,6 +26,7 @@ public partial class MainWindow : Window
     private readonly ScreenshotHistoryService _history;
     private readonly ClipboardContextService _clipboard;
     private readonly VoiceSession _voice;
+    private readonly SoundCues _cues;
     private readonly ObservableCollection<ContextItem> _context = [];
     private Guid? _previewContextId;
     // What came while Link was hidden, an answer or a failed request; it lasts until Link is shown.
@@ -42,7 +43,8 @@ public partial class MainWindow : Window
         CurrentApplicationService currentApplication,
         ScreenshotHistoryService history,
         ClipboardContextService clipboard,
-        VoiceSession voice)
+        VoiceSession voice,
+        SoundCues cues)
     {
         _settings = settings;
         _projects = projects;
@@ -53,6 +55,7 @@ public partial class MainWindow : Window
         _history = history;
         _clipboard = clipboard;
         _voice = voice;
+        _cues = cues;
 
         InitializeComponent();
         _voice.PhaseChanged += OnVoicePhaseChanged;

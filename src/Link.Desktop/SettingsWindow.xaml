@@ -50,11 +50,15 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
+                                <RowDefinition Height="36" />
                             </Grid.RowDefinitions>
                             <TextBlock VerticalAlignment="Center" Text="Screenshot history" />
                             <TextBox x:Name="HistorySizeBox" Grid.Column="1" Width="72" Height="32" HorizontalAlignment="Left" />
                             <CheckBox x:Name="AlwaysOnTopBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Always on top" />
                             <CheckBox x:Name="LaunchWithWindowsBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Launch with Windows" />
+                            <CheckBox x:Name="SoundCuesBox" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                      Content="Short sounds: listening, sent, answer ready, needs you, error"
+                                      ToolTip="Quiet while Link speaks, except when it needs you" />
                         </Grid>
                     </Border>
                     <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="VOICE" />

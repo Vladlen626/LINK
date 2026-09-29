@@ -177,6 +177,7 @@ public partial class MainWindow
                 _settings.Current.ResponseEffort);
             var progress = new Progress<ChatProgress>(OnChatProgress);
             _latency.HandedOver();
+            _cues.Play(SoundCue.Sent);
             var response = await _chat.SendAsync(request, conversation, progress, cancellation.Token);
             // A new chat is linked by now: the answer belongs to the conversation it started.
             RefreshLinkedTitle(project);
@@ -199,6 +200,8 @@ public partial class MainWindow
             if (!IsVisible) _unseen = LinkState.Done;
             SetStatus(SlowChatHint(response.Text) ?? ResponseReceivedStatus());
             NotifyIfAway(project, "Answer ready", ToPreviewText(response.Text));
+            // An answer read aloud while it arrived is its own signal: the cue keeps quiet then.
+            _cues.Play(SoundCue.Done);
             _ = ReadAnswerAloudAsync(response.Text);
             if (_voice.Phase == VoicePhase.Speaking) SetStatus(SpeakingStatus);
         }
@@ -215,6 +218,7 @@ public partial class MainWindow
             // The prompt waits to be sent again: the user decides what to do with it.
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
             SetError($"{exception.Message} Prompt and context were kept.");
+            _cues.Play(SoundCue.Error);
             NotifyIfAway(project, "Request failed", exception.Message);
         }
         finally
@@ -519,6 +523,7 @@ public partial class MainWindow
 
         if (state == _connectionState) return;
         _connectionState = state;
+        if (state == ChatConnectionState.SignInRequired) _cues.Play(SoundCue.NeedsDecision);
         // The chat row lives in the panel, which may be closed: trouble with the chat shows in the status line too.
         if (_sending) ReportState();
         else if (state == ChatConnectionState.SignInRequired) SetStatus("Sign in to ChatGPT: panel → Open chat");
