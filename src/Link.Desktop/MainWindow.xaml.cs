@@ -71,7 +71,6 @@ public partial class MainWindow : Window
         LoadProject(_projects.ActiveProject);
         _loadingProject = false;
         UpdateEffortButton();
-
         UpdateExpandButton();
 
         SourceInitialized += OnSourceInitialized;
