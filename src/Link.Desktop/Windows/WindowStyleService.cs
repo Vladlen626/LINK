@@ -157,6 +157,44 @@ public static class WindowStyleService
             NativeMethods.SwpNoZOrder | NativeMethods.SwpNoActivate);
     }
 
+    /// <summary>
+    /// Moves <paramref name="panel"/> beside <paramref name="card"/>, top-aligned with it and inside the work area of
+    /// the card's monitor: on the preferred side while it fits there, otherwise on the side with more room, over the
+    /// card's edge when neither has enough. Sizes are device-independent pixels; returns whether it is on the right.
+    /// </summary>
+    public static bool PlaceBeside(Window panel, Window card, double width, double minimumHeight, bool? preferRight)
+    {
+        const double gap = 6;
+        var panelHandle = new WindowInteropHelper(panel).Handle;
+        var cardHandle = new WindowInteropHelper(card).Handle;
+        var info = new MonitorInfo { Size = Marshal.SizeOf<MonitorInfo>() };
+        if (panelHandle == IntPtr.Zero || !NativeMethods.GetWindowRect(cardHandle, out var bounds) ||
+            !NativeMethods.GetMonitorInfo(NativeMethods.MonitorFromWindow(cardHandle, NativeMethods.MonitorDefaultToNearest), ref info))
+        {
+            return preferRight ?? true;
+        }
+
+        // Device pixels at the card's scale: the panel always stays on the card's monitor.
+        var scale = VisualTreeHelper.GetDpi(card).DpiScaleX;
+        var work = info.Work;
+        var space = (int)Math.Round(gap * scale);
+        var panelWidth = Math.Min((int)Math.Round(width * scale), work.Width);
+        var height = Math.Min(Math.Max(bounds.Height, (int)Math.Round(minimumHeight * scale)), work.Height);
+        var roomRight = work.Right - bounds.Right - space;
+        var roomLeft = bounds.Left - space - work.Left;
+        var onRight = preferRight switch
+        {
+            true when roomRight >= panelWidth => true,
+            false when roomLeft >= panelWidth => false,
+            _ => roomRight >= roomLeft
+        };
+        var left = Math.Clamp(onRight ? bounds.Right + space : bounds.Left - space - panelWidth, work.Left, work.Right - panelWidth);
+        var top = Math.Clamp(bounds.Top, work.Top, work.Bottom - height);
+        NativeMethods.SetWindowPos(panelHandle, IntPtr.Zero, left, top, panelWidth, height,
+            NativeMethods.SwpNoZOrder | NativeMethods.SwpNoActivate);
+        return onRight;
+    }
+
     public static void EnsureVisible(Window window)
     {
         const double visibleEdge = 48;

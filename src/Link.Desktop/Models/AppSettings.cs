@@ -45,11 +45,13 @@ public sealed class AppSettings
     public bool AutoCaptureActiveWindowOnSend { get; set; }
     public Guid? ActiveProjectId { get; set; }
     public WindowPlacement Window { get; set; } = new();
+    public SidePanelSettings SidePanel { get; set; } = new();
     public HotkeySettings Hotkeys { get; set; } = new();
 
     public void Normalize()
     {
         Window ??= new WindowPlacement();
+        SidePanel ??= new SidePanelSettings();
         Hotkeys ??= new HotkeySettings();
         if (SchemaVersion < 4)
         {
@@ -82,8 +84,23 @@ public sealed class AppSettings
             ? Math.Round(Math.Clamp(VoiceReplySpeed, 0.5, 2.0), 2)
             : DefaultVoiceReplySpeed;
         Window.Normalize();
+        SidePanel.Normalize();
         Hotkeys.Normalize();
     }
+}
+
+/// <summary>The panel beside Link: whether it opens with Link and how wide it is.</summary>
+public sealed class SidePanelSettings
+{
+    public const double MinWidth = 260;
+    public const double MaxWidth = 640;
+    private const double DefaultWidth = 300;
+
+    public bool IsOpen { get; set; }
+    public double Width { get; set; } = DefaultWidth;
+
+    public void Normalize() =>
+        Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, MinWidth, MaxWidth) : DefaultWidth;
 }
 
 public sealed class WindowPlacement

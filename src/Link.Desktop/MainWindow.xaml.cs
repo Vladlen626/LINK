@@ -66,8 +66,14 @@ public partial class MainWindow : Window
         _loadingProject = false;
         UpdateEffortButton();
 
+        UpdateExpandButton();
+
         SourceInitialized += OnSourceInitialized;
         PreviewKeyDown += OnPreviewKeyDown;
+        IsVisibleChanged += OnVisibleChanged;
+        LocationChanged += (_, _) => PlacePanel();
+        SizeChanged += (_, _) => PlacePanel();
+        DpiChanged += (_, _) => PlacePanel();
         Loaded += OnLoaded;
         Activated += OnActivated;
         Closing += OnClosing;
@@ -90,18 +96,11 @@ public partial class MainWindow : Window
     {
         Opacity = 1;
         Topmost = _settings.Current.AlwaysOnTop;
-
-        // With Windows transparency effects off the glass turns solid, like the rest of the system.
-        var transparent = ThemeService.IsTransparencyEnabled;
-        var blurRequested = transparent && _settings.Current.BlurBackground;
-        var blurred = WindowStyleService.EnableGlass(this, blurRequested);
-        if (FindResource("PanelBrush") is Brush source)
+        ApplyGlass(this, ShellBorder);
+        if (_panel is not null)
         {
-            // Glass setting 0.2..1 maps to a 25..95% tint; unblurred glass needs more tint to keep text readable.
-            var tint = source.Clone();
-            var opacity = 0.25 + (_settings.Current.Opacity - 0.2) * 0.875;
-            tint.Opacity = !transparent ? 1 : blurRequested && !blurred ? Math.Max(opacity, 0.85) : opacity;
-            ShellBorder.Background = tint;
+            _panel.Topmost = Topmost;
+            ApplyGlass(_panel, _panel.ShellBorder);
         }
 
         UpdateAutoScreenIndicator();
@@ -117,6 +116,22 @@ public partial class MainWindow : Window
     }
 
     public void ShowNonBlockingWarning(string message) => SetStatus(message);
+
+    /// <summary>The card's glass, for the card and its panel alike.</summary>
+    private void ApplyGlass(Window window, Border shell)
+    {
+        // With Windows transparency effects off the glass turns solid, like the rest of the system.
+        var transparent = ThemeService.IsTransparencyEnabled;
+        var blurRequested = transparent && _settings.Current.BlurBackground;
+        var blurred = WindowStyleService.EnableGlass(window, blurRequested);
+        if (FindResource("PanelBrush") is not Brush source) return;
+
+        // Glass setting 0.2..1 maps to a 25..95% tint; unblurred glass needs more tint to keep text readable.
+        var tint = source.Clone();
+        var opacity = 0.25 + (_settings.Current.Opacity - 0.2) * 0.875;
+        tint.Opacity = !transparent ? 1 : blurRequested && !blurred ? Math.Max(opacity, 0.85) : opacity;
+        shell.Background = tint;
+    }
 
     /// <summary>Brings Link up on a project's answer, e.g. when its notification is clicked.</summary>
     public void ShowProject(Guid projectId)

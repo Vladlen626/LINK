@@ -252,7 +252,7 @@ public partial class MainWindow
     private void NotifyIfAway(LinkProject project, string title, string message)
     {
         // Someone looking at Link already sees the result.
-        if (IsVisible && IsActive) return;
+        if (IsVisible && IsLinkActive) return;
         NotificationRequested?.Invoke($"{title} · {project.Name}", message, project.Id);
     }
 
