@@ -16,14 +16,16 @@ namespace Link.Desktop.Tests;
 /// <summary>The voice pipeline with fake voices and a fake player, and the Gemini client over a fake HTTP stream.</summary>
 internal static class TextToSpeechTests
 {
-    private static readonly SpeechOptions Auto = new(TtsProvider.Auto, "Achird", 0, null, "ru", 1.2);
+    private static readonly SpeechOptions Auto = new(TtsProvider.Auto, "Achird", 0, "ru", 1.2);
 
     public static async Task RunAsync()
     {
         await PipelineAsync();
         await FallbackAsync();
         await SilenceAsync();
+        await PrebufferAsync();
         await GeminiAsync();
+        OlderSettings();
     }
 
     /// <summary>Parts are said in order; text that queues up while one is made joins the next request.</summary>
@@ -93,14 +95,18 @@ internal static class TextToSpeechTests
 
         rig = new Rig();
         rig.Local.Unavailable = "not downloaded";
-        await rig.Speech.SpeakAsync("Первое.", Auto with { Provider = TtsProvider.Local }, CancellationToken.None);
-        Program.Equal("a chosen voice that is missing is named", (rig.Windows.Requests.Count, string.Join(" | ", rig.Notices)),
-            (1, "Local voice: not downloaded — the Windows voice speaks for now"));
+        Program.Equal("a chosen voice that is missing is named", await SpeakFailureAsync(rig, Auto with { Provider = TtsProvider.Local }),
+            "No voice could speak (local voice: not downloaded).");
+
+        rig = new Rig();
+        rig.Gemini.Unavailable = "no API key";
+        rig.Local.Unavailable = "not downloaded";
+        Program.Equal("under Auto the last voice is named, the one never set up is not", await SpeakFailureAsync(rig, Auto),
+            "No voice could speak (local voice: not downloaded).");
 
         rig = new Rig();
         rig.Gemini.Failure = new TtsProviderException("rejected the request", "HTTP 400", TimeSpan.FromMinutes(10));
         rig.Local.Failure = new InvalidOperationException("model crashed");
-        rig.Windows.Failure = new InvalidOperationException("no voices");
         await Program.ThrowsAsync<InvalidOperationException>("when every voice fails the part fails",
             () => rig.Speech.SpeakAsync("Первое.", Auto, CancellationToken.None));
 
@@ -140,6 +146,21 @@ internal static class TextToSpeechTests
         await Program.EventuallyAsync("nothing is left speaking", () => rig.Speech.IsSpeaking, false);
     }
 
+    /// <summary>A voice that can arrive slower than it plays has its speech held back; the one that stands in sets its own.</summary>
+    private static async Task PrebufferAsync()
+    {
+        var rig = new Rig();
+        rig.Gemini.Prebuffer = TimeSpan.FromSeconds(2);
+        await rig.Speech.SpeakAsync("Первое.", Auto, CancellationToken.None);
+        Program.Equal("the speech of a slow voice is held back", rig.Output.Prebuffers, "2");
+
+        rig = new Rig();
+        rig.Gemini.Prebuffer = TimeSpan.FromSeconds(2);
+        rig.Gemini.Failure = new TtsProviderException("no connection", "reset", TimeSpan.FromSeconds(20));
+        await rig.Speech.SpeakAsync("Первое.", Auto, CancellationToken.None);
+        Program.Equal("the voice that stands in sets its own cushion", rig.Output.Prebuffers, "2,0");
+    }
+
     /// <summary>The Gemini client: the request it sends and how it reads the audio stream and the errors.</summary>
     private static async Task GeminiAsync()
     {
@@ -149,6 +170,7 @@ internal static class TextToSpeechTests
         {
             var handler = new FakeHttp();
             using var gemini = new GeminiTtsProvider(keys, handler, TimeSpan.FromMilliseconds(300));
+            Program.Equal("its speech is held back for 2 s", gemini.Prebuffer, TimeSpan.FromSeconds(2));
             await Program.ThrowsAsync<TtsProviderException>("without a key nothing is sent",
                 () => gemini.SynthesizeAsync("Привет.", Auto, _ => { }, CancellationToken.None));
             Program.Equal("no request without a key", handler.Requests.Count, 0);
@@ -241,6 +263,32 @@ internal static class TextToSpeechTests
         }
     }
 
+    /// <summary>Settings saved while the Windows voice (3, with its own voice name) existed still load; it becomes Auto.</summary>
+    private static void OlderSettings()
+    {
+        var older = JsonSerializer.Deserialize<AppSettings>("""{"VoiceReplyProvider":3,"VoiceReplyVoice":"Microsoft Irina"}""")!;
+        older.Normalize();
+        Program.Equal("the removed Windows voice falls back to Auto", older.VoiceReplyProvider, TtsProvider.Auto);
+
+        var local = JsonSerializer.Deserialize<AppSettings>("""{"VoiceReplyProvider":2}""")!;
+        local.Normalize();
+        Program.Equal("a chosen local voice stays", local.VoiceReplyProvider, TtsProvider.Local);
+    }
+
+    /// <summary>What the user is told when nothing could speak.</summary>
+    private static async Task<string?> SpeakFailureAsync(Rig rig, SpeechOptions options)
+    {
+        try
+        {
+            await rig.Speech.SpeakAsync("Первое.", options, CancellationToken.None);
+            return null;
+        }
+        catch (InvalidOperationException failure)
+        {
+            return failure.Message;
+        }
+    }
+
     private static async Task<TtsProviderException?> Failure(GeminiTtsProvider gemini)
     {
         try
@@ -273,7 +321,7 @@ internal static class TextToSpeechTests
     {
         public Rig()
         {
-            Speech = new TextToSpeechService(Gemini, Local, Windows, Output, line =>
+            Speech = new TextToSpeechService(Gemini, Local, Output, line =>
             {
                 lock (Log) Log.Add(line);
             });
@@ -285,7 +333,6 @@ internal static class TextToSpeechTests
 
         public FakeProvider Gemini { get; } = new("Gemini");
         public FakeProvider Local { get; } = new("local voice");
-        public FakeProvider Windows { get; } = new("Windows voice");
         public FakeOutput Output { get; } = new();
         public TextToSpeechService Speech { get; }
         public List<string> Log { get; } = [];
@@ -300,6 +347,7 @@ internal static class TextToSpeechTests
         public string Name => name;
         public string? Unavailable { get; set; }
         public int Generation { get; set; }
+        public TimeSpan Prebuffer { get; set; }
         public Exception? Failure { get; set; }
         public bool FailOnce { get; set; }
         public TtsProviderException? AudioThenFailure { get; set; }
@@ -357,9 +405,19 @@ internal static class TextToSpeechTests
     {
         private readonly List<FakeSegment> _segments = [];
         private readonly List<string> _played = [];
+        private readonly List<TimeSpan> _prebuffers = [];
 
         public bool Hold { get; set; }
         public int Stops { get; private set; }
+
+        /// <summary>The cushion each voice asked for, in whole seconds and in the order asked.</summary>
+        public string Prebuffers
+        {
+            get
+            {
+                lock (_segments) return string.Join(",", _prebuffers.Select(cushion => (int)cushion.TotalSeconds));
+            }
+        }
 
         public string Played
         {
@@ -434,6 +492,11 @@ internal static class TextToSpeechTests
             {
                 Sounding = true;
                 _started.TrySetResult();
+            }
+
+            public void SetPrebuffer(TimeSpan audio)
+            {
+                lock (output._segments) output._prebuffers.Add(audio);
             }
 
             public void Write(PcmAudio audio)

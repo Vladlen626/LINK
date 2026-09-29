@@ -15,7 +15,8 @@ public sealed class AudioPlayer : IAudioOutput
     // Up to a quarter of a second queued in the device: enough to ride out a busy moment, quick to stop.
     private const int DeviceBuffers = 6;
     private const int BufferCapacity = 8192;
-    // Speech that starts from silence waits for this much audio, so a slow stream does not stutter at once.
+    // Speech waits for at least this much audio before it starts to sound, so a slow stream does not stutter at once;
+    // a voice that arrives slower than it plays asks for more (IAudioSegment.SetPrebuffer).
     private const int PrebufferMilliseconds = 120;
     private static readonly TimeSpan IdleClose = TimeSpan.FromSeconds(2);
     private readonly Lock _lock = new();
@@ -191,9 +192,10 @@ public sealed class AudioPlayer : IAudioOutput
             lock (_lock)
             {
                 if (segment.SampleRate == 0 && !segment.IsComplete) return;
-                // Starting from silence, a stretch that is still being made waits for a little cushion of audio.
-                if (busy.Count == 0 && !segment.IsComplete
-                    && segment.PendingBytes < segment.SampleRate * 2L * PrebufferMilliseconds / 1000)
+                // A stretch that is still being made waits for its cushion of audio before it starts, even right
+                // behind another one, and again whenever the device has run dry: a stream that trickles in then
+                // pauses seldom instead of stuttering.
+                if ((busy.Count == 0 || !segment.Started.IsCompleted) && !segment.IsComplete && !segment.HasPrebuffer)
                 {
                     return;
                 }
@@ -284,6 +286,7 @@ public sealed class AudioPlayer : IAudioOutput
         private readonly TaskCompletionSource _finished = new(TaskCreationOptions.RunContinuationsAsynchronously);
         private int _offset;
         private byte? _carry;
+        private long _prebufferMilliseconds = PrebufferMilliseconds;
 
         public Task Started => _started.Task;
         public Task Finished => _finished.Task;
@@ -291,11 +294,19 @@ public sealed class AudioPlayer : IAudioOutput
         public long PendingBytes { get; private set; }
         public bool IsComplete { get; private set; }
 
+        /// <summary>Whether enough audio is queued for the stretch to start, or to go on after the device ran dry.</summary>
+        public bool HasPrebuffer => PendingBytes >= SampleRate * 2L * _prebufferMilliseconds / 1000;
+
         /// <summary>All of its audio is in the device (or it had none).</summary>
         public bool IsWritten { get; set; }
 
         /// <summary>Device buffers that still hold its audio; touched by the player thread only.</summary>
         public int InDevice { get; set; }
+
+        public void SetPrebuffer(TimeSpan audio)
+        {
+            lock (player._lock) _prebufferMilliseconds = Math.Max(PrebufferMilliseconds, (long)audio.TotalMilliseconds);
+        }
 
         public void Write(PcmAudio audio)
         {

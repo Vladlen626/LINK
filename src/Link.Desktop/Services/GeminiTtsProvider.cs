@@ -62,6 +62,12 @@ public sealed class GeminiTtsProvider : ITextToSpeechProvider
     public int Generation => _keys.Version;
 
     /// <summary>
+    /// Its audio can arrive slower than it plays (5 s of speech took 6–7 s to come on one line) and would stutter;
+    /// 2 s held back ride out a phrase of about 7 s at that pace.
+    /// </summary>
+    public TimeSpan Prebuffer => TimeSpan.FromSeconds(2);
+
+    /// <summary>
     /// Opens the connection ahead of the first request, which saves its TLS handshake. The warm-up carries no key
     /// and no text: the host answers it with a plain error.
     /// </summary>
@@ -199,7 +205,7 @@ public sealed class GeminiTtsProvider : ITextToSpeechProvider
     {
         < 0.85 => "calm, friendly and conversational, speaking slowly",
         >= 1.6 => "calm, friendly and conversational, speaking rapidly",
-        // The default 1.2 exists for slow Windows voices; Gemini's own pace already suits it.
+        // The default 1.2 stays at Gemini's own pace, which already suits it.
         >= 1.3 => "calm, friendly and conversational, at a brisk pace",
         _ => "calm, friendly and conversational"
     };

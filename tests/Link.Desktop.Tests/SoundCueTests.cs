@@ -63,6 +63,10 @@ internal static class SoundCueTests
             public Task Started => Task.CompletedTask;
             public Task Finished => Task.CompletedTask;
 
+            public void SetPrebuffer(TimeSpan audio)
+            {
+            }
+
             public void Write(PcmAudio audio) => _bytes += audio.Data.Length;
 
             public void Complete()

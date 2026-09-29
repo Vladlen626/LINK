@@ -4,7 +4,7 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// Link's voice: text parts → the first provider that can speak (Gemini, the local voice, Windows) → the player.
+/// Link's voice: text parts → the first provider that can speak (Gemini, then the local voice) → the player.
 /// A part is played while it is still being made, and the next one is made while it plays, never more than one
 /// ahead, so a silenced answer wastes at most one request. A provider that fails is left alone for a while and
 /// the next one takes over; only the log hears the technical reason.
@@ -20,7 +20,6 @@ public sealed class TextToSpeechService : ITextToSpeech
     private static readonly TimeSpan QuickFailure = TimeSpan.FromSeconds(1.5);
     private readonly ITextToSpeechProvider _gemini;
     private readonly ITextToSpeechProvider _local;
-    private readonly ITextToSpeechProvider _windows;
     private readonly IAudioOutput _output;
     private readonly Action<string> _log;
     private readonly Lock _lock = new();
@@ -36,13 +35,11 @@ public sealed class TextToSpeechService : ITextToSpeech
     public TextToSpeechService(
         ITextToSpeechProvider gemini,
         ITextToSpeechProvider local,
-        ITextToSpeechProvider windows,
         IAudioOutput output,
         Action<string> log)
     {
         _gemini = gemini;
         _local = local;
-        _windows = windows;
         _output = output;
         _log = log;
     }
@@ -107,15 +104,13 @@ public sealed class TextToSpeechService : ITextToSpeech
         _output.Dispose();
         _gemini.Dispose();
         _local.Dispose();
-        _windows.Dispose();
     }
 
     /// <summary>Every provider that could speak for this choice, in the order they are tried.</summary>
     private IEnumerable<ITextToSpeechProvider> Chain(TtsProvider first) => first switch
     {
-        TtsProvider.Windows => [_windows],
-        TtsProvider.Local => [_local, _windows],
-        _ => [_gemini, _local, _windows]
+        TtsProvider.Local => [_local],
+        _ => [_gemini, _local]
     };
 
     private bool CanSpeak(ITextToSpeechProvider provider) => provider.Unavailable is null && !IsPaused(provider);
@@ -253,8 +248,8 @@ public sealed class TextToSpeechService : ITextToSpeech
         {
             if (provider.Unavailable is { } missing)
             {
-                // Under Auto a voice that was never set up is simply not in the running.
-                if (batch.Options.Provider != TtsProvider.Auto || provider == _windows) failures.Add($"{provider.Name}: {missing}");
+                // Under Auto a voice that was never set up is simply not in the running, unless it is the last one.
+                if (batch.Options.Provider != TtsProvider.Auto || provider == _local) failures.Add($"{provider.Name}: {missing}");
                 continue;
             }
 
@@ -316,6 +311,8 @@ public sealed class TextToSpeechService : ITextToSpeech
         }
 
         var audio = key is null ? null : new List<byte>();
+        // Set per attempt: a voice that stands in for a failed one has its own pace.
+        segment.SetPrebuffer(provider.Prebuffer);
         try
         {
             await provider.SynthesizeAsync(batch.Text, batch.Options, block =>

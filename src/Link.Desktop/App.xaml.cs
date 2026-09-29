@@ -70,7 +70,6 @@ public partial class App : System.Windows.Application
         _textToSpeech = new TextToSpeechService(
             new GeminiTtsProvider(_geminiKey),
             new LocalTtsProvider(speechModels),
-            new WindowsTtsProvider(),
             speaker,
             Log);
         var voice = new VoiceSession(

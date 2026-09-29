@@ -33,7 +33,7 @@
 | 2 | финальный Whisper | large-v3-turbo q5_0 на GPU (Vulkan), Base на CPU |
 | 3 | VAD и live-черновик | `org.k2fsa.sherpa.onnx` 1.13.8: Silero VAD v5, streaming Zipformer RU (Vosk small int8, 28 МБ) и EN (icefall 20M int8, 43 МБ) |
 | 5, 7 | голосовой ответ | законченные предложения читаются по мере стриминга (`VoiceTextChunker`) |
-| 4 | голос ответа | `TextToSpeechService`: Gemini 3.8 Flash-Lite TTS → Supertonic 3 (sherpa-onnx) → голоса Windows, один waveOut-плеер (`AudioPlayer`) |
+| 4 | голос ответа | `TextToSpeechService`: Gemini 3.8 Flash-Lite TTS → Supertonic 3 (sherpa-onnx), один waveOut-плеер (`AudioPlayer`); голоса Windows убраны 2026-09-29 |
 
 Замер Phase 2 (Ryzen 5 5600, RTX 4070 SUPER; фраза ~7 с «почему у меня материал в анриле не светится, хотя эмиссив
 включён»):
@@ -68,6 +68,9 @@
 - Gemini: Interactions API, `stream: true`, `audio/l16` 24 кГц, `store: false`; в запросе только текст, голос, язык и
   одна постоянная короткая `speech_metadata.style` (спокойно, дружелюбно, разговорно; темп — по настройке). Ключ — DPAPI
   в `gemini-key.bin`, не в `settings.json` и не в логе. Перед ответом Link заранее открывает TLS-соединение (без ключа).
+  Звук Gemini бывает медленнее, чем играется (5 с речи за 6–7 с), поэтому его речь ждёт запас в 2 с
+  (`ITextToSpeechProvider.Prebuffer` → `IAudioSegment.SetPrebuffer`): плеер ждёт его перед фразой, в том числе сразу за
+  предыдущей, и после «пересыхания» устройства; у локального голоса остаётся запас плеера в 120 мс.
 - Локальный голос: Supertonic 3 int8 (145 МБ, 10 голосов, 44,1 кГц), на Ryzen 5 5600 фраза готова через 0,35–0,7 с
   (RTF 0,12–0,25), в памяти ~300 МБ — грузится, когда ответ ожидается, выгружается через 3 минуты тишины.
 - `VoiceSession` — единственный владелец голосового состояния (Idle → Listening → Finalizing → Sending → Waiting →

@@ -105,7 +105,7 @@
                                 <RowDefinition Height="36" /><RowDefinition Height="32" /><RowDefinition Height="44" />
                                 <RowDefinition Height="44" /><RowDefinition Height="Auto" /><RowDefinition Height="44" />
                                 <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" />
-                                <RowDefinition Height="44" /><RowDefinition Height="Auto" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <CheckBox x:Name="VoiceRepliesBox" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                       Content="Read the answer aloud when I ask by voice" />
@@ -136,21 +136,20 @@
                                 <Button x:Name="LocalDownloadButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}"
                                         Click="LocalDownload_OnClick" />
                             </Grid>
-                            <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Windows voice" />
-                            <ComboBox x:Name="ReplyVoiceCombo" Grid.Row="7" Grid.Column="1" />
-                            <TextBlock Grid.Row="8" VerticalAlignment="Center" Text="Speed" />
-                            <Grid Grid.Row="8" Grid.Column="1" VerticalAlignment="Center">
+                            <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Speed" />
+                            <Grid Grid.Row="7" Grid.Column="1" VerticalAlignment="Center">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
                                 <Slider x:Name="ReplySpeedSlider" Minimum="0.5" Maximum="2" SmallChange="0.1" LargeChange="0.2"
                                         TickFrequency="0.1" IsSnapToTickEnabled="True" />
                                 <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
                                            Text="{Binding ElementName=ReplySpeedSlider, Path=Value, StringFormat={}{0:0.0}×}" />
                             </Grid>
-                            <TextBlock Grid.Row="9" VerticalAlignment="Center" Text="Check" />
-                            <Button x:Name="VoiceTestButton" Grid.Row="9" Grid.Column="1" HorizontalAlignment="Left"
+                            <TextBlock Grid.Row="8" VerticalAlignment="Center" Text="Check" />
+                            <Button x:Name="VoiceTestButton" Grid.Row="8" Grid.Column="1" HorizontalAlignment="Left"
                                     Style="{StaticResource ChipButtonStyle}" Click="VoiceTest_OnClick" Content="Test voice" />
-                            <TextBlock x:Name="ReplyVoiceText" Grid.Row="10" Grid.ColumnSpan="2" Margin="0,0,0,6"
-                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                            <TextBlock x:Name="ReplyVoiceText" Grid.Row="9" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                                       Text="Link reads the answer while it arrives; code and tables stay on screen. Push-to-talk interrupts, Esc stops." />
                         </Grid>
                     </Border>
 

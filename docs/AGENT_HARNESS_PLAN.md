@@ -26,7 +26,7 @@
 | 0. Стабильный Chat | ChatGPT во встроенной странице, защита от повторной отправки, Check chat, New chat с выжимкой, отдых страницы; строки `[Chat]` с задержками | мелкие P0 из QOL_ROADMAP — по мере находки | — |
 | 1. Компактный UI | новый дизайн карточки; скрытие хоткеем и Alt+F4; капсула Collapse | Hide вместо Collapse, Expand-панель Project/Context, рабочая папка проекта, иконка tray, звуки | 1 |
 | 2. Разделить пути | один путь: `SendAsync` делает всё; `ChatPrompt.Format` всегда добавляет проект, окно и задачу | снимок, координатор, Direct, перенаправление, метка маршрута | 2 |
-| 1. Голос | push-to-talk, live-черновик, Whisper; ответ голосом Gemini → Supertonic 3 → Windows (в рабочем дереве, не закоммичено) | Conversation Mode | 3 |
+| 1. Голос | push-to-talk, live-черновик, Whisper; ответ голосом Gemini → Supertonic 3 (в рабочем дереве, не закоммичено) | Conversation Mode | 3 |
 | 3. Первый Agent | — | раннер, Claude Code и Codex, карточка, Activity, Stop, изменения и откат | 4 |
 | 4. Проектные tools | — | skill и Blender-скрипты для Нори, кадры проверки, проверка пользы обвязки | 5 |
 

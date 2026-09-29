@@ -28,7 +28,6 @@ public partial class SettingsWindow : Window
     private string? _hotkeyBeforeCapture;
     private AudioInputDevice? _disconnectedMicrophone;
     private CancellationTokenSource? _microphoneTest;
-    private IReadOnlyList<SpeechVoice> _voices = [];
     private CancellationTokenSource? _voiceTest;
 
     public SettingsWindow(
@@ -66,7 +65,6 @@ public partial class SettingsWindow : Window
         ReadTypedAnswersBox.IsChecked = current.ReadTypedAnswers;
         ReplySpeedSlider.Value = current.VoiceReplySpeed;
         LoadVoiceReplies(current);
-        LoadVoices(current);
         HistorySizeBox.Text = current.ScreenshotHistorySize.ToString();
         AlwaysOnTopBox.IsChecked = current.AlwaysOnTop;
         LaunchWithWindowsBox.IsChecked = current.LaunchWithWindows;
@@ -117,12 +115,11 @@ public partial class SettingsWindow : Window
         [
             new(TtsProvider.Auto, "Auto — the best that works"),
             new(TtsProvider.Gemini, "Gemini (online, free tier)"),
-            new(TtsProvider.Local, "Local voice (offline)"),
-            new(TtsProvider.Windows, "System (Windows voices)")
+            new(TtsProvider.Local, "Local voice (offline)")
         ];
         ProviderCombo.ItemsSource = providers;
-        ProviderCombo.ToolTip = "Auto: Gemini when a key is saved, else the local voice once downloaded, else Windows. " +
-                                "Whichever voice fails, the next one takes over.";
+        ProviderCombo.ToolTip = "Auto: Gemini when a key is saved, else the local voice once downloaded. " +
+                                "If Gemini fails, the local voice takes over.";
         ProviderCombo.SelectedItem = providers.First(option => option.Provider == current.VoiceReplyProvider);
 
         var geminiVoices = GeminiTtsProvider.Voices
@@ -221,30 +218,6 @@ public partial class SettingsWindow : Window
         _downloadTimer.Start();
     }
 
-    private void LoadVoices(AppSettings current)
-    {
-        try
-        {
-            _voices = WindowsTtsProvider.InstalledVoices();
-            ReplyVoiceText.Text = DescribeVoices(_voices);
-        }
-        catch (Exception exception)
-        {
-            ReplyVoiceText.Text = $"Windows voices could not be listed: {exception.Message}";
-        }
-
-        var options = new List<VoiceOption> { new(null, "Auto — matches the answer's language") };
-        options.AddRange(_voices.Select(voice => new VoiceOption(voice.Name, $"{voice.Name} · {voice.Language}")));
-        if (current.VoiceReplyVoice is { } savedName && _voices.All(voice => voice.Name != savedName))
-        {
-            // Keep an uninstalled choice instead of silently switching it to Auto on Save.
-            options.Add(new VoiceOption(savedName, $"{savedName} (not installed)"));
-        }
-
-        ReplyVoiceCombo.ItemsSource = options;
-        ReplyVoiceCombo.SelectedItem = options.First(option => option.Name == current.VoiceReplyVoice);
-    }
-
     private async void VoiceTest_OnClick(object sender, RoutedEventArgs e)
     {
         if (_voiceTest is not null)
@@ -263,10 +236,7 @@ public partial class SettingsWindow : Window
             var options = ChosenSpeech();
             // An answer being read aloud would talk over the sample.
             _textToSpeech.Stop();
-            await _textToSpeech.SpeakAsync(
-                options.Language == "ru" ? VoiceTestPhrase : "Hi! I'm LINK. This is how I will answer you aloud.",
-                options,
-                cancellation.Token);
+            await _textToSpeech.SpeakAsync(VoiceTestPhrase, options, cancellation.Token);
             // When another voice stood in, the reason is right here rather than a mystery.
             ReplyVoiceText.Text = _textToSpeech.LastSpeaker is not { } speaker ? string.Empty
                 : _textToSpeech.Unavailability(options.Provider) is { } reason ? $"That was the {speaker} ({reason})."
@@ -289,34 +259,13 @@ public partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>The voice as chosen in this window, saved or not; Russian unless a Windows voice that cannot speak it is forced.</summary>
-    private SpeechOptions ChosenSpeech()
-    {
-        var provider = (ProviderCombo.SelectedItem as ProviderOption)?.Provider ?? TtsProvider.Auto;
-        var windowsVoice = (ReplyVoiceCombo.SelectedItem as VoiceOption)?.Name;
-        var chosenWindowsVoice = _voices.FirstOrDefault(voice => voice.Name == windowsVoice);
-        var russian = provider != TtsProvider.Windows
-            || (chosenWindowsVoice is not null ? IsRussianVoice(chosenWindowsVoice) : _voices.Any(IsRussianVoice));
-        return new SpeechOptions(
-            provider,
-            (GeminiVoiceCombo.SelectedItem as VoiceOption)?.Name ?? _settings.Current.GeminiVoice,
-            (LocalVoiceCombo.SelectedItem as LocalVoiceOption)?.Speaker ?? 0,
-            windowsVoice,
-            russian ? "ru" : "en",
-            ReplySpeedSlider.Value);
-    }
-
-    private static string DescribeVoices(IReadOnlyList<SpeechVoice> voices)
-    {
-        if (voices.Count == 0) return "Windows has no voices installed. Add one in Windows Settings → Time & language → Speech.";
-        var reading = "Link reads the answer while it arrives; code and tables stay on screen. Push-to-talk interrupts, Esc stops.";
-        return voices.Any(IsRussianVoice)
-            ? reading
-            : $"{reading} Windows has no Russian voice, so it is a poor last resort for Russian: use Gemini or the local voice.";
-    }
-
-    private static bool IsRussianVoice(SpeechVoice voice) =>
-        voice.Language.StartsWith("ru", StringComparison.OrdinalIgnoreCase);
+    /// <summary>The voice as chosen in this window, saved or not; the sample speaks Russian.</summary>
+    private SpeechOptions ChosenSpeech() => new(
+        (ProviderCombo.SelectedItem as ProviderOption)?.Provider ?? TtsProvider.Auto,
+        (GeminiVoiceCombo.SelectedItem as VoiceOption)?.Name ?? _settings.Current.GeminiVoice,
+        (LocalVoiceCombo.SelectedItem as LocalVoiceOption)?.Speaker ?? 0,
+        "ru",
+        ReplySpeedSlider.Value);
 
     private async void MicrophoneTest_OnClick(object sender, RoutedEventArgs e)
     {
@@ -523,7 +472,6 @@ public partial class SettingsWindow : Window
         current.VoiceReplyProvider = speech.Provider;
         current.GeminiVoice = speech.GeminiVoice;
         current.LocalVoice = speech.LocalVoice;
-        current.VoiceReplyVoice = speech.WindowsVoice;
         current.VoiceReplySpeed = speech.Speed;
         current.ScreenshotHistorySize = historySize;
         current.AlwaysOnTop = AlwaysOnTopBox.IsChecked == true;
@@ -562,8 +510,8 @@ public partial class SettingsWindow : Window
         if (button.Content is TextBlock text) text.Text = value;
     }
 
-    /// <summary>A reply voice choice; a null <see cref="Name"/> picks a voice for the answer's language.</summary>
-    private sealed record VoiceOption(string? Name, string Label)
+    /// <summary>A Gemini voice choice.</summary>
+    private sealed record VoiceOption(string Name, string Label)
     {
         public override string ToString() => Label;
     }

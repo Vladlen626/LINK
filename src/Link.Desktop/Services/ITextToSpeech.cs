@@ -33,7 +33,6 @@ public sealed record SpeechOptions(
     TtsProvider Provider,
     string GeminiVoice,
     int LocalVoice,
-    string? WindowsVoice,
     string Language,
     double Speed)
 {
@@ -41,7 +40,6 @@ public sealed record SpeechOptions(
         settings.VoiceReplyProvider,
         settings.GeminiVoice,
         settings.LocalVoice,
-        settings.VoiceReplyVoice,
         language,
         settings.VoiceReplySpeed);
 }
@@ -57,6 +55,12 @@ public interface ITextToSpeechProvider : IDisposable
 
     /// <summary>What the voice depends on changed (a new key, a model on disk): an earlier failure is forgotten.</summary>
     int Generation { get; }
+
+    /// <summary>
+    /// How much of its speech is held back before it starts to sound, for a voice whose audio can arrive slower than
+    /// it plays; zero for one that is made faster than it plays.
+    /// </summary>
+    TimeSpan Prebuffer { get; }
 
     void Prepare(SpeechOptions options);
 
@@ -100,11 +104,15 @@ public interface IAudioSegment
     /// <summary>Completes once it has been played to the end; cancelled when silenced.</summary>
     Task Finished { get; }
 
+    /// <summary>
+    /// How much audio the stretch holds back before it starts to sound, and again whenever the device has run dry,
+    /// so that a stream slower than the speech pauses seldom instead of stuttering. The player keeps a small
+    /// cushion of its own; this only asks for more.
+    /// </summary>
+    void SetPrebuffer(TimeSpan audio);
+
     void Write(PcmAudio audio);
 
     /// <summary>No more audio comes; a stretch completed without any finishes at once.</summary>
     void Complete();
 }
-
-/// <summary>An installed Windows voice; <paramref name="Language"/> is a culture name such as ru-RU.</summary>
-public sealed record SpeechVoice(string Name, string Language);

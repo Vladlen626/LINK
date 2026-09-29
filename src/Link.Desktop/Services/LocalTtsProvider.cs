@@ -30,6 +30,8 @@ public sealed class LocalTtsProvider : ITextToSpeechProvider
 
     public int Generation => IsDownloaded ? 1 : 0;
 
+    public TimeSpan Prebuffer => TimeSpan.Zero;
+
     public bool IsDownloaded => _models.IsReady(SpeechModel.Supertonic);
 
     /// <summary>
