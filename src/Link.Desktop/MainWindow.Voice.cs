@@ -13,6 +13,8 @@ public partial class MainWindow
     private const string SpeakingStatus = "Speaking — Esc stops, push-to-talk interrupts";
     private readonly PromptDraft _draft = new();
     private bool _conversationPaused;
+    // In conversation, a phrase that ended while an answer was still arriving: it goes once that request is over.
+    private bool _phraseWaiting;
 
     /// <summary>Push-to-talk pressed; during a spoken answer it silences Link and listens right away.</summary>
     public void StartPushToTalk()
@@ -98,8 +100,7 @@ public partial class MainWindow
     /// Conversation mode: whenever nothing else goes on, Link listens for the next phrase by itself. Looked at once
     /// the current step is over, so a phrase that has just ended goes out before the microphone opens again.
     /// </summary>
-    private void ScheduleListening() =>
-        Dispatcher.BeginInvoke(ListenForNextPhrase, DispatcherPriority.Background);
+    private void ScheduleListening() => Dispatcher.InvokeAsync(ListenForNextPhrase, DispatcherPriority.Background);
 
     private void ListenForNextPhrase()
     {
@@ -169,7 +170,24 @@ public partial class MainWindow
         }
 
         if (transcript is not null) SetStatus("Voice transcribed");
-        if (send || transcript!.SendRequested || _settings.Current.ConversationMode) await SendAsync();
+        if (!send && !transcript!.SendRequested && !_settings.Current.ConversationMode) return;
+        // Push-to-talk interrupted an answer that is still being written: the new question follows it.
+        if (_sending && _settings.Current.ConversationMode)
+        {
+            _phraseWaiting = true;
+            SetStatus("Voice transcribed — it goes out once the answer is in");
+            return;
+        }
+
+        await SendAsync();
+    }
+
+    /// <summary>A request is over: the phrase that waited for it goes out, unless conversation went off or it was cleared.</summary>
+    private async void SendWaitingPhrase()
+    {
+        if (!_phraseWaiting) return;
+        _phraseWaiting = false;
+        if (_settings.Current.ConversationMode && !string.IsNullOrWhiteSpace(PromptBox.Text)) await SendAsync();
     }
 
     private void OnVoiceDraftChanged(string words) => SetPromptText(_draft.Show(PromptBox.Text, words));

@@ -692,7 +692,10 @@ public partial class MainWindow
         ScreenButton.IsEnabled = !sending;
         ClipboardButton.IsEnabled = !sending;
         ReportState();
-        if (!sending) ScheduleListening();
+        if (sending) return;
+        // After the request's own ending (the sent prompt leaves the prompt), before the microphone opens again.
+        Dispatcher.InvokeAsync(SendWaitingPhrase);
+        ScheduleListening();
     }
 
     private void UpdateSendButton()
