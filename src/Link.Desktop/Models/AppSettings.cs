@@ -48,6 +48,9 @@ public sealed class AppSettings
     public RequestRoute Route { get; set; } = RequestRoute.Chat;
     public int ScreenshotHistorySize { get; set; } = 5;
     public bool LaunchWithWindows { get; set; }
+
+    /// <summary>Keeps the last request, with its prompt, file paths and window title, in last-request.json.</summary>
+    public bool Diagnostics { get; set; }
     public bool AutoCaptureActiveWindowOnSend { get; set; }
     public Guid? ActiveProjectId { get; set; }
     public WindowPlacement Window { get; set; } = new();

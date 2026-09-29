@@ -50,7 +50,7 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
-                                <RowDefinition Height="36" />
+                                <RowDefinition Height="36" /><RowDefinition Height="36" />
                             </Grid.RowDefinitions>
                             <TextBlock VerticalAlignment="Center" Text="Screenshot history" />
                             <TextBox x:Name="HistorySizeBox" Grid.Column="1" Width="72" Height="32" HorizontalAlignment="Left" />
@@ -59,6 +59,9 @@
                             <CheckBox x:Name="SoundCuesBox" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                       Content="Short sounds: listening, sent, answer ready, needs you, error"
                                       ToolTip="Quiet while Link speaks, except when it needs you" />
+                            <CheckBox x:Name="DiagnosticsBox" Grid.Row="4" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                      Content="Diagnostics: keep the last request in last-request.json"
+                                      ToolTip="Its prompt, file paths and window title stay in Link's data folder until the next request" />
                         </Grid>
                     </Border>
                     <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="VOICE" />

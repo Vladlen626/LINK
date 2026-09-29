@@ -71,6 +71,7 @@ public partial class SettingsWindow : Window
         AlwaysOnTopBox.IsChecked = current.AlwaysOnTop;
         LaunchWithWindowsBox.IsChecked = current.LaunchWithWindows;
         SoundCuesBox.IsChecked = current.SoundCues;
+        DiagnosticsBox.IsChecked = current.Diagnostics;
         SetHotkey(ShowHideHotkey, current.Hotkeys.ShowHide);
         SetHotkey(PushToTalkHotkey, current.Hotkeys.PushToTalk);
         SetHotkey(SendHotkey, current.Hotkeys.Send);
@@ -528,6 +529,7 @@ public partial class SettingsWindow : Window
         current.AlwaysOnTop = AlwaysOnTopBox.IsChecked == true;
         current.LaunchWithWindows = LaunchWithWindowsBox.IsChecked == true;
         current.SoundCues = SoundCuesBox.IsChecked == true;
+        current.Diagnostics = DiagnosticsBox.IsChecked == true;
         current.Hotkeys.ShowHide = GetHotkey(ShowHideHotkey);
         current.Hotkeys.PushToTalk = GetHotkey(PushToTalkHotkey);
         current.Hotkeys.Send = GetHotkey(SendHotkey);

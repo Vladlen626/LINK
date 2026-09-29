@@ -49,7 +49,8 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
 - **Context Brain** — сделано: видимый context stack (скриншоты, clipboard, текущее приложение). Дальше: уровни
   GLOBAL → PROJECT → DECISIONS → CURRENT TASK → CHAT SUMMARIES → LIVE и context router по релевантности.
 - **Chat bridge** — сделано: ChatGPT во встроенной странице WebView2; путь через браузерное расширение убран.
-  claude.ai для чата не подключаем (решение 2026-09-28).
+  claude.ai для чата не подключаем (решение 2026-09-28). Маршруты Chat и Direct, перенаправление ответа из снимка
+  ввода (↻ Deeper / Direct / Fresh screen).
 - **Handoff / compaction** — начато: New chat с необязательной краткой выжимкой старого чата (цель, решения,
   состояние, следующий шаг, вопросы). Дальше, если понадобится: варианты Full / Tiny и правила проекта.
 - **Decision memory** — нет: решения отдельно от summaries (active/deprecated), отдельно open questions.
@@ -113,6 +114,16 @@ Capture.
   лимит с Claude Code и запрет автоматизации в условиях Anthropic. Действия — отдельный явный маршрут Agent: CLI-агент
   на выбор пользователя (Claude Code или Codex CLI) без терминала; по умолчанию только чтение, изменения — явно для
   задачи. Маршрут виден и исправим, Direct отправляет без добавок LINK. План и этапы — `docs/AGENT_HARNESS_PLAN.md`.
+- Маршрут (2026-09-29, этап 2 плана Chat и Agent): Send собирает неизменяемый снимок ввода (`InputSnapshot`: текст,
+  context stack, рабочее окно, авто-скриншот), `AttemptCoordinator` строит из него `PromptRequest` чистой функцией по
+  маршруту и уровню, отправляет, пишет `[Chat]` с маршрутом и уровнем и хранит `LastResponse`; окно рисует, озвучивает
+  и уведомляет. Direct — явное намерение в `PromptRequest` (схема 4): текст и приложенное пользователем, без строк
+  Project / Application / Window / Current task, подсказки уровня, состояния проекта и авто-скриншота (его в Direct и
+  не снимают); режим ChatGPT по уровню переключается. Метки маршрута и уровня — под полем, выбор хранится в
+  `settings.json`. Перенаправление — новая попытка из снимка ответа на экране в ту же беседу, и после Error / Stop;
+  Fresh screen идёт через Chat. Снимок владеет авто-скриншотом: три последних снимка проекта живут, файлы старых
+  удаляются; история скриншотов считает закрепления, чтобы ни стек, ни снимок не теряли файл при чистке.
+  `last-request.json` — только с диагностикой (Settings → Behavior, по умолчанию выключена).
 
 ## ChatGPT-транспорт
 
@@ -185,7 +196,8 @@ Capture.
   профиля и состояния снаружи. На ChatGPT без входа companion беседы `/uc/<id>` не объявляет — для живого прогона
   без аккаунта это правится только в собранном скрипте прогона, не в `content.js`.
 - Живая проверка: UI Automation запущенного Link (AutomationId `PromptBox`, `SendButton`, `ResponseStateText`,
-  `StatusText`, `CheckChatButton`, `EffortButton`, `HideButton`, `ExpandButton`, `ResponseDocument`; в окне панели —
+  `StatusText`, `CheckChatButton`, `RouteButton`, `EffortButton`, `HideButton`, `ExpandButton`, `ResponseDocument`,
+  `DeeperButton`, `DirectButton`, `FreshScreenButton`; в окне панели —
   `TaskBox`, `StateBox`, `OpenChatButton`, `NewChatButton`, `ChatConnectionText`; скрытый оверлей показывает hotkey
   ShowHide из `settings.json`). Разметку страницы ChatGPT можно снять диагностикой Check chat в `link.log` через временную версию
   companion. Сообщения в чат пользователя — только с его разрешения. Claude in Chrome в Opera GX не работает.
