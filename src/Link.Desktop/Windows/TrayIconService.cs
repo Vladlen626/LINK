@@ -14,6 +14,7 @@ public sealed class TrayIconService : IDisposable
     private readonly Dictionary<LinkState, Icon> _icons = [];
     private LinkState _state;
     private Action? _notificationClicked;
+    private bool _disposed;
 
     public TrayIconService(Action show, Action settings, Action exit)
     {
@@ -37,6 +38,8 @@ public sealed class TrayIconService : IDisposable
     /// <summary>Shows what Link is up to: the icon for the state and the status line as the tooltip.</summary>
     public void ShowState(LinkState state, string status)
     {
+        // A request stopped by Exit still reports its end, after the icon is gone.
+        if (_disposed) return;
         var tip = Truncate(string.IsNullOrWhiteSpace(status) ? "Link" : $"Link · {status}", MaxTipLength);
         if (state != _state)
         {
@@ -59,6 +62,8 @@ public sealed class TrayIconService : IDisposable
 
     public void Dispose()
     {
+        if (_disposed) return;
+        _disposed = true;
         _icon.Visible = false;
         _icon.Dispose();
         foreach (var icon in _icons.Values) icon.Dispose();
