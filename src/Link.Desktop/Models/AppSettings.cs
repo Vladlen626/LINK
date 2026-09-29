@@ -43,7 +43,7 @@ public sealed class AppSettings
     /// </summary>
     public bool ConversationMode { get; set; }
 
-    /// <summary>Short sounds for listening, sent, an answer ready, a question for the user and an error.</summary>
+    /// <summary>Short sounds for listening, a phrase heard, sent, an answer ready, a question for the user and an error.</summary>
     public bool SoundCues { get; set; } = true;
     public ResponseEffort ResponseEffort { get; set; } = ResponseEffort.Normal;
 

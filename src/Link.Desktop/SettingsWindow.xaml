@@ -57,7 +57,7 @@
                             <CheckBox x:Name="AlwaysOnTopBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Always on top" />
                             <CheckBox x:Name="LaunchWithWindowsBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Launch with Windows" />
                             <CheckBox x:Name="SoundCuesBox" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center"
-                                      Content="Short sounds: listening, sent, answer ready, needs you, error"
+                                      Content="Short sounds: listening, heard, sent, answer ready, needs you, error"
                                       ToolTip="Quiet while Link speaks, except when it needs you" />
                             <CheckBox x:Name="DiagnosticsBox" Grid.Row="4" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                       Content="Diagnostics: keep the last request in last-request.json"

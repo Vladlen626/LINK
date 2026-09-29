@@ -379,6 +379,10 @@ internal static class VoiceSessionTests
         var transcript = await rig.Session.FinishListeningAsync();
         Program.Equal("the phrase is transcribed without the wait before it", (transcript?.Text, rig.Recorder.Skipped),
             ("Как дела?", TimeSpan.FromSeconds(11.5)));
+        Program.Equal("link.log tells how long it listened, how busy Link was and how long the transcript took",
+            rig.Log.Any(line => line.StartsWith("[Voice] listened ", StringComparison.Ordinal) &&
+                                line.Contains(" hands-free, Link CPU ", StringComparison.Ordinal) &&
+                                line.Contains(" transcribed ", StringComparison.Ordinal)), true);
 
         rig = new Rig();
         ended = 0;
@@ -447,7 +451,13 @@ internal static class VoiceSessionTests
 
     private sealed class Rig
     {
-        public Rig() => Session = new VoiceSession(Settings, Recorder, Streaming, SpeechToText, Speech, Time);
+        public Rig() => Session = new VoiceSession(Settings, Recorder, Streaming, SpeechToText, Speech, Time, line =>
+        {
+            lock (Log) Log.Add(line);
+        });
+
+        /// <summary>What the session wrote to link.log.</summary>
+        public List<string> Log { get; } = [];
 
         public AppSettings Settings { get; } = new();
         public FakeRecorder Recorder { get; } = new();

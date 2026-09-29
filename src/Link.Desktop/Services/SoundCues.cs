@@ -5,6 +5,9 @@ namespace Link.Desktop.Services;
 public enum SoundCue
 {
     Listening,
+
+    /// <summary>A hands-free phrase ended: Link heard it and is on its way.</summary>
+    Heard,
     Sent,
     NeedsDecision,
     Done,
@@ -24,6 +27,8 @@ public sealed class SoundCues(IAudioOutput output, AppSettings settings, Func<bo
     private static readonly Dictionary<SoundCue, (double From, double To, int Milliseconds)[]> Shapes = new()
     {
         [SoundCue.Listening] = [(880, 880, 60)],
+        // The microphone closing: a short glide down, the mirror of Sent's glide up.
+        [SoundCue.Heard] = [(1100, 800, 70)],
         [SoundCue.Sent] = [(600, 1200, 90)],
         [SoundCue.NeedsDecision] = [(1319, 1319, 55), (0, 0, 20), (1319, 1319, 55)],
         [SoundCue.Done] = [(1047, 1047, 60), (1568, 1568, 80)],

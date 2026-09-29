@@ -134,6 +134,8 @@ public partial class MainWindow
 
     private async void OnPhraseEnded()
     {
+        // At once: the pause alone told Link the phrase is over, and the user should not wonder whether it heard.
+        _cues.Play(SoundCue.Heard);
         // A phrase spoken hands-free is about the window in front, as if a hotkey had been pressed there.
         _currentApplication.LatchForeground();
         await FinishPhraseAsync(send: false);

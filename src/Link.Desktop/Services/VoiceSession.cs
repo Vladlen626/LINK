@@ -1,3 +1,4 @@
+using System.Diagnostics;
 using System.Globalization;
 using Link.Desktop.Models;
 
@@ -59,6 +60,8 @@ public sealed class VoiceSession
     // Hands-free the utterance ends at a pause; push-to-talk ends it with the key.
     private bool _handsFree;
     private long _openedAt;
+    // Link's processor time when the microphone opened, for link.log.
+    private TimeSpan _processorAtOpen;
     // How much of the recording before the phrase is left out.
     private TimeSpan _skip;
     private ITimer? _quiet;
@@ -69,6 +72,7 @@ public sealed class VoiceSession
     private int _unsaid;
     private Task _speech = Task.CompletedTask;
     private Exception? _voiceFailure;
+    private long _requestedAt;
     private long? _answerArrivedAt;
     private bool _answerHeard;
     private CancellationTokenSource? _cue;
@@ -172,6 +176,7 @@ public sealed class VoiceSession
     public void CancelListening()
     {
         if (Phase != VoicePhase.Listening) return;
+        _log($"[Voice] {DescribeListening()}, closed without a phrase");
         DraftChanged?.Invoke(string.Empty);
         CloseMicrophone();
         SetPhase(VoicePhase.Idle);
@@ -184,6 +189,8 @@ public sealed class VoiceSession
     {
         if (Phase != VoicePhase.Listening) throw new InvalidOperationException("Voice input is not listening.");
         StopQuietTimer();
+        var listening = DescribeListening();
+        var finishing = _time.GetTimestamp();
         SetPhase(VoicePhase.Finalizing);
         var live = _live!;
         _live = null;
@@ -209,6 +216,7 @@ public sealed class VoiceSession
             {
                 DeleteRecording(audioPath);
                 audioPath = null;
+                _log($"[Voice] {listening}, no speech");
                 if (recording.IsSilent)
                 {
                     throw new InvalidOperationException(
@@ -219,6 +227,9 @@ public sealed class VoiceSession
             }
 
             var text = await _speechToText.TranscribeAsync(audioPath, _settings.VoiceLanguage);
+            // With the pause before it, this is how long a hands-free phrase waited to go out.
+            _log($"[Voice] {listening}, {recording.Duration.TotalSeconds:0.0} s of it transcribed " +
+                 $"{_time.GetElapsedTime(finishing).TotalMilliseconds:0} ms after listening ended");
             // The transcript has one canonical home, the prompt: raw audio is never sent.
             DeleteRecording(audioPath);
             _voicePrompt = true;
@@ -263,6 +274,7 @@ public sealed class VoiceSession
             ? new VoiceTextChunker(language)
             : null;
         _cuesAllowed = _voicePrompt || conversation;
+        _requestedAt = Environment.TickCount64;
         _answerArrivedAt = null;
         _answerHeard = false;
         // A voice failure of an earlier answer is not this one's.
@@ -371,6 +383,7 @@ public sealed class VoiceSession
             var usedSelectedMicrophone = _recorder.Start(_settings.MicrophoneDeviceId);
             _handsFree = handsFree;
             _openedAt = _time.GetTimestamp();
+            _processorAtOpen = ProcessorTime();
             _skip = TimeSpan.Zero;
             if (handsFree)
             {
@@ -420,6 +433,7 @@ public sealed class VoiceSession
     private void RestartQuiet(IStreamingTranscription live)
     {
         if (live != _live || !IsHandsFree || live.HeardSpeech) return;
+        _log($"[Voice] {DescribeListening()}, nothing heard: listening afresh");
         // Words the draft made of the noise go with it.
         DraftChanged?.Invoke(string.Empty);
         CloseMicrophone();
@@ -459,6 +473,24 @@ public sealed class VoiceSession
 
     /// <summary>Where the recording is kept from for speech that begins at <paramref name="speech"/>.</summary>
     private static TimeSpan Before(TimeSpan speech) => speech > PhrasePreroll ? speech - PhrasePreroll : TimeSpan.Zero;
+
+    /// <summary>
+    /// For link.log: how long the microphone listened and how busy Link was meanwhile, so that listening hands-free
+    /// can be compared with holding the key, e.g. "listened 42.0 s hands-free, Link CPU 1.9% of one core".
+    /// </summary>
+    private string DescribeListening()
+    {
+        var listened = _time.GetElapsedTime(_openedAt);
+        var busy = listened > TimeSpan.Zero ? (ProcessorTime() - _processorAtOpen) / listened * 100 : 0;
+        return $"listened {listened.TotalSeconds:0.0} s {(_handsFree ? "hands-free" : "with the key")}, " +
+               $"Link CPU {busy:0.0}% of one core";
+    }
+
+    private static TimeSpan ProcessorTime()
+    {
+        using var process = Process.GetCurrentProcess();
+        return process.TotalProcessorTime;
+    }
 
     /// <summary>The live draft's language: the chosen one, or under Auto the language of the last dictation.</summary>
     private VoiceLanguage DraftLanguage() =>
@@ -512,7 +544,8 @@ public sealed class VoiceSession
         if (_answerArrivedAt is { } arrived && !_answerHeard)
         {
             _answerHeard = true;
-            _log($"[TTS] first words of the answer ready {Environment.TickCount64 - arrived} ms after its text began to arrive");
+            _log($"[TTS] first words of the answer ready {Environment.TickCount64 - arrived} ms after its text began to arrive, " +
+                 $"{Environment.TickCount64 - _requestedAt} ms after the request began");
         }
 
         Say(part);
