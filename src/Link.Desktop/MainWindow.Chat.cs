@@ -188,11 +188,11 @@ public partial class MainWindow
         SetSending(true);
         _chatHeardAt = DateTime.UtcNow;
         ShowResponse(ChatProgressState.Sending, string.Empty);
-        InputSnapshot? snapshot = null;
 
         try
         {
-            snapshot = await takeSnapshot();
+            var snapshot = await takeSnapshot();
+            _attempts.Keep(snapshot);
             _cues.Play(SoundCue.Sent);
             var response = await _attempts.SendAsync(
                 snapshot,
@@ -231,7 +231,6 @@ public partial class MainWindow
         {
             // After a failure or Stop; an answer being read aloud keeps its phase.
             _voice.EndRequest();
-            DeleteTransientContext(snapshot?.Screen);
             _sendCancellation = null;
             cancellation.Dispose();
             SetSending(false);
@@ -317,27 +316,6 @@ public partial class MainWindow
         var geometry = Geometry.Parse(data);
         geometry.Freeze();
         return geometry;
-    }
-
-    private void DeleteTransientContext(ContextItem? item)
-    {
-        if (item?.FilePath is null) return;
-        try
-        {
-            File.Delete(item.FilePath);
-        }
-        catch (IOException)
-        {
-            // A failed transient cleanup can be handled by the normal screenshot pruning pass.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // Keep sending successful even if Windows briefly retains the capture file.
-        }
-        finally
-        {
-            _history.Prune(_context.Where(context => context.FilePath is not null).Select(context => context.FilePath!));
-        }
     }
 
     private void LinkConversation()

@@ -195,6 +195,7 @@ public partial class MainWindow : Window
         }
 
         _sendCancellation?.Cancel();
+        _attempts.Forget();
         ClearContext(prune: true);
     }
 
@@ -409,6 +410,7 @@ public partial class MainWindow : Window
         if (result != MessageBoxResult.Yes) return;
 
         var next = _projects.Remove(project);
+        _attempts.Forget(project.Id);
         LoadProject(next);
         SetStatus("Project removed; local files were kept");
     }

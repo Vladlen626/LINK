@@ -59,7 +59,7 @@ public partial class App : System.Windows.Application
         var clipboard = new ClipboardContextService(history);
         var chat = new EmbeddedChatIntegration(paths.CompanionStateFile);
         _chat = chat;
-        var attempts = new AttemptCoordinator(chat, _projects, new RequestService(paths), Log);
+        var attempts = new AttemptCoordinator(chat, _projects, new RequestService(paths), history, Log);
         _audio = new AudioRecorderService(paths);
         var speechModels = new SpeechModelManager(paths, Log);
         _speechModels = speechModels;

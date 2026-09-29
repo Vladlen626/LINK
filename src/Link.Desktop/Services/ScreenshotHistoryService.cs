@@ -8,7 +8,8 @@ public sealed class ScreenshotHistoryService
 {
     private readonly StoragePaths _paths;
     private readonly SettingsService _settings;
-    private readonly HashSet<string> _pinned = new(StringComparer.OrdinalIgnoreCase);
+    // How many holders keep each file out of pruning: the context stack and every input snapshot that has it.
+    private readonly Dictionary<string, int> _pinned = new(StringComparer.OrdinalIgnoreCase);
     private readonly object _sync = new();
 
     public ScreenshotHistoryService(StoragePaths paths, SettingsService settings)
@@ -39,12 +40,19 @@ public sealed class ScreenshotHistoryService
 
     public void Pin(string path)
     {
-        lock (_sync) _pinned.Add(Path.GetFullPath(path));
+        var fullPath = Path.GetFullPath(path);
+        lock (_sync) _pinned[fullPath] = _pinned.GetValueOrDefault(fullPath) + 1;
     }
 
     public void Unpin(string path)
     {
-        lock (_sync) _pinned.Remove(Path.GetFullPath(path));
+        var fullPath = Path.GetFullPath(path);
+        lock (_sync)
+        {
+            if (!_pinned.TryGetValue(fullPath, out var holders)) return;
+            if (holders > 1) _pinned[fullPath] = holders - 1;
+            else _pinned.Remove(fullPath);
+        }
     }
 
     public void Prune(IEnumerable<string>? additionallyProtected = null)
@@ -52,7 +60,7 @@ public sealed class ScreenshotHistoryService
         HashSet<string> protectedPaths;
         lock (_sync)
         {
-            protectedPaths = new HashSet<string>(_pinned, StringComparer.OrdinalIgnoreCase);
+            protectedPaths = new HashSet<string>(_pinned.Keys, StringComparer.OrdinalIgnoreCase);
         }
 
         if (additionallyProtected is not null)
