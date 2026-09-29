@@ -1,4 +1,6 @@
+using System.Net;
 using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Security.Cryptography;
 
 namespace Link.Desktop.Services;
@@ -13,6 +15,8 @@ public sealed record SpeechModel(string Folder, IReadOnlyList<SpeechModelFile> F
         "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-small-ru-vosk-int8-2025-08-16/resolve/31fa603e4f31279c6e1f7600fed13dc4312663ab/";
     private const string EnglishRepository =
         "https://huggingface.co/csukuangfj/sherpa-onnx-streaming-zipformer-en-20M-2023-02-17/resolve/d42f2d9f7ca24806fb667456a18a9f1b60f70d16/";
+    private const string SupertonicRepository =
+        "https://huggingface.co/csukuangfj2/sherpa-onnx-supertonic-3-tts-int8-2026-05-11/resolve/cca5a0e6c96e1d2c720986bf7e75fcc81dee3ae4/";
 
     /// <summary>Whisper Base (MIT), the final pass on the CPU. It predates model folders and stays in Models itself.</summary>
     public static SpeechModel WhisperBase { get; } = new("",
@@ -61,6 +65,28 @@ public sealed record SpeechModel(string Folder, IReadOnlyList<SpeechModelFile> F
             "49e3c2646595fd907228b3c6787069658f67b17377c60aeb8619c4551b2316fb")
     ]);
 
+    /// <summary>
+    /// Supertone's Supertonic 3 (model OpenRAIL-M, code MIT), int8 for sherpa-onnx: the local voice, 31 languages
+    /// with Russian and English, ten speakers. Fetched only when the user asks for it.
+    /// </summary>
+    public static SpeechModel Supertonic { get; } = new("supertonic-3-int8-2026-05-11",
+    [
+        new("duration_predictor.int8.onnx", SupertonicRepository + "duration_predictor.int8.onnx", 3_700_147,
+            "c3eb91414d5ff8a7a239b7fe9e34e7e2bf8a8140d8375ffb14718b1c639325db"),
+        new("text_encoder.int8.onnx", SupertonicRepository + "text_encoder.int8.onnx", 36_416_150,
+            "c7befd5ea8c3119769e8a6c1486c4edc6a3bc8365c67621c881bbb774b9902ff"),
+        new("vector_estimator.int8.onnx", SupertonicRepository + "vector_estimator.int8.onnx", 78_400_833,
+            "20cd86fa5c6effedfda0e7cffe5b0569ca401c440a0c3a1d72bf39286c0db3fd"),
+        new("vocoder.int8.onnx", SupertonicRepository + "vocoder.int8.onnx", 25_991_073,
+            "e923d60f53f95eb1ce235f1dc33ec56d9c057823c96fa6f8acf98f32b0da6152"),
+        new("tts.json", SupertonicRepository + "tts.json", 8_253,
+            "42078d3aef1cd43ab43021f3c54f47d2d75ceb4e75f627f118890128b06a0d09"),
+        new("unicode_indexer.bin", SupertonicRepository + "unicode_indexer.bin", 262_144,
+            "8402ca48e5189a8950138580b0fff64db6f072f24ac07cd54ba8b2fbb9883b30"),
+        new("voice.bin", SupertonicRepository + "voice.bin", 517_168,
+            "67d5209b0ee8ce6c74105ffbe12fe6a7628aea3b4ba2fcb308a4a67938a93ce8")
+    ]);
+
     public long Size => Files.Sum(file => file.Size);
 }
 
@@ -76,13 +102,25 @@ public sealed class SpeechModelManager
     private static readonly HttpClient Http = new() { Timeout = Timeout.InfiniteTimeSpan };
     // A download fails when no data comes for this long; big models may take many minutes on a slow line.
     private static readonly TimeSpan StallTimeout = TimeSpan.FromMinutes(1);
+    // Tries per file before the download counts as failed; each one continues the part already on disk.
+    private const int Attempts = 3;
     private readonly string _root;
+    private readonly Action<string> _log;
     private readonly Dictionary<SpeechModel, Task> _downloads = [];
     private readonly Dictionary<SpeechModel, string> _failures = [];
     // Bytes of each downloading model on disk so far, for the status line.
     private readonly Dictionary<SpeechModel, long> _received = [];
 
-    public SpeechModelManager(StoragePaths paths) => _root = paths.Models;
+    public SpeechModelManager(StoragePaths paths, Action<string>? log = null) : this(paths.Models, log)
+    {
+    }
+
+    /// <summary>Models in another folder, for checks that must not touch the user's data.</summary>
+    internal SpeechModelManager(string root, Action<string>? log = null)
+    {
+        _root = root;
+        _log = log ?? (_ => { });
+    }
 
     public string PathOf(SpeechModel model, string file) => Path.Combine(_root, model.Folder, file);
 
@@ -111,6 +149,11 @@ public sealed class SpeechModelManager
                     if (task.IsCompletedSuccessfully) _failures.Remove(model);
                     else _failures[model] = task.Exception?.GetBaseException().Message ?? "timed out";
                 }
+
+                if (!task.IsCompletedSuccessfully)
+                {
+                    _log($"[Models] {model.Folder}: download failed ({task.Exception?.GetBaseException().Message ?? "timed out"})");
+                }
             }, TaskScheduler.Default);
             return download;
         }
@@ -125,6 +168,16 @@ public sealed class SpeechModelManager
         if (IsReady(model)) return null;
         _ = EnsureAsync(model);
         return Status(model);
+    }
+
+    /// <summary>Bytes a running download has on disk, or why the last one failed; both null when neither applies.</summary>
+    public (long? Received, string? Failure) DownloadState(SpeechModel model)
+    {
+        lock (_downloads)
+        {
+            long? received = _downloads.ContainsKey(model) ? _received.GetValueOrDefault(model) : null;
+            return (received, _failures.GetValueOrDefault(model));
+        }
     }
 
     /// <summary>Null when the model is ready; otherwise how its download goes, or why the last one failed.</summary>
@@ -142,56 +195,104 @@ public sealed class SpeechModelManager
     private async Task DownloadAsync(SpeechModel model)
     {
         Directory.CreateDirectory(Path.Combine(_root, model.Folder));
-        var received = 0L;
+        var done = 0L;
         foreach (var file in model.Files)
         {
             var path = PathOf(model, file.Name);
             if (new FileInfo(path) is { Exists: true } info && info.Length == file.Size)
             {
-                received += file.Size;
+                done += file.Size;
                 continue;
             }
 
-            var temporaryPath = path + ".download";
-            using var stalled = new CancellationTokenSource(StallTimeout);
-            try
+            for (var attempt = 1; ; attempt++)
             {
-                using (var response = await Http.GetAsync(file.Url, HttpCompletionOption.ResponseHeadersRead, stalled.Token))
+                try
                 {
-                    response.EnsureSuccessStatusCode();
-                    await using var source = await response.Content.ReadAsStreamAsync(stalled.Token);
-                    await using var output = new FileStream(temporaryPath, FileMode.Create, FileAccess.Write, FileShare.None);
-                    using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
-                    var buffer = new byte[81920];
-                    int read;
-                    while ((read = await source.ReadAsync(buffer, stalled.Token)) > 0)
-                    {
-                        stalled.CancelAfter(StallTimeout);
-                        hash.AppendData(buffer, 0, read);
-                        await output.WriteAsync(buffer.AsMemory(0, read), stalled.Token);
-                        received += read;
-                        lock (_downloads)
-                        {
-                            _received[model] = received;
-                            // Data flows again, so the last failure is history.
-                            _failures.Remove(model);
-                        }
-                    }
-
-                    if (output.Length != file.Size ||
-                        !Convert.ToHexStringLower(hash.GetHashAndReset()).Equals(file.Sha256, StringComparison.Ordinal))
-                    {
-                        throw new InvalidDataException($"{file.Name} did not download intact.");
-                    }
+                    await FetchAsync(model, file, done);
+                    break;
                 }
+                // A connection that breaks or stalls goes on where it stopped; a damaged file starts over.
+                catch (Exception exception) when (attempt < Attempts
+                                                  && exception is HttpRequestException or IOException or OperationCanceledException)
+                {
+                    _log($"[Models] {file.Name}: attempt {attempt} failed ({exception.Message}), trying again");
+                    await Task.Delay(TimeSpan.FromSeconds(3 * attempt));
+                }
+            }
 
-                File.Move(temporaryPath, path, overwrite: true);
-            }
-            catch
-            {
-                if (File.Exists(temporaryPath)) File.Delete(temporaryPath);
-                throw;
-            }
+            File.Move(path + ".download", path, overwrite: true);
+            done += file.Size;
         }
+
+        _log($"[Models] {model.Folder} downloaded");
+    }
+
+    /// <summary>
+    /// Fetches one file into its .download twin, continuing the part an earlier attempt left there when the server
+    /// allows; throws unless the whole file has the pinned size and SHA-256. <paramref name="done"/>: bytes of the
+    /// model's files already complete, for the progress.
+    /// </summary>
+    private async Task FetchAsync(SpeechModel model, SpeechModelFile file, long done)
+    {
+        var temporaryPath = PathOf(model, file.Name) + ".download";
+        var existing = new FileInfo(temporaryPath) is { Exists: true } part && part.Length < file.Size ? part.Length : 0;
+        using var stalled = new CancellationTokenSource(StallTimeout);
+        using var request = new HttpRequestMessage(HttpMethod.Get, file.Url);
+        if (existing > 0) request.Headers.Range = new RangeHeaderValue(existing, null);
+        using var response = await Http.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, stalled.Token);
+        response.EnsureSuccessStatusCode();
+
+        // A server that sends the whole file again gets it written from the start.
+        var append = existing > 0 && response.StatusCode == HttpStatusCode.PartialContent;
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        if (append)
+        {
+            await HashFileAsync(temporaryPath, hash, stalled.Token);
+            _log($"[Models] {file.Name}: continuing from {existing / 1_000_000.0:0.0} MB");
+        }
+        else
+        {
+            existing = 0;
+        }
+
+        lock (_downloads) _received[model] = done + existing;
+
+        bool intact;
+        await using (var source = await response.Content.ReadAsStreamAsync(stalled.Token))
+        await using (var output = new FileStream(temporaryPath, append ? FileMode.Append : FileMode.Create, FileAccess.Write, FileShare.None))
+        {
+            var buffer = new byte[81920];
+            var received = done + existing;
+            int read;
+            while ((read = await source.ReadAsync(buffer, stalled.Token)) > 0)
+            {
+                stalled.CancelAfter(StallTimeout);
+                hash.AppendData(buffer, 0, read);
+                await output.WriteAsync(buffer.AsMemory(0, read), stalled.Token);
+                received += read;
+                lock (_downloads)
+                {
+                    _received[model] = received;
+                    // Data flows again, so the last failure is history.
+                    _failures.Remove(model);
+                }
+            }
+
+            intact = output.Length == file.Size
+                     && Convert.ToHexStringLower(hash.GetHashAndReset()).Equals(file.Sha256, StringComparison.Ordinal);
+        }
+
+        if (intact) return;
+        File.Delete(temporaryPath);
+        throw new InvalidDataException($"{file.Name} did not download intact.");
+    }
+
+    private static async Task HashFileAsync(string path, IncrementalHash hash, CancellationToken cancellationToken)
+    {
+        await using var input = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.Read);
+        var buffer = new byte[81920];
+        int read;
+        while ((read = await input.ReadAsync(buffer, cancellationToken)) > 0) hash.AppendData(buffer, 0, read);
     }
 }

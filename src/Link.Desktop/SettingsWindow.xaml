@@ -95,25 +95,54 @@
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="36" /><RowDefinition Height="44" /><RowDefinition Height="44" />
+                                <RowDefinition Height="36" /><RowDefinition Height="32" /><RowDefinition Height="44" />
+                                <RowDefinition Height="44" /><RowDefinition Height="Auto" /><RowDefinition Height="44" />
+                                <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" />
                                 <RowDefinition Height="44" /><RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <CheckBox x:Name="VoiceRepliesBox" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                       Content="Read the answer aloud when I ask by voice" />
-                            <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Voice" />
-                            <ComboBox x:Name="ReplyVoiceCombo" Grid.Row="1" Grid.Column="1" />
-                            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Speed" />
-                            <Grid Grid.Row="2" Grid.Column="1" VerticalAlignment="Center">
+                            <CheckBox x:Name="ReadTypedAnswersBox" Grid.Row="1" Grid.ColumnSpan="2" Margin="26,0,0,0"
+                                      VerticalAlignment="Center" Content="…and when I type the question"
+                                      IsEnabled="{Binding ElementName=VoiceRepliesBox, Path=IsChecked}" />
+                            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Voice engine" />
+                            <ComboBox x:Name="ProviderCombo" Grid.Row="2" Grid.Column="1" />
+                            <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Gemini API key" />
+                            <Grid Grid.Row="3" Grid.Column="1" VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions>
+                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                                </Grid.ColumnDefinitions>
+                                <PasswordBox x:Name="GeminiKeyBox" Height="32" PasswordChanged="GeminiKeyBox_OnPasswordChanged" />
+                                <Button x:Name="GeminiKeySaveButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}"
+                                        Click="GeminiKeySave_OnClick" Content="Save key" IsEnabled="False" />
+                                <Button x:Name="GeminiKeyRemoveButton" Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}"
+                                        Click="GeminiKeyRemove_OnClick" Content="Remove" />
+                            </Grid>
+                            <TextBlock x:Name="GeminiKeyText" Grid.Row="4" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                            <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="Gemini voice" />
+                            <ComboBox x:Name="GeminiVoiceCombo" Grid.Row="5" Grid.Column="1" />
+                            <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="Local voice" />
+                            <Grid Grid.Row="6" Grid.Column="1" VerticalAlignment="Center">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <ComboBox x:Name="LocalVoiceCombo" />
+                                <Button x:Name="LocalDownloadButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}"
+                                        Click="LocalDownload_OnClick" />
+                            </Grid>
+                            <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Windows voice" />
+                            <ComboBox x:Name="ReplyVoiceCombo" Grid.Row="7" Grid.Column="1" />
+                            <TextBlock Grid.Row="8" VerticalAlignment="Center" Text="Speed" />
+                            <Grid Grid.Row="8" Grid.Column="1" VerticalAlignment="Center">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
                                 <Slider x:Name="ReplySpeedSlider" Minimum="0.5" Maximum="2" SmallChange="0.1" LargeChange="0.2"
                                         TickFrequency="0.1" IsSnapToTickEnabled="True" />
                                 <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
                                            Text="{Binding ElementName=ReplySpeedSlider, Path=Value, StringFormat={}{0:0.0}×}" />
                             </Grid>
-                            <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Check" />
-                            <Button x:Name="VoiceTestButton" Grid.Row="3" Grid.Column="1" HorizontalAlignment="Left"
+                            <TextBlock Grid.Row="9" VerticalAlignment="Center" Text="Check" />
+                            <Button x:Name="VoiceTestButton" Grid.Row="9" Grid.Column="1" HorizontalAlignment="Left"
                                     Style="{StaticResource ChipButtonStyle}" Click="VoiceTest_OnClick" Content="Test voice" />
-                            <TextBlock x:Name="ReplyVoiceText" Grid.Row="4" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                            <TextBlock x:Name="ReplyVoiceText" Grid.Row="10" Grid.ColumnSpan="2" Margin="0,0,0,6"
                                        Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
                         </Grid>
                     </Border>

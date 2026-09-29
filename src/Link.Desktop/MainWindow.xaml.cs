@@ -109,6 +109,8 @@ public partial class MainWindow : Window
         }
 
         UpdateAutoScreenIndicator();
+        // Voice replies may have been switched off or on.
+        UpdateReadAloudButton();
     }
 
     public void ToggleVisible()

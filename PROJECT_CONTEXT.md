@@ -1,7 +1,8 @@
 # Link — Project Context
 
 Продукт, принятые решения и открытые вопросы. Правила работы с кодом — `CLAUDE.md`; для пользователя — `README.md`;
-ChatGPT-транспорт в деталях — `companion/README.md`; голос — `docs/VOICE_CONVERSATION_PLAN.md`.
+ChatGPT-транспорт в деталях — `companion/README.md`; голос — `docs/VOICE_CONVERSATION_PLAN.md`; желаемые QoL и
+путь к ассистенту — `docs/QOL_ROADMAP.md`; Chat и Agent, этапы работ — `docs/AGENT_HARNESS_PLAN.md`.
 История изменений — в `git log`.
 
 ## Что мы создаём
@@ -38,24 +39,26 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
   предела, collapse, click-through, прозрачность, tray, переназначаемые hotkeys.
 - **Vision** — сделано: монитор, весь desktop, каждый монитор, активное окно, область (одна за раз), Auto active
   window на каждый Send. Позже, если понадобится, — Windows Graphics Capture.
-- **Voice** — сделано: push-to-talk, live-черновик, финальный Whisper, голосовой ответ по мере прихода текста.
-  Дальше: локальный TTS и Conversation Mode — `docs/VOICE_CONVERSATION_PLAN.md`.
+- **Voice** — сделано: push-to-talk, live-черновик, финальный Whisper, голосовой ответ по мере прихода текста
+  (Gemini TTS → локальный Supertonic 3 → голоса Windows), кнопка Listen/Stop на ответе, озвучка набранных вопросов
+  по желанию. Дальше: Conversation Mode — `docs/VOICE_CONVERSATION_PLAN.md`.
 - **Projects** — сделано: проекты (по умолчанию General), текущая задача, связанная беседа, последний ответ.
   Дальше: память проекта, решения, открытые вопросы, summaries, локальные файлы и папки.
 - **Context Brain** — сделано: видимый context stack (скриншоты, clipboard, текущее приложение). Дальше: уровни
   GLOBAL → PROJECT → DECISIONS → CURRENT TASK → CHAT SUMMARIES → LIVE и context router по релевантности.
 - **Chat bridge** — сделано: ChatGPT во встроенной странице WebView2; путь через браузерное расширение убран.
-  Дальше: Claude-адаптер.
+  claude.ai для чата не подключаем (решение 2026-09-28).
 - **Handoff / compaction** — начато: New chat с необязательной краткой выжимкой старого чата (цель, решения,
   состояние, следующий шаг, вопросы). Дальше, если понадобится: варианты Full / Tiny и правила проекта.
 - **Decision memory** — нет: решения отдельно от summaries (active/deprecated), отдельно open questions.
 - **Commands** — нет: command palette, quicklinks, script commands (PowerShell/Python/EXE), локальные действия без AI.
+- **Agent** — нет: явный маршрут действий через CLI-агента (Claude Code или Codex), этапы — `docs/stages/`.
 
 ## Стек
 
 C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, presentation) — отдельные assemblies не
 заводить, пока размер не требует. Зависимости: `Whisper.net` (CPU и Vulkan runtime), `org.k2fsa.sherpa.onnx`
-(live-черновик и VAD; сборка только win-x64), `System.Speech` (голоса Windows), `Microsoft.Web.WebView2`
+(live-черновик, VAD и локальный голос; сборка только win-x64), `System.Speech` (голоса Windows), `Microsoft.Web.WebView2`
 (встроенный ChatGPT на Evergreen Runtime из Windows 11). Только под реальную фичу: SQLite для памяти, Windows Graphics
 Capture.
 
@@ -70,6 +73,11 @@ Capture.
 - Global Send во время записи или распознавания отправляет после транскрипта; во время запроса не работает как Stop.
 - Голос: GPT остаётся мозгом; speech-слой local-first без поминутной оплаты; транскрипт — обычный текст пользователя,
   не context item.
+- Голос ответа (2026-09-26, решение пользователя): free-first. Основной — Gemini 3.8 Flash-Lite TTS (Interactions API,
+  стрим PCM 24 кГц, `store: false`) на собственном бесплатном ключе пользователя; без ключа, при лимите, ошибке сети
+  или ключа — локальный Supertonic 3 (sherpa-onnx, OpenRAIL-M, скачивается по кнопке), последний запасной — голоса
+  Windows. Все голоса играют через один waveOut-плеер: часть говорится, пока делается следующая, Stop и push-to-talk
+  глушат сразу. Читается весь ответ до ~900 символов (около минуты); код и таблицы — фразой «на экране».
 - Fast / Normal / Deep: provider-neutral подсказка в запросе плюс переключение режима ChatGPT с проверкой; Normal
   возвращает режим, который был до LINK.
 - ChatGPT — только встроенная страница WebView2 (2026-09-26). Расширение и loopback HTTP-мост удалены, когда
@@ -85,6 +93,11 @@ Capture.
   `/g/g-p-<id>/project` или главная); первое сообщение создаёт беседу, companion перенимает её id и LINK
   перелинковывает проект. Выжимка — только по желанию пользователя (галочка): её пишет старый чат коротким запросом
   Fast, она становится видимым context item и уходит с первым сообщением нового чата.
+- Chat и Agent (2026-09-28, решение пользователя по брифу «Куда мы ведём LINK»): Chat — маршрут по умолчанию и
+  остаётся на ChatGPT во встроенной странице (подписка без трат токенов); claude.ai для чата не подключаем — общий
+  лимит с Claude Code и запрет автоматизации в условиях Anthropic. Действия — отдельный явный маршрут Agent: CLI-агент
+  на выбор пользователя (Claude Code или Codex CLI) без терминала; по умолчанию только чтение, изменения — явно для
+  задачи. Маршрут виден и исправим, Direct отправляет без добавок LINK. План и этапы — `docs/AGENT_HARNESS_PLAN.md`.
 
 ## ChatGPT-транспорт
 
@@ -133,7 +146,13 @@ Capture.
    ввода появляется раньше кнопок вокруг него — companion ждёт переключатель режима до 3 с. Не проверено вживую:
    истёкшая сессия, баннер «доступна новая версия ChatGPT», перезагрузка после 6 часов простоя (есть тест),
    ресурсы за целый рабочий день.
-3. **Голос** — локальный TTS и Conversation Mode.
+3. **Голос** — Conversation Mode. Gemini TTS проверен только на формат ошибок настоящего endpoint'а (без ключа
+   пользователя); первые ответы с ключом покажут в `link.log` строки `[TTS]` с задержками. Проверено вживую
+   (2026-09-26, тестовая копия на профиле пользователя, локальный голос): звук начинается через 1,0–1,3 с после первой
+   законченной фразы ответа (синтез фразы ~1 с на CPU), части идут без пауз; Stop, Listen/Stop и Enter поверх речи
+   глушат сразу, новый ответ — без остатков старого; модель занимает в памяти ~320 МБ и выгружается через 3 минуты
+   тишины. Каждый запрос пишет строку `[Chat]`: подготовка в Link 16–90 мс, приём страницей 0,3–3,9 с, первый текст
+   6–13 с.
 4. **Проекты и контекст** — память, решения, summaries, handoff, context router.
 
 ## Для AI-агентов

@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.Linq;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -10,51 +11,90 @@ namespace Link.Desktop.Tests;
 
 internal static class VoiceSessionTests
 {
-    private const string Answer = "Готово. Второе предложение.\n\n```\ncode\n```";
+    private const string Answer = "Готово, всё настроено как надо. Второе предложение.\n\n```\ncode\n```";
+    private const string Opening = "Готово, всё настроено как надо.";
+    private const string Rest = "Второе предложение. Код — на экране.";
 
     public static async Task RunAsync()
     {
         var rig = new Rig();
+        rig.Settings.VoiceReplyProvider = TtsProvider.Local;
+        rig.Settings.GeminiVoice = "Sulafat";
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         Program.Equal("request goes out", rig.Session.Phase, VoicePhase.Sending);
+        Program.Equal("the voice gets ready while the chat thinks", rig.Speech.Prepared, 1);
         Program.Equal("push-to-talk waits for the request", rig.Session.CanStartListening, false);
         rig.Session.ReportProgress(Waiting());
         Program.Equal("chat accepted the prompt", rig.Session.Phase, VoicePhase.Waiting);
         var answered = rig.Session.CompleteRequestAsync(Answer);
         Program.Equal("dictated prompt is answered aloud", rig.Session.Phase, VoicePhase.Speaking);
-        Program.Equal("only the opening is read", rig.Speech.Said, "Готово. Второе предложение. Подробности на экране.");
+        Program.Equal("the whole answer is read, code only pointed to", rig.Speech.Said, $"{Opening} {Rest}");
+        Program.Equal("the chosen voices go with it", (rig.Speech.Options[0].Provider, rig.Speech.Options[0].GeminiVoice,
+            rig.Speech.Options[0].Language), (TtsProvider.Local, "Sulafat", "ru"));
         await rig.FinishSpeakingAsync(answered);
         Program.Equal("idle after speaking", rig.Session.Phase, VoicePhase.Idle);
 
         rig = new Rig();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         answered = rig.Session.CompleteRequestAsync(Answer);
-        Program.Equal("typed prompt stays quiet", (rig.Speech.Said, rig.Session.Phase), (string.Empty, VoicePhase.Idle));
+        Program.Equal("typed prompt stays quiet", (rig.Speech.Said, rig.Session.Phase, rig.Speech.Prepared),
+            (string.Empty, VoicePhase.Idle, 0));
         await rig.FinishSpeakingAsync(answered);
 
         rig = new Rig();
         rig.Settings.VoiceReplies = false;
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         answered = rig.Session.CompleteRequestAsync(Answer);
-        Program.Equal("voice replies off stays quiet", rig.Speech.Said, string.Empty);
+        Program.Equal("voice replies off stays quiet, not even prepared", (rig.Speech.Said, rig.Speech.Prepared), (string.Empty, 0));
         await rig.FinishSpeakingAsync(answered);
+
+        rig = new Rig();
+        rig.Settings.ReadTypedAnswers = true;
+        rig.Session.BeginRequest("How do I enable Nanite?");
+        rig.Session.ReportProgress(Waiting());
+        rig.Time.Elapse();
+        answered = rig.Session.CompleteRequestAsync(Answer);
+        Program.Equal("a typed prompt is read too when asked, without a spoken cue",
+            (rig.Speech.Said, rig.Speech.Options[0].Language), ($"{Opening} {Rest}", "ru"));
+        await rig.FinishSpeakingAsync(answered);
+
+        rig = new Rig();
+        var listening = rig.Session.ReadAloudAsync(Answer);
+        Program.Equal("Listen reads the answer on screen", (rig.Speech.Said, rig.Session.Phase),
+            ($"{Opening} {Rest}", VoicePhase.Speaking));
+        rig.Session.StopSpeaking();
+        await listening;
+        Program.Equal("and Stop silences it", (rig.Speech.Cancelled, rig.Session.Phase), (true, VoicePhase.Idle));
+
+        rig = new Rig();
+        rig.Settings.VoiceReplies = false;
+        await rig.Session.ReadAloudAsync(Answer);
+        Program.Equal("with voice replies off Link never speaks", (rig.Speech.Said, rig.Session.CanReadAloud), (string.Empty, false));
+
+        rig = new Rig();
+        rig.Speech.Failure = new InvalidOperationException("No voice could speak.");
+        await rig.DictateAsync();
+        rig.Session.BeginRequest("Как дела?");
+        await Program.ThrowsAsync<InvalidOperationException>("a voice that fails is reported with the answer",
+            () => rig.Session.CompleteRequestAsync(Answer));
+        Program.Equal("idle after the voice failed", rig.Session.Phase, VoicePhase.Idle);
 
         rig = new Rig();
         await rig.DictateAsync();
         rig.Session.ForgetVoicePrompt();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         answered = rig.Session.CompleteRequestAsync(Answer);
         Program.Equal("cleared prompt stays quiet", rig.Speech.Said, string.Empty);
         await rig.FinishSpeakingAsync(answered);
 
         rig = new Rig();
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         rig.Session.EndRequest();
         Program.Equal("failed request ends idle", rig.Session.Phase, VoicePhase.Idle);
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         answered = rig.Session.CompleteRequestAsync(Answer);
         Program.Equal("retried dictated prompt is still answered aloud", rig.Session.Phase, VoicePhase.Speaking);
         await rig.FinishSpeakingAsync(answered);
@@ -75,7 +115,7 @@ internal static class VoiceSessionTests
 
         rig = new Rig();
         answered = await rig.StartSpeakingAsync();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         await rig.FinishSpeakingAsync(answered);
         Program.Equal("a new request silences the answer", (rig.Speech.Cancelled, rig.Session.Phase), (true, VoicePhase.Sending));
 
@@ -111,64 +151,65 @@ internal static class VoiceSessionTests
     {
         var rig = new Rig();
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         rig.Session.ReportProgress(Waiting());
-        rig.Session.ReportProgress(Receiving("Готово"));
+        rig.Session.ReportProgress(Receiving("Готово, всё настроено"));
         Program.Equal("a sentence being written is not said", (rig.Speech.Said, rig.Session.Phase),
             (string.Empty, VoicePhase.Waiting));
-        rig.Session.ReportProgress(Receiving("Готово. Второе пред"));
+        rig.Session.ReportProgress(Receiving($"{Opening} Второе пред"));
         Program.Equal("a complete sentence is said while the answer streams", (rig.Speech.Said, rig.Session.Phase),
-            ("Готово.", VoicePhase.Speaking));
-        rig.Session.ReportProgress(Receiving("Готово. Второе предложение.\n\n```\nco"));
+            (Opening, VoicePhase.Speaking));
+        rig.Session.ReportProgress(Receiving($"{Opening} Второе предложение.\n\n```\nco"));
+        Program.Equal("the next part goes to the voice while the first is still said", rig.Speech.Said,
+            $"{Opening} | {Rest}");
         var answered = rig.Session.CompleteRequestAsync(Answer);
         await rig.FinishSpeakingAsync(answered);
-        Program.Equal("what queued up and the rest follow in one go", rig.Speech.Said,
-            "Готово. | Второе предложение. Подробности на экране.");
+        Program.Equal("nothing is said twice", rig.Speech.Said, $"{Opening} | {Rest}");
         Program.Equal("idle after the streamed answer", rig.Session.Phase, VoicePhase.Idle);
 
         // An instant voice leaves Link between two sentences of the answer, waiting for the next one to stream.
         rig = new Rig();
         rig.Speech.Instant = true;
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
-        rig.Session.ReportProgress(Receiving("Готово. Вто"));
+        rig.Session.BeginRequest("Как дела?");
+        rig.Session.ReportProgress(Receiving($"{Opening} Вто"));
         Program.Equal("between sentences Link keeps the floor", rig.Session.Phase, VoicePhase.Speaking);
         await rig.Session.CompleteRequestAsync(Answer);
         Program.Equal("the rest is said after a pause", (rig.Speech.Said, rig.Session.Phase),
-            ("Готово. | Второе предложение. Подробности на экране.", VoicePhase.Idle));
+            ($"{Opening} | {Rest}", VoicePhase.Idle));
 
         rig = new Rig();
         rig.Speech.Instant = true;
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
-        rig.Session.ReportProgress(Receiving("Готово. Вто"));
+        rig.Session.BeginRequest("Как дела?");
+        rig.Session.ReportProgress(Receiving($"{Opening} Вто"));
         rig.Session.StartListening();
         Program.Equal("push-to-talk between sentences listens", rig.Session.Phase, VoicePhase.Listening);
-        rig.Session.ReportProgress(Receiving("Готово. Второе предложение.\n\nЕщё"));
+        rig.Session.ReportProgress(Receiving($"{Opening} Второе предложение.\n\nЕщё"));
         await rig.Session.FinishListeningAsync();
         await rig.Session.CompleteRequestAsync(Answer);
         Program.Equal("an interrupted answer is not read further", (rig.Speech.Said, rig.Session.Phase),
-            ("Готово.", VoicePhase.Idle));
+            (Opening, VoicePhase.Idle));
 
         rig = new Rig();
         rig.Speech.Instant = true;
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
-        rig.Session.ReportProgress(Receiving("Готово. Вто"));
+        rig.Session.BeginRequest("Как дела?");
+        rig.Session.ReportProgress(Receiving($"{Opening} Вто"));
         rig.Session.StopSpeaking();
         Program.Equal("stop between sentences ends idle", rig.Session.Phase, VoicePhase.Idle);
-        rig.Session.ReportProgress(Receiving("Готово. Второе предложение.\n\nЕщё"));
+        rig.Session.ReportProgress(Receiving($"{Opening} Второе предложение.\n\nЕщё"));
         await rig.Session.CompleteRequestAsync(Answer);
         Program.Equal("a stopped answer is not read further", (rig.Speech.Said, rig.Session.Phase),
-            ("Готово.", VoicePhase.Idle));
+            (Opening, VoicePhase.Idle));
 
         rig = new Rig();
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
-        rig.Session.ReportProgress(Receiving("Готово. Вто"));
+        rig.Session.BeginRequest("Как дела?");
+        rig.Session.ReportProgress(Receiving($"{Opening} Второе предложение. Треть"));
         rig.Session.EndRequest();
-        Program.Equal("a failed request silences its answer", (rig.Speech.Cancelled, rig.Session.Phase),
-            (true, VoicePhase.Idle));
+        Program.Equal("a failed request silences every part of its answer", (rig.Speech.Cancelled, rig.Speech.Waiting, rig.Session.Phase),
+            (true, 0, VoicePhase.Idle));
     }
 
     /// <summary>
@@ -183,18 +224,19 @@ internal static class VoiceSessionTests
         using (var chat = new EmbeddedChatTests.EmbeddedRig())
         {
             await chat.Page.AnnounceAsync("chat-1");
-            rig.Session.BeginRequest();
+            rig.Session.BeginRequest("Как дела?");
             var answer = chat.SendAsync("Как дела?", progress: new SessionProgress(rig.Session));
             var request = await chat.Page.NextRequestAsync();
             await chat.Page.ReportAsync(request.Id, "sending");
             await chat.Page.ReportAsync(request.Id, "waiting");
             Program.Equal("voice waits with the chat", rig.Session.Phase, VoicePhase.Waiting);
-            await chat.Page.ReportAsync(request.Id, "receiving", "Всё хорошо. Спаси");
-            Program.Equal("a streamed sentence is said before the answer is in", rig.Speech.Said, "Всё хорошо.");
-            await chat.Page.ReportAsync(request.Id, "completed", "Всё хорошо. Спасибо.\n\nДальше подробности.");
+            await chat.Page.ReportAsync(request.Id, "receiving", "Всё хорошо, спасибо что спросил. Спаси");
+            Program.Equal("a streamed sentence is said before the answer is in", rig.Speech.Said,
+                "Всё хорошо, спасибо что спросил.");
+            await chat.Page.ReportAsync(request.Id, "completed", "Всё хорошо, спасибо что спросил. Спасибо.\n\nДальше подробности.");
             await rig.Session.CompleteRequestAsync((await answer).Text);
             Program.Equal("the rest follows and nothing is said twice", rig.Speech.Said,
-                "Всё хорошо. | Спасибо. Подробности на экране.");
+                "Всё хорошо, спасибо что спросил. | Спасибо. Дальше подробности.");
         }
 
         rig = new Rig();
@@ -202,7 +244,7 @@ internal static class VoiceSessionTests
         using (var chat = new EmbeddedChatTests.EmbeddedRig())
         {
             await chat.Page.AnnounceAsync("chat-1");
-            rig.Session.BeginRequest();
+            rig.Session.BeginRequest("Как дела?");
             var answer = chat.SendAsync("Как дела?", progress: new SessionProgress(rig.Session));
             var request = await chat.Page.NextRequestAsync();
             await chat.Page.ReportAsync(request.Id, "waiting");
@@ -217,7 +259,7 @@ internal static class VoiceSessionTests
     {
         var rig = new Rig();
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         rig.Session.ReportProgress(Waiting());
         Program.Equal("no cue right after sending", rig.Speech.Said, string.Empty);
         rig.Time.Elapse();
@@ -230,26 +272,25 @@ internal static class VoiceSessionTests
         Program.Equal("one cue per answer", rig.Speech.Said, "Секунду.");
         var answered = rig.Session.CompleteRequestAsync(Answer);
         await rig.FinishSpeakingAsync(answered);
-        Program.Equal("the answer follows the cue", rig.Speech.Said,
-            "Секунду. | Готово. Второе предложение. Подробности на экране.");
+        Program.Equal("the answer follows the cue", rig.Speech.Said, $"Секунду. | {Opening} {Rest}");
 
         rig = new Rig();
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         rig.Session.ReportProgress(Waiting());
         rig.Session.ReportProgress(Receiving("Гот"));
         rig.Time.Elapse();
         Program.Equal("no cue once the answer streams", rig.Speech.Said, string.Empty);
 
         rig = new Rig();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         rig.Session.ReportProgress(Waiting());
         rig.Time.Elapse();
         Program.Equal("typed prompt gets no cue", rig.Speech.Said, string.Empty);
 
         rig = new Rig();
         await rig.DictateAsync();
-        rig.Session.BeginRequest();
+        rig.Session.BeginRequest("Как дела?");
         rig.Session.ReportProgress(Waiting());
         rig.Time.Elapse();
         await Program.EventuallyAsync("cue before push-to-talk", () => rig.Session.Phase, VoicePhase.Speaking);
@@ -348,7 +389,7 @@ internal static class VoiceSessionTests
         public async Task<Task> StartSpeakingAsync()
         {
             await DictateAsync();
-            Session.BeginRequest();
+            Session.BeginRequest("Как дела?");
             return Session.CompleteRequestAsync(Answer);
         }
 
@@ -459,15 +500,18 @@ internal static class VoiceSessionTests
     }
 
     /// <summary>
-    /// Speaks until the test calls <see cref="Finish"/> and completes asynchronously, like Windows voices;
-    /// an <see cref="Instant"/> voice is done at once.
+    /// A voice that queues parts in order, like the real one, and says each until the test calls <see cref="Finish"/>;
+    /// an <see cref="Instant"/> voice is done at once, and one with a <see cref="Failure"/> fails every part.
     /// </summary>
     private sealed class FakeTextToSpeech : ITextToSpeech
     {
         private readonly List<string> _said = [];
-        private TaskCompletionSource? _speech;
+        private readonly Queue<TaskCompletionSource> _unsaid = new();
 
         public bool Instant { get; set; }
+        public Exception? Failure { get; set; }
+        public List<SpeechOptions> Options { get; } = [];
+        public int Prepared { get; private set; }
 
         // Speech may go on on a thread-pool thread while a check reads it.
         public string Said
@@ -479,29 +523,59 @@ internal static class VoiceSessionTests
         }
 
         public bool Cancelled { get; private set; }
-        public bool IsSpeaking => _speech is not null;
 
-        public IReadOnlyList<SpeechVoice> GetVoices() => [];
-
-        public async Task SpeakAsync(string text, SpeechOptions options, CancellationToken cancellationToken)
+        /// <summary>Parts handed over and neither said nor silenced.</summary>
+        public int Waiting
         {
-            lock (_said) _said.Add(text);
-            if (Instant) return;
-            var speech = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
-            _speech = speech;
-            using (cancellationToken.Register(() =>
-                   {
-                       Cancelled = true;
-                       speech.TrySetCanceled(cancellationToken);
-                   }))
+            get
             {
-                await speech.Task;
+                lock (_said) return _unsaid.Count(part => !part.Task.IsCompleted);
             }
         }
 
-        public void Finish() => _speech?.TrySetResult();
+        public bool IsSpeaking => Waiting > 0;
 
-        public void Stop() => Finish();
+        public Task SpeakAsync(string text, SpeechOptions options, CancellationToken cancellationToken)
+        {
+            lock (_said)
+            {
+                _said.Add(text);
+                Options.Add(options);
+            }
+
+            if (Failure is { } failure) return Task.FromException(failure);
+            if (Instant) return Task.CompletedTask;
+            var part = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+            lock (_said) _unsaid.Enqueue(part);
+            cancellationToken.Register(() =>
+            {
+                Cancelled = true;
+                part.TrySetCanceled(cancellationToken);
+            });
+            return part.Task;
+        }
+
+        public void Prepare(SpeechOptions options) => Prepared++;
+
+        /// <summary>The part being said is done; the next one starts.</summary>
+        public void Finish()
+        {
+            lock (_said)
+            {
+                while (_unsaid.TryDequeue(out var part))
+                {
+                    if (part.TrySetResult()) return;
+                }
+            }
+        }
+
+        public void Stop()
+        {
+            lock (_said)
+            {
+                while (_unsaid.TryDequeue(out var part)) part.TrySetCanceled();
+            }
+        }
 
         public void Dispose()
         {

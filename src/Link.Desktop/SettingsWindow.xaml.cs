@@ -4,6 +4,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
 using Link.Desktop.Windows;
@@ -13,9 +14,16 @@ namespace Link.Desktop;
 public partial class SettingsWindow : Window
 {
     private static readonly TimeSpan MicrophoneTestDuration = TimeSpan.FromSeconds(3);
+    private const string VoiceTestPhrase = "Привет! Я LINK. Так я буду отвечать голосом, коротко и по делу.";
+    private const string GeminiPrivacyNote =
+        "Gemini gets only the words Link reads aloud: no screenshots, clipboard, files or chat. " +
+        "On the free tier Google may use them to improve its products.";
     private readonly SettingsService _settings;
     private readonly IAudioRecorder _audio;
-    private readonly ITextToSpeech _textToSpeech;
+    private readonly TextToSpeechService _textToSpeech;
+    private readonly GeminiKeyStore _geminiKey;
+    private readonly SpeechModelManager _models;
+    private readonly DispatcherTimer _downloadTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private Button? _capturingHotkey;
     private string? _hotkeyBeforeCapture;
     private AudioInputDevice? _disconnectedMicrophone;
@@ -23,17 +31,26 @@ public partial class SettingsWindow : Window
     private IReadOnlyList<SpeechVoice> _voices = [];
     private CancellationTokenSource? _voiceTest;
 
-    public SettingsWindow(SettingsService settings, IAudioRecorder audio, ITextToSpeech textToSpeech)
+    public SettingsWindow(
+        SettingsService settings,
+        IAudioRecorder audio,
+        TextToSpeechService textToSpeech,
+        GeminiKeyStore geminiKey,
+        SpeechModelManager models)
     {
         _settings = settings;
         _audio = audio;
         _textToSpeech = textToSpeech;
+        _geminiKey = geminiKey;
+        _models = models;
         InitializeComponent();
         SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
+        _downloadTimer.Tick += (_, _) => ShowLocalVoiceState();
         Closing += (_, _) =>
         {
             StopMicrophoneTest();
             _voiceTest?.Cancel();
+            _downloadTimer.Stop();
         };
 
         var current = settings.Current;
@@ -46,7 +63,9 @@ public partial class SettingsWindow : Window
         LiveTranscriptionBox.IsChecked = current.LiveTranscription;
         LoadMicrophones(current);
         VoiceRepliesBox.IsChecked = current.VoiceReplies;
+        ReadTypedAnswersBox.IsChecked = current.ReadTypedAnswers;
         ReplySpeedSlider.Value = current.VoiceReplySpeed;
+        LoadVoiceReplies(current);
         LoadVoices(current);
         HistorySizeBox.Text = current.ScreenshotHistorySize.ToString();
         AlwaysOnTopBox.IsChecked = current.AlwaysOnTop;
@@ -90,11 +109,121 @@ public partial class SettingsWindow : Window
         MicrophoneCombo.SelectedItem = options.FirstOrDefault(option => option.Id == current.MicrophoneDeviceId) ?? options[0];
     }
 
+    private void LoadVoiceReplies(AppSettings current)
+    {
+        ProviderOption[] providers =
+        [
+            new(TtsProvider.Auto, "Auto — the best that works"),
+            new(TtsProvider.Gemini, "Gemini (online, free tier)"),
+            new(TtsProvider.Local, "Local voice (offline)"),
+            new(TtsProvider.Windows, "System (Windows voices)")
+        ];
+        ProviderCombo.ItemsSource = providers;
+        ProviderCombo.ToolTip = "Auto: Gemini when a key is saved, else the local voice once downloaded, else Windows. " +
+                                "Whichever voice fails, the next one takes over.";
+        ProviderCombo.SelectedItem = providers.First(option => option.Provider == current.VoiceReplyProvider);
+
+        var geminiVoices = GeminiTtsProvider.Voices
+            .Select(voice => new VoiceOption(voice.Name, $"{voice.Name} — {voice.Description}"))
+            .ToList();
+        // A voice set by hand (e.g. a designed voice_… id) stays selectable.
+        if (geminiVoices.All(option => option.Name != current.GeminiVoice)) geminiVoices.Add(new VoiceOption(current.GeminiVoice, current.GeminiVoice));
+        GeminiVoiceCombo.ItemsSource = geminiVoices;
+        GeminiVoiceCombo.SelectedItem = geminiVoices.First(option => option.Name == current.GeminiVoice);
+
+        var localVoices = Enumerable.Range(0, Math.Max(LocalTtsProvider.Speakers, current.LocalVoice + 1))
+            .Select(speaker => new LocalVoiceOption(speaker, LocalTtsProvider.VoiceName(speaker)))
+            .ToArray();
+        LocalVoiceCombo.ItemsSource = localVoices;
+        LocalVoiceCombo.SelectedItem = localVoices[current.LocalVoice];
+
+        ShowGeminiKeyState();
+        ShowLocalVoiceState();
+    }
+
+    private void ShowGeminiKeyState()
+    {
+        var hasKey = _geminiKey.HasKey;
+        GeminiKeyRemoveButton.IsEnabled = hasKey;
+        GeminiKeyText.Text = hasKey
+            ? $"A key is saved, encrypted for your Windows account. {GeminiPrivacyNote}"
+            : $"Optional: a free key from aistudio.google.com/apikey gives Link a natural voice. {GeminiPrivacyNote}";
+    }
+
+    private void GeminiKeyBox_OnPasswordChanged(object sender, RoutedEventArgs e) =>
+        GeminiKeySaveButton.IsEnabled = GeminiKeyBox.Password.Trim().Length > 0;
+
+    private void GeminiKeySave_OnClick(object sender, RoutedEventArgs e) => SaveTypedGeminiKey();
+
+    private void GeminiKeyRemove_OnClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _geminiKey.Clear();
+            ShowGeminiKeyState();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            GeminiKeyText.Text = $"The key could not be removed: {exception.Message}";
+        }
+    }
+
+    /// <summary>Stores a key typed into the box; Test voice and Save changes use it too, so it is never left behind.</summary>
+    private bool SaveTypedGeminiKey()
+    {
+        var key = GeminiKeyBox.Password.Trim();
+        if (key.Length == 0) return true;
+        try
+        {
+            _geminiKey.Save(key);
+            GeminiKeyBox.Clear();
+            ShowGeminiKeyState();
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            GeminiKeyText.Text = $"The key could not be saved: {exception.Message}";
+            return false;
+        }
+    }
+
+    private void ShowLocalVoiceState()
+    {
+        var model = SpeechModel.Supertonic;
+        if (_models.IsReady(model))
+        {
+            _downloadTimer.Stop();
+            LocalDownloadButton.Visibility = Visibility.Collapsed;
+            LocalVoiceCombo.IsEnabled = true;
+            return;
+        }
+
+        LocalVoiceCombo.IsEnabled = false;
+        var (received, failure) = _models.DownloadState(model);
+        LocalDownloadButton.IsEnabled = received is null;
+        // Megabytes move visibly even on a slow line, where a percent would sit still for many seconds.
+        LocalDownloadButton.Content = received is { } bytes ? $"Downloading {bytes / 1_000_000} / {model.Size / 1_000_000} MB"
+            : failure is not null ? "Retry download"
+            : $"Download {model.Size / 1_000_000} MB";
+        LocalDownloadButton.ToolTip = failure is not null && received is null
+            ? $"The download failed: {failure}. It continues where it stopped."
+            : "A free offline voice for Russian and English; it holds about 300 MB of memory while it speaks.";
+        if (received is not null) _downloadTimer.Start();
+        else _downloadTimer.Stop();
+    }
+
+    private void LocalDownload_OnClick(object sender, RoutedEventArgs e)
+    {
+        _ = _models.EnsureAsync(SpeechModel.Supertonic);
+        ShowLocalVoiceState();
+        _downloadTimer.Start();
+    }
+
     private void LoadVoices(AppSettings current)
     {
         try
         {
-            _voices = _textToSpeech.GetVoices();
+            _voices = WindowsTtsProvider.InstalledVoices();
             ReplyVoiceText.Text = DescribeVoices(_voices);
         }
         catch (Exception exception)
@@ -122,24 +251,29 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        if (!SaveTypedGeminiKey()) return;
         var cancellation = new CancellationTokenSource();
         _voiceTest = cancellation;
         VoiceTestButton.Content = "Stop";
+        ReplyVoiceText.Text = "Speaking…";
         try
         {
-            var voiceName = (ReplyVoiceCombo.SelectedItem as VoiceOption)?.Name;
-            var voice = _voices.FirstOrDefault(candidate => candidate.Name == voiceName);
-            var russian = voice is not null ? IsRussianVoice(voice) : _voices.Any(IsRussianVoice);
+            var options = ChosenSpeech();
             // An answer being read aloud would talk over the sample.
             _textToSpeech.Stop();
             await _textToSpeech.SpeakAsync(
-                russian ? "Привет! Так LINK будет читать ответы." : "Hi! This is how LINK will read its answers.",
-                new SpeechOptions(voiceName, russian ? "ru" : "en", ReplySpeedSlider.Value),
+                options.Language == "ru" ? VoiceTestPhrase : "Hi! I'm LINK. This is how I will answer you aloud.",
+                options,
                 cancellation.Token);
+            // When another voice stood in, the reason is right here rather than a mystery.
+            ReplyVoiceText.Text = _textToSpeech.LastSpeaker is not { } speaker ? string.Empty
+                : _textToSpeech.Unavailability(options.Provider) is { } reason ? $"That was the {speaker} ({reason})."
+                : $"That was the {speaker}.";
         }
         catch (OperationCanceledException)
         {
             // Stopped with the button or by closing Settings.
+            ReplyVoiceText.Text = string.Empty;
         }
         catch (Exception exception)
         {
@@ -153,16 +287,30 @@ public partial class SettingsWindow : Window
         }
     }
 
+    /// <summary>The voice as chosen in this window, saved or not; Russian unless a Windows voice that cannot speak it is forced.</summary>
+    private SpeechOptions ChosenSpeech()
+    {
+        var provider = (ProviderCombo.SelectedItem as ProviderOption)?.Provider ?? TtsProvider.Auto;
+        var windowsVoice = (ReplyVoiceCombo.SelectedItem as VoiceOption)?.Name;
+        var chosenWindowsVoice = _voices.FirstOrDefault(voice => voice.Name == windowsVoice);
+        var russian = provider != TtsProvider.Windows
+            || (chosenWindowsVoice is not null ? IsRussianVoice(chosenWindowsVoice) : _voices.Any(IsRussianVoice));
+        return new SpeechOptions(
+            provider,
+            (GeminiVoiceCombo.SelectedItem as VoiceOption)?.Name ?? _settings.Current.GeminiVoice,
+            (LocalVoiceCombo.SelectedItem as LocalVoiceOption)?.Speaker ?? 0,
+            windowsVoice,
+            russian ? "ru" : "en",
+            ReplySpeedSlider.Value);
+    }
+
     private static string DescribeVoices(IReadOnlyList<SpeechVoice> voices)
     {
         if (voices.Count == 0) return "Windows has no voices installed. Add one in Windows Settings → Time & language → Speech.";
-        if (!voices.Any(IsRussianVoice))
-        {
-            return "No Russian voice is installed, so Russian answers will sound wrong. Add one in Windows Settings → " +
-                   "Time & language → Speech → Add voices. Link could use a local neural voice (Piper) instead — not built in yet.";
-        }
-
-        return "Link reads the opening of an answer; the rest stays on screen. Push-to-talk interrupts, Esc stops.";
+        var reading = "Link reads the answer while it arrives; code and tables stay on screen. Push-to-talk interrupts, Esc stops.";
+        return voices.Any(IsRussianVoice)
+            ? reading
+            : $"{reading} Windows has no Russian voice, so it is a poor last resort for Russian: use Gemini or the local voice.";
     }
 
     private static bool IsRussianVoice(SpeechVoice voice) =>
@@ -366,9 +514,15 @@ public partial class SettingsWindow : Window
             current.MicrophoneDeviceId = microphone?.Id;
             current.MicrophoneDeviceName = microphone?.Id is null ? null : microphone.Name;
         }
+        if (!SaveTypedGeminiKey()) return;
+        var speech = ChosenSpeech();
         current.VoiceReplies = VoiceRepliesBox.IsChecked == true;
-        current.VoiceReplyVoice = (ReplyVoiceCombo.SelectedItem as VoiceOption)?.Name;
-        current.VoiceReplySpeed = ReplySpeedSlider.Value;
+        current.ReadTypedAnswers = ReadTypedAnswersBox.IsChecked == true;
+        current.VoiceReplyProvider = speech.Provider;
+        current.GeminiVoice = speech.GeminiVoice;
+        current.LocalVoice = speech.LocalVoice;
+        current.VoiceReplyVoice = speech.WindowsVoice;
+        current.VoiceReplySpeed = speech.Speed;
         current.ScreenshotHistorySize = historySize;
         current.AlwaysOnTop = AlwaysOnTopBox.IsChecked == true;
         current.LaunchWithWindows = LaunchWithWindowsBox.IsChecked == true;
@@ -406,6 +560,16 @@ public partial class SettingsWindow : Window
 
     /// <summary>A reply voice choice; a null <see cref="Name"/> picks a voice for the answer's language.</summary>
     private sealed record VoiceOption(string? Name, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private sealed record LocalVoiceOption(int Speaker, string Label)
+    {
+        public override string ToString() => Label;
+    }
+
+    private sealed record ProviderOption(TtsProvider Provider, string Label)
     {
         public override string ToString() => Label;
     }

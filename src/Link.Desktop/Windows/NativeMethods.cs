@@ -220,6 +220,33 @@ internal static class NativeMethods
     [DllImport("winmm.dll", CharSet = CharSet.Unicode)]
     internal static extern int waveInGetErrorText(int error, StringBuilder text, int textLength);
 
+    [DllImport("winmm.dll")]
+    internal static extern int waveOutOpen(
+        out IntPtr handle,
+        int deviceId,
+        ref WaveFormat format,
+        IntPtr callback,
+        IntPtr instance,
+        int flags);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveOutPrepareHeader(IntPtr handle, IntPtr header, int headerSize);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveOutUnprepareHeader(IntPtr handle, IntPtr header, int headerSize);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveOutWrite(IntPtr handle, IntPtr header, int headerSize);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveOutReset(IntPtr handle);
+
+    [DllImport("winmm.dll")]
+    internal static extern int waveOutClose(IntPtr handle);
+
+    [DllImport("winmm.dll", CharSet = CharSet.Unicode)]
+    internal static extern int waveOutGetErrorText(int error, StringBuilder text, int textLength);
+
     [DllImport("ole32.dll")]
     internal static extern int PropVariantClear(ref PropVariant value);
 

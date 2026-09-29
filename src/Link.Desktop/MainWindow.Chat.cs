@@ -38,6 +38,7 @@ public partial class MainWindow
     private CancellationTokenSource? _sendCancellation;
     private bool _sending;
     private string _responseText = string.Empty;
+    private ChatProgressState _responseState;
     private int _nextResponseBlock;
     private string? _chatNotice;
     private DateTime _chatHeardAt;
@@ -45,6 +46,7 @@ public partial class MainWindow
     // When the answer began to arrive and how much of it came at once, for the slow-chat hint.
     private DateTime? _receivingSince;
     private int _receivingFrom;
+    private RequestLatency _latency = new();
 
     /// <summary>What a check of the chat saw on the page, for link.log.</summary>
     public event Action<string>? DiagnosticsReported;
@@ -130,7 +132,8 @@ public partial class MainWindow
         _sendCancellation = cancellation;
         _chatNotice = null;
         _receivingSince = null;
-        _voice.BeginRequest();
+        _latency = new RequestLatency();
+        _voice.BeginRequest(PromptBox.Text);
         SetSending(true);
         _chatHeardAt = DateTime.UtcNow;
         ShowResponse(ChatProgressState.Sending, string.Empty);
@@ -174,6 +177,7 @@ public partial class MainWindow
                 currentApplication,
                 _settings.Current.ResponseEffort);
             var progress = new Progress<ChatProgress>(OnChatProgress);
+            _latency.HandedOver();
             var response = await _chat.SendAsync(request, conversation, progress, cancellation.Token);
             // A new chat is linked by now: the answer belongs to the conversation it started.
             RefreshLinkedTitle(project);
@@ -184,6 +188,7 @@ public partial class MainWindow
             };
             _projects.Save();
             ShowResponse(ChatProgressState.Completed, response.Text);
+            DiagnosticsReported?.Invoke(_latency.Describe("answer", response.Text.Length));
             // Words dictated after interrupting the spoken answer are the next message: only the sent prompt goes.
             var sent = prompt.TrimEnd();
             PromptBox.Text = PromptBox.Text.StartsWith(sent, StringComparison.Ordinal)
@@ -198,11 +203,13 @@ public partial class MainWindow
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             ShowResponse(ChatProgressState.Cancelled, "Request cancelled.");
+            DiagnosticsReported?.Invoke(_latency.Describe("cancelled"));
             SetStatus("Request cancelled. Your prompt and context were kept.", "Cancelled");
         }
         catch (Exception exception)
         {
             ShowResponse(ChatProgressState.Error, exception.Message);
+            DiagnosticsReported?.Invoke(_latency.Describe($"failed ({exception.Message})"));
             SetError($"{exception.Message} Prompt and context were kept.");
             NotifyIfAway(project, "Request failed", exception.Message);
         }
@@ -541,6 +548,7 @@ public partial class MainWindow
             return;
         }
 
+        _latency.Heard(progress);
         if (progress.State == ChatProgressState.Receiving && _receivingSince is null)
         {
             _receivingSince = DateTime.UtcNow;
@@ -610,6 +618,37 @@ public partial class MainWindow
         {
             _responseText = text;
             RenderResponse(text);
+        }
+
+        _responseState = state;
+        UpdateReadAloudButton();
+    }
+
+    /// <summary>Listen reads the answer on screen aloud; while Link talks the same button stops it.</summary>
+    private void UpdateReadAloudButton()
+    {
+        var speaking = _voice.Phase == VoicePhase.Speaking;
+        var canListen = _responseState == ChatProgressState.Completed && _responseText.Length > 0 && _voice.CanReadAloud;
+        ReadAloudButton.Visibility = speaking || canListen ? Visibility.Visible : Visibility.Collapsed;
+        ReadAloudButton.Content = speaking ? "Stop" : "Listen";
+        ReadAloudButton.ToolTip = speaking ? "Stop reading aloud (Esc)" : "Read this answer aloud";
+    }
+
+    private async void ReadAloud_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_voice.Phase == VoicePhase.Speaking)
+        {
+            _voice.StopSpeaking();
+            return;
+        }
+
+        try
+        {
+            await _voice.ReadAloudAsync(_responseText);
+        }
+        catch (Exception exception)
+        {
+            SetError($"The answer could not be read aloud: {exception.Message}");
         }
     }
 

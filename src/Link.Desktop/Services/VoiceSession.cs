@@ -31,8 +31,9 @@ public sealed record VoiceTranscript(string Text, bool SendRequested);
 
 /// <summary>
 /// The one owner of voice state: the microphone, local transcription with its live draft, the request as far as
-/// voice cares and the spoken answer, read sentence by sentence while it streams. It has no UI; the overlay renders
-/// <see cref="Phase"/>. Used on the UI thread, with the live settings that the Settings window edits in place.
+/// voice cares and the spoken answer, handed to the voice sentence by sentence while it streams. It has no UI; the
+/// overlay renders <see cref="Phase"/>. Used on the UI thread, with the live settings that the Settings window
+/// edits in place.
 /// </summary>
 public sealed class VoiceSession
 {
@@ -47,12 +48,17 @@ public sealed class VoiceSession
     private readonly ISpeechToText _speechToText;
     private readonly ITextToSpeech _textToSpeech;
     private readonly TimeProvider _time;
-    // Said in order, one at a time; parts that queue up while another is said go out together.
-    private readonly List<SpokenAnswer> _unsaid = [];
+    private readonly Action<string> _log;
     private IStreamingTranscription? _live;
-    private SpokenAnswerStream? _answer;
-    private Task _speech = Task.CompletedTask;
+    private VoiceTextChunker? _answer;
+    // Everything said of the current answer shares this token, so one cancel silences all of it.
     private CancellationTokenSource? _speaking;
+    // Parts handed to the voice and not said yet; the last one's follower completes after all of them.
+    private int _unsaid;
+    private Task _speech = Task.CompletedTask;
+    private Exception? _voiceFailure;
+    private long? _answerArrivedAt;
+    private bool _answerHeard;
     private CancellationTokenSource? _cue;
     private string _promptLanguage = "en";
     // Under Auto the live draft needs a language before anything is said: the one spoken last, at first Windows'.
@@ -62,6 +68,7 @@ public sealed class VoiceSession
     private int _nextCue;
     private bool _sendRequested;
     private bool _voicePrompt;
+    private bool _cuesAllowed;
 
     public VoiceSession(
         AppSettings settings,
@@ -69,7 +76,8 @@ public sealed class VoiceSession
         IStreamingSpeechToText streaming,
         ISpeechToText speechToText,
         ITextToSpeech textToSpeech,
-        TimeProvider time)
+        TimeProvider time,
+        Action<string>? log = null)
     {
         _settings = settings;
         _recorder = recorder;
@@ -77,6 +85,7 @@ public sealed class VoiceSession
         _speechToText = speechToText;
         _textToSpeech = textToSpeech;
         _time = time;
+        _log = log ?? (_ => { });
     }
 
     /// <summary>Raised after <see cref="Phase"/> changed, with the phase it left.</summary>
@@ -175,7 +184,7 @@ public sealed class VoiceSession
             DeleteRecording(audioPath);
             _voicePrompt = true;
             // Waiting cues speak the language of the question; the answer's own is not known yet.
-            var russian = SpokenAnswer.IsRussian(text);
+            var russian = SpeechTextSanitizer.IsRussian(text);
             _promptLanguage = russian ? "ru" : "en";
             _spokenLanguage = russian ? VoiceLanguage.Russian : VoiceLanguage.English;
             return new VoiceTranscript(text, _sendRequested);
@@ -201,14 +210,44 @@ public sealed class VoiceSession
     /// <summary>The prompt no longer holds a transcript, so its answer is not read aloud.</summary>
     public void ForgetVoicePrompt() => _voicePrompt = false;
 
-    /// <summary>A request goes out. The answer to a dictated prompt is read aloud when Voice replies is on.</summary>
-    public void BeginRequest()
+    /// <summary>
+    /// A request goes out. With Voice replies on, the answer to a dictated prompt is read aloud, and so is the answer
+    /// to a typed one when the user asked for that too.
+    /// </summary>
+    public void BeginRequest(string prompt)
     {
         SilenceAnswer();
-        _answer = _voicePrompt && _settings.VoiceReplies ? new SpokenAnswerStream() : null;
+        // A typed question speaks its own language; a dictated one was judged on its transcript.
+        var language = _voicePrompt ? _promptLanguage : SpeechTextSanitizer.SpeaksRussian(prompt) ? "ru" : "en";
+        _answer = _settings.VoiceReplies && (_voicePrompt || _settings.ReadTypedAnswers) ? new VoiceTextChunker(language) : null;
+        _cuesAllowed = _voicePrompt;
+        _answerArrivedAt = null;
+        _answerHeard = false;
         // A voice failure of an earlier answer is not this one's.
         _speech = Task.CompletedTask;
+        _voiceFailure = null;
+        // The voice gets ready while the chat thinks: a warm connection or a loaded model saves the first words' wait.
+        if (_answer is not null) _textToSpeech.Prepare(SpeechOptions.From(_settings, language));
         SetPhase(VoicePhase.Sending);
+    }
+
+    /// <summary>Whether <see cref="ReadAloud"/> can start now: not while the user speaks or a request is under way.</summary>
+    public bool CanReadAloud => _settings.VoiceReplies && Phase is VoicePhase.Idle or VoicePhase.Speaking;
+
+    /// <summary>
+    /// The Listen button: reads an answer on screen from its start, like a reply that has just arrived. Completes
+    /// once it has been said or silenced; throws when the voice failed.
+    /// </summary>
+    public async Task ReadAloudAsync(string answer)
+    {
+        if (!CanReadAloud) return;
+        SilenceAnswer();
+        _speech = Task.CompletedTask;
+        _voiceFailure = null;
+        var language = SpeechTextSanitizer.SpeaksRussian(answer) ? "ru" : "en";
+        if (new VoiceTextChunker(language).Finish(answer) is { } speech) Say(speech);
+        await _speech;
+        ThrowVoiceFailure();
     }
 
     /// <summary>
@@ -222,7 +261,8 @@ public sealed class VoiceSession
         }
 
         if (_answer is null) return;
-        if (progress.State == ChatProgressState.Waiting && _cue is null)
+        // A typed question gets no spoken "one moment": the user is looking at the screen anyway.
+        if (progress.State == ChatProgressState.Waiting && _cue is null && _cuesAllowed)
         {
             _cue = new CancellationTokenSource();
             _ = SayWaitingCueAsync(_cue.Token);
@@ -231,7 +271,8 @@ public sealed class VoiceSession
         {
             // The answer itself shows that the chat is working.
             _cue?.Cancel();
-            if (_answer.Next(progress.Text) is { } sentences) Say(sentences);
+            if (progress.Text.Length > 0) _answerArrivedAt ??= Environment.TickCount64;
+            if (_answer.Next(progress.Text) is { } sentences) SayAnswer(sentences);
         }
     }
 
@@ -244,10 +285,12 @@ public sealed class VoiceSession
         var reply = _answer;
         _answer = null;
         _cue?.Cancel();
-        if (reply?.Finish(answer) is { } rest) Say(rest);
+        _answerArrivedAt ??= Environment.TickCount64;
+        if (reply?.Finish(answer) is { } rest) SayAnswer(rest);
         // Nothing more to say: voice is done with this request unless the user has taken the floor meanwhile.
         else if (_speaking is null && Phase is not (VoicePhase.Listening or VoicePhase.Finalizing)) SetPhase(VoicePhase.Idle);
         await _speech;
+        ThrowVoiceFailure();
     }
 
     /// <summary>
@@ -300,12 +343,13 @@ public sealed class VoiceSession
     private void SilenceAnswer()
     {
         _answer = null;
-        _unsaid.Clear();
         _cue?.Cancel();
         _cue = null;
         // Forgotten before cancelling, so the silenced speech cannot move the phase when it winds down.
         var speaking = _speaking;
         _speaking = null;
+        _unsaid = 0;
+        // The voice drops what waits, stops what is being made and silences what plays, all at once.
         speaking?.Cancel();
     }
 
@@ -326,46 +370,62 @@ public sealed class VoiceSession
         Say(new SpokenAnswer(cues[_nextCue++ % cues.Length], _promptLanguage));
     }
 
-    private void Say(SpokenAnswer part)
+    private void ThrowVoiceFailure()
     {
-        _unsaid.Add(part);
-        if (_speaking is null) _speech = SpeakAsync();
+        if (_voiceFailure is not { } failure) return;
+        _voiceFailure = null;
+        throw failure;
     }
 
-    /// <summary>Says the queued parts one after another until none is left or Link is silenced.</summary>
-    private async Task SpeakAsync()
+    private void SayAnswer(SpokenAnswer part)
     {
-        var speaking = new CancellationTokenSource();
-        _speaking = speaking;
+        if (_answerArrivedAt is { } arrived && !_answerHeard)
+        {
+            _answerHeard = true;
+            _log($"[TTS] first words of the answer ready {Environment.TickCount64 - arrived} ms after its text began to arrive");
+        }
+
+        Say(part);
+    }
+
+    /// <summary>
+    /// Hands the part to the voice at once: it is said after the parts before it, and made while they still play.
+    /// </summary>
+    private void Say(SpokenAnswer part)
+    {
+        var speaking = _speaking ??= new CancellationTokenSource();
+        _unsaid++;
         SetPhase(VoicePhase.Speaking);
+        _speech = FollowAsync(
+            _textToSpeech.SpeakAsync(part.Text, SpeechOptions.From(_settings, part.Language), speaking.Token),
+            speaking);
+    }
+
+    /// <summary>Waits for a part to be said; once the last one is, the floor goes back to the chat or the user.</summary>
+    private async Task FollowAsync(Task said, CancellationTokenSource speaking)
+    {
         try
         {
-            while (_speaking == speaking && _unsaid.Count > 0)
-            {
-                var language = _unsaid[0].Language;
-                var parts = _unsaid.TakeWhile(part => part.Language == language).ToArray();
-                _unsaid.RemoveRange(0, parts.Length);
-                await _textToSpeech.SpeakAsync(
-                    string.Join(' ', parts.Select(part => part.Text)),
-                    new SpeechOptions(_settings.VoiceReplyVoice, language, _settings.VoiceReplySpeed),
-                    speaking.Token);
-            }
+            await said;
         }
-        catch (OperationCanceledException) when (speaking.IsCancellationRequested)
+        catch (OperationCanceledException)
         {
             // Silenced: whoever silenced it has already moved the phase on.
         }
-        catch when (_speaking == speaking)
+        catch (Exception exception) when (_speaking == speaking)
         {
             // The voice failed: the rest of the answer stays on screen, and completing it reports the error.
+            _voiceFailure ??= exception;
             _answer = null;
-            _unsaid.Clear();
-            throw;
+            speaking.Cancel();
+        }
+        catch (Exception)
+        {
+            // A failure of an answer that was silenced meanwhile is nobody's concern.
         }
         finally
         {
-            speaking.Dispose();
-            if (_speaking == speaking)
+            if (_speaking == speaking && --_unsaid == 0)
             {
                 _speaking = null;
                 // Between the sentences of an answer that still streams, the floor stays Link's.

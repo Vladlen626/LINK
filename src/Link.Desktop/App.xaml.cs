@@ -10,6 +10,7 @@ public partial class App : System.Windows.Application
 {
     private const long MaxLogBytes = 1024 * 1024;
     private readonly Queue<DateTimeOffset> _recentErrors = new();
+    private readonly Lock _logLock = new();
     private string? _logPath;
     private Mutex? _singleInstance;
     private SettingsService? _settings;
@@ -19,6 +20,8 @@ public partial class App : System.Windows.Application
     private TrayIconService? _tray;
     private AudioRecorderService? _audio;
     private SherpaStreamingSpeechToText? _streamingSpeech;
+    private SpeechModelManager? _speechModels;
+    private GeminiKeyStore? _geminiKey;
     private TextToSpeechService? _textToSpeech;
     private EmbeddedChatIntegration? _chat;
     private ChatPageWindow? _chatPage;
@@ -58,16 +61,24 @@ public partial class App : System.Windows.Application
         var chat = new EmbeddedChatIntegration(paths.CompanionStateFile);
         _chat = chat;
         _audio = new AudioRecorderService(paths);
-        var speechModels = new SpeechModelManager(paths);
+        var speechModels = new SpeechModelManager(paths, Log);
+        _speechModels = speechModels;
         _streamingSpeech = new SherpaStreamingSpeechToText(speechModels);
-        _textToSpeech = new TextToSpeechService();
+        _geminiKey = new GeminiKeyStore(paths.GeminiKeyFile);
+        _textToSpeech = new TextToSpeechService(
+            new GeminiTtsProvider(_geminiKey),
+            new LocalTtsProvider(speechModels),
+            new WindowsTtsProvider(),
+            new AudioPlayer(),
+            Log);
         var voice = new VoiceSession(
             _settings.Current,
             _audio,
             _streamingSpeech,
             new SpeechToTextService(speechModels),
             _textToSpeech,
-            TimeProvider.System);
+            TimeProvider.System,
+            Log);
 
         _mainWindow = new MainWindow(
             _settings,
@@ -83,6 +94,7 @@ public partial class App : System.Windows.Application
         _mainWindow.SettingsRequested += ShowSettings;
         _mainWindow.NotificationRequested += ShowNotification;
         _mainWindow.DiagnosticsReported += Log;
+        _textToSpeech.Notice += message => Dispatcher.BeginInvoke(() => _mainWindow?.ShowVoiceNotice(message));
         _mainWindow.Show();
         // The ChatGPT page loads once the overlay is up, so Link starts as fast as without it.
         Dispatcher.InvokeAsync(() => StartChatPage(chat, paths), DispatcherPriority.ApplicationIdle);
@@ -143,14 +155,18 @@ public partial class App : System.Windows.Application
 
     private void LogError(Exception exception) => Log(exception.ToString());
 
+    /// <summary>Appends to link.log; the voice logs from its own threads, so writers take turns.</summary>
     private void Log(string text)
     {
         if (_logPath is null) return;
         try
         {
-            var log = new FileInfo(_logPath);
-            if (log.Exists && log.Length > MaxLogBytes) log.Delete();
-            File.AppendAllText(_logPath, $"[{DateTimeOffset.Now:O}] {text}{Environment.NewLine}{Environment.NewLine}");
+            lock (_logLock)
+            {
+                var log = new FileInfo(_logPath);
+                if (log.Exists && log.Length > MaxLogBytes) log.Delete();
+                File.AppendAllText(_logPath, $"[{DateTimeOffset.Now:O}] {text}{Environment.NewLine}{Environment.NewLine}");
+            }
         }
         catch (IOException)
         {
@@ -208,13 +224,18 @@ public partial class App : System.Windows.Application
 
     private void ShowSettings()
     {
-        if (_settings is null || _mainWindow is null || _hotkeys is null || _audio is null || _textToSpeech is null) return;
+        if (_settings is null || _mainWindow is null || _hotkeys is null || _audio is null || _textToSpeech is null
+            || _geminiKey is null || _speechModels is null)
+        {
+            return;
+        }
+
         var previousHotkeys = _settings.Current.Hotkeys.Clone();
         var hotkeysRestarted = false;
         _hotkeys.Stop();
         try
         {
-            var window = new SettingsWindow(_settings, _audio, _textToSpeech);
+            var window = new SettingsWindow(_settings, _audio, _textToSpeech, _geminiKey, _speechModels);
             if (_mainWindow.IsVisible) window.Owner = _mainWindow;
             if (window.ShowDialog() == true)
             {

@@ -5,6 +5,8 @@ public sealed class AppSettings
     private const double DefaultGlassTint = 0.6;
     // Windows voices sound slow at their normal pace.
     private const double DefaultVoiceReplySpeed = 1.2;
+    // Described as warm: the easiest to listen to all day. Any prebuilt voice speaks Russian.
+    private const string DefaultGeminiVoice = "Sulafat";
 
     public int SchemaVersion { get; set; } = 6;
     public double Opacity { get; set; } = DefaultGlassTint;
@@ -20,6 +22,18 @@ public sealed class AppSettings
 
     /// <summary>Read the answer to a dictated prompt aloud.</summary>
     public bool VoiceReplies { get; set; } = true;
+
+    /// <summary>With <see cref="VoiceReplies"/>, answers to typed prompts are read aloud too.</summary>
+    public bool ReadTypedAnswers { get; set; }
+
+    /// <summary>The voice that reads answers first; the ones after it in Auto's order stand in when it cannot.</summary>
+    public TtsProvider VoiceReplyProvider { get; set; } = TtsProvider.Auto;
+
+    /// <summary>A Gemini prebuilt voice, kept between answers so that Link always sounds the same.</summary>
+    public string GeminiVoice { get; set; } = DefaultGeminiVoice;
+
+    /// <summary>The speaker of the local voice model.</summary>
+    public int LocalVoice { get; set; }
 
     /// <summary>A Windows voice by name; null picks one that speaks the answer's language.</summary>
     public string? VoiceReplyVoice { get; set; }
@@ -60,6 +74,9 @@ public sealed class AppSettings
             MicrophoneDeviceId = null;
             MicrophoneDeviceName = null;
         }
+        if (!Enum.IsDefined(VoiceReplyProvider)) VoiceReplyProvider = TtsProvider.Auto;
+        GeminiVoice = string.IsNullOrWhiteSpace(GeminiVoice) ? DefaultGeminiVoice : GeminiVoice.Trim();
+        LocalVoice = Math.Max(0, LocalVoice);
         if (string.IsNullOrWhiteSpace(VoiceReplyVoice)) VoiceReplyVoice = null;
         VoiceReplySpeed = double.IsFinite(VoiceReplySpeed)
             ? Math.Round(Math.Clamp(VoiceReplySpeed, 0.5, 2.0), 2)
@@ -144,4 +161,13 @@ public enum VoiceLanguage
     Auto,
     Russian,
     English
+}
+
+/// <summary>Who turns replies into speech. Auto: Gemini when it has a key, then the local voice, then Windows.</summary>
+public enum TtsProvider
+{
+    Auto,
+    Gemini,
+    Local,
+    Windows
 }

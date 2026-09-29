@@ -15,11 +15,12 @@ internal static class Program
     private static async Task<int> Main()
     {
         Console.OutputEncoding = Encoding.UTF8;
-        SpokenAnswerTests.Run();
+        SpeechTextTests.Run();
         PromptDraftTests.Run();
         foreach (var (name, checks) in new (string, Func<Task>)[]
                  {
                      ("voice session", VoiceSessionTests.RunAsync),
+                     ("text to speech", TextToSpeechTests.RunAsync),
                      ("embedded chat", EmbeddedChatTests.RunAsync)
                  })
         {

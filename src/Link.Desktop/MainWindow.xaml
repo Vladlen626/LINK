@@ -333,6 +333,7 @@
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
                                     <ColumnDefinition Width="Auto" />
+                                    <ColumnDefinition Width="Auto" />
                                 </Grid.ColumnDefinitions>
                                 <Ellipse x:Name="ResponseStateDot" Width="7" Height="7" Margin="0,0,7,0" VerticalAlignment="Center"
                                          Fill="{StaticResource BusyOrbBrush}" />
@@ -341,9 +342,11 @@
                                 <Button x:Name="CheckChatButton" Grid.Column="2" Height="22" Margin="4,0,0,0" Padding="9,0" FontSize="11"
                                         Click="CheckChat_OnClick" Content="Check chat"
                                         ToolTip="Take the answer from the linked chat if it did not arrive" />
-                                <Button Grid.Column="3" Height="22" Margin="4,0" Padding="9,0" FontSize="11"
+                                <Button x:Name="ReadAloudButton" Grid.Column="3" Height="22" Margin="4,0,0,0" Padding="9,0" FontSize="11"
+                                        Click="ReadAloud_OnClick" Content="Listen" Visibility="Collapsed" />
+                                <Button Grid.Column="4" Height="22" Margin="4,0" Padding="9,0" FontSize="11"
                                         Click="CopyResponse_OnClick" Content="Copy" />
-                                <Button Grid.Column="4" Style="{StaticResource TinyIconButtonStyle}"
+                                <Button Grid.Column="5" Style="{StaticResource TinyIconButtonStyle}"
                                         Click="CloseResponse_OnClick" ToolTip="Hide response">
                                     <Path Width="8" Height="8" Stretch="Uniform" Data="{StaticResource CloseIconGeometry}"
                                           Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />

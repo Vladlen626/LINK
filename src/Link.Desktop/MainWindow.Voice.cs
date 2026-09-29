@@ -64,6 +64,13 @@ public partial class MainWindow
 
     private void OnVoiceDraftChanged(string words) => SetPromptText(_draft.Show(PromptBox.Text, words));
 
+    /// <summary>Another voice stands in for the chosen one, e.g. after Gemini's free limit; the answer is not held up.</summary>
+    public void ShowVoiceNotice(string message)
+    {
+        if (_voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing) return;
+        SetStatus(message, _voice.Phase == VoicePhase.Speaking ? "Speaking" : null);
+    }
+
     private void SetPromptText(string text)
     {
         if (PromptBox.Text == text) return;
@@ -102,6 +109,7 @@ public partial class MainWindow
         // During a request push-to-talk waits for the answer, unless Link talks: then it interrupts.
         VoiceButton.IsEnabled = phase is not (VoicePhase.Sending or VoicePhase.Waiting);
         UpdateSendButton();
+        UpdateReadAloudButton();
 
         if (phase == VoicePhase.Finalizing)
         {
