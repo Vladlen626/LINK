@@ -11,17 +11,27 @@ public sealed class RequestService
 
     public RequestService(StoragePaths paths) => _paths = paths;
 
-    /// <summary>The request of one attempt at a snapshot: every attempt is a new request from the same input.</summary>
-    public static PromptRequest Build(InputSnapshot snapshot, ResponseEffort effort) => new()
+    /// <summary>
+    /// The request of one attempt at a snapshot: every attempt is a new request from the same input. Direct carries
+    /// only the text and the context the user attached; the chat's mode still follows the depth.
+    /// </summary>
+    public static PromptRequest Build(InputSnapshot snapshot, RequestRoute route, ResponseEffort effort)
     {
-        ProjectId = snapshot.ProjectId,
-        ProjectName = snapshot.ProjectName,
-        CurrentTask = snapshot.CurrentTask,
-        Text = snapshot.Text.Trim(),
-        Effort = effort,
-        CurrentApplication = snapshot.WorkTarget,
-        Context = snapshot.Screen is { } screen ? [.. snapshot.Context, screen] : [.. snapshot.Context]
-    };
+        var direct = route == RequestRoute.Direct;
+        return new PromptRequest
+        {
+            ProjectId = snapshot.ProjectId,
+            ProjectName = snapshot.ProjectName,
+            Route = route,
+            CurrentTask = direct ? string.Empty : snapshot.CurrentTask,
+            Text = snapshot.Text.Trim(),
+            Effort = effort,
+            CurrentApplication = direct ? null : snapshot.WorkTarget,
+            Context = direct ? [.. snapshot.Context.Where(item => item.Type != ContextItemType.ProjectState)]
+                : snapshot.Screen is { } screen ? [.. snapshot.Context, screen]
+                : [.. snapshot.Context]
+        };
+    }
 
     public void Log(PromptRequest request)
     {

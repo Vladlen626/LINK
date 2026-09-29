@@ -27,8 +27,11 @@ public sealed class RequestLatency
         _firstTextLength = progress.Text.Length;
     }
 
-    /// <summary>E.g. "[Chat] answer of 812 chars: Link 45 ms, accepted 310 ms, first text 2140 ms, 250 chars/s, total 5300 ms".</summary>
-    public string Describe(string outcome, int? answerLength = null)
+    /// <summary>
+    /// E.g. "[Chat] answer of 812 chars (Chat, Normal): Link 45 ms, accepted 310 ms, first text 2140 ms, 250 chars/s,
+    /// total 5300 ms", where the attempt is the route and depth.
+    /// </summary>
+    public string Describe(string attempt, string outcome, int? answerLength = null)
     {
         var steps = new List<string>();
         if (_handedOver is { } handedOver) steps.Add($"Link {Milliseconds(handedOver)} ms");
@@ -43,7 +46,7 @@ public sealed class RequestLatency
 
         steps.Add($"total {Milliseconds(Stopwatch.GetTimestamp())} ms");
         var what = answerLength is { } chars ? $"{outcome} of {chars} chars" : outcome;
-        return $"[Chat] {what}: {string.Join(", ", steps)}";
+        return $"[Chat] {what} ({attempt}): {string.Join(", ", steps)}";
     }
 
     private long Milliseconds(long timestamp) => (long)Stopwatch.GetElapsedTime(_started, timestamp).TotalMilliseconds;

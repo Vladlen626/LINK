@@ -129,7 +129,7 @@ public partial class MainWindow
         }
 
         var prompt = PromptBox.Text;
-        if (!await AttemptAsync(prompt, () => TakeSnapshotAsync(project, prompt))) return;
+        if (!await AttemptAsync(prompt, RequestRoute.Chat, () => TakeSnapshotAsync(project, prompt))) return;
         // Words dictated after interrupting the spoken answer are the next message: only the sent prompt goes.
         var sent = prompt.TrimEnd();
         PromptBox.Text = PromptBox.Text.StartsWith(sent, StringComparison.Ordinal)
@@ -176,7 +176,7 @@ public partial class MainWindow
     /// meanwhile), the coordinator sends it, and the answer is drawn, read aloud and announced here. A failure or
     /// Stop is shown too; the input stays where it is. Returns whether the answer came.
     /// </summary>
-    private async Task<bool> AttemptAsync(string prompt, Func<Task<InputSnapshot>> takeSnapshot)
+    private async Task<bool> AttemptAsync(string prompt, RequestRoute route, Func<Task<InputSnapshot>> takeSnapshot)
     {
         var project = _projects.ActiveProject;
         var cancellation = new CancellationTokenSource();
@@ -196,6 +196,7 @@ public partial class MainWindow
             _cues.Play(SoundCue.Sent);
             var response = await _attempts.SendAsync(
                 snapshot,
+                route,
                 _settings.Current.ResponseEffort,
                 latency,
                 OnChatProgress,
@@ -413,6 +414,7 @@ public partial class MainWindow
             // Fast: a summary needs no long thinking, and a long chat writes slowly as it is.
             var response = await _attempts.SendAsync(
                 snapshot,
+                RequestRoute.Chat,
                 ResponseEffort.Fast,
                 new RequestLatency(),
                 OnChatProgress,

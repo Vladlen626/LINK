@@ -28,12 +28,32 @@ internal static class ChatPrompt
         };
     }
 
-    private static string Format(PromptRequest request)
+    /// <summary>The prompt as the chat reads it. Direct is the text and its attachments alone, without Link's lines.</summary>
+    internal static string Format(PromptRequest request)
     {
         var result = new StringBuilder();
         if (!string.IsNullOrWhiteSpace(request.Text)) result.Append(request.Text.Trim());
         else result.Append("Please use the attached context.");
 
+        var contextLines = new List<string>();
+        if (request.Route == RequestRoute.Chat) AddLinkLines(request, result, contextLines);
+        foreach (var item in request.Context.Where(item => !string.IsNullOrWhiteSpace(item.Text)))
+        {
+            contextLines.Add($"{item.Label}:\n{item.Text!.Trim()}");
+        }
+
+        if (contextLines.Count > 0)
+        {
+            result.Append("\n\n---\nContext\n");
+            result.Append(string.Join("\n\n", contextLines));
+        }
+
+        return result.ToString();
+    }
+
+    /// <summary>What Link adds in Chat: the depth hint after the prompt, and the project, work window and task.</summary>
+    private static void AddLinkLines(PromptRequest request, StringBuilder prompt, List<string> contextLines)
+    {
         // The hint works in any chat; the companion additionally switches the ChatGPT mode when it can.
         var effortHint = request.Effort switch
         {
@@ -41,9 +61,8 @@ internal static class ChatPrompt
             ResponseEffort.Deep => "[Deep answer: think hard about this and give a thorough, carefully reasoned answer.]",
             _ => null
         };
-        if (effortHint is not null) result.Append("\n\n").Append(effortHint);
+        if (effortHint is not null) prompt.Append("\n\n").Append(effortHint);
 
-        var contextLines = new List<string>();
         if (!string.IsNullOrWhiteSpace(request.ProjectName) &&
             !string.Equals(request.ProjectName.Trim(), "General", StringComparison.OrdinalIgnoreCase))
         {
@@ -64,19 +83,6 @@ internal static class ChatPrompt
         {
             contextLines.Add($"Current task: {request.CurrentTask.Trim()}");
         }
-
-        foreach (var item in request.Context.Where(item => !string.IsNullOrWhiteSpace(item.Text)))
-        {
-            contextLines.Add($"{item.Label}:\n{item.Text!.Trim()}");
-        }
-
-        if (contextLines.Count > 0)
-        {
-            result.Append("\n\n---\nContext\n");
-            result.Append(string.Join("\n\n", contextLines));
-        }
-
-        return result.ToString();
     }
 
     private static IReadOnlyList<ChatPageAttachment> LoadImageAttachments(IEnumerable<ContextItem> context)

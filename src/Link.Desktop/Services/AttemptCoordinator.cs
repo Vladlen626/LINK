@@ -61,21 +61,24 @@ public sealed class AttemptCoordinator
     }
 
     /// <summary>
-    /// Sends the snapshot to its project's chat at a depth and returns the answer; throws when the chat fails or
-    /// the request is cancelled. The latency started when the user asked, before Link's own work; progress is
-    /// reported on the calling thread.
+    /// Sends the snapshot to its project's chat by a route and depth and returns the answer; throws when the chat
+    /// fails or the request is cancelled. The latency started when the user asked, before Link's own work; progress
+    /// is reported on the calling thread.
     /// </summary>
     public async Task<ChatResponse> SendAsync(
         InputSnapshot snapshot,
+        RequestRoute route,
         ResponseEffort effort,
         RequestLatency latency,
         Action<ChatProgress> onProgress,
         CancellationToken cancellationToken)
     {
         var project = _projects.Projects.First(project => project.Id == snapshot.ProjectId);
+        // Chat and Direct both go to the project's chat.
         var conversation = project.LinkedConversation
             ?? throw new InvalidOperationException("Link this project to a ChatGPT conversation first.");
-        var request = RequestService.Build(snapshot, effort);
+        var request = RequestService.Build(snapshot, route, effort);
+        var attempt = $"{route}, {effort}";
         _requests.Log(request);
         var progress = new Progress<ChatProgress>(update =>
         {
@@ -100,17 +103,17 @@ public sealed class AttemptCoordinator
                 Text = response.Text
             };
             _projects.Save();
-            _log(latency.Describe("answer", response.Text.Length));
+            _log(latency.Describe(attempt, "answer", response.Text.Length));
             return response;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _log(latency.Describe("cancelled"));
+            _log(latency.Describe(attempt, "cancelled"));
             throw;
         }
         catch (Exception exception)
         {
-            _log(latency.Describe($"failed ({exception.Message})"));
+            _log(latency.Describe(attempt, $"failed ({exception.Message})"));
             throw;
         }
     }
