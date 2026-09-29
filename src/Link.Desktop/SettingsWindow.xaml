@@ -69,17 +69,20 @@
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="44" />
-                                <RowDefinition Height="44" /><RowDefinition Height="Auto" />
+                                <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
+                                <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <TextBlock VerticalAlignment="Center" Text="Voice language" />
                             <ComboBox x:Name="VoiceLanguageCombo" Grid.Column="1" Width="190" HorizontalAlignment="Left" />
                             <CheckBox x:Name="LiveTranscriptionBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                       Content="Show my words while I speak (live draft, recognized locally)" />
-                            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Input device" />
-                            <ComboBox x:Name="MicrophoneCombo" Grid.Row="2" Grid.Column="1" />
-                            <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Check" />
-                            <Grid Grid.Row="3" Grid.Column="1" VerticalAlignment="Center">
+                            <CheckBox x:Name="ConversationModeBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                      Content="Conversation: listen by itself, send after a pause, answer aloud, listen again"
+                                      ToolTip="The microphone stays open while Link is free; typing in the prompt pauses it" />
+                            <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Input device" />
+                            <ComboBox x:Name="MicrophoneCombo" Grid.Row="3" Grid.Column="1" />
+                            <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Check" />
+                            <Grid Grid.Row="4" Grid.Column="1" VerticalAlignment="Center">
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                 <Button x:Name="MicrophoneTestButton" Style="{StaticResource ChipButtonStyle}" Click="MicrophoneTest_OnClick"
                                         Content="Test microphone" />
@@ -91,7 +94,7 @@
                                     </Border>
                                 </Border>
                             </Grid>
-                            <TextBlock x:Name="MicrophoneTestText" Grid.Row="4" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                            <TextBlock x:Name="MicrophoneTestText" Grid.Row="5" Grid.ColumnSpan="2" Margin="0,0,0,6"
                                        Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
                                        Text="Test records three seconds and shows whether this microphone hears you." />
                         </Grid>
@@ -160,6 +163,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
                                 <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
+                                <RowDefinition Height="42" />
                             </Grid.RowDefinitions>
                             <TextBlock VerticalAlignment="Center" Text="Show / hide" />
                             <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Push to talk" />
@@ -167,6 +171,7 @@
                             <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Capture desktop" />
                             <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Capture active window" />
                             <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="Select region" />
+                            <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="Conversation on / off" />
                             <Button x:Name="ShowHideHotkey" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
                                 <TextBlock Text="Ctrl+Alt+Space" />
                             </Button>
@@ -184,6 +189,9 @@
                             </Button>
                             <Button x:Name="RegionHotkey" Grid.Row="5" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
                                 <TextBlock Text="Ctrl+Alt+Shift+R" />
+                            </Button>
+                            <Button x:Name="ConversationHotkey" Grid.Row="6" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                <TextBlock Text="Ctrl+Alt+Shift+Space" />
                             </Button>
                         </Grid>
                     </Border>

@@ -59,6 +59,7 @@ public partial class MainWindow : Window
         InitializeComponent();
         _voice.PhaseChanged += OnVoicePhaseChanged;
         _voice.DraftChanged += OnVoiceDraftChanged;
+        _voice.PhraseEnded += OnPhraseEnded;
         _connectionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _connectionTimer.Tick += (_, _) =>
         {
@@ -115,6 +116,7 @@ public partial class MainWindow : Window
         // Voice replies may have been switched off or on.
         UpdateReadAloudButton();
         HideButton.ToolTip = $"Hide Link · {_settings.Current.Hotkeys.ShowHide} brings it back";
+        ApplyConversation();
     }
 
     public void ToggleVisible()
@@ -165,6 +167,8 @@ public partial class MainWindow : Window
         RestoreWindowState();
         UpdateConnectionState();
         _connectionTimer.Start();
+        // Conversation mode left on listens again from the start.
+        ApplyConversation();
     }
 
     private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -549,10 +553,11 @@ public partial class MainWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Escape) return;
-        // Like the Stop orb: silence Link first, then stop the request; with nothing going on Esc hides Link.
+        // Like the Stop orb: silence Link first, then stop the request; with nothing going on Esc hides Link, which
+        // goes on listening in conversation.
         if (_voice.Phase == VoicePhase.Speaking) _voice.StopSpeaking();
         else if (_sending) CancelSend();
-        else if (_voice.Phase == VoicePhase.Idle) HideOverlay();
+        else if (_voice.Phase == VoicePhase.Idle || _voice.IsHandsFree) HideOverlay();
         else return;
         e.Handled = true;
     }

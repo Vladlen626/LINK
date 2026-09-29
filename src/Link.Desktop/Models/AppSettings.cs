@@ -37,6 +37,12 @@ public sealed class AppSettings
 
     public double VoiceReplySpeed { get; set; } = DefaultVoiceReplySpeed;
 
+    /// <summary>
+    /// Hands-free: Link listens by itself whenever it is free, sends the phrase after a pause, answers aloud and
+    /// listens again. Off, the microphone opens only with push-to-talk.
+    /// </summary>
+    public bool ConversationMode { get; set; }
+
     /// <summary>Short sounds for listening, sent, an answer ready, a question for the user and an error.</summary>
     public bool SoundCues { get; set; } = true;
     public ResponseEffort ResponseEffort { get; set; } = ResponseEffort.Normal;
@@ -149,6 +155,9 @@ public sealed class HotkeySettings
     public string CaptureActiveWindow { get; set; } = "Ctrl+Alt+W";
     public string CaptureRegion { get; set; } = "Ctrl+Alt+Shift+R";
 
+    // A registered hotkey takes its chord from every app, and IDEs use many Ctrl+Alt+letter ones.
+    public string Conversation { get; set; } = "Ctrl+Alt+Shift+Space";
+
     public void Normalize()
     {
         ShowHide = DefaultIfEmpty(ShowHide, "Ctrl+Alt+Space");
@@ -157,6 +166,7 @@ public sealed class HotkeySettings
         CaptureDesktop = DefaultIfEmpty(CaptureDesktop, "Ctrl+Alt+D");
         CaptureActiveWindow = DefaultIfEmpty(CaptureActiveWindow, "Ctrl+Alt+W");
         CaptureRegion = DefaultIfEmpty(CaptureRegion, "Ctrl+Alt+Shift+R");
+        Conversation = DefaultIfEmpty(Conversation, "Ctrl+Alt+Shift+Space");
     }
 
     public HotkeySettings Clone() => new()
@@ -166,7 +176,8 @@ public sealed class HotkeySettings
         Send = Send,
         CaptureDesktop = CaptureDesktop,
         CaptureActiveWindow = CaptureActiveWindow,
-        CaptureRegion = CaptureRegion
+        CaptureRegion = CaptureRegion,
+        Conversation = Conversation
     };
 
     private static string DefaultIfEmpty(string? value, string fallback) =>

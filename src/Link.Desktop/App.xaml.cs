@@ -204,6 +204,9 @@ public partial class App : System.Windows.Application
             case HotkeyAction.CaptureRegion:
                 await _mainWindow.CaptureRegionAsync();
                 break;
+            case HotkeyAction.Conversation:
+                _mainWindow.ToggleConversation();
+                break;
         }
     }
 
@@ -237,6 +240,7 @@ public partial class App : System.Windows.Application
         var previousHotkeys = _settings.Current.Hotkeys.Clone();
         var hotkeysRestarted = false;
         _hotkeys.Stop();
+        _mainWindow.PauseConversation(true);
         try
         {
             var window = new SettingsWindow(_settings, _audio, _textToSpeech, _geminiKey, _speechModels);
@@ -285,6 +289,7 @@ public partial class App : System.Windows.Application
         }
         finally
         {
+            _mainWindow.PauseConversation(false);
             if (!hotkeysRestarted)
             {
                 try

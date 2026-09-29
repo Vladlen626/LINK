@@ -56,7 +56,8 @@ public sealed class GlobalHotkeyService : IDisposable
             [HotkeyAction.Send] = HotkeyGesture.Parse(settings.Send),
             [HotkeyAction.CaptureDesktop] = HotkeyGesture.Parse(settings.CaptureDesktop),
             [HotkeyAction.CaptureActiveWindow] = HotkeyGesture.Parse(settings.CaptureActiveWindow),
-            [HotkeyAction.CaptureRegion] = HotkeyGesture.Parse(settings.CaptureRegion)
+            [HotkeyAction.CaptureRegion] = HotkeyGesture.Parse(settings.CaptureRegion),
+            [HotkeyAction.Conversation] = HotkeyGesture.Parse(settings.Conversation)
         };
 
         if (gestures.Values.Any(gesture => !gesture.IsSafeGlobalShortcut))
@@ -113,6 +114,7 @@ public sealed class GlobalHotkeyService : IDisposable
         HotkeyAction.CaptureDesktop => "Desktop capture",
         HotkeyAction.CaptureActiveWindow => "Window capture",
         HotkeyAction.CaptureRegion => "Region capture",
+        HotkeyAction.Conversation => "Conversation mode",
         _ => action.ToString()
     };
 
@@ -194,7 +196,8 @@ public enum HotkeyAction
     Send,
     CaptureDesktop,
     CaptureActiveWindow,
-    CaptureRegion
+    CaptureRegion,
+    Conversation
 }
 
 public sealed record HotkeyGesture(int VirtualKey, bool Control, bool Alt, bool Shift, bool Windows, string DisplayText)

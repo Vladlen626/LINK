@@ -99,6 +99,13 @@ public partial class MainWindow
 
     private async Task SendOrQueueAsync()
     {
+        // Hands-free, Send ends the phrase now instead of at its pause; the prompt goes out with or without one.
+        if (_voice.IsHandsFree)
+        {
+            await FinishPhraseAsync(send: true);
+            return;
+        }
+
         if (_voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing)
         {
             // Push-to-talk was just released: send as soon as the transcript is in the prompt.
@@ -151,6 +158,7 @@ public partial class MainWindow
     /// </summary>
     private async void Redirect_OnClick(object sender, RoutedEventArgs e)
     {
+        StopHandsFree();
         // While the user dictates, the words wait for the next message.
         if (_sending || _voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing) return;
         if (_attemptOnScreen is not { } shown) return;
@@ -250,6 +258,8 @@ public partial class MainWindow
         _chatNotice = null;
         _receivingSince = null;
         var latency = new RequestLatency();
+        // The microphone waits while the chat answers and Link speaks.
+        StopHandsFree();
         _voice.BeginRequest(prompt);
         SetSending(true);
         _chatHeardAt = DateTime.UtcNow;
@@ -506,6 +516,7 @@ public partial class MainWindow
     /// <summary>The current chat's summary of itself, or null when it could not be written (the reason is shown).</summary>
     private async Task<string?> WriteSummaryAsync(LinkProject project)
     {
+        StopHandsFree();
         var cancellation = new CancellationTokenSource();
         _sendCancellation = cancellation;
         _chatNotice = null;
@@ -621,6 +632,7 @@ public partial class MainWindow
         ScreenButton.IsEnabled = !sending;
         ClipboardButton.IsEnabled = !sending;
         ReportState();
+        if (!sending) ScheduleListening();
     }
 
     private void UpdateSendButton()

@@ -60,6 +60,7 @@ public partial class SettingsWindow : Window
         VoiceLanguageCombo.ItemsSource = Enum.GetValues<VoiceLanguage>();
         VoiceLanguageCombo.SelectedItem = current.VoiceLanguage;
         LiveTranscriptionBox.IsChecked = current.LiveTranscription;
+        ConversationModeBox.IsChecked = current.ConversationMode;
         LoadMicrophones(current);
         VoiceRepliesBox.IsChecked = current.VoiceReplies;
         ReadTypedAnswersBox.IsChecked = current.ReadTypedAnswers;
@@ -76,6 +77,7 @@ public partial class SettingsWindow : Window
         SetHotkey(DesktopHotkey, current.Hotkeys.CaptureDesktop);
         SetHotkey(WindowHotkey, current.Hotkeys.CaptureActiveWindow);
         SetHotkey(RegionHotkey, current.Hotkeys.CaptureRegion);
+        SetHotkey(ConversationHotkey, current.Hotkeys.Conversation);
         VersionText.Text = $"Version {GetInformationalVersion()}";
     }
 
@@ -422,7 +424,8 @@ public partial class SettingsWindow : Window
             GetHotkey(SendHotkey),
             GetHotkey(DesktopHotkey),
             GetHotkey(WindowHotkey),
-            GetHotkey(RegionHotkey)
+            GetHotkey(RegionHotkey),
+            GetHotkey(ConversationHotkey)
         };
         if (hotkeys.Any(string.IsNullOrWhiteSpace))
         {
@@ -459,6 +462,7 @@ public partial class SettingsWindow : Window
         current.BlurBackground = BlurBackgroundBox.IsChecked == true;
         current.VoiceLanguage = (VoiceLanguage)(VoiceLanguageCombo.SelectedItem ?? VoiceLanguage.Auto);
         current.LiveTranscription = LiveTranscriptionBox.IsChecked == true;
+        current.ConversationMode = ConversationModeBox.IsChecked == true;
         var microphone = MicrophoneCombo.SelectedItem as AudioInputDevice;
         if (microphone != _disconnectedMicrophone)
         {
@@ -484,6 +488,7 @@ public partial class SettingsWindow : Window
         current.Hotkeys.CaptureDesktop = GetHotkey(DesktopHotkey);
         current.Hotkeys.CaptureActiveWindow = GetHotkey(WindowHotkey);
         current.Hotkeys.CaptureRegion = GetHotkey(RegionHotkey);
+        current.Hotkeys.Conversation = GetHotkey(ConversationHotkey);
 
         try
         {

@@ -46,16 +46,18 @@ public sealed class AudioRecorderService : IAudioRecorder
         return usedSelectedDevice;
     }
 
-    public AudioRecording Stop(bool save = true)
+    public AudioRecording Stop(bool save = true, TimeSpan skip = default)
     {
         var session = _session ?? throw new InvalidOperationException("Voice recording has not been started.");
         _session = null;
-        var samples = session.Stop();
+        var recorded = session.Stop();
+        var start = Math.Clamp((long)(skip.TotalSeconds * SampleRate) * BytesPerSample, 0, recorded.Length);
+        var samples = recorded.AsMemory((int)start);
         var duration = TimeSpan.FromSeconds(samples.Length / (double)(SampleRate * BytesPerSample));
         if (!save) return new AudioRecording(null, duration, session.PeakLevel);
 
         var path = Path.Combine(_paths.Recordings, $"{DateTime.Now:yyyyMMdd-HHmmss-fff}.wav");
-        WriteWave(path, samples);
+        WriteWave(path, samples.Span);
         PruneRecordings();
         return new AudioRecording(path, duration, session.PeakLevel);
     }
@@ -78,7 +80,7 @@ public sealed class AudioRecorderService : IAudioRecorder
         handler(block);
     }
 
-    private static void WriteWave(string path, byte[] samples)
+    private static void WriteWave(string path, ReadOnlySpan<byte> samples)
     {
         using var stream = new FileStream(path, FileMode.Create, FileAccess.Write, FileShare.None);
         using var writer = new BinaryWriter(stream, Encoding.ASCII);
