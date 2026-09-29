@@ -297,6 +297,7 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="Auto" />
                                 <RowDefinition Height="*" />
+                                <RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <Grid>
                                 <Grid.ColumnDefinitions>
@@ -331,6 +332,16 @@
                                 <FlowDocument x:Name="ResponseDocument" PagePadding="0,0,4,0" FontFamily="Segoe UI"
                                               FontSize="13.5" LineHeight="20" Foreground="{StaticResource TextBrush}" />
                             </FlowDocumentScrollViewer>
+                            <!-- The same message again another way: nothing is typed, dictated or read again. -->
+                            <StackPanel x:Name="RedirectPanel" Grid.Row="2" Margin="0,6,0,0" Orientation="Horizontal" Visibility="Collapsed">
+                                <Button x:Name="DeeperButton" Height="22" Margin="0,0,4,0" Padding="9,0" FontSize="11"
+                                        Click="Redirect_OnClick" Content="↻ Deeper" ToolTip="Ask the same again at Deep" />
+                                <Button x:Name="DirectButton" Height="22" Margin="0,0,4,0" Padding="9,0" FontSize="11"
+                                        Click="Redirect_OnClick" Content="↻ Direct"
+                                        ToolTip="Ask the same again with only its text and attachments" />
+                                <Button x:Name="FreshScreenButton" Height="22" Padding="9,0" FontSize="11"
+                                        Click="Redirect_OnClick" Content="↻ Fresh screen" />
+                            </StackPanel>
                         </Grid>
                     </Border>
                 </DockPanel>

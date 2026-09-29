@@ -53,6 +53,8 @@ public partial class MainWindow
     // When the answer began to arrive and how much of it came at once, for the slow-chat hint.
     private DateTime? _receivingSince;
     private int _receivingFrom;
+    // The attempt whose answer, error or Stop is on screen: the redirect buttons send its snapshot again.
+    private (InputSnapshot Snapshot, RequestRoute Route, ResponseEffort Effort)? _attemptOnScreen;
 
     /// <summary>What a check of the chat saw on the page, for link.log.</summary>
     public event Action<string>? DiagnosticsReported;
@@ -135,7 +137,54 @@ public partial class MainWindow
 
         var prompt = PromptBox.Text;
         var route = _settings.Current.Route;
-        if (!await AttemptAsync(prompt, route, () => TakeSnapshotAsync(project, prompt, route))) return;
+        var answered = await AttemptAsync(
+            prompt,
+            route,
+            _settings.Current.ResponseEffort,
+            () => TakeSnapshotAsync(project, prompt, route));
+        if (answered) ClearSentInput(prompt);
+    }
+
+    /// <summary>
+    /// A redirect button: the snapshot on screen goes again, deeper, directly or with a fresh screenshot of its work
+    /// window, to the same chat. The prompt and the clipboard are not read again.
+    /// </summary>
+    private async void Redirect_OnClick(object sender, RoutedEventArgs e)
+    {
+        // While the user dictates, the words wait for the next message.
+        if (_sending || _voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing) return;
+        if (_attemptOnScreen is not { } shown) return;
+        if (_projects.ActiveProject.LinkedConversation is null)
+        {
+            SetError("Link this project to a ChatGPT conversation first.");
+            return;
+        }
+
+        var (snapshot, route, effort) = shown;
+        var fresh = sender == FreshScreenButton;
+        if (sender == DeeperButton) effort = ResponseEffort.Deep;
+        else if (sender == DirectButton) route = RequestRoute.Direct;
+        // Direct sends no screenshot of its own, so a fresh one goes by Chat.
+        else route = RequestRoute.Chat;
+
+        // After a failure or Stop the prompt still holds this input: once answered, it goes like a sent one.
+        var prompt = PromptBox.Text;
+        var kept = prompt.Trim() == snapshot.Text &&
+                   _context.Select(item => item.Id).SequenceEqual(snapshot.Context.Select(item => item.Id));
+        var answered = await AttemptAsync(
+            snapshot.Text,
+            route,
+            effort,
+            fresh ? () => WithFreshScreenAsync(snapshot) : () => Task.FromResult(snapshot));
+        if (answered && kept) ClearSentInput(prompt);
+    }
+
+    private async Task<InputSnapshot> WithFreshScreenAsync(InputSnapshot snapshot) =>
+        snapshot with { Id = Guid.NewGuid(), Screen = await CaptureWorkWindowAsync(snapshot.WorkWindow) };
+
+    /// <summary>The answered input leaves the prompt and the context stack.</summary>
+    private void ClearSentInput(string prompt)
+    {
         // Words dictated after interrupting the spoken answer are the next message: only the sent prompt goes.
         var sent = prompt.TrimEnd();
         PromptBox.Text = PromptBox.Text.StartsWith(sent, StringComparison.Ordinal)
@@ -183,11 +232,19 @@ public partial class MainWindow
     /// <summary>
     /// One attempt: the snapshot is taken once it is under way (a screenshot is Link's own work, and Stop can come
     /// meanwhile), the coordinator sends it, and the answer is drawn, read aloud and announced here. A failure or
-    /// Stop is shown too; the input stays where it is. Returns whether the answer came.
+    /// Stop is shown too; the input stays where it is. Whatever the end, the redirect buttons can send the snapshot
+    /// again. Returns whether the answer came.
     /// </summary>
-    private async Task<bool> AttemptAsync(string prompt, RequestRoute route, Func<Task<InputSnapshot>> takeSnapshot)
+    private async Task<bool> AttemptAsync(
+        string prompt,
+        RequestRoute route,
+        ResponseEffort effort,
+        Func<Task<InputSnapshot>> takeSnapshot)
     {
         var project = _projects.ActiveProject;
+        // A fresh screenshot that cannot be taken leaves the buttons with the attempt they were for.
+        var previous = _attemptOnScreen;
+        InputSnapshot? snapshot = null;
         var cancellation = new CancellationTokenSource();
         _sendCancellation = cancellation;
         _chatNotice = null;
@@ -200,13 +257,13 @@ public partial class MainWindow
 
         try
         {
-            var snapshot = await takeSnapshot();
+            snapshot = await takeSnapshot();
             _attempts.Keep(snapshot);
             _cues.Play(SoundCue.Sent);
             var response = await _attempts.SendAsync(
                 snapshot,
                 route,
-                _settings.Current.ResponseEffort,
+                effort,
                 latency,
                 OnChatProgress,
                 cancellation.Token);
@@ -245,7 +302,32 @@ public partial class MainWindow
             cancellation.Dispose();
             SetSending(false);
             UpdateConnectionState();
+            _attemptOnScreen = snapshot is null ? previous : (snapshot, route, effort);
+            UpdateRedirectButtons();
         }
+    }
+
+    /// <summary>
+    /// The redirects that change something about the attempt on screen: a Deep one is not asked deeper, a Direct one
+    /// not directly, and without a work window there is no screen to take afresh.
+    /// </summary>
+    private void UpdateRedirectButtons()
+    {
+        if (_attemptOnScreen is not { } shown)
+        {
+            RedirectPanel.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        var (snapshot, route, effort) = shown;
+        DeeperButton.Visibility = effort == ResponseEffort.Deep ? Visibility.Collapsed : Visibility.Visible;
+        DirectButton.Visibility = route == RequestRoute.Direct ? Visibility.Collapsed : Visibility.Visible;
+        FreshScreenButton.Visibility = snapshot.WorkWindow == IntPtr.Zero ? Visibility.Collapsed : Visibility.Visible;
+        FreshScreenButton.ToolTip = $"Ask the same again with a new screenshot of {snapshot.WorkTarget?.ProcessName ?? "its window"}" +
+                                    (route == RequestRoute.Direct ? ", by Chat" : string.Empty);
+        RedirectPanel.Visibility = RedirectPanel.Children.Cast<UIElement>().Any(button => button.Visibility == Visibility.Visible)
+            ? Visibility.Visible
+            : Visibility.Collapsed;
     }
 
     private string ResponseReceivedStatus() =>
@@ -593,6 +675,9 @@ public partial class MainWindow
 
     private void ShowResponse(ChatProgressState state, string text)
     {
+        // Whatever comes on screen is not the attempt the redirects were for; an attempt names itself when it ends.
+        _attemptOnScreen = null;
+        RedirectPanel.Visibility = Visibility.Collapsed;
         ResponsePanel.Visibility = Visibility.Visible;
         ResponseStateText.Text = state switch
         {
@@ -658,6 +743,7 @@ public partial class MainWindow
         if (project.LastResponse is not { } response ||
             response.ConversationId != project.LinkedConversation?.ConversationId)
         {
+            _attemptOnScreen = null;
             _responseText = string.Empty;
             RenderResponse(string.Empty);
             ResponsePanel.Visibility = Visibility.Collapsed;

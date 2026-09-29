@@ -106,7 +106,9 @@ public partial class MainWindow
         // Prompt, context and status keep their natural height; only the answer area gives way.
         var controls = InputPanel.Children.Cast<UIElement>().Sum(child => child.DesiredSize.Height) +
                        StatusRow.DesiredSize.Height;
-        var answer = ResponsePanel.Visibility == Visibility.Visible ? ResponsePanel.Margin.Top + MinimumAnswerHeight : 0;
+        var answer = ResponsePanel.Visibility == Visibility.Visible
+            ? ResponsePanel.Margin.Top + MinimumAnswerHeight + RedirectPanel.DesiredSize.Height
+            : 0;
         var frame = HeaderRow.ActualHeight + CardContent.Margin.Top + CardContent.Margin.Bottom +
                     ShellBorder.BorderThickness.Top + ShellBorder.BorderThickness.Bottom;
         return Math.Ceiling(frame + controls + answer);
