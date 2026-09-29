@@ -61,13 +61,18 @@
                     </StackPanel>
 
                     <Button x:Name="ProjectMenuButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" MinWidth="80"
-                            MaxWidth="160" Margin="8,0,4,0" Padding="10,2,8,2" VerticalAlignment="Center"
+                            MaxWidth="170" Margin="8,0,4,0" Padding="9,2,8,2" VerticalAlignment="Center"
                             Click="ProjectMenu_OnClick" ToolTip="Switch project">
                         <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                            <TextBlock x:Name="ProjectNameText" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
+                            <!-- The linked chat's state stays in sight: "Sign in to ChatGPT" and errors show without the panel. -->
+                            <Ellipse x:Name="ChatStatusDot" Width="7" Height="7" Margin="0,1,7,0" VerticalAlignment="Center"
+                                     Fill="{StaticResource IdleOrbBrush}" />
+                            <TextBlock x:Name="ProjectNameText" Grid.Column="1" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
                                        TextTrimming="CharacterEllipsis" />
-                            <Path Grid.Column="1" Width="8" Margin="7,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
+                            <Path Grid.Column="2" Width="8" Margin="7,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
                                   Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
                                   StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
                         </Grid>
@@ -98,54 +103,22 @@
 
                 <DockPanel x:Name="CardContent" Grid.Row="1" Margin="12,0,12,10">
                     <StackPanel x:Name="InputPanel" DockPanel.Dock="Top">
-                        <Border Height="30" Background="{StaticResource CardBrush}" BorderThickness="1" CornerRadius="{StaticResource SurfaceRadius}">
-                            <Border.Style>
-                                <Style TargetType="Border">
-                                    <Setter Property="BorderBrush" Value="{StaticResource GlassBorderSoftBrush}" />
-                                    <Style.Triggers>
-                                        <DataTrigger Binding="{Binding IsKeyboardFocusWithin, ElementName=CurrentTaskBox}" Value="True">
-                                            <Setter Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" />
-                                        </DataTrigger>
-                                    </Style.Triggers>
-                                </Style>
-                            </Border.Style>
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Viewbox Width="12" Height="12" Margin="10,0,0,0" VerticalAlignment="Center">
-                                    <Path Data="{StaticResource FlagIconGeometry}" Fill="Transparent" Stroke="{StaticResource MutedBrush}" StrokeThickness="2"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                                </Viewbox>
-                                <Grid Grid.Column="1">
-                                    <TextBox x:Name="CurrentTaskBox" Style="{StaticResource BareTextBoxStyle}" Padding="5,4,8,4"
-                                             VerticalAlignment="Center" FontSize="12" ToolTip="Current task"
-                                             LostFocus="CurrentTaskBox_OnLostFocus" TextChanged="CurrentTaskBox_OnTextChanged" />
-                                    <TextBlock x:Name="CurrentTaskPlaceholder" Margin="7,0" VerticalAlignment="Center"
-                                               Foreground="{StaticResource MutedBrush}" FontSize="12" IsHitTestVisible="False"
-                                               Text="What are you working on?" />
-                                </Grid>
-                            </Grid>
-                        </Border>
-
-                        <Grid Margin="0,4,0,0">
-                            <Grid.ColumnDefinitions>
-                                <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
-                            </Grid.ColumnDefinitions>
-                            <Button x:Name="ChatConnectionButton" Style="{StaticResource GhostButtonStyle}" Height="26"
-                                    Padding="8,2" HorizontalContentAlignment="Left" Click="ChatConnection_OnClick"
-                                    ToolTip="Link this project to a ChatGPT conversation">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <!-- The task itself is edited in the panel; here it only shows that it goes along. -->
+                            <Button x:Name="TaskChip" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="0,0,4,0" Padding="8,2"
+                                    HorizontalAlignment="Left" HorizontalContentAlignment="Left" Click="TaskChip_OnClick" Visibility="Collapsed">
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Ellipse x:Name="ChatStatusDot" Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center"
-                                             Fill="{StaticResource IdleOrbBrush}" />
-                                    <TextBlock x:Name="ChatConnectionText" Grid.Column="1" VerticalAlignment="Center" FontSize="11.5"
-                                               Foreground="{StaticResource MutedBrush}" Text="No linked conversation" TextTrimming="CharacterEllipsis" />
+                                    <Viewbox Width="11" Height="11" VerticalAlignment="Center">
+                                        <Path Data="{StaticResource FlagIconGeometry}" Fill="Transparent" Stroke="{StaticResource MutedBrush}"
+                                              StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                                    </Viewbox>
+                                    <TextBlock x:Name="TaskChipText" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11.5"
+                                               Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
                                 </Grid>
                             </Button>
-                            <Button x:Name="OpenChatButton" Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="4,0,0,0"
-                                    Padding="8,2" Click="OpenChat_OnClick" ToolTip="Show the linked ChatGPT chat">
-                                <TextBlock VerticalAlignment="Center" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="Open chat" />
-                            </Button>
-                            <Button x:Name="EffortButton" Grid.Column="2" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="4,0,0,0"
+                            <Button x:Name="EffortButton" Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Height="26"
                                     Padding="8,2" Click="Effort_OnClick" ToolTip="Response effort">
                                 <TextBlock x:Name="EffortText" VerticalAlignment="Center" FontSize="11.5"
                                            Foreground="{StaticResource MutedBrush}" Text="Normal" />
@@ -267,6 +240,9 @@
                                                             </DataTrigger>
                                                             <DataTrigger Binding="{Binding Type}" Value="ChatSummary">
                                                                 <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><Viewbox><Path Data="{StaticResource ChainIconGeometry}" Fill="Transparent" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.9" StrokeStartLineCap="Round" StrokeEndLineCap="Round" /></Viewbox></DataTemplate></Setter.Value></Setter>
+                                                            </DataTrigger>
+                                                            <DataTrigger Binding="{Binding Type}" Value="ProjectState">
+                                                                <Setter Property="ContentTemplate"><Setter.Value><DataTemplate><Viewbox><Path Data="{StaticResource BookmarkIconGeometry}" Fill="Transparent" Stroke="{StaticResource AccentBrush}" StrokeThickness="1.9" StrokeLineJoin="Round" /></Viewbox></DataTemplate></Setter.Value></Setter>
                                                             </DataTrigger>
                                                         </Style.Triggers>
                                                     </Style>

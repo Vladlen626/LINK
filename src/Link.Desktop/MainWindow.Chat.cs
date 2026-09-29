@@ -41,6 +41,7 @@ public partial class MainWindow
     private ChatProgressState _responseState;
     private int _nextResponseBlock;
     private string? _chatNotice;
+    private ChatConnectionState _connectionState;
     private DateTime _chatHeardAt;
     private bool _checkingChat;
     // When the answer began to arrive and how much of it came at once, for the slow-chat hint.
@@ -113,7 +114,8 @@ public partial class MainWindow
     {
         if (_sending) return;
         RemoveMissingContextFiles();
-        if (string.IsNullOrWhiteSpace(PromptBox.Text) && _context.Count == 0)
+        // The project state alone is not a question.
+        if (string.IsNullOrWhiteSpace(PromptBox.Text) && _context.All(item => item.Type == ContextItemType.ProjectState))
         {
             SetError("Add text or context before sending.");
             return;
@@ -140,8 +142,6 @@ public partial class MainWindow
 
         try
         {
-            project.CurrentTask = CurrentTaskBox.Text.Trim();
-            _projects.Save();
             // The app Link was invoked from, not whatever took the focus since (the browser, Link's own captures).
             var workTarget = _currentApplication.WorkTarget;
             var externalWindow = _currentApplication.IsExternalWindow(workTarget) ? workTarget : IntPtr.Zero;
@@ -194,8 +194,10 @@ public partial class MainWindow
                 ? PromptBox.Text[sent.Length..].Trim()
                 : string.Empty;
             ClearContext(prune: true);
+            ShowProjectStateContext();
+            RememberExchange(project, prompt, requestContext, response.Text);
             SetStatus(SlowChatHint(response.Text) ?? ResponseReceivedStatus());
-            NotifyIfAway(project, "Answer ready", ToNotificationText(response.Text));
+            NotifyIfAway(project, "Answer ready", ToPreviewText(response.Text));
             _ = ReadAnswerAloudAsync(response.Text);
             if (_voice.Phase == VoicePhase.Speaking) SetStatus(SpeakingStatus);
         }
@@ -256,8 +258,8 @@ public partial class MainWindow
         NotificationRequested?.Invoke($"{title} · {project.Name}", message, project.Id);
     }
 
-    // A one-glance preview for the notification: plain words without Markdown markers or code fences.
-    private static string ToNotificationText(string markdown) =>
+    // A one-glance preview for a notification or the history: plain words without Markdown markers or code fences.
+    private static string ToPreviewText(string markdown) =>
         string.Join(' ', markdown.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
             .Where(line => !line.StartsWith("```", StringComparison.Ordinal) && !IsRuleLine(line))
             .Select(line => line.TrimStart('#', '>', '-', '*', '+', ' ')
@@ -477,10 +479,6 @@ public partial class MainWindow
         SetStatus("Conversation unlinked");
     }
 
-    private void ChatConnection_OnClick(object sender, RoutedEventArgs e) => LinkConversation();
-
-    private void OpenChat_OnClick(object sender, RoutedEventArgs e) => OpenChat(_projects.ActiveProject.LinkedConversation);
-
     private void OpenChat(ChatConversationLink? conversation)
     {
         try
@@ -497,7 +495,7 @@ public partial class MainWindow
     {
         var conversation = _projects.ActiveProject.LinkedConversation;
         var state = _chat.GetConnectionState(conversation);
-        ChatConnectionText.Text = state switch
+        var text = state switch
         {
             ChatConnectionState.NoLinkedConversation => "No linked conversation",
             ChatConnectionState.Connecting => $"Connecting to ChatGPT… · {conversation?.Title}",
@@ -506,12 +504,24 @@ public partial class MainWindow
             ChatConnectionState.ConversationAvailable => $"ChatGPT connected · {conversation?.Title}",
             _ => "ChatGPT unavailable"
         };
-        ChatStatusDot.Fill = (Brush)FindResource(state switch
+        var dot = (Brush)FindResource(state switch
         {
             ChatConnectionState.ConversationAvailable => "SuccessOrbBrush",
             ChatConnectionState.BridgeUnavailable or ChatConnectionState.SignInRequired => "ErrorOrbBrush",
             _ => "IdleOrbBrush"
         });
+        ChatStatusDot.Fill = dot;
+        ProjectMenuButton.ToolTip = $"{text}\nSwitch project";
+        _projectPanel?.ShowConnection(text, dot, conversation is { IsNew: false });
+
+        // The chat row lives in the panel, which may be closed: trouble with the chat shows in the status line too.
+        if (state != _connectionState && !_sending)
+        {
+            if (state == ChatConnectionState.SignInRequired) SetStatus("Sign in to ChatGPT: panel → Open chat");
+            else if (state == ChatConnectionState.BridgeUnavailable) SetStatus(text);
+        }
+
+        _connectionState = state;
     }
 
     private void SetSending(bool sending)
@@ -519,9 +529,8 @@ public partial class MainWindow
         _sending = sending;
         UpdateSendButton();
         UpdatePromptReadOnly();
-        CurrentTaskBox.IsEnabled = !sending;
         ProjectMenuButton.IsEnabled = !sending;
-        ChatConnectionButton.IsEnabled = !sending;
+        _projectPanel?.SetBusy(sending);
         ContextActionsPanel.IsEnabled = !sending;
         ContextItemsControl.IsEnabled = !sending;
         ScreenButton.IsEnabled = !sending;

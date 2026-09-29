@@ -5,6 +5,7 @@ namespace Link.Desktop.Services;
 
 public sealed class ProjectService
 {
+    private const int HistorySize = 10;
     private readonly StoragePaths _paths;
     private readonly SettingsService _settings;
     private readonly JsonSerializerOptions _json = new() { WriteIndented = true };
@@ -77,6 +78,20 @@ public sealed class ProjectService
 
     public void Save() =>
         AtomicJsonFile.Write(_paths.ProjectsFile, Projects, _json);
+
+    /// <summary>The project's last questions and answers, newest first. They live in its data folder, not in projects.json.</summary>
+    public IReadOnlyList<ProjectExchange> ReadHistory(LinkProject project) =>
+        AtomicJsonFile.Read<List<ProjectExchange>>(HistoryFile(project), _json) ?? [];
+
+    /// <summary>Puts an answer at the top of the project's history, which keeps the last ten; returns the new history.</summary>
+    public IReadOnlyList<ProjectExchange> AddToHistory(LinkProject project, ProjectExchange exchange)
+    {
+        var history = ReadHistory(project).Prepend(exchange).Take(HistorySize).ToList();
+        AtomicJsonFile.Write(HistoryFile(project), history, _json);
+        return history;
+    }
+
+    private static string HistoryFile(LinkProject project) => Path.Combine(project.DataFolder, "history.json");
 
     private LinkProject CreateCore(string name)
     {

@@ -1,6 +1,7 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -231,6 +232,22 @@ public partial class MainWindow : Window
         if (prune) _history.Prune();
     }
 
+    /// <summary>
+    /// The project's state stands first in the context stack whenever the project has one. Removed, it stays out of
+    /// the next request only: it is back once that request is answered, the state changes or the project does.
+    /// </summary>
+    private void ShowProjectStateContext()
+    {
+        foreach (var item in _context.Where(item => item.Type == ContextItemType.ProjectState).ToArray()) _context.Remove(item);
+        if (_projects.ActiveProject.State is not { } state) return;
+        _context.Insert(0, new ContextItem
+        {
+            Type = ContextItemType.ProjectState,
+            Label = $"Project state · {state.UpdatedAt.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}",
+            Text = state.Text
+        });
+    }
+
     private void RemoveMissingContextFiles()
     {
         foreach (var item in _context.Where(item => item.FilePath is not null && !File.Exists(item.FilePath)).ToArray())
@@ -276,15 +293,16 @@ public partial class MainWindow : Window
     private void LoadProject(LinkProject project)
     {
         ProjectNameText.Text = project.Name;
-        CurrentTaskBox.Text = project.CurrentTask;
+        UpdateTaskChip();
+        ShowProjectStateContext();
         UpdateConnectionState();
         ShowProjectResponse(project);
+        RefreshProjectPanel();
     }
 
     private void SwitchProject(LinkProject project)
     {
         if (_loadingProject || project.Id == _projects.ActiveProject.Id) return;
-        _projects.ActiveProject.CurrentTask = CurrentTaskBox.Text.Trim();
         _projects.SetActive(project);
         LoadProject(project);
         _projects.Save();
@@ -336,7 +354,9 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() != true) return;
         var project = _projects.Create(dialog.ProjectName);
         LoadProject(project);
-        CurrentTaskBox.Focus();
+        // A new project starts with its task, state and workspace.
+        SetPanelOpen(true);
+        _projectPanel?.FocusTask();
     }
 
     private void RenameCurrentProject()
@@ -345,6 +365,7 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() != true) return;
         _projects.Rename(_projects.ActiveProject, dialog.ProjectName);
         ProjectNameText.Text = _projects.ActiveProject.Name;
+        RefreshProjectPanel();
     }
 
     private void RemoveCurrentProject()
@@ -473,15 +494,6 @@ public partial class MainWindow : Window
         PreviewLabel.Text = item.Label;
         PreviewPanel.Visibility = Visibility.Visible;
     }
-
-    private void CurrentTaskBox_OnLostFocus(object sender, RoutedEventArgs e)
-    {
-        _projects.ActiveProject.CurrentTask = CurrentTaskBox.Text.Trim();
-        _projects.Save();
-    }
-
-    private void CurrentTaskBox_OnTextChanged(object sender, TextChangedEventArgs e) =>
-        CurrentTaskPlaceholder.Visibility = string.IsNullOrEmpty(CurrentTaskBox.Text) ? Visibility.Visible : Visibility.Collapsed;
 
     private void PromptBox_OnTextChanged(object sender, TextChangedEventArgs e)
     {

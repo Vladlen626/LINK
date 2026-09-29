@@ -15,7 +15,7 @@ namespace Link.Desktop;
 public partial class SidePanelWindow : Window
 {
     // Shorter than this the panel's sections would not fit: beside a compact card it reaches below it.
-    private const double MinimumHeight = 440;
+    private const double MinimumHeight = 520;
     private const double ResizeEdge = 6;
     private bool? _onRight;
 

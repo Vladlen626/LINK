@@ -1,0 +1,114 @@
+<UserControl x:Class="Link.Desktop.ProjectPanel"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <UserControl.Resources>
+        <Style x:Key="FieldStyle" TargetType="Border">
+            <Setter Property="Margin" Value="0,5,0,0" />
+            <Setter Property="Background" Value="{StaticResource CardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource GlassBorderSoftBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="{StaticResource SurfaceRadius}" />
+            <Style.Triggers>
+                <Trigger Property="IsKeyboardFocusWithin" Value="True">
+                    <Setter Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" />
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="FieldTextStyle" TargetType="TextBox" BasedOn="{StaticResource BareTextBoxStyle}">
+            <Setter Property="Padding" Value="4,4" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="PlaceholderStyle" TargetType="TextBlock">
+            <Setter Property="Margin" Value="9,6" />
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+            <Setter Property="IsHitTestVisible" Value="False" />
+        </Style>
+    </UserControl.Resources>
+
+    <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+        <StackPanel Margin="0,0,4,0">
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="CURRENT TASK" />
+            <Border Style="{StaticResource FieldStyle}">
+                <Grid>
+                    <TextBox x:Name="TaskBox" Style="{StaticResource FieldTextStyle}" MaxLines="3"
+                             TextChanged="TaskBox_OnTextChanged" LostKeyboardFocus="Field_OnLostKeyboardFocus" />
+                    <TextBlock x:Name="TaskPlaceholder" Style="{StaticResource PlaceholderStyle}" Text="What are you working on?" />
+                </Grid>
+            </Border>
+
+            <Grid Margin="0,14,0,0">
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="PROJECT STATE" />
+                <TextBlock x:Name="StateDateText" HorizontalAlignment="Right" Style="{StaticResource SecondaryTextStyle}" FontSize="11" />
+            </Grid>
+            <Border Style="{StaticResource FieldStyle}">
+                <Grid>
+                    <TextBox x:Name="StateBox" Style="{StaticResource FieldTextStyle}" MinHeight="66" MaxHeight="170"
+                             AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
+                             TextChanged="StateBox_OnTextChanged" LostKeyboardFocus="Field_OnLostKeyboardFocus" />
+                    <TextBlock x:Name="StatePlaceholder" Style="{StaticResource PlaceholderStyle}"
+                               Text="Goal, decisions, key facts, links to chats. It goes with your messages as a chip you can remove." />
+                </Grid>
+            </Border>
+
+            <TextBlock Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="CHAT" />
+            <Button x:Name="ConversationButton" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="-8,3,0,0" Padding="8,2"
+                    HorizontalContentAlignment="Left" Click="Conversation_OnClick" ToolTip="Link this project to a ChatGPT conversation">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Ellipse x:Name="ChatStatusDot" Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center"
+                             Fill="{StaticResource IdleOrbBrush}" />
+                    <TextBlock x:Name="ChatConnectionText" Grid.Column="1" VerticalAlignment="Center" FontSize="12"
+                               Text="No linked conversation" TextTrimming="CharacterEllipsis" />
+                </Grid>
+            </Button>
+            <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
+                <Button x:Name="NewChatButton" Style="{StaticResource ChipButtonStyle}" Height="26" Click="NewChat_OnClick"
+                        Content="New chat" ToolTip="Your next message starts a new chat, in the same ChatGPT project as the current one" />
+                <Button x:Name="OpenChatButton" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0"
+                        Click="OpenChat_OnClick" Content="Open chat" ToolTip="Show the linked ChatGPT chat" />
+            </StackPanel>
+
+            <TextBlock Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="WORKSPACE" />
+            <Grid Margin="0,4,0,0">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                </Grid.ColumnDefinitions>
+                <TextBlock x:Name="WorkspaceText" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" />
+                <Button x:Name="ClearWorkspaceButton" Grid.Column="1" Style="{StaticResource TinyIconButtonStyle}" Margin="4,0,0,0"
+                        Click="ClearWorkspace_OnClick" ToolTip="Forget this folder">
+                    <Path Width="7" Height="7" Stretch="Uniform" Data="{StaticResource CloseIconGeometry}" Stroke="{StaticResource TextBrush}"
+                          StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                </Button>
+                <Button x:Name="ChooseWorkspaceButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="4,0,0,0"
+                        Click="ChooseWorkspace_OnClick" Content="Choose…" ToolTip="The folder this project's work lives in" />
+            </Grid>
+
+            <TextBlock Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="HISTORY" />
+            <TextBlock x:Name="HistoryEmptyText" Margin="0,5,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                       Text="The last ten answers of this project appear here." />
+            <ItemsControl x:Name="HistoryList" Margin="-8,3,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Style="{StaticResource GhostButtonStyle}" Margin="0,0,0,2" Padding="8,5" HorizontalContentAlignment="Stretch"
+                                Click="HistoryItem_OnClick" ToolTip="Show this answer in Link">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Question}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
+                                               Text="{Binding Time}" />
+                                </Grid>
+                                <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="11.5" LineHeight="16" LineStackingStrategy="BlockLineHeight"
+                                           Foreground="{StaticResource MutedBrush}" Text="{Binding Preview}" TextTrimming="CharacterEllipsis"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

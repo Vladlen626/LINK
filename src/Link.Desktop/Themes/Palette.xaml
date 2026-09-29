@@ -13,6 +13,7 @@
     <Geometry x:Key="HideIconGeometry">M6,12 L18,12</Geometry>
     <Geometry x:Key="PanelIconGeometry">M3,5 L21,5 L21,19 L3,19 Z M14,5 L14,19</Geometry>
     <Geometry x:Key="FlagIconGeometry">M5,21 L5,4 M5,4 L17,4 L14.5,8 L17,12 L5,12</Geometry>
+    <Geometry x:Key="BookmarkIconGeometry">M7,3 L17,3 L17,21 L12,16.5 L7,21 Z</Geometry>
 
     <CornerRadius x:Key="ShellRadius">8</CornerRadius>
     <CornerRadius x:Key="SurfaceRadius">6</CornerRadius>
