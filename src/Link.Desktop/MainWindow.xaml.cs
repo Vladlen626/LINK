@@ -28,6 +28,8 @@ public partial class MainWindow : Window
     private readonly VoiceSession _voice;
     private readonly ObservableCollection<ContextItem> _context = [];
     private Guid? _previewContextId;
+    // What came while Link was hidden, an answer or a failed request; it lasts until Link is shown.
+    private LinkState? _unseen;
     private IntPtr _windowHandle;
     private bool _loadingProject = true;
 
@@ -90,6 +92,9 @@ public partial class MainWindow : Window
 
     /// <summary>A Windows notification is due: title, message and the project it opens.</summary>
     public event Action<string, string, Guid>? NotificationRequested;
+
+    /// <summary>What Link is up to, or its status line, changed: the tray shows both while Link is hidden.</summary>
+    public event Action<LinkState, string>? LinkStateChanged;
 
     public bool AllowClose { get; set; }
 
@@ -160,6 +165,18 @@ public partial class MainWindow : Window
         _connectionTimer.Start();
     }
 
+    private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    {
+        if (IsVisible)
+        {
+            // Shown, Link tells its news itself.
+            _unseen = null;
+            ReportState();
+        }
+
+        FollowCardVisibility();
+    }
+
     private void OnActivated(object? sender, EventArgs e)
     {
         // Coming back from an app the user worked in makes it the target; watching the linked chat does not.
@@ -204,9 +221,20 @@ public partial class MainWindow : Window
         ShowActivated = true;
     }
 
-    private void SetStatus(string message) => StatusText.Text = message;
+    private LinkState State =>
+        _sending ? LinkState.Working
+        : _connectionState == ChatConnectionState.SignInRequired ? LinkState.NeedsDecision
+        : _unseen ?? LinkState.Idle;
+
+    private void SetStatus(string message)
+    {
+        StatusText.Text = message;
+        ReportState();
+    }
 
     private void SetError(string message) => SetStatus($"Error: {message}");
+
+    private void ReportState() => LinkStateChanged?.Invoke(State, StatusText.Text);
 
     private void Context_OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
         ContextItemsControl.Visibility = _context.Count == 0 ? Visibility.Collapsed : Visibility.Visible;

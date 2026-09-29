@@ -93,6 +93,7 @@ public partial class App : System.Windows.Application
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
         _mainWindow.NotificationRequested += ShowNotification;
+        _mainWindow.LinkStateChanged += (state, status) => _tray?.ShowState(state, status);
         _mainWindow.DiagnosticsReported += Log;
         _textToSpeech.Notice += message => Dispatcher.BeginInvoke(() => _mainWindow?.ShowVoiceNotice(message));
         _mainWindow.Show();

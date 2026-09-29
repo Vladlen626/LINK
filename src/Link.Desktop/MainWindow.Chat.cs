@@ -196,6 +196,7 @@ public partial class MainWindow
             ClearContext(prune: true);
             ShowProjectStateContext();
             RememberExchange(project, prompt, requestContext, response.Text);
+            if (!IsVisible) _unseen = LinkState.Done;
             SetStatus(SlowChatHint(response.Text) ?? ResponseReceivedStatus());
             NotifyIfAway(project, "Answer ready", ToPreviewText(response.Text));
             _ = ReadAnswerAloudAsync(response.Text);
@@ -211,6 +212,8 @@ public partial class MainWindow
         {
             ShowResponse(ChatProgressState.Error, exception.Message);
             DiagnosticsReported?.Invoke(_latency.Describe($"failed ({exception.Message})"));
+            // The prompt waits to be sent again: the user decides what to do with it.
+            if (!IsVisible) _unseen = LinkState.NeedsDecision;
             SetError($"{exception.Message} Prompt and context were kept.");
             NotifyIfAway(project, "Request failed", exception.Message);
         }
@@ -514,14 +517,13 @@ public partial class MainWindow
         ProjectMenuButton.ToolTip = $"{text}\nSwitch project";
         _projectPanel?.ShowConnection(text, dot, conversation is { IsNew: false });
 
-        // The chat row lives in the panel, which may be closed: trouble with the chat shows in the status line too.
-        if (state != _connectionState && !_sending)
-        {
-            if (state == ChatConnectionState.SignInRequired) SetStatus("Sign in to ChatGPT: panel → Open chat");
-            else if (state == ChatConnectionState.BridgeUnavailable) SetStatus(text);
-        }
-
+        if (state == _connectionState) return;
         _connectionState = state;
+        // The chat row lives in the panel, which may be closed: trouble with the chat shows in the status line too.
+        if (_sending) ReportState();
+        else if (state == ChatConnectionState.SignInRequired) SetStatus("Sign in to ChatGPT: panel → Open chat");
+        else if (state == ChatConnectionState.BridgeUnavailable) SetStatus(text);
+        else ReportState();
     }
 
     private void SetSending(bool sending)
@@ -535,6 +537,7 @@ public partial class MainWindow
         ContextItemsControl.IsEnabled = !sending;
         ScreenButton.IsEnabled = !sending;
         ClipboardButton.IsEnabled = !sending;
+        ReportState();
     }
 
     private void UpdateSendButton()

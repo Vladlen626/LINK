@@ -101,7 +101,7 @@ public partial class MainWindow
         if (_panel is { IsVisible: true }) _panel.PlaceBeside(this, _settings.Current.SidePanel.Width);
     }
 
-    private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
+    private void FollowCardVisibility()
     {
         if (!IsVisible) _panel?.Hide();
         // Link is drawn first and its panel a moment later, so showing Link is not held up by it.
