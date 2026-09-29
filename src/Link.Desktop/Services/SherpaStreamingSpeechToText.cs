@@ -13,7 +13,9 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
 {
     private const int SampleRate = 16000;
     private static readonly TimeSpan IdleRelease = TimeSpan.FromMinutes(10);
-    private static readonly TimeSpan PhrasePause = TimeSpan.FromMilliseconds(650);
+    // The fading end of the speech still counts as speech, and blocks come every 50 ms: a phrase is heard to end
+    // about 0.1 s after this, 0.65 s after the last sound (measured on Link's local voice).
+    private static readonly TimeSpan PhrasePause = TimeSpan.FromMilliseconds(550);
     private readonly SpeechModelManager _models;
     private readonly object _gate = new();
     private readonly Timer _idle;
@@ -126,8 +128,8 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
         config.SileroVad.Model = model;
         if (handsFree)
         {
-            // An open microphone acts on clear speech only. A pause this long ends the phrase: it adds straight to
-            // the wait for the answer, and pauses much longer than that are already felt.
+            // An open microphone acts on clear speech only. A pause ends the phrase: it adds straight to the wait
+            // for the answer, and pauses longer than about 0.8 s are already felt.
             config.SileroVad.Threshold = 0.5F;
             config.SileroVad.MinSilenceDuration = (float)PhrasePause.TotalSeconds;
             // By default a phrase longer than five seconds is cut at its next short breath.
