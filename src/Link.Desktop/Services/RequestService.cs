@@ -11,27 +11,22 @@ public sealed class RequestService
 
     public RequestService(StoragePaths paths) => _paths = paths;
 
-    public PromptRequest BuildAndLog(
-        LinkProject project,
-        string text,
-        IEnumerable<ContextItem> context,
-        CurrentApplicationContext? currentApplication,
-        ResponseEffort effort)
+    /// <summary>The request of one attempt at a snapshot: every attempt is a new request from the same input.</summary>
+    public static PromptRequest Build(InputSnapshot snapshot, ResponseEffort effort) => new()
     {
-        var request = new PromptRequest
-        {
-            ProjectId = project.Id,
-            ProjectName = project.Name,
-            CurrentTask = project.CurrentTask,
-            Text = text.Trim(),
-            Effort = effort,
-            CurrentApplication = currentApplication,
-            Context = context.ToArray()
-        };
+        ProjectId = snapshot.ProjectId,
+        ProjectName = snapshot.ProjectName,
+        CurrentTask = snapshot.CurrentTask,
+        Text = snapshot.Text.Trim(),
+        Effort = effort,
+        CurrentApplication = snapshot.WorkTarget,
+        Context = snapshot.Screen is { } screen ? [.. snapshot.Context, screen] : [.. snapshot.Context]
+    };
 
+    public void Log(PromptRequest request)
+    {
         var json = JsonSerializer.Serialize(request, _json);
         AtomicJsonFile.Write(_paths.LastRequestFile, request, _json);
         Debug.WriteLine(json);
-        return request;
     }
 }

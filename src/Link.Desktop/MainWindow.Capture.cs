@@ -104,7 +104,8 @@ public partial class MainWindow
         }
     }
 
-    private async Task<ScreenshotResult> CaptureTransientWindowAsync(IntPtr windowHandle)
+    /// <summary>A screenshot of the work window for a message's snapshot; it stays out of the context stack.</summary>
+    private async Task<ContextItem> CaptureWorkWindowAsync(IntPtr windowHandle)
     {
         var wasVisible = IsVisible;
         var wasActive = IsActive;
@@ -113,7 +114,14 @@ public partial class MainWindow
 
         try
         {
-            return _capture.CaptureWindow(windowHandle, prune: false);
+            var screenshot = _capture.CaptureWindow(windowHandle, prune: false);
+            return new ContextItem
+            {
+                Type = ContextItemType.Screenshot,
+                Label = "Current application",
+                FilePath = screenshot.FilePath,
+                MimeType = "image/png"
+            };
         }
         finally
         {

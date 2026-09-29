@@ -57,9 +57,9 @@ public partial class App : System.Windows.Application
         var capture = new ScreenCaptureService(history);
         _currentApplication = new CurrentApplicationService();
         var clipboard = new ClipboardContextService(history);
-        var requests = new RequestService(paths);
         var chat = new EmbeddedChatIntegration(paths.CompanionStateFile);
         _chat = chat;
+        var attempts = new AttemptCoordinator(chat, _projects, new RequestService(paths), Log);
         _audio = new AudioRecorderService(paths);
         var speechModels = new SpeechModelManager(paths, Log);
         _speechModels = speechModels;
@@ -86,7 +86,7 @@ public partial class App : System.Windows.Application
         _mainWindow = new MainWindow(
             _settings,
             _projects,
-            requests,
+            attempts,
             chat,
             capture,
             _currentApplication,

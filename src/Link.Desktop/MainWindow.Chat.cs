@@ -32,6 +32,7 @@ public partial class MainWindow
         (ResponseEffort.Deep, "Deep", "Deep — thinks longer, more thorough")
     ];
     private readonly IChatIntegration _chat;
+    private readonly AttemptCoordinator _attempts;
     private readonly DispatcherTimer _connectionTimer;
     // The answer on screen: each block's Markdown source with its document block, reused while the answer streams.
     private readonly List<(string Source, Block Block)> _responseBlocks = [];
@@ -47,7 +48,6 @@ public partial class MainWindow
     // When the answer began to arrive and how much of it came at once, for the slow-chat hint.
     private DateTime? _receivingSince;
     private int _receivingFrom;
-    private RequestLatency _latency = new();
 
     /// <summary>What a check of the chat saw on the page, for link.log.</summary>
     public event Action<string>? DiagnosticsReported;
@@ -122,81 +122,86 @@ public partial class MainWindow
         }
 
         var project = _projects.ActiveProject;
-        var conversation = project.LinkedConversation;
-        if (conversation is null)
+        if (project.LinkedConversation is null)
         {
             SetError("Link this project to a ChatGPT conversation first.");
             return;
         }
 
+        var prompt = PromptBox.Text;
+        if (!await AttemptAsync(prompt, () => TakeSnapshotAsync(project, prompt))) return;
+        // Words dictated after interrupting the spoken answer are the next message: only the sent prompt goes.
+        var sent = prompt.TrimEnd();
+        PromptBox.Text = PromptBox.Text.StartsWith(sent, StringComparison.Ordinal)
+            ? PromptBox.Text[sent.Length..].Trim()
+            : string.Empty;
+        ClearContext(prune: true);
+        ShowProjectStateContext();
+    }
+
+    /// <summary>
+    /// The input as it is now: the prompt, the context stack, the work target and, with Auto active window on, a
+    /// screenshot of the work window.
+    /// </summary>
+    private async Task<InputSnapshot> TakeSnapshotAsync(LinkProject project, string prompt)
+    {
+        // The app Link was invoked from, not whatever took the focus since (the browser, Link's own captures).
+        var workTarget = _currentApplication.WorkTarget;
+        var workWindow = _currentApplication.IsExternalWindow(workTarget) ? workTarget : IntPtr.Zero;
+        var snapshot = new InputSnapshot
+        {
+            ProjectId = project.Id,
+            ProjectName = project.Name,
+            CurrentTask = project.CurrentTask,
+            Text = prompt.Trim(),
+            Context = [.. _context],
+            WorkTarget = _currentApplication.GetContext(workWindow),
+            WorkWindow = workWindow
+        };
+        if (!_settings.Current.AutoCaptureActiveWindowOnSend || workWindow == IntPtr.Zero) return snapshot;
+
+        try
+        {
+            return snapshot with { Screen = await CaptureWorkWindowAsync(workWindow) };
+        }
+        catch (Exception exception)
+        {
+            SetStatus($"Auto screen unavailable: {exception.Message}");
+            return snapshot;
+        }
+    }
+
+    /// <summary>
+    /// One attempt: the snapshot is taken once it is under way (a screenshot is Link's own work, and Stop can come
+    /// meanwhile), the coordinator sends it, and the answer is drawn, read aloud and announced here. A failure or
+    /// Stop is shown too; the input stays where it is. Returns whether the answer came.
+    /// </summary>
+    private async Task<bool> AttemptAsync(string prompt, Func<Task<InputSnapshot>> takeSnapshot)
+    {
+        var project = _projects.ActiveProject;
         var cancellation = new CancellationTokenSource();
         _sendCancellation = cancellation;
         _chatNotice = null;
         _receivingSince = null;
-        _latency = new RequestLatency();
-        _voice.BeginRequest(PromptBox.Text);
+        var latency = new RequestLatency();
+        _voice.BeginRequest(prompt);
         SetSending(true);
         _chatHeardAt = DateTime.UtcNow;
         ShowResponse(ChatProgressState.Sending, string.Empty);
-        ContextItem? transientContext = null;
+        InputSnapshot? snapshot = null;
 
         try
         {
-            // The app Link was invoked from, not whatever took the focus since (the browser, Link's own captures).
-            var workTarget = _currentApplication.WorkTarget;
-            var externalWindow = _currentApplication.IsExternalWindow(workTarget) ? workTarget : IntPtr.Zero;
-            var currentApplication = _currentApplication.GetContext(externalWindow);
-            if (_settings.Current.AutoCaptureActiveWindowOnSend && externalWindow != IntPtr.Zero)
-            {
-                try
-                {
-                    var screenshot = await CaptureTransientWindowAsync(externalWindow);
-                    transientContext = new ContextItem
-                    {
-                        Type = ContextItemType.Screenshot,
-                        Label = "Current application",
-                        FilePath = screenshot.FilePath,
-                        MimeType = "image/png"
-                    };
-                }
-                catch (Exception exception)
-                {
-                    SetStatus($"Auto screen unavailable: {exception.Message}");
-                }
-            }
-
-            var requestContext = transientContext is null
-                ? _context.ToArray()
-                : _context.Append(transientContext).ToArray();
-            var prompt = PromptBox.Text;
-            var request = _requests.BuildAndLog(
-                project,
-                prompt,
-                requestContext,
-                currentApplication,
-                _settings.Current.ResponseEffort);
-            var progress = new Progress<ChatProgress>(OnChatProgress);
-            _latency.HandedOver();
+            snapshot = await takeSnapshot();
             _cues.Play(SoundCue.Sent);
-            var response = await _chat.SendAsync(request, conversation, progress, cancellation.Token);
-            // A new chat is linked by now: the answer belongs to the conversation it started.
-            RefreshLinkedTitle(project);
-            project.LastResponse = new ProjectResponse
-            {
-                ConversationId = project.LinkedConversation?.ConversationId ?? conversation.ConversationId,
-                Text = response.Text
-            };
-            _projects.Save();
+            var response = await _attempts.SendAsync(
+                snapshot,
+                _settings.Current.ResponseEffort,
+                latency,
+                OnChatProgress,
+                cancellation.Token);
             ShowResponse(ChatProgressState.Completed, response.Text);
-            DiagnosticsReported?.Invoke(_latency.Describe("answer", response.Text.Length));
-            // Words dictated after interrupting the spoken answer are the next message: only the sent prompt goes.
-            var sent = prompt.TrimEnd();
-            PromptBox.Text = PromptBox.Text.StartsWith(sent, StringComparison.Ordinal)
-                ? PromptBox.Text[sent.Length..].Trim()
-                : string.Empty;
-            ClearContext(prune: true);
-            ShowProjectStateContext();
-            RememberExchange(project, prompt, requestContext, response.Text);
+            RememberExchange(project, snapshot, response.Text);
             if (!IsVisible) _unseen = LinkState.Done;
             SetStatus(SlowChatHint(response.Text) ?? ResponseReceivedStatus());
             NotifyIfAway(project, "Answer ready", ToPreviewText(response.Text));
@@ -204,28 +209,29 @@ public partial class MainWindow
             _cues.Play(SoundCue.Done);
             _ = ReadAnswerAloudAsync(response.Text);
             if (_voice.Phase == VoicePhase.Speaking) SetStatus(SpeakingStatus);
+            return true;
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             ShowResponse(ChatProgressState.Cancelled, "Request cancelled.");
-            DiagnosticsReported?.Invoke(_latency.Describe("cancelled"));
             SetStatus("Request cancelled. Your prompt and context were kept.");
+            return false;
         }
         catch (Exception exception)
         {
             ShowResponse(ChatProgressState.Error, exception.Message);
-            DiagnosticsReported?.Invoke(_latency.Describe($"failed ({exception.Message})"));
             // The prompt waits to be sent again: the user decides what to do with it.
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
             SetError($"{exception.Message} Prompt and context were kept.");
             _cues.Play(SoundCue.Error);
             NotifyIfAway(project, "Request failed", exception.Message);
+            return false;
         }
         finally
         {
             // After a failure or Stop; an answer being read aloud keeps its phase.
             _voice.EndRequest();
-            DeleteTransientContext(transientContext);
+            DeleteTransientContext(snapshot?.Screen);
             _sendCancellation = null;
             cancellation.Dispose();
             SetSending(false);
@@ -390,7 +396,7 @@ public partial class MainWindow
 
         if (withSummary && current is { IsNew: false })
         {
-            var summary = await WriteSummaryAsync(project, current);
+            var summary = await WriteSummaryAsync(project);
             if (summary is null) return;
             foreach (var old in _context.Where(item => item.Type == ContextItemType.ChatSummary).ToArray()) _context.Remove(old);
             AddContext(new ContextItem { Type = ContextItemType.ChatSummary, Label = "Summary of the previous chat", Text = summary });
@@ -407,7 +413,7 @@ public partial class MainWindow
     }
 
     /// <summary>The current chat's summary of itself, or null when it could not be written (the reason is shown).</summary>
-    private async Task<string?> WriteSummaryAsync(LinkProject project, ChatConversationLink conversation)
+    private async Task<string?> WriteSummaryAsync(LinkProject project)
     {
         var cancellation = new CancellationTokenSource();
         _sendCancellation = cancellation;
@@ -419,9 +425,20 @@ public partial class MainWindow
         SetStatus("Asking the current chat for a summary…");
         try
         {
+            var snapshot = new InputSnapshot
+            {
+                ProjectId = project.Id,
+                ProjectName = project.Name,
+                CurrentTask = project.CurrentTask,
+                Text = SummaryPrompt
+            };
             // Fast: a summary needs no long thinking, and a long chat writes slowly as it is.
-            var request = _requests.BuildAndLog(project, SummaryPrompt, [], null, ResponseEffort.Fast);
-            var response = await _chat.SendAsync(request, conversation, new Progress<ChatProgress>(OnChatProgress), cancellation.Token);
+            var response = await _attempts.SendAsync(
+                snapshot,
+                ResponseEffort.Fast,
+                new RequestLatency(),
+                OnChatProgress,
+                cancellation.Token);
             ShowResponse(ChatProgressState.Completed, response.Text);
             return response.Text;
         }
@@ -443,37 +460,6 @@ public partial class MainWindow
             cancellation.Dispose();
             SetSending(false);
         }
-    }
-
-    /// <summary>The prompt started the project's new chat: the project is linked to that conversation from now on.</summary>
-    private void LinkStartedChat(AvailableChatConversation? started)
-    {
-        var project = _projects.ActiveProject;
-        if (started is null || project.LinkedConversation is not { IsNew: true } link) return;
-        project.LinkedConversation = new ChatConversationLink
-        {
-            TransportId = link.TransportId,
-            ConversationId = started.ConversationId,
-            Title = started.Title,
-            Url = started.Url
-        };
-        _projects.Save();
-        UpdateConnectionState();
-    }
-
-    /// <summary>ChatGPT names a new chat once it has answered, and a chat can be renamed there: the link follows.</summary>
-    private void RefreshLinkedTitle(LinkProject project)
-    {
-        if (project.LinkedConversation is not { IsNew: false } link) return;
-        var seen = _chat.GetAvailableConversations().FirstOrDefault(conversation => conversation.ConversationId == link.ConversationId);
-        if (seen is null || seen.Title == link.Title) return;
-        project.LinkedConversation = new ChatConversationLink
-        {
-            TransportId = link.TransportId,
-            ConversationId = link.ConversationId,
-            Title = seen.Title,
-            Url = link.Url
-        };
     }
 
     private void UnlinkConversation()
@@ -558,22 +544,17 @@ public partial class MainWindow
     private void OnChatProgress(ChatProgress progress)
     {
         _chatHeardAt = DateTime.UtcNow;
+        // The coordinator has linked the project to the chat its prompt started.
         if (progress.State == ChatProgressState.ChatStarted)
         {
-            LinkStartedChat(progress.StartedConversation);
+            UpdateConnectionState();
             return;
         }
 
-        _latency.Heard(progress);
         if (progress.State == ChatProgressState.Receiving && _receivingSince is null)
         {
             _receivingSince = DateTime.UtcNow;
             _receivingFrom = progress.Text.Length;
-        }
-
-        if (progress.Diagnostics is { } diagnostics)
-        {
-            DiagnosticsReported?.Invoke($"Chat {progress.State.ToString().ToLowerInvariant()}: {diagnostics}");
         }
 
         _voice.ReportProgress(progress);

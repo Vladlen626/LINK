@@ -20,7 +20,6 @@ public partial class MainWindow : Window
 {
     private readonly SettingsService _settings;
     private readonly ProjectService _projects;
-    private readonly RequestService _requests;
     private readonly ScreenCaptureService _capture;
     private readonly CurrentApplicationService _currentApplication;
     private readonly ScreenshotHistoryService _history;
@@ -37,7 +36,7 @@ public partial class MainWindow : Window
     public MainWindow(
         SettingsService settings,
         ProjectService projects,
-        RequestService requests,
+        AttemptCoordinator attempts,
         IChatIntegration chat,
         ScreenCaptureService capture,
         CurrentApplicationService currentApplication,
@@ -48,7 +47,7 @@ public partial class MainWindow : Window
     {
         _settings = settings;
         _projects = projects;
-        _requests = requests;
+        _attempts = attempts;
         _chat = chat;
         _capture = capture;
         _currentApplication = currentApplication;

@@ -147,12 +147,13 @@ public partial class MainWindow
     }
 
     /// <summary>Keeps a question and its answer in the project's history; the answer is on screen either way.</summary>
-    private void RememberExchange(LinkProject project, string prompt, IEnumerable<ContextItem> context, string answer)
+    private void RememberExchange(LinkProject project, InputSnapshot snapshot, string answer)
     {
         // A request of context alone is remembered by what it carried.
-        var question = prompt.Trim() is { Length: > 0 } text
+        var carried = snapshot.Screen is { } screen ? snapshot.Context.Append(screen) : snapshot.Context;
+        var question = snapshot.Text is { Length: > 0 } text
             ? text
-            : string.Join(", ", context.Where(item => item.Type != ContextItemType.ProjectState).Select(item => item.Label));
+            : string.Join(", ", carried.Where(item => item.Type != ContextItemType.ProjectState).Select(item => item.Label));
         try
         {
             var history = _projects.AddToHistory(project, new ProjectExchange { Question = question, Answer = answer });
