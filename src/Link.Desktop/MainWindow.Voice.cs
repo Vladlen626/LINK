@@ -55,20 +55,15 @@ public partial class MainWindow
     /// <summary>Conversation mode on or off: the button, the hotkey.</summary>
     public void ToggleConversation()
     {
-        _settings.Current.ConversationMode = !_settings.Current.ConversationMode;
+        var on = !_settings.Current.ConversationMode;
+        _settings.Current.ConversationMode = on;
         _settings.Save();
+        // Heard also while Link is hidden, where the mode is switched by its hotkey.
+        if (on) _cues.Play(SoundCue.Listening);
+        SetStatus(on ? "Conversation on — just speak, a pause sends; Link listens whenever it is free"
+            : "Conversation off — the microphone listens only with push-to-talk");
+        // A microphone that does not open turns the mode off again and says why.
         ApplyConversation();
-        if (_settings.Current.ConversationMode)
-        {
-            // Heard also while Link is hidden, where the mode is switched by its hotkey.
-            _cues.Play(SoundCue.Listening);
-            SetStatus(_voice.IsHandsFree ? "Conversation on — just speak; a pause sends"
-                : "Conversation on — Link listens once it is free");
-        }
-        else
-        {
-            SetStatus("Conversation off — the microphone listens only with push-to-talk");
-        }
     }
 
     /// <summary>Follows the conversation setting: listens when it is on, closes the microphone when it went off.</summary>
