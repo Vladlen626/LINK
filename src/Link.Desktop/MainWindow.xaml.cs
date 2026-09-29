@@ -8,7 +8,6 @@ using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using System.Windows.Shell;
 using System.Windows.Threading;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
@@ -27,8 +26,6 @@ public partial class MainWindow : Window
     private readonly ClipboardContextService _clipboard;
     private readonly VoiceSession _voice;
     private readonly ObservableCollection<ContextItem> _context = [];
-    private bool _collapsed;
-    private double _expandedWidth = 340;
     private Guid? _previewContextId;
     private IntPtr _windowHandle;
     private bool _loadingProject = true;
@@ -57,7 +54,6 @@ public partial class MainWindow : Window
         InitializeComponent();
         _voice.PhaseChanged += OnVoicePhaseChanged;
         _voice.DraftChanged += OnVoiceDraftChanged;
-        _resizeBorder = WindowChrome.GetWindowChrome(this).ResizeBorderThickness;
         _connectionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _connectionTimer.Tick += (_, _) =>
         {
@@ -111,24 +107,16 @@ public partial class MainWindow : Window
         UpdateAutoScreenIndicator();
         // Voice replies may have been switched off or on.
         UpdateReadAloudButton();
+        HideButton.ToolTip = $"Hide Link · {_settings.Current.Hotkeys.ShowHide} brings it back";
     }
 
     public void ToggleVisible()
     {
-        if (IsVisible)
-        {
-            SaveWindowState();
-            Hide();
-        }
-        else
-        {
-            ShowAndActivate();
-        }
+        if (IsVisible) HideOverlay();
+        else ShowAndActivate();
     }
 
-    public void ToggleCollapsed() => SetCollapsed(!_collapsed);
-
-    public void ShowNonBlockingWarning(string message) => SetStatus(message, "Attention");
+    public void ShowNonBlockingWarning(string message) => SetStatus(message);
 
     /// <summary>Brings Link up on a project's answer, e.g. when its notification is clicked.</summary>
     public void ShowProject(Guid projectId)
@@ -139,7 +127,6 @@ public partial class MainWindow : Window
             else if (ResponsePanel.Visibility != Visibility.Visible) ShowProjectResponse(project);
         }
 
-        SetCollapsed(false);
         ShowAndActivate();
     }
 
@@ -153,7 +140,6 @@ public partial class MainWindow : Window
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
         RestoreWindowState();
-        if (_settings.Current.IsCollapsed) SetCollapsed(true);
         UpdateConnectionState();
         _connectionTimer.Start();
     }
@@ -184,7 +170,14 @@ public partial class MainWindow : Window
         Show();
         WindowState = WindowState.Normal;
         Activate();
-        if (!_collapsed) PromptBox.Focus();
+        PromptBox.Focus();
+    }
+
+    /// <summary>Hides Link completely: work already started goes on, and the show/hide hotkey brings it back.</summary>
+    private void HideOverlay()
+    {
+        SaveWindowState();
+        Hide();
     }
 
     private void ShowPassive()
@@ -195,13 +188,9 @@ public partial class MainWindow : Window
         ShowActivated = true;
     }
 
-    private void SetStatus(string message, string? collapsedStatus = null)
-    {
-        StatusText.Text = message;
-        CollapsedStatusText.Text = collapsedStatus ?? (message.StartsWith("Error", StringComparison.Ordinal) ? "Attention" : "Ready");
-    }
+    private void SetStatus(string message) => StatusText.Text = message;
 
-    private void SetError(string message) => SetStatus($"Error: {message}", "Attention");
+    private void SetError(string message) => SetStatus($"Error: {message}");
 
     private void Context_OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
         ContextItemsControl.Visibility = _context.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -246,7 +235,7 @@ public partial class MainWindow : Window
 
         if (e.ClickCount == 2)
         {
-            SetCollapsed(!_collapsed);
+            HideOverlay();
             e.Handled = true;
             return;
         }
@@ -359,7 +348,7 @@ public partial class MainWindow : Window
         SetStatus("Project removed; local files were kept");
     }
 
-    private void Collapse_OnClick(object sender, RoutedEventArgs e) => SetCollapsed(!_collapsed);
+    private void Hide_OnClick(object sender, RoutedEventArgs e) => HideOverlay();
     private void Settings_OnClick(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
 
     private void Screen_OnClick(object sender, RoutedEventArgs e)
@@ -499,9 +488,10 @@ public partial class MainWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.Key != Key.Escape) return;
-        // Like the Stop orb: silence Link first, then stop the request.
+        // Like the Stop orb: silence Link first, then stop the request; with nothing going on Esc hides Link.
         if (_voice.Phase == VoicePhase.Speaking) _voice.StopSpeaking();
         else if (_sending) CancelSend();
+        else if (_voice.Phase == VoicePhase.Idle) HideOverlay();
         else return;
         e.Handled = true;
     }

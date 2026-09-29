@@ -42,81 +42,52 @@
 
                 <Grid x:Name="TitleBar" Margin="13,0,8,0" Background="Transparent" Cursor="SizeAll"
                       PreviewMouseLeftButtonDown="TitleBar_OnPreviewMouseLeftButtonDown"
-                      ToolTip="Drag Link · double-click to collapse">
-                    <Grid x:Name="ExpandedHeader">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
+                      ToolTip="Drag Link · double-click to hide">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
 
-                        <StackPanel VerticalAlignment="Center" Orientation="Horizontal" IsHitTestVisible="False">
-                            <Control x:Name="ExpandedLinkGlyph" Width="20" Height="20" Foreground="{StaticResource BrandBrush}"
-                                     Template="{StaticResource LinkGlyphTemplate}" RenderTransformOrigin="0.5,0.5">
-                                <Control.RenderTransform><ScaleTransform /></Control.RenderTransform>
-                            </Control>
-                            <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource BrandTextStyle}" Text="LINK" />
-                        </StackPanel>
-
-                        <Button x:Name="ProjectMenuButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" MinWidth="80"
-                                MaxWidth="160" Margin="8,0,4,0" Padding="10,2,8,2" VerticalAlignment="Center"
-                                Click="ProjectMenu_OnClick" ToolTip="Switch project">
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <TextBlock x:Name="ProjectNameText" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
-                                           TextTrimming="CharacterEllipsis" />
-                                <Path Grid.Column="1" Width="8" Margin="7,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
-                                      Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
-                                      StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                            </Grid>
-                        </Button>
-
-                        <Button Grid.Column="3" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
-                                Click="Collapse_OnClick" ToolTip="Collapse">
-                            <Path Width="10" VerticalAlignment="Center" Stretch="Uniform" Data="{StaticResource ChevronIconGeometry}"
-                                  Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round"
-                                  StrokeEndLineCap="Round" StrokeLineJoin="Round" RenderTransformOrigin="0.5,0.5">
-                                <Path.RenderTransform><RotateTransform Angle="180" /></Path.RenderTransform>
-                            </Path>
-                        </Button>
-
-                        <Button Grid.Column="4" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
-                                Click="Settings_OnClick" ToolTip="Settings">
-                            <Viewbox Width="15" Height="15">
-                                <Path Data="{StaticResource SettingsIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}"
-                                      StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeLineJoin="Round" />
-                            </Viewbox>
-                        </Button>
-                    </Grid>
-
-                    <Grid x:Name="CollapsedHeader" Visibility="Collapsed">
-                        <Grid.ColumnDefinitions>
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="Auto" />
-                            <ColumnDefinition Width="*" />
-                            <ColumnDefinition Width="Auto" />
-                        </Grid.ColumnDefinitions>
-                        <Control x:Name="CollapsedLinkGlyph" Width="20" Height="20" VerticalAlignment="Center"
-                                 Foreground="{StaticResource BrandBrush}" Template="{StaticResource LinkGlyphTemplate}"
-                                 RenderTransformOrigin="0.5,0.5" IsHitTestVisible="False">
+                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal" IsHitTestVisible="False">
+                        <Control x:Name="LinkGlyph" Width="20" Height="20" Foreground="{StaticResource BrandBrush}"
+                                 Template="{StaticResource LinkGlyphTemplate}" RenderTransformOrigin="0.5,0.5">
                             <Control.RenderTransform><ScaleTransform /></Control.RenderTransform>
                         </Control>
-                        <TextBlock Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource BrandTextStyle}"
-                                   Text="LINK" IsHitTestVisible="False" />
-                        <TextBlock x:Name="CollapsedStatusText" Grid.Column="2" Margin="9,1,4,0" VerticalAlignment="Center"
-                                   Style="{StaticResource SecondaryTextStyle}" Text="Ready" TextTrimming="CharacterEllipsis" IsHitTestVisible="False" />
-                        <Button Grid.Column="3" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
-                                Click="Collapse_OnClick" ToolTip="Expand Link">
-                            <Path Width="10" VerticalAlignment="Center" Stretch="Uniform" Data="{StaticResource ChevronIconGeometry}"
-                                  Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round"
-                                  StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                        </Button>
-                    </Grid>
+                        <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource BrandTextStyle}" Text="LINK" />
+                    </StackPanel>
+
+                    <Button x:Name="ProjectMenuButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" MinWidth="80"
+                            MaxWidth="160" Margin="8,0,4,0" Padding="10,2,8,2" VerticalAlignment="Center"
+                            Click="ProjectMenu_OnClick" ToolTip="Switch project">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock x:Name="ProjectNameText" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
+                                       TextTrimming="CharacterEllipsis" />
+                            <Path Grid.Column="1" Width="8" Margin="7,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
+                                  Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                        </Grid>
+                    </Button>
+
+                    <Button x:Name="HideButton" Grid.Column="3" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
+                            Click="Hide_OnClick" ToolTip="Hide Link">
+                        <Path Width="10" VerticalAlignment="Center" Stretch="Uniform" Data="{StaticResource HideIconGeometry}"
+                              Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                    </Button>
+
+                    <Button Grid.Column="4" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
+                            Click="Settings_OnClick" ToolTip="Settings">
+                        <Viewbox Width="15" Height="15">
+                            <Path Data="{StaticResource SettingsIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}"
+                                  StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeLineJoin="Round" />
+                        </Viewbox>
+                    </Button>
                 </Grid>
 
-                <DockPanel x:Name="ExpandedContent" Grid.Row="1" Margin="12,0,12,10">
+                <DockPanel x:Name="CardContent" Grid.Row="1" Margin="12,0,12,10">
                     <StackPanel x:Name="InputPanel" DockPanel.Dock="Top">
                         <Border Height="30" Background="{StaticResource CardBrush}" BorderThickness="1" CornerRadius="{StaticResource SurfaceRadius}">
                             <Border.Style>

@@ -95,8 +95,7 @@ public partial class MainWindow
         {
             // Push-to-talk was just released: send as soon as the transcript is in the prompt.
             _voice.SendWhenTranscribed();
-            SetStatus("Will send when the transcript is ready…",
-                _voice.Phase == VoicePhase.Listening ? "Listening" : "Transcribing");
+            SetStatus("Will send when the transcript is ready…");
             return;
         }
 
@@ -107,7 +106,7 @@ public partial class MainWindow
     {
         if (_sendCancellation is not { IsCancellationRequested: false } cancellation) return;
         cancellation.Cancel();
-        SetStatus("Cancelling…", "Cancelling");
+        SetStatus("Cancelling…");
     }
 
     private async Task SendAsync()
@@ -162,7 +161,7 @@ public partial class MainWindow
                 }
                 catch (Exception exception)
                 {
-                    SetStatus($"Auto screen unavailable: {exception.Message}", "Sending");
+                    SetStatus($"Auto screen unavailable: {exception.Message}");
                 }
             }
 
@@ -195,16 +194,16 @@ public partial class MainWindow
                 ? PromptBox.Text[sent.Length..].Trim()
                 : string.Empty;
             ClearContext(prune: true);
-            SetStatus(SlowChatHint(response.Text) ?? ResponseReceivedStatus(), "Done");
+            SetStatus(SlowChatHint(response.Text) ?? ResponseReceivedStatus());
             NotifyIfAway(project, "Answer ready", ToNotificationText(response.Text));
             _ = ReadAnswerAloudAsync(response.Text);
-            if (_voice.Phase == VoicePhase.Speaking) SetStatus(SpeakingStatus, "Speaking");
+            if (_voice.Phase == VoicePhase.Speaking) SetStatus(SpeakingStatus);
         }
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             ShowResponse(ChatProgressState.Cancelled, "Request cancelled.");
             DiagnosticsReported?.Invoke(_latency.Describe("cancelled"));
-            SetStatus("Request cancelled. Your prompt and context were kept.", "Cancelled");
+            SetStatus("Request cancelled. Your prompt and context were kept.");
         }
         catch (Exception exception)
         {
@@ -408,7 +407,7 @@ public partial class MainWindow
         SetSending(true);
         _chatHeardAt = DateTime.UtcNow;
         ShowResponse(ChatProgressState.Sending, string.Empty);
-        SetStatus("Asking the current chat for a summary…", "Sending");
+        SetStatus("Asking the current chat for a summary…");
         try
         {
             // Fast: a summary needs no long thinking, and a long chat writes slowly as it is.
@@ -420,7 +419,7 @@ public partial class MainWindow
         catch (OperationCanceledException) when (cancellation.IsCancellationRequested)
         {
             ShowResponse(ChatProgressState.Cancelled, "Summary cancelled.");
-            SetStatus("Summary cancelled; the project stays with its chat.", "Cancelled");
+            SetStatus("Summary cancelled; the project stays with its chat.");
             return null;
         }
         catch (Exception exception)
@@ -565,7 +564,7 @@ public partial class MainWindow
         {
             // Kept for the final status line; the next progress state would hide it right away.
             _chatNotice = progress.Notice;
-            SetStatus(progress.Notice, "Sending");
+            SetStatus(progress.Notice);
             return;
         }
 
@@ -581,14 +580,6 @@ public partial class MainWindow
             ChatProgressState.Completed => "Response received",
             ChatProgressState.Error => $"Error: {progress.Error}",
             _ => "Working…"
-        }, progress.State switch
-        {
-            ChatProgressState.Sending => "Sending",
-            ChatProgressState.Waiting => "Waiting",
-            ChatProgressState.Receiving => "Receiving",
-            ChatProgressState.Reconnecting => "Reconnecting",
-            ChatProgressState.Completed => "Done",
-            _ => "Attention"
         });
     }
 
@@ -710,7 +701,7 @@ public partial class MainWindow
 
         _checkingChat = true;
         CheckChatButton.IsEnabled = false;
-        if (!automatic) SetStatus("Checking the chat…", "Checking");
+        if (!automatic) SetStatus("Checking the chat…");
         try
         {
             var snapshot = await _chat.CheckAsync(conversation, CancellationToken.None);
@@ -729,7 +720,7 @@ public partial class MainWindow
             else if (snapshot.Generating)
             {
                 ShowResponse(ChatProgressState.Receiving, snapshot.Text);
-                SetStatus("ChatGPT is still writing — this is the answer so far", "Receiving");
+                SetStatus("ChatGPT is still writing — this is the answer so far");
             }
             else if (_sending)
             {
@@ -740,7 +731,7 @@ public partial class MainWindow
                 project.LastResponse = new ProjectResponse { ConversationId = conversation.ConversationId, Text = snapshot.Text };
                 _projects.Save();
                 ShowResponse(ChatProgressState.Completed, snapshot.Text);
-                SetStatus("Answer taken from the chat", "Done");
+                SetStatus("Answer taken from the chat");
             }
         }
         catch (Exception exception)

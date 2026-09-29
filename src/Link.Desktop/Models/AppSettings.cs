@@ -8,7 +8,7 @@ public sealed class AppSettings
     // Described as warm: the easiest to listen to all day. Any prebuilt voice speaks Russian.
     private const string DefaultGeminiVoice = "Sulafat";
 
-    public int SchemaVersion { get; set; } = 6;
+    public int SchemaVersion { get; set; } = 7;
     public double Opacity { get; set; } = DefaultGlassTint;
     public AppTheme Theme { get; set; } = AppTheme.System;
     public bool BlurBackground { get; set; } = true;
@@ -43,7 +43,6 @@ public sealed class AppSettings
     public int ScreenshotHistorySize { get; set; } = 5;
     public bool LaunchWithWindows { get; set; }
     public bool AutoCaptureActiveWindowOnSend { get; set; }
-    public bool IsCollapsed { get; set; }
     public Guid? ActiveProjectId { get; set; }
     public WindowPlacement Window { get; set; } = new();
     public HotkeySettings Hotkeys { get; set; } = new();
@@ -64,7 +63,8 @@ public sealed class AppSettings
             // The overlay moved from system acrylic to real see-through glass, so old tint values mean something else.
             Opacity = DefaultGlassTint;
         }
-        SchemaVersion = 6;
+        // 7: Hide replaced the collapsed capsule. Its IsCollapsed flag is no longer read, so Link opens in full.
+        SchemaVersion = 7;
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.2, 1.0) : DefaultGlassTint;
         if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);

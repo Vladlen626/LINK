@@ -10,6 +10,7 @@
     <Geometry x:Key="SendIconGeometry">M4,12 L20,4 L16,20 L12,13 Z M12,13 L20,4</Geometry>
     <Geometry x:Key="CloseIconGeometry">M7,7 L17,17 M17,7 L7,17</Geometry>
     <Geometry x:Key="ChevronIconGeometry">M7,9 L12,14 L17,9</Geometry>
+    <Geometry x:Key="HideIconGeometry">M6,12 L18,12</Geometry>
     <Geometry x:Key="FlagIconGeometry">M5,21 L5,4 M5,4 L17,4 L14.5,8 L17,12 L5,12</Geometry>
 
     <CornerRadius x:Key="ShellRadius">8</CornerRadius>

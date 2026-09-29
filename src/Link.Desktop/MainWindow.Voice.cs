@@ -23,7 +23,7 @@ public partial class MainWindow
             var usedSelectedMicrophone = _voice.StartListening();
             SetStatus(!usedSelectedMicrophone
                 ? "Selected microphone is not connected — listening on the Windows default"
-                : _voice.DraftNote is { } note ? $"Listening — {note}" : "Listening — release to finish", "Listening");
+                : _voice.DraftNote is { } note ? $"Listening — {note}" : "Listening — release to finish");
         }
         catch (Exception exception)
         {
@@ -68,7 +68,7 @@ public partial class MainWindow
     public void ShowVoiceNotice(string message)
     {
         if (_voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing) return;
-        SetStatus(message, _voice.Phase == VoicePhase.Speaking ? "Speaking" : null);
+        SetStatus(message);
     }
 
     private void SetPromptText(string text)
@@ -102,10 +102,8 @@ public partial class MainWindow
             VoiceButton.ClearValue(BorderBrushProperty);
         }
 
-        var glyph = (Brush)FindResource(listening ? "SuccessBrush" : speaking ? "AquaBrush" : "BrandBrush");
-        ExpandedLinkGlyph.Foreground = glyph;
-        CollapsedLinkGlyph.Foreground = glyph;
-        AnimateVoiceGlyphs(start: listening || speaking);
+        LinkGlyph.Foreground = (Brush)FindResource(listening ? "SuccessBrush" : speaking ? "AquaBrush" : "BrandBrush");
+        AnimateVoiceGlyph(start: listening || speaking);
         // During a request push-to-talk waits for the answer, unless Link talks: then it interrupts.
         VoiceButton.IsEnabled = phase is not (VoicePhase.Sending or VoicePhase.Waiting);
         UpdateSendButton();
@@ -115,41 +113,38 @@ public partial class MainWindow
         {
             SetStatus(!_voice.IsSpeechModelReady ? "Downloading local speech model (first use)…"
                 : _voice.FinalNote is { } note ? $"Transcribing locally… · {note}"
-                : "Transcribing locally…", "Transcribing");
+                : "Transcribing locally…");
             return;
         }
 
         // While the answer arrives the status line follows the chat; the pulsing glyph shows that Link talks.
         if (_sending) return;
-        if (speaking) SetStatus(SpeakingStatus, "Speaking");
-        else if (previous == VoicePhase.Speaking && phase == VoicePhase.Idle) SetStatus(ResponseReceivedStatus(), "Done");
+        if (speaking) SetStatus(SpeakingStatus);
+        else if (previous == VoicePhase.Speaking && phase == VoicePhase.Idle) SetStatus(ResponseReceivedStatus());
     }
 
-    private void AnimateVoiceGlyphs(bool start)
+    private void AnimateVoiceGlyph(bool start)
     {
-        foreach (var glyph in new[] { ExpandedLinkGlyph, CollapsedLinkGlyph })
+        if (LinkGlyph.RenderTransform is not ScaleTransform scale) return;
+        if (!start)
         {
-            if (glyph.RenderTransform is not ScaleTransform scale) continue;
-            if (!start)
-            {
-                scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
-                scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
-                scale.ScaleX = 1;
-                scale.ScaleY = 1;
-                continue;
-            }
-
-            var pulse = new DoubleAnimation(1, 1.09, TimeSpan.FromMilliseconds(620))
-            {
-                AutoReverse = true,
-                RepeatBehavior = RepeatBehavior.Forever,
-                EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
-            };
-            // The overlay is a layered window: every frame is copied to system memory, so keep the pulse cheap.
-            Timeline.SetDesiredFrameRate(pulse, 24);
-            scale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
-            scale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse.Clone());
+            scale.BeginAnimation(ScaleTransform.ScaleXProperty, null);
+            scale.BeginAnimation(ScaleTransform.ScaleYProperty, null);
+            scale.ScaleX = 1;
+            scale.ScaleY = 1;
+            return;
         }
+
+        var pulse = new DoubleAnimation(1, 1.09, TimeSpan.FromMilliseconds(620))
+        {
+            AutoReverse = true,
+            RepeatBehavior = RepeatBehavior.Forever,
+            EasingFunction = new SineEase { EasingMode = EasingMode.EaseInOut }
+        };
+        // The overlay is a layered window: every frame is copied to system memory, so keep the pulse cheap.
+        Timeline.SetDesiredFrameRate(pulse, 24);
+        scale.BeginAnimation(ScaleTransform.ScaleXProperty, pulse);
+        scale.BeginAnimation(ScaleTransform.ScaleYProperty, pulse.Clone());
     }
 
     private void Voice_OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
