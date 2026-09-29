@@ -328,6 +328,8 @@ public partial class MainWindow : Window
 
     private void LoadProject(LinkProject project)
     {
+        // A correction belongs to the other project's snapshot.
+        _editing = null;
         ProjectNameText.Text = project.Name;
         UpdateTaskChip();
         ShowProjectStateContext();
@@ -557,6 +559,7 @@ public partial class MainWindow : Window
         // goes on listening in conversation.
         if (_voice.Phase == VoicePhase.Speaking) _voice.StopSpeaking();
         else if (_sending) CancelSend();
+        else if (_editing is not null) CancelEdit();
         else if (_voice.Phase == VoicePhase.Idle || _voice.IsHandsFree) HideOverlay();
         else return;
         e.Handled = true;

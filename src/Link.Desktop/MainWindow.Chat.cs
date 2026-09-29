@@ -55,6 +55,8 @@ public partial class MainWindow
     private int _receivingFrom;
     // The attempt whose answer, error or Stop is on screen: the redirect buttons send its snapshot again.
     private (InputSnapshot Snapshot, RequestRoute Route, ResponseEffort Effort)? _attemptOnScreen;
+    // Its question back in the prompt to be corrected: Send asks it again from the same snapshot.
+    private (InputSnapshot Snapshot, RequestRoute Route, ResponseEffort Effort)? _editing;
 
     /// <summary>What a check of the chat saw on the page, for link.log.</summary>
     public event Action<string>? DiagnosticsReported;
@@ -127,6 +129,12 @@ public partial class MainWindow
     private async Task SendAsync()
     {
         if (_sending) return;
+        if (_editing is { } edited && !string.IsNullOrWhiteSpace(PromptBox.Text))
+        {
+            await SendCorrectedAsync(edited);
+            return;
+        }
+
         RemoveMissingContextFiles();
         // The project state alone is not a question.
         if (string.IsNullOrWhiteSpace(PromptBox.Text) && _context.All(item => item.Type == ContextItemType.ProjectState))
@@ -190,16 +198,64 @@ public partial class MainWindow
     private async Task<InputSnapshot> WithFreshScreenAsync(InputSnapshot snapshot) =>
         snapshot with { Id = Guid.NewGuid(), Screen = await CaptureWorkWindowAsync(snapshot.WorkWindow) };
 
+    /// <summary>
+    /// ✎ Edit: the question on screen goes back into the prompt to be corrected, e.g. a word the voice misheard.
+    /// Send then asks it again from the same snapshot: its screen, context and window go as they were, and nothing
+    /// is dictated or captured again.
+    /// </summary>
+    private void Edit_OnClick(object sender, RoutedEventArgs e)
+    {
+        StopHandsFree();
+        if (_sending || _voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing) return;
+        if (_attemptOnScreen is not { } shown) return;
+        _editing = shown;
+        SetPromptText(shown.Snapshot.Text);
+        PromptBox.Focus();
+        SetStatus("Correct the question — Enter asks again with the same screen and context, Esc cancels");
+    }
+
+    /// <summary>Esc while correcting: the question leaves the prompt, and the answer's ✎ Edit brings it back.</summary>
+    private void CancelEdit()
+    {
+        _editing = null;
+        SetPromptText(string.Empty);
+        SetStatus("Edit cancelled");
+    }
+
+    private async Task SendCorrectedAsync((InputSnapshot Snapshot, RequestRoute Route, ResponseEffort Effort) edited)
+    {
+        if (_projects.ActiveProject.LinkedConversation is null)
+        {
+            SetError("Link this project to a ChatGPT conversation first.");
+            return;
+        }
+
+        var (snapshot, route, effort) = edited;
+        var prompt = PromptBox.Text;
+        var answered = await AttemptAsync(
+            prompt,
+            route,
+            effort,
+            () => Task.FromResult(snapshot with { Id = Guid.NewGuid(), Text = prompt.Trim() }));
+        // The context stack was not part of this attempt, so it stays for the next message.
+        if (answered) ClearSentPrompt(prompt);
+    }
+
     /// <summary>The answered input leaves the prompt and the context stack.</summary>
     private void ClearSentInput(string prompt)
+    {
+        ClearSentPrompt(prompt);
+        ClearContext(prune: true);
+        ShowProjectStateContext();
+    }
+
+    private void ClearSentPrompt(string prompt)
     {
         // Words dictated after interrupting the spoken answer are the next message: only the sent prompt goes.
         var sent = prompt.TrimEnd();
         PromptBox.Text = PromptBox.Text.StartsWith(sent, StringComparison.Ordinal)
             ? PromptBox.Text[sent.Length..].Trim()
             : string.Empty;
-        ClearContext(prune: true);
-        ShowProjectStateContext();
     }
 
     /// <summary>
@@ -258,6 +314,8 @@ public partial class MainWindow
         _chatNotice = null;
         _receivingSince = null;
         var latency = new RequestLatency();
+        // A correction ends with any new attempt.
+        _editing = null;
         // The microphone waits while the chat answers and Link speaks.
         StopHandsFree();
         _voice.BeginRequest(prompt);
