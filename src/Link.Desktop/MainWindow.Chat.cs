@@ -25,6 +25,11 @@ public partial class MainWindow
         "Summarize this conversation so that the work can continue in a new chat: the goal, key decisions and facts, " +
         "the current state, the next step and open questions. At most 120 words, only the summary, no preamble. " +
         "Write it in the language of this conversation.";
+    private static readonly (RequestRoute Route, string Label, string Description)[] RouteOptions =
+    [
+        (RequestRoute.Chat, "Chat", "Chat — with the project, its task and state, the work window and a depth hint"),
+        (RequestRoute.Direct, "Direct", "Direct — only your text and what you attached")
+    ];
     private static readonly (ResponseEffort Effort, string Label, string Description)[] EffortOptions =
     [
         (ResponseEffort.Fast, "Fast", "Fast — short answer, no long thinking"),
@@ -129,7 +134,8 @@ public partial class MainWindow
         }
 
         var prompt = PromptBox.Text;
-        if (!await AttemptAsync(prompt, RequestRoute.Chat, () => TakeSnapshotAsync(project, prompt))) return;
+        var route = _settings.Current.Route;
+        if (!await AttemptAsync(prompt, route, () => TakeSnapshotAsync(project, prompt, route))) return;
         // Words dictated after interrupting the spoken answer are the next message: only the sent prompt goes.
         var sent = prompt.TrimEnd();
         PromptBox.Text = PromptBox.Text.StartsWith(sent, StringComparison.Ordinal)
@@ -141,9 +147,9 @@ public partial class MainWindow
 
     /// <summary>
     /// The input as it is now: the prompt, the context stack, the work target and, with Auto active window on, a
-    /// screenshot of the work window.
+    /// screenshot of the work window. Direct sends no screenshot of its own, so none is taken for it.
     /// </summary>
-    private async Task<InputSnapshot> TakeSnapshotAsync(LinkProject project, string prompt)
+    private async Task<InputSnapshot> TakeSnapshotAsync(LinkProject project, string prompt, RequestRoute route)
     {
         // The app Link was invoked from, not whatever took the focus since (the browser, Link's own captures).
         var workTarget = _currentApplication.WorkTarget;
@@ -158,7 +164,10 @@ public partial class MainWindow
             WorkTarget = _currentApplication.GetContext(workWindow),
             WorkWindow = workWindow
         };
-        if (!_settings.Current.AutoCaptureActiveWindowOnSend || workWindow == IntPtr.Zero) return snapshot;
+        if (!_settings.Current.AutoCaptureActiveWindowOnSend || route == RequestRoute.Direct || workWindow == IntPtr.Zero)
+        {
+            return snapshot;
+        }
 
         try
         {
@@ -279,23 +288,44 @@ public partial class MainWindow
                 .Replace("**", string.Empty, StringComparison.Ordinal)
                 .Replace("`", string.Empty, StringComparison.Ordinal)));
 
-    private void Effort_OnClick(object sender, RoutedEventArgs e)
+    /// <summary>The menu of a label under the prompt: one line per option, the current one checked.</summary>
+    private static void ShowOptions<T>(Button button, (T Value, string Label, string Description)[] options, T current, Action<T> choose)
     {
-        var menu = new ContextMenu { PlacementTarget = EffortButton, Placement = PlacementMode.Bottom };
-        foreach (var option in EffortOptions)
+        var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
+        foreach (var option in options)
         {
-            var item = new MenuItem
-            {
-                Header = option.Description,
-                IsCheckable = true,
-                IsChecked = option.Effort == _settings.Current.ResponseEffort
-            };
-            item.Click += (_, _) => SetEffort(option.Effort);
+            var item = new MenuItem { Header = option.Description, IsCheckable = true, IsChecked = Equals(option.Value, current) };
+            item.Click += (_, _) => choose(option.Value);
             menu.Items.Add(item);
         }
 
         menu.IsOpen = true;
     }
+
+    private void Route_OnClick(object sender, RoutedEventArgs e) =>
+        ShowOptions(RouteButton, RouteOptions, _settings.Current.Route, SetRoute);
+
+    private void SetRoute(RequestRoute route)
+    {
+        _settings.Current.Route = route;
+        _settings.Save();
+        UpdateRouteButton();
+        // What Direct does not send is not shown as going along.
+        UpdateTaskChip();
+        ShowProjectStateContext();
+        UpdateAutoScreenIndicator();
+        SetStatus($"Route: {RouteText.Text} — applies to the next message");
+    }
+
+    private void UpdateRouteButton()
+    {
+        var option = RouteOptions.First(option => option.Route == _settings.Current.Route);
+        RouteText.Text = option.Label;
+        RouteButton.ToolTip = $"Route: {option.Description}";
+    }
+
+    private void Effort_OnClick(object sender, RoutedEventArgs e) =>
+        ShowOptions(EffortButton, EffortOptions, _settings.Current.ResponseEffort, SetEffort);
 
     private void SetEffort(ResponseEffort effort)
     {

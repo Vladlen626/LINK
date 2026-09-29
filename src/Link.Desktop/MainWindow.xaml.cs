@@ -69,6 +69,7 @@ public partial class MainWindow : Window
         _context.CollectionChanged += Context_OnCollectionChanged;
         LoadProject(_projects.ActiveProject);
         _loadingProject = false;
+        UpdateRouteButton();
         UpdateEffortButton();
         UpdateExpandButton();
 
@@ -263,13 +264,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// The project's state stands first in the context stack whenever the project has one. Removed, it stays out of
-    /// the next request only: it is back once that request is answered, the state changes or the project does.
+    /// The project's state stands first in the context stack whenever the project has one, except in Direct, which
+    /// does not send it. Removed, it stays out of the next request only: it is back once that request is answered,
+    /// the state changes or the project does.
     /// </summary>
     private void ShowProjectStateContext()
     {
         foreach (var item in _context.Where(item => item.Type == ContextItemType.ProjectState).ToArray()) _context.Remove(item);
-        if (_projects.ActiveProject.State is not { } state) return;
+        if (_projects.ActiveProject.State is not { } state || _settings.Current.Route == RequestRoute.Direct) return;
         _context.Insert(0, new ContextItem
         {
             Type = ContextItemType.ProjectState,
@@ -447,7 +449,8 @@ public partial class MainWindow : Window
     private void UpdateAutoScreenIndicator()
     {
         if (!IsInitialized) return;
-        var enabled = _settings.Current.AutoCaptureActiveWindowOnSend;
+        // Direct takes no screenshot of its own.
+        var enabled = _settings.Current.AutoCaptureActiveWindowOnSend && _settings.Current.Route == RequestRoute.Chat;
         AutoScreenIndicator.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         ScreenButton.ToolTip = enabled
             ? "Attach screen context · auto active window is on"

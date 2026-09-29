@@ -111,7 +111,10 @@ public partial class MainWindow
     private void UpdateTaskChip()
     {
         var task = _projects.ActiveProject.CurrentTask;
-        TaskChip.Visibility = task.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        // Direct sends no task.
+        TaskChip.Visibility = task.Length == 0 || _settings.Current.Route == RequestRoute.Direct
+            ? Visibility.Collapsed
+            : Visibility.Visible;
         TaskChipText.Text = task;
         TaskChip.ToolTip = $"Current task, it goes with your messages: {task}\nClick to change it";
     }

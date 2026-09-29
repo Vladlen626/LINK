@@ -43,6 +43,9 @@ public sealed class AppSettings
     /// <summary>Short sounds for listening, sent, an answer ready, a question for the user and an error.</summary>
     public bool SoundCues { get; set; } = true;
     public ResponseEffort ResponseEffort { get; set; } = ResponseEffort.Normal;
+
+    /// <summary>How Send sends: with what Link adds, or Direct with only the text and what was attached.</summary>
+    public RequestRoute Route { get; set; } = RequestRoute.Chat;
     public int ScreenshotHistorySize { get; set; } = 5;
     public bool LaunchWithWindows { get; set; }
     public bool AutoCaptureActiveWindowOnSend { get; set; }
@@ -74,6 +77,7 @@ public sealed class AppSettings
         if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);
         if (!Enum.IsDefined(ResponseEffort)) ResponseEffort = ResponseEffort.Normal;
+        if (!Enum.IsDefined(Route)) Route = RequestRoute.Chat;
         if (string.IsNullOrWhiteSpace(MicrophoneDeviceId))
         {
             MicrophoneDeviceId = null;

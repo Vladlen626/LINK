@@ -103,27 +103,19 @@
 
                 <DockPanel x:Name="CardContent" Grid.Row="1" Margin="12,0,12,10">
                     <StackPanel x:Name="InputPanel" DockPanel.Dock="Top">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                            <!-- The task itself is edited in the panel; here it only shows that it goes along. -->
-                            <Button x:Name="TaskChip" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="0,0,4,0" Padding="8,2"
-                                    HorizontalAlignment="Left" HorizontalContentAlignment="Left" Click="TaskChip_OnClick" Visibility="Collapsed">
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Viewbox Width="11" Height="11" VerticalAlignment="Center">
-                                        <Path Data="{StaticResource FlagIconGeometry}" Fill="Transparent" Stroke="{StaticResource MutedBrush}"
-                                              StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                                    </Viewbox>
-                                    <TextBlock x:Name="TaskChipText" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11.5"
-                                               Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
-                                </Grid>
-                            </Button>
-                            <Button x:Name="EffortButton" Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Height="26"
-                                    Padding="8,2" Click="Effort_OnClick" ToolTip="Response effort">
-                                <TextBlock x:Name="EffortText" VerticalAlignment="Center" FontSize="11.5"
-                                           Foreground="{StaticResource MutedBrush}" Text="Normal" />
-                            </Button>
-                        </Grid>
+                        <!-- The task itself is edited in the panel; here it only shows that it goes along. -->
+                        <Button x:Name="TaskChip" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="0,0,4,0" Padding="8,2"
+                                HorizontalAlignment="Left" HorizontalContentAlignment="Left" Click="TaskChip_OnClick" Visibility="Collapsed">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Viewbox Width="11" Height="11" VerticalAlignment="Center">
+                                    <Path Data="{StaticResource FlagIconGeometry}" Fill="Transparent" Stroke="{StaticResource MutedBrush}"
+                                          StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                                </Viewbox>
+                                <TextBlock x:Name="TaskChipText" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11.5"
+                                           Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                            </Grid>
+                        </Button>
 
                         <Grid Margin="0,5,0,0">
                             <Border MinHeight="68" MaxHeight="136" Background="{StaticResource InnerGlassBrush}"
@@ -161,7 +153,31 @@
                             </Border>
                         </Grid>
 
-                        <Grid x:Name="ContextActionsPanel" Margin="0,8,0,0">
+                        <!-- How Send sends: the route and the depth of the next message. -->
+                        <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
+                            <Button x:Name="RouteButton" Style="{StaticResource GhostButtonStyle}" Height="24" Padding="8,2,7,2"
+                                    Click="Route_OnClick">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock x:Name="RouteText" VerticalAlignment="Center" FontSize="11.5"
+                                               Foreground="{StaticResource MutedBrush}" Text="Chat" />
+                                    <Path Width="7" Margin="5,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
+                                          Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="EffortButton" Style="{StaticResource GhostButtonStyle}" Height="24" Margin="2,0,0,0"
+                                    Padding="8,2,7,2" Click="Effort_OnClick" ToolTip="Response effort">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock x:Name="EffortText" VerticalAlignment="Center" FontSize="11.5"
+                                               Foreground="{StaticResource MutedBrush}" Text="Normal" />
+                                    <Path Width="7" Margin="5,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
+                                          Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                                </StackPanel>
+                            </Button>
+                        </StackPanel>
+
+                        <Grid x:Name="ContextActionsPanel" Margin="0,6,0,0">
                             <Grid.ColumnDefinitions>
                                 <ColumnDefinition Width="*" />
                                 <ColumnDefinition Width="*" />
