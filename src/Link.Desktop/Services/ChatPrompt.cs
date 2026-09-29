@@ -8,6 +8,10 @@ internal static class ChatPrompt
 {
     private const long MaxAttachmentBytes = 15 * 1024 * 1024;
     private const long MaxTotalAttachmentBytes = 25 * 1024 * 1024;
+    // Read aloud, an answer is heard from its first words, and Link says only the start of a long one.
+    private const string ConversationHint =
+        "[Interaction mode: Conversation — the user talks by voice and hears your reply read aloud. Start with a " +
+        "short, natural spoken answer of one or two sentences; details, steps and code come after it.]";
 
     /// <summary>The page request for a prompt; its images are read from disk off the calling thread.</summary>
     public static async Task<ChatPageRequest> CreateAsync(
@@ -51,7 +55,9 @@ internal static class ChatPrompt
         return result.ToString();
     }
 
-    /// <summary>What Link adds in Chat: the depth hint after the prompt, and the project, work window and task.</summary>
+    /// <summary>
+    /// What Link adds in Chat: the depth and conversation hints after the prompt, and the project, work window and task.
+    /// </summary>
     private static void AddLinkLines(PromptRequest request, StringBuilder prompt, List<string> contextLines)
     {
         // The hint works in any chat; the companion additionally switches the ChatGPT mode when it can.
@@ -62,6 +68,7 @@ internal static class ChatPrompt
             _ => null
         };
         if (effortHint is not null) prompt.Append("\n\n").Append(effortHint);
+        if (request.Conversation) prompt.Append("\n\n").Append(ConversationHint);
 
         if (!string.IsNullOrWhiteSpace(request.ProjectName) &&
             !string.Equals(request.ProjectName.Trim(), "General", StringComparison.OrdinalIgnoreCase))

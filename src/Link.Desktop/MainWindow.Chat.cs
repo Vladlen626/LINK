@@ -274,6 +274,7 @@ public partial class MainWindow
                 snapshot,
                 route,
                 effort,
+                _settings.Current.ConversationMode,
                 latency,
                 OnChatProgress,
                 cancellation.Token);
@@ -539,6 +540,7 @@ public partial class MainWindow
                 snapshot,
                 RequestRoute.Chat,
                 ResponseEffort.Fast,
+                spoken: false,
                 new RequestLatency(),
                 OnChatProgress,
                 cancellation.Token);

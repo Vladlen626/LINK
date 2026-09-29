@@ -2,8 +2,8 @@ namespace Link.Desktop.Models;
 
 public sealed class PromptRequest
 {
-    // 4: the route.
-    public int SchemaVersion { get; init; } = 4;
+    // 4: the route. 5: the conversation hint.
+    public int SchemaVersion { get; init; } = 5;
     public Guid Id { get; init; } = Guid.NewGuid();
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
     public required Guid ProjectId { get; init; }
@@ -12,6 +12,10 @@ public sealed class PromptRequest
     public string CurrentTask { get; init; } = string.Empty;
     public string Text { get; init; } = string.Empty;
     public ResponseEffort Effort { get; init; } = ResponseEffort.Normal;
+
+    /// <summary>Asked in conversation mode, where the answer is read aloud: Chat asks for a short spoken start.</summary>
+    public bool Conversation { get; init; }
+
     public CurrentApplicationContext? CurrentApplication { get; init; }
     public IReadOnlyList<ContextItem> Context { get; init; } = [];
 }

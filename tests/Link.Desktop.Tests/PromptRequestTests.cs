@@ -41,7 +41,7 @@ internal static class PromptRequestTests
             Screen = screen
         };
 
-        var chat = RequestService.Build(snapshot, RequestRoute.Chat, ResponseEffort.Deep);
+        var chat = RequestService.Build(snapshot, RequestRoute.Chat, ResponseEffort.Deep, conversation: false);
         Program.Equal("a request is for the snapshot's project", chat.ProjectId, snapshot.ProjectId);
         Program.Equal("a request names the project", chat.ProjectName, "Nori");
         Program.Equal("a request goes by its route", chat.Route, RequestRoute.Chat);
@@ -75,12 +75,12 @@ internal static class PromptRequestTests
             error 42
             """.ReplaceLineEndings("\n"));
 
-        var again = RequestService.Build(snapshot, RequestRoute.Chat, ResponseEffort.Normal);
+        var again = RequestService.Build(snapshot, RequestRoute.Chat, ResponseEffort.Normal, conversation: false);
         Program.Equal("another attempt is another request", again.Id != chat.Id, true);
         Program.Equal("another attempt sends the same context", again.Context.SequenceEqual(chat.Context), true);
         Program.Equal("an attempt leaves the snapshot as it was", snapshot.Context.Count, 3);
 
-        var direct = RequestService.Build(snapshot, RequestRoute.Direct, ResponseEffort.Deep);
+        var direct = RequestService.Build(snapshot, RequestRoute.Direct, ResponseEffort.Deep, conversation: false);
         Program.Equal("Direct goes by its route", direct.Route, RequestRoute.Direct);
         Program.Equal("Direct keeps the depth for the chat's mode", direct.Effort, ResponseEffort.Deep);
         Program.Equal("Direct sends only the attached context", Labels(direct), "Clipboard, Region");
@@ -107,14 +107,30 @@ internal static class PromptRequestTests
             CurrentTask = "Fix Land",
             Text = "Why?",
             Effort = ResponseEffort.Fast,
+            Conversation = true,
             CurrentApplication = snapshot.WorkTarget
         };
-        Program.Equal("Direct writes no project, window, task or depth hint", ChatPrompt.Format(linkLines), "Why?");
+        Program.Equal("Direct writes no project, window, task, depth or conversation hint", ChatPrompt.Format(linkLines), "Why?");
+
+        var spoken = RequestService.Build(snapshot, RequestRoute.Chat, ResponseEffort.Fast, conversation: true);
+        Program.Equal(
+            "in conversation Chat asks for a short spoken start after the depth hint",
+            string.Join("\n\n", ChatPrompt.Format(spoken).Split("\n\n").Take(3)),
+            """
+            Why is it dark?
+
+            [Fast answer: reply briefly and directly — the answer first, a few sentences or a short list at most, no preamble or recap, no extended reasoning.]
+
+            [Interaction mode: Conversation — the user talks by voice and hears your reply read aloud. Start with a short, natural spoken answer of one or two sentences; details, steps and code come after it.]
+            """.ReplaceLineEndings("\n"));
+        Program.Equal("Direct in conversation stays the text alone",
+            RequestService.Build(snapshot, RequestRoute.Direct, ResponseEffort.Normal, conversation: true).Conversation, false);
 
         var summary = RequestService.Build(
             new InputSnapshot { ProjectId = snapshot.ProjectId, ProjectName = "Nori", Text = "Summarize this chat." },
             RequestRoute.Chat,
-            ResponseEffort.Fast);
+            ResponseEffort.Fast,
+            conversation: false);
         Program.Equal("a snapshot of text alone sends no context", summary.Context.Count, 0);
         Program.Equal("a snapshot without a work target names no application", summary.CurrentApplication is null, true);
     }
