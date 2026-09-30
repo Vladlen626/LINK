@@ -19,15 +19,11 @@ public sealed partial class AgentLoopDetector
     // counts only where it may change files.
     private const int SearchesWithoutChange = 12;
 
-    // More than five edits of one file: the same place rewritten over and over.
-    private const int EditsOfOneFile = 5;
-
     // The end of an error holds its cause; the start of a long build log is the same every time.
     private const int ErrorKept = 1000;
 
     private readonly bool _canChange;
     private readonly Dictionary<string, int> _calls = [];
-    private readonly Dictionary<string, int> _edits = new(StringComparer.OrdinalIgnoreCase);
     private readonly List<string> _kinds = [];
     private string? _lastError;
     private int _errorsInARow;
@@ -58,11 +54,10 @@ public sealed partial class AgentLoopDetector
                 if (_errorsInARow == RepeatedErrors) return Loop("repeated error", $"the same error {_errorsInARow} times in a row: {Telling(agentEvent.Text)}");
                 break;
             case AgentEventKind.Artifact:
-                // A change is progress: the same call may now answer differently, and the search starts over.
+                // A change is progress: the same call may now answer differently, and the search starts over. Many
+                // changes of one file are no loop: measured on a game in one file, that label came only on good work.
                 _calls.Clear();
                 _searches = 0;
-                var edits = _edits[agentEvent.Text] = _edits.GetValueOrDefault(agentEvent.Text) + 1;
-                if (edits == EditsOfOneFile + 1) return Loop("file edits", $"{Path.GetFileName(agentEvent.Text)} edited {edits} times");
                 break;
         }
 

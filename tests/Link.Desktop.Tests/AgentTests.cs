@@ -429,9 +429,9 @@ internal static class AgentTests
             claude[1].Text.StartsWith(@"Looks like a loop: the same error 3 times in a row: C:\Work\Sample\tests\RoundTests.cs(9,9): error CS0103", StringComparison.Ordinal), true);
 
         var codex = LoopsIn(new CodexEventParser(), "codex-loop.jsonl", canChange: true);
-        Program.Equal("loops: a dozen searches without a change, then a sixth edit of one file",
+        Program.Equal("loops: a dozen searches without a change are one; six edits of one file after them are none",
             string.Join(" | ", codex.Select(loop => loop.Text)),
-            "Looks like a loop: 12 searches in a row without a change | Looks like a loop: Round.cs edited 6 times");
+            "Looks like a loop: 12 searches in a row without a change");
         Program.Equal("loops: a read-only run is not told off for searching",
             LoopsIn(new CodexEventParser(), "codex-loop.jsonl", canChange: false).Any(loop => loop.Detail == "searching"), false);
     }
