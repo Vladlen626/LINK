@@ -28,6 +28,92 @@ internal static class AgentTests
         await FailureAsync();
         await StopAsync();
         await LeftoversAsync();
+        await GitUndoAsync();
+        await CopyRestoreAsync();
+    }
+
+    private static async Task GitUndoAsync()
+    {
+        var workspace = TempFolder();
+        try
+        {
+            await GitAsync(workspace, "init", "-q");
+            File.WriteAllText(Path.Combine(workspace, "clean.txt"), "clean");
+            File.WriteAllText(Path.Combine(workspace, "mine.txt"), "mine");
+            await GitAsync(workspace, "add", ".");
+            await GitAsync(workspace, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "start");
+            File.WriteAllText(Path.Combine(workspace, "mine.txt"), "my edit");
+            var changes = new AgentChanges(Path.Combine(workspace, "backups"));
+            var before = await changes.CaptureAsync(workspace, backup: true, CancellationToken.None);
+            Program.Equal("git: a repository needs no copy", (before.IsGit, before.Backup), (true, (string?)null));
+
+            // The agent's work: one clean file changed, one new, and the user's own edit changed further.
+            File.WriteAllText(Path.Combine(workspace, "clean.txt"), "agent");
+            File.WriteAllText(Path.Combine(workspace, "new.txt"), "agent");
+            File.WriteAllText(Path.Combine(workspace, "mine.txt"), "my edit and the agent's");
+            File.SetLastWriteTimeUtc(Path.Combine(workspace, "mine.txt"), DateTime.UtcNow.AddMinutes(1));
+            var found = await changes.CompareAsync(before, CancellationToken.None);
+            Program.Equal("git: the agent's changes are found",
+                string.Join(",", found.OrderBy(change => change.Path).Select(change => $"{Path.GetFileName(change.Path)}:{change.Undoable}")),
+                "clean.txt:True,mine.txt:False,new.txt:True");
+
+            await changes.UndoAsync(before, found, CancellationToken.None);
+            Program.Equal("git: undo puts back a clean file", File.ReadAllText(Path.Combine(workspace, "clean.txt")), "clean");
+            Program.Equal("git: undo deletes a new file", File.Exists(Path.Combine(workspace, "new.txt")), false);
+            Program.Equal("git: undo keeps a file the user had changed", File.ReadAllText(Path.Combine(workspace, "mine.txt")), "my edit and the agent's");
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+    }
+
+    private static async Task CopyRestoreAsync()
+    {
+        var root = TempFolder();
+        var workspace = Path.Combine(root, "scene");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(workspace, "bin"));
+            File.WriteAllText(Path.Combine(workspace, "scene.blend"), "land v1");
+            File.WriteAllText(Path.Combine(workspace, "bin", "skipped.dll"), "build output");
+            var changes = new AgentChanges(Path.Combine(root, "backups"));
+            var before = await changes.CaptureAsync(workspace, backup: true, CancellationToken.None);
+            Program.Equal("copy: a folder without git is copied before Do", before is { IsGit: false, Backup: not null }, true);
+            Program.Equal("copy: build output is not copied", File.Exists(Path.Combine(before.Backup!, "bin", "skipped.dll")), false);
+
+            File.WriteAllText(Path.Combine(workspace, "scene.blend"), "land v2");
+            File.WriteAllText(Path.Combine(workspace, "land.fbx"), "export");
+            var found = await changes.CompareAsync(before, CancellationToken.None);
+            Program.Equal("copy: changed and added files are found",
+                string.Join(",", found.Select(change => Path.GetFileName(change.Path)).Order()), "land.fbx,scene.blend");
+            await changes.RestoreAsync(before, found, CancellationToken.None);
+            Program.Equal("copy: restore brings the file back", File.ReadAllText(Path.Combine(workspace, "scene.blend")), "land v1");
+            Program.Equal("copy: restore deletes what the agent added", File.Exists(Path.Combine(workspace, "land.fbx")), false);
+        }
+        finally
+        {
+            DeleteFolder(root);
+        }
+    }
+
+    private static string TempFolder()
+    {
+        var folder = Path.Combine(Path.GetTempPath(), "link-agent-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(folder);
+        return folder;
+    }
+
+    private static void DeleteFolder(string folder)
+    {
+        foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)) File.SetAttributes(file, FileAttributes.Normal);
+        Directory.Delete(folder, recursive: true);
+    }
+
+    private static async Task GitAsync(string folder, params string[] arguments)
+    {
+        using var git = Process.Start(new ProcessStartInfo("git", arguments) { WorkingDirectory = folder, UseShellExecute = false, CreateNoWindow = true })!;
+        await git.WaitForExitAsync();
     }
 
     private static void ClaudeFixtures()
