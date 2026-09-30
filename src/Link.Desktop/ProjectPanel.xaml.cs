@@ -66,7 +66,7 @@ public partial class ProjectPanel : UserControl
         var map = _workspace is null ? null : new FileInfo(ProjectMap.PathIn(_workspace));
         MapText.Text = map is { Exists: true }
             ? $"{ProjectMap.RelativePath} · {map.LastWriteTime.ToString("d MMM", CultureInfo.InvariantCulture)}"
-            : "No map yet: agents search the folder";
+            : "No map yet";
         MapButton.Content = map is { Exists: true } ? "Update map" : "Write map";
     }
 

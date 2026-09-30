@@ -322,7 +322,7 @@ public partial class MainWindow
     private string AgentHeader(AgentTask task)
     {
         var access = task.PlanOnly ? "plan"
-            : task.AnswerFile is { } file ? $"read only, writes {file}"
+            : task.AnswerFile is { } file ? $"read only, {Path.GetFileName(file)}"
             : task.Access == AgentAccess.Do ? "edits"
             : "read only";
         var elapsed = _agentClock.Elapsed;
@@ -345,7 +345,9 @@ public partial class MainWindow
             : !result.Succeeded ? $"Failed after {elapsed}"
             : checkFailed ? $"Check failed after {elapsed}"
             : $"Done in {elapsed}";
-        var text = checkFailed ? CheckReport(task, run.Check!) + (result.Summary.Length > 0 ? "\n\n" + result.Summary : string.Empty) : result.Summary;
+        // An answer Link wrote to a file is shown as written.
+        var answer = task.AnswerFile is null ? result.Summary : AgentCoordinator.Unfenced(result.Summary);
+        var text = checkFailed ? CheckReport(task, run.Check!) + (answer.Length > 0 ? "\n\n" + answer : string.Empty) : answer;
         _agentPanel.ShowResult(text, ending);
         _agentPanel.ShowStats(StatsLine(result.Stats));
         _agentPanel.ShowLog(result.Log);
@@ -563,7 +565,9 @@ public partial class MainWindow
         var parts = new List<string>();
         if (stats.Turns > 0) parts.Add(Plural(stats.Turns, "turn", "turns"));
         var before = stats.SearchesBeforeChange is { } count ? $" ({count} before the first change)" : string.Empty;
-        parts.Add($"{Plural(stats.ToolCalls, "tool call", "tool calls")}, {Plural(stats.Searches, "search", "searches")}{before}");
+        parts.Add(stats.ToolCalls == 0
+            ? "no tool calls"
+            : $"{Plural(stats.ToolCalls, "tool call", "tool calls")}, {Plural(stats.Searches, "search", "searches")}{before}");
         if (stats.ToolErrors > 0) parts.Add(Plural(stats.ToolErrors, "tool error", "tool errors"));
         if (stats.InputTokens is { } input)
         {
