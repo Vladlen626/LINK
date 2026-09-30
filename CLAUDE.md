@@ -13,7 +13,7 @@ C#, .NET 10, WPF, one assembly.
   of what to try instead of long self-verification (at most ~10 minutes of own checks).
 
 ## Token hygiene
-- Read only the section of PROJECT_CONTEXT.md you need (status, decisions, open problems); history is in git log.
+- Read only the section of PROJECT_CONTEXT.md you need (status, decisions, state and next); history is in git log.
 - Locate code with Grep/Glob and read only the relevant part of big files (MainWindow.Chat.cs, companion/content.js).
 
 ## Build and run
@@ -29,7 +29,11 @@ C#, .NET 10, WPF, one assembly.
   `EmbeddedChatIntegration` (`ChatPageHost` ↔ `IChatPage`, requests followed by `ChatRequestBroker`).
 - `Windows/` Win32 only: `NativeMethods`, hotkeys (RegisterHotKey, low-level hook for push-to-talk), GDI capture,
   waveIn audio, tray, window styles, `CurrentApplicationService` (latched work target).
-- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat, Capture, Voice, Sizing.
+- Agents: `AgentCoordinator` runs a task (check after Do, answer files such as the map or a skill, Start over);
+  `CliAgentProvider` → `ClaudeCodeProvider` / `CodexProvider` over `AgentProcess`; `AgentChanges` finds and undoes
+  changes; `AgentRules`, `ProjectMap`, `ProjectSkills` are the harness. The agent's rules and tasks are
+  `docs/harness/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel` in the side panel.
+- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat, Capture, Voice, Sizing, Panel, Agent.
 - `ChatPageWindow` the embedded ChatGPT page (WebView2). Never hide or minimize the window — it waits off screen, or
   ChatGPT is throttled to a few characters a second. Only the page inside rests, out of its engine's sight, while
   LINK does not need it (`IChatPage.Rest`); it is awake for every request.

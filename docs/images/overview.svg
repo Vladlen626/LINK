@@ -1,0 +1,213 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 980 560" width="980" height="560" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <linearGradient id="desk" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#2a3340"/>
+      <stop offset="1" stop-color="#141920"/>
+    </linearGradient>
+    <linearGradient id="shot" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#3a4452"/>
+      <stop offset="1" stop-color="#262d36"/>
+    </linearGradient>
+    <linearGradient id="floor" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#3b4350"/>
+      <stop offset="1" stop-color="#2b313a"/>
+    </linearGradient>
+    <filter id="shadow" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="8" stdDeviation="10" flood-color="#000" flood-opacity="0.55"/>
+    </filter>
+  </defs>
+
+  <rect width="980" height="560" rx="18" fill="url(#desk)"/>
+
+  <!-- the work app: a 3D editor -->
+  <rect x="16" y="16" width="948" height="528" rx="10" fill="#23272e" stroke="#000" stroke-opacity="0.5"/>
+  <rect x="16" y="16" width="948" height="30" rx="10" fill="#2e333b"/>
+  <rect x="16" y="36" width="948" height="10" fill="#2e333b"/>
+  <circle cx="34" cy="31" r="5" fill="#ff5f57"/><circle cx="50" cy="31" r="5" fill="#febc2e"/><circle cx="66" cy="31" r="5" fill="#28c840"/>
+  <text x="90" y="35.5" font-size="12" fill="#9aa4b1">my-game.blend — Blender</text>
+  <rect x="24" y="54" width="150" height="482" rx="6" fill="#2a2f37"/>
+  <g fill="#4a525e">
+    <rect x="34" y="66" width="96" height="7" rx="3"/><rect x="44" y="82" width="110" height="7" rx="3"/><rect x="44" y="98" width="84" height="7" rx="3"/>
+    <rect x="54" y="114" width="90" height="7" rx="3"/><rect x="54" y="130" width="70" height="7" rx="3"/><rect x="44" y="146" width="100" height="7" rx="3"/>
+    <rect x="34" y="170" width="80" height="7" rx="3"/><rect x="44" y="186" width="96" height="7" rx="3"/>
+  </g>
+  <rect x="182" y="54" width="774" height="482" rx="6" fill="#30363f"/>
+  <path d="M182 380 L956 380 L956 536 L182 536 Z" fill="url(#floor)"/>
+  <g stroke="#48505c" stroke-width="1">
+    <line x1="182" y1="400" x2="956" y2="400"/><line x1="182" y1="430" x2="956" y2="430"/><line x1="182" y1="470" x2="956" y2="470"/><line x1="182" y1="520" x2="956" y2="520"/>
+    <line x1="420" y1="380" x2="330" y2="536"/><line x1="500" y1="380" x2="470" y2="536"/><line x1="580" y1="380" x2="610" y2="536"/><line x1="660" y1="380" x2="750" y2="536"/>
+  </g>
+  <ellipse cx="330" cy="392" rx="36" ry="8" fill="#000" fill-opacity="0.35"/>
+  <rect x="306" y="300" width="48" height="92" rx="24" fill="#D95E0E" fill-opacity="0.85"/>
+  <circle cx="330" cy="286" r="20" fill="#F5843F" fill-opacity="0.9"/>
+  <path d="M236 170 l50 26 l-10 18 l-50 -26 z" fill="#8b95a3"/><circle cx="232" cy="176" r="10" fill="#8b95a3"/>
+  <text x="200" y="80" font-size="11.5" fill="#9aa4b1">Camera · Perspective</text>
+
+  <!-- Link: the project panel beside the card -->
+  <g transform="translate(490.6 46.8) scale(0.66)">
+  <g filter="url(#shadow)">
+    <rect x="30" y="20" width="310" height="680" rx="16" fill="#1B2027" fill-opacity="0.96" stroke="#FFFFFF" stroke-opacity="0.15"/>
+  </g>
+
+  <!-- header -->
+  <text x="47" y="49" font-size="14" font-weight="600" fill="#F5843F">My game</text>
+  <path d="M318 39 l8 8 M326 39 l-8 8" stroke="#F2F5F8" stroke-width="1.6" stroke-linecap="round"/>
+
+  <!-- current task -->
+  <text x="44" y="82" font-size="10.5" font-weight="600" letter-spacing="1.2" fill="#BAC5D0">CURRENT TASK</text>
+  <rect x="42" y="90" width="286" height="32" rx="9" fill="#000000" fill-opacity="0.28" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <text x="54" y="110.5" font-size="12.5" fill="#F2F5F8">Fix the camera jitter</text>
+
+  <!-- project state -->
+  <text x="44" y="146" font-size="10.5" font-weight="600" letter-spacing="1.2" fill="#BAC5D0">PROJECT STATE</text>
+  <text x="326" y="146" font-size="10.5" fill="#BAC5D0" text-anchor="end">updated 30 Sep 2026</text>
+  <rect x="42" y="154" width="286" height="66" rx="9" fill="#000000" fill-opacity="0.28" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <text font-size="12" fill="#F2F5F8">
+    <tspan x="54" y="174">Цель: демо уровня к пятнице.</tspan>
+    <tspan x="54" y="191">Решено: камера — Cinemachine,</tspan>
+    <tspan x="54" y="208">персонаж — Rigidbody с интерполяцией.</tspan>
+  </text>
+
+  <!-- chat -->
+  <text x="44" y="244" font-size="10.5" font-weight="600" letter-spacing="1.2" fill="#BAC5D0">CHAT</text>
+  <rect x="42" y="252" width="286" height="30" rx="9" fill="#FFFFFF" fill-opacity="0.06"/>
+  <circle cx="56" cy="267" r="4" fill="#3FB950"/>
+  <text x="67" y="271.5" font-size="12.5" fill="#F2F5F8">My game · camera and controls</text>
+  <rect x="42" y="288" width="140" height="28" rx="9" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <text x="84" y="306.5" font-size="12" fill="#F2F5F8">New chat ▾</text>
+  <rect x="188" y="288" width="140" height="28" rx="9" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <text x="228" y="306.5" font-size="12" fill="#F2F5F8">Open chat</text>
+
+  <!-- workspace -->
+  <text x="44" y="342" font-size="10.5" font-weight="600" letter-spacing="1.2" fill="#BAC5D0">WORKSPACE</text>
+  <rect x="48" y="354" width="16" height="12" rx="2" fill="none" stroke="#F2F5F8" stroke-width="1.4"/>
+  <path d="M48 357 h6 l2 -3 h8" fill="none" stroke="#F2F5F8" stroke-width="1.4"/>
+  <text x="72" y="365" font-size="12.5" fill="#F2F5F8">my-game</text>
+  <path d="M232 356 l6 6 M238 356 l-6 6" stroke="#F2F5F8" stroke-width="1.4" stroke-linecap="round"/>
+  <rect x="248" y="347" width="80" height="26" rx="9" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <text x="267" y="364.5" font-size="12" fill="#F2F5F8">Choose…</text>
+
+  <text x="44" y="397" font-size="11.5" fill="#BAC5D0">docs/map.md · 30 Sep</text>
+  <rect x="228" y="380" width="100" height="26" rx="9" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <text x="246" y="397.5" font-size="12" fill="#F2F5F8">Update map</text>
+
+  <rect x="36" y="412" width="298" height="46" rx="8" fill="#FFFFFF" fill-opacity="0.05"/>
+  <text x="44" y="430" font-size="12" font-weight="600" fill="#F2F5F8">browser-check</text>
+  <text x="44" y="448" font-size="11.5" fill="#BAC5D0">Проверить игру в headless Edge: движение, кадр</text>
+  <rect x="36" y="462" width="298" height="46" rx="8" fill="#FFFFFF" fill-opacity="0.05"/>
+  <text x="44" y="480" font-size="12" font-weight="600" fill="#F2F5F8">export-fbx</text>
+  <text x="44" y="498" font-size="11.5" fill="#BAC5D0">Экспорт персонажа из Blender в FBX для игры</text>
+
+  <rect x="42" y="516" width="286" height="30" rx="9" fill="#000000" fill-opacity="0.28" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <text x="54" y="535.5" font-size="12" font-family="Consolas, monospace" fill="#F2F5F8">dotnet build &amp;&amp; dotnet test</text>
+
+  <!-- history -->
+  <text x="44" y="572" font-size="10.5" font-weight="600" letter-spacing="1.2" fill="#BAC5D0">HISTORY</text>
+  <rect x="36" y="580" width="298" height="50" rx="8" fill="#FFFFFF" fill-opacity="0.05"/>
+  <text x="44" y="598" font-size="12" font-weight="600" fill="#F2F5F8">Почему камера дёргается при беге?</text>
+  <text x="326" y="598" font-size="11" fill="#BAC5D0" text-anchor="end">18:42</text>
+  <text x="44" y="617" font-size="11.5" fill="#BAC5D0">Камера следует за персонажем в Update, а…</text>
+  <rect x="36" y="636" width="298" height="50" rx="8" fill="#FFFFFF" fill-opacity="0.05"/>
+  <text x="44" y="654" font-size="12" font-weight="600" fill="#F2F5F8">Как назвать анимации бега?</text>
+  <text x="326" y="654" font-size="11" fill="#BAC5D0" text-anchor="end">17:10</text>
+  <text x="44" y="673" font-size="11.5" fill="#BAC5D0">Коротко и по действию: Hero_Run, Hero_Idle…</text>
+  </g>
+
+  <!-- Link: the card -->
+  <g transform="translate(653 46.8) scale(0.66)">
+  <!-- card -->
+  <g filter="url(#shadow)">
+    <rect x="110" y="20" width="340" height="564" rx="16" fill="#1B2027" fill-opacity="0.96" stroke="#FFFFFF" stroke-opacity="0.15"/>
+  </g>
+
+  <!-- header -->
+  <rect x="123" y="34" width="18" height="18" rx="5" fill="#F5843F"/>
+  <rect x="127.5" y="40" width="3" height="5" rx="1" fill="#2B1810"/>
+  <rect x="133.5" y="40" width="3" height="5" rx="1" fill="#2B1810"/>
+  <text x="147" y="48" font-size="11.5" font-weight="700" letter-spacing="1.6" fill="#F2F5F8">LINK</text>
+  <circle cx="194" cy="44" r="4" fill="#3FB950"/>
+  <text x="204" y="48" font-size="13" fill="#F2F5F8">My game</text>
+  <text x="262" y="48" font-size="10" fill="#BAC5D0">▾</text>
+  <rect x="392" y="35" width="16" height="16" rx="3" fill="none" stroke="#F2F5F8" stroke-width="1.4"/>
+  <line x1="402" y1="35" x2="402" y2="51" stroke="#F2F5F8" stroke-width="1.4"/>
+  <line x1="420" y1="43.5" x2="432" y2="43.5" stroke="#F2F5F8" stroke-width="1.6" stroke-linecap="round"/>
+
+  <!-- task chip -->
+  <rect x="122" y="68" width="170" height="26" rx="8" fill="#FFFFFF" fill-opacity="0.10"/>
+  <circle cx="135" cy="81" r="4.5" fill="none" stroke="#FF9F4A" stroke-width="1.5"/>
+  <text x="146" y="85.5" font-size="12" fill="#F2F5F8">Fix the camera jitter</text>
+
+  <!-- prompt -->
+  <rect x="122" y="100" width="316" height="64" rx="12" fill="#000000" fill-opacity="0.28" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <text x="134" y="124" font-size="13" fill="#F2F5F8">Почему камера дёргается при беге?</text>
+  <circle cx="417" cy="143" r="14" fill="#D95E0E"/>
+  <path d="M417 150 V137 M411 142 L417 136 L423 142" fill="none" stroke="#FFFFFF" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- route, level, conversation -->
+  <rect x="122" y="171" width="58" height="24" rx="8" fill="#FFFFFF" fill-opacity="0.08"/>
+  <text x="131" y="187.5" font-size="12" fill="#F2F5F8">Chat ▾</text>
+  <rect x="184" y="171" width="68" height="24" rx="8" fill="#FFFFFF" fill-opacity="0.08"/>
+  <text x="193" y="187.5" font-size="12" fill="#F2F5F8">Normal ▾</text>
+  <rect x="256" y="171" width="108" height="24" rx="8" fill="#FFFFFF" fill-opacity="0.08"/>
+  <circle cx="268" cy="183" r="3.5" fill="none" stroke="#BAC5D0" stroke-width="1.3"/>
+  <text x="277" y="187.5" font-size="12" fill="#BAC5D0">Conversation</text>
+
+  <!-- context actions -->
+  <rect x="122" y="202" width="102" height="32" rx="10" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <rect x="136" y="212" width="14" height="10" rx="2" fill="none" stroke="#F2F5F8" stroke-width="1.5"/>
+  <line x1="140" y1="225.5" x2="146" y2="225.5" stroke="#F2F5F8" stroke-width="1.5"/>
+  <text x="156" y="222" font-size="12" fill="#F2F5F8">Screen</text>
+  <circle cx="211" cy="211" r="3" fill="#FF9F4A"/>
+  <rect x="229" y="202" width="102" height="32" rx="10" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <rect x="246" y="210" width="7" height="11" rx="3.5" fill="none" stroke="#F2F5F8" stroke-width="1.5"/>
+  <path d="M243 218 a6.5 6.5 0 0 0 13 0 M249.5 224.5 v3" fill="none" stroke="#F2F5F8" stroke-width="1.5" stroke-linecap="round"/>
+  <text x="263" y="222" font-size="12" fill="#F2F5F8">Voice</text>
+  <rect x="336" y="202" width="102" height="32" rx="10" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <rect x="350" y="210" width="12" height="15" rx="2" fill="none" stroke="#F2F5F8" stroke-width="1.5"/>
+  <rect x="353" y="208" width="6" height="4" rx="1" fill="#1B2027" stroke="#F2F5F8" stroke-width="1.3"/>
+  <text x="368" y="222" font-size="12" fill="#F2F5F8">Clipboard</text>
+
+  <!-- screenshot preview -->
+  <rect x="122" y="241" width="316" height="80" rx="10" fill="#FFFFFF" fill-opacity="0.06" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <rect x="127" y="246" width="120" height="70" rx="6" fill="url(#shot)"/>
+  <rect x="131" y="250" width="80" height="6" rx="2" fill="#5b6778"/>
+  <rect x="131" y="260" width="24" height="52" rx="2" fill="#4a5462"/>
+  <rect x="159" y="260" width="84" height="52" rx="2" fill="#303845"/>
+  <circle cx="200" cy="286" r="12" fill="#D95E0E" fill-opacity="0.7"/>
+  <rect x="190" y="292" width="20" height="10" rx="3" fill="#FF9F4A" fill-opacity="0.6"/>
+  <text x="258" y="270" font-size="12" fill="#F2F5F8">Active window</text>
+  <text x="258" y="287" font-size="11.5" fill="#BAC5D0">Blender · 1920×1080</text>
+  <text x="258" y="304" font-size="11" fill="#BAC5D0">goes with the question</text>
+
+  <!-- context chips -->
+  <rect x="122" y="328" width="112" height="24" rx="8" fill="#D95E0E" fill-opacity="0.24"/>
+  <text x="132" y="344.5" font-size="12" fill="#F2F5F8">Project state</text>
+  <text x="220" y="344.5" font-size="11" fill="#BAC5D0">×</text>
+  <rect x="238" y="328" width="132" height="24" rx="8" fill="#D95E0E" fill-opacity="0.24"/>
+  <text x="248" y="344.5" font-size="12" fill="#F2F5F8">Clipboard · 12 lines</text>
+
+  <!-- response -->
+  <rect x="122" y="360" width="316" height="190" rx="12" fill="#121619" fill-opacity="0.85" stroke="#FFFFFF" stroke-opacity="0.09"/>
+  <circle cx="137" cy="377" r="4" fill="#3FB950"/>
+  <text x="147" y="381" font-size="12" fill="#BAC5D0">Done · 6.1 s</text>
+  <rect x="330" y="366" width="50" height="22" rx="7" fill="#FFFFFF" fill-opacity="0.08"/>
+  <text x="341" y="381.5" font-size="11.5" fill="#F2F5F8">Listen</text>
+  <rect x="384" y="366" width="46" height="22" rx="7" fill="#FFFFFF" fill-opacity="0.08"/>
+  <text x="395" y="381.5" font-size="11.5" fill="#F2F5F8">Copy</text>
+  <text font-size="12.5" fill="#F2F5F8">
+    <tspan x="134" y="408">Камера следует за персонажем в Update,</tspan>
+    <tspan x="134" y="426">а физика двигает его в FixedUpdate: между</tspan>
+    <tspan x="134" y="444">кадрами физики позиция «прыгает».</tspan>
+    <tspan x="134" y="470">1. Перенесите следование в LateUpdate.</tspan>
+    <tspan x="134" y="488">2. Включите интерполяцию у Rigidbody.</tspan>
+  </text>
+  <line x1="134" y1="505" x2="426" y2="505" stroke="#FFFFFF" stroke-opacity="0.10"/>
+  <text y="526" font-size="11.5" fill="#FFB066"><tspan x="134">↻ Deeper</tspan><tspan x="194">↻ Direct</tspan><tspan x="249">↻ Fresh screen</tspan><tspan x="336">↻ Agent</tspan><tspan x="390">✎ Edit</tspan></text>
+
+  <!-- status -->
+  <text x="125" y="571" font-size="11.5" fill="#BAC5D0">Ready</text>
+  <rect x="352" y="559" width="38" height="17" rx="4" fill="none" stroke="#BAC5D0" stroke-opacity="0.6"/>
+  <text x="358" y="571.5" font-size="10.5" fill="#BAC5D0">Enter</text>
+  <text x="396" y="571.5" font-size="11" fill="#BAC5D0">to send</text>
+  </g>
+</svg>
