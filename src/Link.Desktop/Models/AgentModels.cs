@@ -37,8 +37,11 @@ public sealed record AgentTask
     /// <summary>Images to look at, such as the snapshot's screenshot.</summary>
     public IReadOnlyList<string> Images { get; init; } = [];
 
-    /// <summary>A guard against a run that goes on and on; each turn spends the provider's subscription.</summary>
-    public int MaxTurns { get; init; } = 40;
+    /// <summary>
+    /// A guard against a run that goes on and on (Claude Code's <c>--max-turns</c>): each turn spends the provider's
+    /// subscription. Well above real work: measured tasks took 21–71 tool calls, so 40 would stop them mid-way.
+    /// </summary>
+    public int MaxTurns { get; init; } = 150;
 
     /// <summary>
     /// A file of the workspace, relative to it, that Link writes the agent's answer to, such as the project map: the
