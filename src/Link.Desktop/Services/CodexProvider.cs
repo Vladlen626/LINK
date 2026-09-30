@@ -74,6 +74,8 @@ public sealed partial class CodexEventParser : AgentEventParser
                 break;
             case "turn.completed":
                 Turns++;
+                // A turn that completes got past whatever Codex reported on the way, such as a reconnect.
+                Failed = false;
                 // Input counts the cached part too, as the API does.
                 if (root.TryGetProperty("usage", out var usage))
                 {
@@ -87,8 +89,10 @@ public sealed partial class CodexEventParser : AgentEventParser
                 events.Add(new AgentEvent(AgentEventKind.Error, Message(root.TryGetProperty("error", out var error) ? Text(error, "message") : string.Empty)));
                 break;
             case "error":
+                // Codex reports passing trouble as errors too ("Reconnecting... 2/5") and goes on: the end of the turn
+                // decides, a failed turn tells why.
                 Failed = true;
-                events.Add(new AgentEvent(AgentEventKind.Error, Message(Text(root, "message"))));
+                events.Add(new AgentEvent(AgentEventKind.Status, Short(Message(Text(root, "message")))));
                 break;
         }
     }

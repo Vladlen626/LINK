@@ -348,6 +348,14 @@ internal static class AgentTests
             error.Events.First(e => e.Kind == AgentEventKind.Error).Text,
             "The 'no-such-model-xyz' model is not supported when using Codex with a ChatGPT account.");
 
+        // Recorded 30.09: three reconnects in the middle of a task that then completed.
+        var reconnect = Parse(new CodexEventParser(), "codex-reconnect.jsonl");
+        Program.Equal("Codex: a reconnect on the way does not fail a turn that completes",
+            (reconnect.Parser.Failed, reconnect.Events.Count(e => e.Kind == AgentEventKind.Error), reconnect.Events.Count(e => e.Kind == AgentEventKind.Status && e.Text.StartsWith("Reconnecting"))),
+            (false, 0, 2));
+        Program.Equal("Codex: an error with no completed turn still fails the run",
+            Parse(new CodexEventParser(), "codex-error.jsonl").Parser.Failed, true);
+
         var refused = new CodexEventParser();
         refused.ReadError("2026-09-30T05:14:25Z ERROR codex_core::tools::router: error=patch rejected: writing is blocked by read-only sandbox; rejected by user approval settings");
         Program.Equal("Codex: a write the read-only sandbox blocked offers Do",
