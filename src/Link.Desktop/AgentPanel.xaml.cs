@@ -130,6 +130,7 @@ public partial class AgentPanel : UserControl
                 AgentEventKind.Tool => ("▸ ", "MutedBrush"),
                 AgentEventKind.Output => (string.Empty, "TextBrush"),
                 AgentEventKind.NeedsInput => ("⚠ ", "AccentBrush"),
+                AgentEventKind.Loop => ("⟳ ", "AccentBrush"),
                 AgentEventKind.Error => ("✗ ", "ErrorBrush"),
                 _ => ("· ", "MutedBrush")
             };

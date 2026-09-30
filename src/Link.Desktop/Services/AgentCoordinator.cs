@@ -155,6 +155,7 @@ public sealed class AgentCoordinator
             Denials = first.Denials.Concat(next.Denials).Distinct().ToArray(),
             ChangedFiles = first.ChangedFiles.Concat(next.ChangedFiles).Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             Stats = first.Stats.Add(next.Stats),
+            Loops = first.Loops.Concat(next.Loops).Distinct().ToArray(),
             Log = log.Length <= AgentProcess.LogLimit ? log : log[^AgentProcess.LogLimit..]
         };
     }

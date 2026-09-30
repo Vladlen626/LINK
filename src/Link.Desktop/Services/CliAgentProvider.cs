@@ -42,13 +42,14 @@ public abstract class CliAgentProvider : IAgentProvider
         var executable = FindExecutable()
             ?? throw new InvalidOperationException($"{Name} is not found. Install it or choose its file in Settings.");
         var parser = CreateParser();
+        var loops = new AgentLoopDetector(task.Access == AgentAccess.Do && !task.PlanOnly);
         var clock = Stopwatch.StartNew();
         TimeSpan? firstEvent = null;
         var command = new AgentCommand(executable, Arguments(task), task.Workspace, Input(task));
         AgentProcessResult process;
         try
         {
-            // stdout and stderr are read on two threads; the parser takes one line at a time.
+            // stdout and stderr are read on two threads; the parser and the loop check take one line at a time.
             var turn = new Lock();
             void Report(IReadOnlyList<AgentEvent> events)
             {
@@ -56,6 +57,7 @@ public abstract class CliAgentProvider : IAgentProvider
                 {
                     firstEvent ??= clock.Elapsed;
                     progress.Report(agentEvent);
+                    if (loops.Add(agentEvent) is { } loop) progress.Report(loop);
                 }
             }
 
@@ -90,6 +92,7 @@ public abstract class CliAgentProvider : IAgentProvider
             Denials = parser.Denials.Distinct().ToArray(),
             ChangedFiles = parser.ChangedFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
             Stats = parser.Stats with { Duration = clock.Elapsed },
+            Loops = loops.Kinds.ToArray(),
             Log = process.Log
         };
         // Never the task's text: it can hold anything the user wrote.
@@ -99,7 +102,8 @@ public abstract class CliAgentProvider : IAgentProvider
         _log($"[Agent] {Name}, {task.Access}{kind}: {outcome}; " +
              $"session {result.SessionId ?? "none"}, first event {first}, {Seconds(clock.Elapsed)}, " +
              $"{result.ChangedFiles.Count} files, denials: {(result.Denials.Count == 0 ? "none" : string.Join(", ", result.Denials))}; " +
-             LogStats(result.Stats));
+             LogStats(result.Stats) +
+             (result.Loops.Count > 0 ? "; looks like a loop: " + string.Join(", ", result.Loops) : string.Empty));
         return result;
     }
 
@@ -236,8 +240,11 @@ public abstract partial class AgentEventParser
         events.Add(new AgentEvent(AgentEventKind.Artifact, path, path));
     }
 
-    /// <summary>A tool call, a step of Activity; <paramref name="search"/>: it only looks around.</summary>
-    protected void Called(string name, string text, bool search, List<AgentEvent> events)
+    /// <summary>
+    /// A tool call, a step of Activity; <paramref name="arguments"/> tell it from another call of the same tool (a long
+    /// write is cut), <paramref name="search"/>: it only looks around.
+    /// </summary>
+    protected void Called(string name, string text, string arguments, bool search, List<AgentEvent> events)
     {
         _toolCalls++;
         if (search)
@@ -246,7 +253,11 @@ public abstract partial class AgentEventParser
             if (_changedFiles.Count == 0) _searchesBeforeChange++;
         }
 
-        events.Add(new AgentEvent(AgentEventKind.Tool, Short(text), name) { IsSearch = search });
+        events.Add(new AgentEvent(AgentEventKind.Tool, Short(text), name)
+        {
+            IsSearch = search,
+            Arguments = arguments.Length <= 2000 ? arguments : arguments[..2000]
+        });
     }
 
     /// <summary>A tool call that came back with an error; the end of a long error is where its cause usually is.</summary>

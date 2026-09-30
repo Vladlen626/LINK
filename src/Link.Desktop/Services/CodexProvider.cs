@@ -61,7 +61,7 @@ public sealed partial class CodexEventParser : AgentEventParser
                 break;
             case "item.started" when root.TryGetProperty("item", out var item) && Text(item, "type") == "command_execution":
                 var command = Unwrap(Text(item, "command"));
-                Called("command", command, IsSearchCommand(command), events);
+                Called("command", command, command, IsSearchCommand(command), events);
                 break;
             case "item.completed" when root.TryGetProperty("item", out var item):
                 ReadItem(item, events);
@@ -105,7 +105,7 @@ public sealed partial class CodexEventParser : AgentEventParser
             case "file_change" when item.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Array:
                 var paths = changes.EnumerateArray().Select(change => Text(change, "path")).Where(path => path.Length > 0).ToArray();
                 // Codex has no edit tool of its own: its patch is the call.
-                Called("file_change", "Edit: " + string.Join(", ", paths), false, events);
+                Called("file_change", "Edit: " + string.Join(", ", paths), string.Join('\n', paths), false, events);
                 if (failed)
                 {
                     ToolFailed("file_change", "The patch was not applied.", events);
@@ -116,11 +116,12 @@ public sealed partial class CodexEventParser : AgentEventParser
                 foreach (var path in paths) Changed(path, events);
                 break;
             case "mcp_tool_call":
-                Called("mcp", $"{Text(item, "server")}: {Text(item, "tool")}", false, events);
+                var tool = $"{Text(item, "server")}: {Text(item, "tool")}";
+                Called("mcp", tool, tool + (item.TryGetProperty("arguments", out var arguments) ? " " + arguments.GetRawText() : string.Empty), false, events);
                 if (failed) ToolFailed("mcp", item.TryGetProperty("error", out var error) ? Text(error, "message") : string.Empty, events);
                 break;
             case "web_search":
-                Called("search", $"Search: {Text(item, "query")}", false, events);
+                Called("search", $"Search: {Text(item, "query")}", Text(item, "query"), false, events);
                 break;
             case "error" when Text(item, "message") is { Length: > 0 } warning:
                 // Codex reports warnings as error items and goes on; a real failure ends the turn.

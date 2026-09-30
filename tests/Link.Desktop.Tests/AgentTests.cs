@@ -24,8 +24,10 @@ internal static class AgentTests
         ClaudeFixtures();
         CodexFixtures();
         Stats();
+        Loops();
         Arguments();
         await StreamAsync();
+        await LoopRunAsync();
         await FailureAsync();
         await StopAsync();
         await LeftoversAsync();
@@ -344,6 +346,48 @@ internal static class AgentTests
         }
     }
 
+    /// <summary>The loop check on runs in the recorded format: each kind of loop is told once, working runs get none.</summary>
+    private static void Loops()
+    {
+        Program.Equal("loops: a working Claude Do run has none", LoopsIn(new ClaudeEventParser(), "claude-do.jsonl", canChange: true).Count, 0);
+        Program.Equal("loops: nor a working Codex one", LoopsIn(new CodexEventParser(), "codex-do.jsonl", canChange: true).Count, 0);
+
+        var claude = LoopsIn(new ClaudeEventParser(), "claude-loop.jsonl", canChange: true);
+        Program.Equal("loops: the same read three times, then the same test error three times in a row",
+            string.Join(", ", claude.Select(loop => loop.Detail)), "repeated call, repeated error");
+        Program.Equal("loops: the label names the call", claude[0].Text, @"Looks like a loop: the same call 3 times: Read: C:\Work\Sample\src\Round.cs");
+        Program.Equal("loops: the label shows the error's telling line, not its exit code",
+            claude[1].Text.StartsWith(@"Looks like a loop: the same error 3 times in a row: C:\Work\Sample\tests\RoundTests.cs(9,9): error CS0103", StringComparison.Ordinal), true);
+
+        var codex = LoopsIn(new CodexEventParser(), "codex-loop.jsonl", canChange: true);
+        Program.Equal("loops: a dozen searches without a change, then a sixth edit of one file",
+            string.Join(" | ", codex.Select(loop => loop.Text)),
+            "Looks like a loop: 12 searches in a row without a change | Looks like a loop: Round.cs edited 6 times");
+        Program.Equal("loops: a read-only run is not told off for searching",
+            LoopsIn(new CodexEventParser(), "codex-loop.jsonl", canChange: false).Any(loop => loop.Detail == "searching"), false);
+    }
+
+    private static List<AgentEvent> LoopsIn(AgentEventParser parser, string fixture, bool canChange)
+    {
+        var detector = new AgentLoopDetector(canChange);
+        return Parse(parser, fixture).Events.Select(detector.Add).OfType<AgentEvent>().ToList();
+    }
+
+    /// <summary>A recorded loop played by the fake CLI: the label reaches Activity in its place, the kinds reach the result and the [Agent] line.</summary>
+    private static async Task LoopRunAsync()
+    {
+        var log = new List<string>();
+        var events = new List<AgentEvent>();
+        var result = await new FakeProvider("claude-loop.jsonl", new AgentSettings { ClaudePath = Environment.ProcessPath }, log.Add)
+            .RunAsync(Task() with { Access = AgentAccess.Do }, new SyncProgress(events.Add), CancellationToken.None);
+        var label = events.FindIndex(e => e.Kind == AgentEventKind.Loop);
+        Program.Equal("loop run: the label comes right after the third identical read",
+            label > 0 && events[label - 1] is { Kind: AgentEventKind.Tool, Detail: "Read" } && events.Count(e => e.Kind == AgentEventKind.Loop) == 2, true);
+        Program.Equal("loop run: the kinds are in the result", string.Join(", ", result.Loops), "repeated call, repeated error");
+        Program.Equal("loop run: the [Agent] line names the kinds, not the file",
+            log.Count == 1 && log[0].EndsWith("; looks like a loop: repeated call, repeated error", StringComparison.Ordinal) && !log[0].Contains("Round.cs"), true);
+    }
+
     private static void Arguments()
     {
         var settings = new AgentSettings();
@@ -533,6 +577,11 @@ internal static class AgentTests
                 var child = Process.Start(new ProcessStartInfo(Environment.ProcessPath!, [FakeFlag, "sleep"]) { UseShellExecute = false, CreateNoWindow = true })!;
                 Say(new { type = "assistant", message = new { content = new object[] { new { type = "text", text = $"child {child.Id}" } } } });
                 if (scenario == "hang") Thread.Sleep(TimeSpan.FromMinutes(2));
+                return 0;
+            case not null when scenario.EndsWith(".jsonl", StringComparison.Ordinal):
+                // A recorded run played back as the CLI would write it.
+                Console.In.ReadToEnd();
+                foreach (var line in File.ReadLines(Path.Combine(AppContext.BaseDirectory, "Fixtures", scenario))) Console.WriteLine(line);
                 return 0;
             default:
                 return 2;

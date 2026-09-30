@@ -103,7 +103,11 @@ public sealed class ClaudeEventParser : AgentEventParser
                     : Text(input, "pattern") is { Length: > 0 } pattern ? pattern
                     : Text(input, "url");
                 var search = SearchTools.Contains(name) || (ShellTools.Contains(name) && IsSearchCommand(command));
-                Called(name, target.Length > 0 ? $"{name}: {target}" : name, search, events);
+                // A command's description is the model's own words and may differ for the very same call.
+                var arguments = input.ValueKind == JsonValueKind.Object
+                    ? string.Join(", ", input.EnumerateObject().Where(field => field.Name != "description").Select(field => $"{field.Name}={field.Value.GetRawText()}"))
+                    : string.Empty;
+                Called(name, target.Length > 0 ? $"{name}: {target}" : name, arguments, search, events);
                 var id = Text(block, "id");
                 _pendingTools[id] = name;
                 if (EditTools.Contains(name) && Text(input, "file_path") is { Length: > 0 } edited) _pendingEdits[id] = edited;

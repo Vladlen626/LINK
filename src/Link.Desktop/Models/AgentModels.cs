@@ -70,6 +70,9 @@ public enum AgentEventKind
     /// <summary>A tool call came back with an error; <see cref="AgentEvent.Text"/> is the error. Counted, not listed.</summary>
     ToolFailed,
 
+    /// <summary>The agent seems to go round in circles; <see cref="AgentEvent.Detail"/> is the kind of loop. It goes on.</summary>
+    Loop,
+
     Completed,
     Error
 }
@@ -82,6 +85,9 @@ public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail
 {
     /// <summary>A tool call that only looks around: it finds, lists or reads files.</summary>
     public bool IsSearch { get; init; }
+
+    /// <summary>A tool call's arguments, as the loop check compares calls; the row shows only their start.</summary>
+    public string Arguments { get; init; } = string.Empty;
 }
 
 /// <summary>How a run ended. <see cref="Denials"/> are the tool rules the agent was refused, to allow and try again.</summary>
@@ -95,6 +101,9 @@ public sealed record AgentResult
     public IReadOnlyList<string> Denials { get; init; } = [];
     public IReadOnlyList<string> ChangedFiles { get; init; } = [];
     public AgentStats Stats { get; init; } = new();
+
+    /// <summary>The kinds of loop noticed in the run, such as "repeated error"; see <see cref="Services.AgentLoopDetector"/>.</summary>
+    public IReadOnlyList<string> Loops { get; init; } = [];
 
     /// <summary>The tail of the CLI's stdout and stderr, shown on request.</summary>
     public string Log { get; init; } = string.Empty;
