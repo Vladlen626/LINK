@@ -127,8 +127,12 @@ public sealed class VoiceSession
     /// </summary>
     public string? DraftNote { get; private set; }
 
-    /// <summary>Push-to-talk starts when nothing else is going on, and interrupts Link while it talks.</summary>
-    public bool CanStartListening => Phase is VoicePhase.Idle or VoicePhase.Speaking;
+    /// <summary>
+    /// Push-to-talk starts when nothing else is going on, and interrupts Link while it talks. In conversation it also
+    /// works while the chat thinks: the answer then stays on screen only, and the new words follow it.
+    /// </summary>
+    public bool CanStartListening => Phase is VoicePhase.Idle or VoicePhase.Speaking ||
+                                     _settings.ConversationMode && Phase is VoicePhase.Sending or VoicePhase.Waiting;
 
     /// <summary>The microphone listens hands-free: the phrase ends at a pause, not with a key.</summary>
     public bool IsHandsFree => Phase == VoicePhase.Listening && _handsFree;
@@ -481,9 +485,10 @@ public sealed class VoiceSession
     private string DescribeListening()
     {
         var listened = _time.GetElapsedTime(_openedAt);
-        var busy = listened > TimeSpan.Zero ? (ProcessorTime() - _processorAtOpen) / listened * 100 : 0;
-        return $"listened {listened.TotalSeconds:0.0} s {(_handsFree ? "hands-free" : "with the key")}, " +
-               $"Link CPU {busy:0.0}% of one core";
+        var how = $"listened {listened.TotalSeconds:0.0} s {(_handsFree ? "hands-free" : "with the key")}";
+        // Over a moment the CPU says more about what happened just before than about listening.
+        if (listened < TimeSpan.FromSeconds(2)) return how;
+        return $"{how}, Link CPU {(ProcessorTime() - _processorAtOpen) / listened * 100:0.0}% of one core";
     }
 
     private static TimeSpan ProcessorTime()

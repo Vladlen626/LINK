@@ -540,11 +540,19 @@ public partial class MainWindow : Window
         var empty = string.IsNullOrEmpty(PromptBox.Text);
         PromptPlaceholder.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
         // A cleared prompt no longer holds the dictated words, so its answer is not read aloud.
-        if (empty) _voice.ForgetVoicePrompt();
+        if (!empty) return;
+        _voice.ForgetVoicePrompt();
+        // Nothing typed any more: the conversation listens again.
+        if (_typing && !PromptBox.IsReadOnly)
+        {
+            _typing = false;
+            ScheduleListening();
+        }
     }
 
     private async void PromptBox_OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        YieldToTyping(e);
         // Enter sends, Shift+Enter keeps the TextBox newline. IME composition arrives as ImeProcessed.
         if (e.Key != Key.Return || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
         e.Handled = true;

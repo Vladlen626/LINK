@@ -15,6 +15,10 @@ public partial class MainWindow
     private bool _conversationPaused;
     // In conversation, a phrase that ended while an answer was still arriving: it goes once that request is over.
     private bool _phraseWaiting;
+    // A phrase is being transcribed and sent; the microphone waits for it.
+    private bool _phraseInFlight;
+    // The user types in the prompt: conversation pauses until they send, clear it or leave it.
+    private bool _typing;
 
     /// <summary>Push-to-talk pressed; during a spoken answer it silences Link and listens right away.</summary>
     public void StartPushToTalk()
@@ -99,9 +103,9 @@ public partial class MainWindow
 
     private void ListenForNextPhrase()
     {
-        // Typing in the prompt pauses the conversation: the words go by Enter.
-        if (!_settings.Current.ConversationMode || _conversationPaused || _sending || _voice.Phase != VoicePhase.Idle ||
-            PromptBox.IsKeyboardFocused)
+        // Typing or correcting in the prompt pauses the conversation: those words go by Enter.
+        if (!_settings.Current.ConversationMode || _conversationPaused || _sending || _phraseInFlight || _typing ||
+            _editing is not null || _voice.Phase != VoicePhase.Idle)
         {
             return;
         }
@@ -109,8 +113,9 @@ public partial class MainWindow
         try
         {
             var usedSelectedMicrophone = _voice.StartHandsFree();
-            if (!usedSelectedMicrophone) SetStatus("Selected microphone is not connected — listening on the Windows default");
-            else if (_voice.DraftNote is { } note) SetStatus($"Listening — {note}");
+            SetStatus(!usedSelectedMicrophone ? "Selected microphone is not connected — listening on the Windows default"
+                : _voice.DraftNote is { } note ? $"Listening — {note}"
+                : "Listening — just speak, a pause sends");
         }
         catch (Exception exception)
         {
@@ -143,6 +148,22 @@ public partial class MainWindow
     /// </summary>
     private async Task FinishPhraseAsync(bool send)
     {
+        // Until the phrase is on its way, the microphone does not open for the next one.
+        _phraseInFlight = true;
+        try
+        {
+            await TranscribeAndSendAsync(send);
+        }
+        finally
+        {
+            _phraseInFlight = false;
+            ScheduleListening();
+        }
+    }
+
+    private async Task TranscribeAndSendAsync(bool send)
+    {
+        var conversation = _settings.Current.ConversationMode;
         VoiceTranscript? transcript;
         try
         {
@@ -150,6 +171,14 @@ public partial class MainWindow
         }
         catch (Exception exception)
         {
+            if (conversation)
+            {
+                // In conversation nothing waits for the keyboard: the user simply says it again.
+                SetPromptText(_draft.Commit(PromptBox.Text, string.Empty));
+                SetError($"Didn't catch that — say it again. {exception.Message}");
+                return;
+            }
+
             // The live words may be all that is left of the dictation, so they stay as typed text.
             _draft.Keep();
             SetError(exception.Message);
@@ -160,7 +189,7 @@ public partial class MainWindow
         SetPromptText(_draft.Commit(PromptBox.Text, transcript?.Text ?? string.Empty));
         if (transcript is null && !send)
         {
-            SetStatus("No speech heard — hold the key while speaking");
+            SetStatus(conversation ? "Didn't catch that — say it again" : "No speech heard — hold the key while speaking");
             return;
         }
 
@@ -207,13 +236,30 @@ public partial class MainWindow
     private void UpdatePromptReadOnly() =>
         PromptBox.IsReadOnly = _sending || _voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing;
 
-    /// <summary>Typing takes over from hands-free listening, unless a phrase is under way.</summary>
-    private void PromptBox_OnGotKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    /// <summary>
+    /// A key typed into the prompt takes over from hands-free listening, unless a phrase is under way; the prompt is
+    /// editable before the key reaches it. Clicking into the prompt alone keeps the conversation going.
+    /// </summary>
+    private void YieldToTyping(KeyEventArgs e)
     {
-        if (!_voice.IsPhraseUnderWay) StopHandsFree();
+        if (!_voice.IsHandsFree || _voice.IsPhraseUnderWay) return;
+        var key = e.Key == Key.System ? e.SystemKey : e.Key;
+        if (key is Key.Return or Key.Escape or Key.Tab or Key.LeftCtrl or Key.RightCtrl or Key.LeftShift or Key.RightShift
+            or Key.LeftAlt or Key.RightAlt or Key.LWin or Key.RWin)
+        {
+            return;
+        }
+
+        _typing = true;
+        StopHandsFree();
+        SetStatus("Typing — conversation pauses until you send or leave the prompt");
     }
 
-    private void PromptBox_OnLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => ScheduleListening();
+    private void PromptBox_OnLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        _typing = false;
+        ScheduleListening();
+    }
 
     private void OnVoicePhaseChanged(VoicePhase previous)
     {
@@ -236,8 +282,8 @@ public partial class MainWindow
         LinkGlyph.Foreground = (Brush)FindResource(listening ? "SuccessBrush" : speaking ? "AquaBrush" : "BrandBrush");
         // Listening hands-free may last all day: the open microphone shows without redrawing the layered window.
         AnimateVoiceGlyph(start: listening && !_voice.IsHandsFree || speaking);
-        // During a request push-to-talk waits for the answer, unless Link talks: then it interrupts.
-        VoiceButton.IsEnabled = phase is not (VoicePhase.Sending or VoicePhase.Waiting);
+        // During a request push-to-talk waits for the answer, unless Link talks or in conversation: then it interrupts.
+        VoiceButton.IsEnabled = _voice.CanStartListening || phase == VoicePhase.Listening;
         UpdateSendButton();
         UpdateReadAloudButton();
         if (phase == VoicePhase.Idle) ScheduleListening();

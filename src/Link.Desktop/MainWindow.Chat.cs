@@ -220,6 +220,7 @@ public partial class MainWindow
         _editing = null;
         SetPromptText(string.Empty);
         SetStatus("Edit cancelled");
+        ScheduleListening();
     }
 
     private async Task SendCorrectedAsync((InputSnapshot Snapshot, RequestRoute Route, ResponseEffort Effort) edited)
@@ -314,8 +315,9 @@ public partial class MainWindow
         _chatNotice = null;
         _receivingSince = null;
         var latency = new RequestLatency();
-        // A correction ends with any new attempt.
+        // A correction or typed words end with any new attempt.
         _editing = null;
+        _typing = false;
         // The microphone waits while the chat answers and Link speaks.
         StopHandsFree();
         _voice.BeginRequest(prompt);

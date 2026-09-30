@@ -124,7 +124,7 @@
                                     <TextBox x:Name="PromptBox" Style="{StaticResource InputTextBoxStyle}" MinLines="2" MaxLines="6"
                                              AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                              TextChanged="PromptBox_OnTextChanged" PreviewKeyDown="PromptBox_OnPreviewKeyDown"
-                                             GotKeyboardFocus="PromptBox_OnGotKeyboardFocus" LostKeyboardFocus="PromptBox_OnLostKeyboardFocus" />
+                                             LostKeyboardFocus="PromptBox_OnLostKeyboardFocus" />
                                     <TextBlock x:Name="PromptPlaceholder" Margin="12,9,42,0" VerticalAlignment="Top"
                                                Foreground="{StaticResource MutedBrush}" FontSize="13.5" IsHitTestVisible="False" Text="Ask Link…" />
                                     <Button x:Name="SendButton" Style="{StaticResource SendButtonStyle}" Margin="0,0,7,7"

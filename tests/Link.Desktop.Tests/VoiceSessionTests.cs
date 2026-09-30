@@ -25,6 +25,9 @@ internal static class VoiceSessionTests
         Program.Equal("request goes out", rig.Session.Phase, VoicePhase.Sending);
         Program.Equal("the voice gets ready while the chat thinks", rig.Speech.Prepared, 1);
         Program.Equal("push-to-talk waits for the request", rig.Session.CanStartListening, false);
+        rig.Settings.ConversationMode = true;
+        Program.Equal("in conversation push-to-talk works while the chat thinks", rig.Session.CanStartListening, true);
+        rig.Settings.ConversationMode = false;
         rig.Session.ReportProgress(Waiting());
         Program.Equal("chat accepted the prompt", rig.Session.Phase, VoicePhase.Waiting);
         var answered = rig.Session.CompleteRequestAsync(Answer);
@@ -379,9 +382,9 @@ internal static class VoiceSessionTests
         var transcript = await rig.Session.FinishListeningAsync();
         Program.Equal("the phrase is transcribed without the wait before it", (transcript?.Text, rig.Recorder.Skipped),
             ("Как дела?", TimeSpan.FromSeconds(11.5)));
-        Program.Equal("link.log tells how long it listened, how busy Link was and how long the transcript took",
+        Program.Equal("link.log tells how long it listened and how long the transcript took",
             rig.Log.Any(line => line.StartsWith("[Voice] listened ", StringComparison.Ordinal) &&
-                                line.Contains(" hands-free, Link CPU ", StringComparison.Ordinal) &&
+                                line.Contains(" hands-free", StringComparison.Ordinal) &&
                                 line.Contains(" transcribed ", StringComparison.Ordinal)), true);
 
         rig = new Rig();
