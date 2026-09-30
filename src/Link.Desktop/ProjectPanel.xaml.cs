@@ -41,6 +41,9 @@ public partial class ProjectPanel : UserControl
     /// <summary>The map of the workspace is to be written or brought up to date.</summary>
     public event Action? MapRequested;
 
+    /// <summary>A skill's SKILL.md, to be shown in Explorer.</summary>
+    public event Action<string>? SkillRequested;
+
     /// <summary>The check after edits was typed; empty runs none.</summary>
     public event Action<string>? CheckCommandChanged;
 
@@ -68,6 +71,9 @@ public partial class ProjectPanel : UserControl
             ? $"{ProjectMap.RelativePath} · {map.LastWriteTime.ToString("d MMM", CultureInfo.InvariantCulture)}"
             : "No map yet";
         MapButton.Content = map is { Exists: true } ? "Update map" : "Write map";
+        var skills = ProjectSkills.In(_workspace);
+        SkillsList.ItemsSource = skills;
+        SkillsEmptyText.Visibility = skills.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     public void ShowStateDate(ProjectState? state) =>
@@ -158,6 +164,11 @@ public partial class ProjectPanel : UserControl
     private void ClearWorkspace_OnClick(object sender, RoutedEventArgs e) => WorkspaceChosen?.Invoke(null);
 
     private void Map_OnClick(object sender, RoutedEventArgs e) => MapRequested?.Invoke();
+
+    private void Skill_OnClick(object sender, RoutedEventArgs e)
+    {
+        if ((sender as FrameworkElement)?.DataContext is ProjectSkill skill) SkillRequested?.Invoke(skill.FilePath);
+    }
 
     private void HistoryItem_OnClick(object sender, RoutedEventArgs e)
     {

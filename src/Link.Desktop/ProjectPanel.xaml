@@ -94,6 +94,24 @@
                             Click="Map_OnClick"
                             ToolTip="The agent looks through the folder, read only, and Link writes its answer to docs/map.md: what is where, how to build and check. Agents read the map instead of searching; press again when it is out of date." />
                 </Grid>
+                <!-- The workspace's skills: repeated work written down once, which both agents pick by its description. -->
+                <TextBlock x:Name="SkillsEmptyText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" Text="No skills yet"
+                           ToolTip="After a task that went well, Save as skill in Activity keeps it in .agents/skills" />
+                <ItemsControl x:Name="SkillsList" Margin="-8,3,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Style="{StaticResource GhostButtonStyle}" Margin="0,0,0,2" Padding="8,4" HorizontalContentAlignment="Stretch"
+                                    Click="Skill_OnClick" ToolTip="Show its SKILL.md in Explorer">
+                                <StackPanel>
+                                    <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="11.5" LineHeight="16" LineStackingStrategy="BlockLineHeight"
+                                               Foreground="{StaticResource MutedBrush}" Text="{Binding Description}" TextTrimming="CharacterEllipsis"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <!-- The check after the agent's edits: the user's own command, run as written in the workspace. -->
                 <Border Style="{StaticResource FieldStyle}" Margin="0,6,0,0"
                         ToolTip="Runs in the workspace after the agent's edits. While it fails, the agent gets its output and tries again, twice at most; a task is done only when it passes.">
