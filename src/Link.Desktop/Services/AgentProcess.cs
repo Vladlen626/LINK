@@ -23,6 +23,7 @@ public static class AgentProcess
     public static async Task<AgentProcessResult> RunAsync(
         AgentCommand command,
         Action<string> onLine,
+        Action<string>? onErrorLine,
         CancellationToken cancellationToken)
     {
         using var process = new Process { StartInfo = StartInfo(command) };
@@ -39,7 +40,11 @@ public static class AgentProcess
             throw;
         }
 
-        var errors = PumpAsync(process.StandardError, line => log.Add("! " + line));
+        var errors = PumpAsync(process.StandardError, line =>
+        {
+            log.Add("! " + line);
+            onErrorLine?.Invoke(line);
+        });
         var output = PumpAsync(process.StandardOutput, line =>
         {
             log.Add(line);

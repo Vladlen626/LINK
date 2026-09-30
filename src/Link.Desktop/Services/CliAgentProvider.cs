@@ -42,18 +42,32 @@ public abstract class CliAgentProvider : IAgentProvider
         var parser = CreateParser();
         var clock = Stopwatch.StartNew();
         TimeSpan? firstEvent = null;
-        var command = new AgentCommand(executable, Arguments(task), task.Workspace, task.Prompt);
+        var command = new AgentCommand(executable, Arguments(task), task.Workspace, Input(task));
         AgentProcessResult process;
         try
         {
-            process = await AgentProcess.RunAsync(command, line =>
+            // stdout and stderr are read on two threads; the parser takes one line at a time.
+            var turn = new Lock();
+            void Report(IReadOnlyList<AgentEvent> events)
             {
-                foreach (var agentEvent in parser.Read(line))
+                foreach (var agentEvent in events)
                 {
                     firstEvent ??= clock.Elapsed;
                     progress.Report(agentEvent);
                 }
-            }, cancellationToken);
+            }
+
+            process = await AgentProcess.RunAsync(
+                command,
+                line =>
+                {
+                    lock (turn) Report(parser.Read(line));
+                },
+                line =>
+                {
+                    lock (turn) Report(parser.ReadError(line));
+                },
+                cancellationToken);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -86,6 +100,9 @@ public abstract class CliAgentProvider : IAgentProvider
     /// <summary>The CLI's arguments for a task; the task's text itself goes on stdin.</summary>
     public abstract IReadOnlyList<string> Arguments(AgentTask task);
 
+    /// <summary>What the CLI reads on stdin: the task's text, and whatever the provider cannot take as an argument.</summary>
+    public virtual string Input(AgentTask task) => task.Prompt;
+
     public abstract AgentEventParser CreateParser();
 
     protected abstract IReadOnlyList<string> SignInCheck { get; }
@@ -107,6 +124,7 @@ public abstract class CliAgentProvider : IAgentProvider
             var result = await AgentProcess.RunAsync(
                 new AgentCommand(executable, arguments, Path.GetTempPath(), string.Empty),
                 line => output.AppendLine(line),
+                null,
                 timeout.Token);
             return result.Stopped ? null : output.Length > 0 ? output.ToString() : result.Log.Replace("! ", string.Empty);
         }
@@ -150,6 +168,9 @@ public abstract class AgentEventParser
     }
 
     protected abstract void Read(JsonElement root, List<AgentEvent> events);
+
+    /// <summary>A line of stderr: logs mostly, but some refusals are told only there.</summary>
+    public virtual IReadOnlyList<AgentEvent> ReadError(string line) => [];
 
     protected void Denied(string rule, List<AgentEvent> events, string text)
     {
