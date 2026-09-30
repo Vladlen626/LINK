@@ -20,6 +20,8 @@ public static class AgentProcess
     /// <summary>The log keeps the last this many characters of stdout and stderr together.</summary>
     public const int LogLimit = 256 * 1024;
 
+    private static readonly TimeSpan LeftoverGrace = TimeSpan.FromSeconds(2);
+
     public static async Task<AgentProcessResult> RunAsync(
         AgentCommand command,
         Action<string> onLine,
@@ -67,8 +69,12 @@ public static class AgentProcess
                 // The process ended before it read its task; its exit code and stderr tell why.
             }
 
-            await Task.WhenAll(output, errors);
             await process.WaitForExitAsync(CancellationToken.None);
+            // A process the agent left running (a dev server, a watcher) holds the pipes open and would keep the run
+            // going: after a moment for the last lines, the job ends it.
+            var pumps = Task.WhenAll(output, errors);
+            if (await Task.WhenAny(pumps, Task.Delay(LeftoverGrace, CancellationToken.None)) != pumps) job.Dispose();
+            await pumps;
         }
 
         return new AgentProcessResult(process.ExitCode, stopped, log.ToString());

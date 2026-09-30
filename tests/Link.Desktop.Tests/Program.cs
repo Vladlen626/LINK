@@ -12,8 +12,10 @@ internal static class Program
     private static int _checks;
     private static int _failures;
 
-    private static async Task<int> Main()
+    private static async Task<int> Main(string[] args)
     {
+        // The agent checks start this program again as a fake agent CLI.
+        if (args is [AgentTests.FakeFlag, var scenario]) return AgentTests.Fake(scenario);
         Console.OutputEncoding = Encoding.UTF8;
         SpeechTextTests.Run();
         PromptDraftTests.Run();
@@ -23,7 +25,8 @@ internal static class Program
                  {
                      ("voice session", VoiceSessionTests.RunAsync),
                      ("text to speech", TextToSpeechTests.RunAsync),
-                     ("embedded chat", EmbeddedChatTests.RunAsync)
+                     ("embedded chat", EmbeddedChatTests.RunAsync),
+                     ("agent", AgentTests.RunAsync)
                  })
         {
             var run = checks();

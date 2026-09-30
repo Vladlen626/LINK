@@ -17,4 +17,9 @@
     <ProjectReference Include="..\..\src\Link.Desktop\Link.Desktop.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- Events of real agent runs, read by the adapters' checks. -->
+    <None Include="Fixtures\*.jsonl" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
 </Project>
