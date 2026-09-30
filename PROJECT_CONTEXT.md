@@ -56,7 +56,9 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
   состояние, следующий шаг, вопросы). Дальше, если понадобится: варианты Full / Tiny и правила проекта.
 - **Decision memory** — нет: решения отдельно от summaries (active/deprecated), отдельно open questions.
 - **Commands** — нет: command palette, quicklinks, script commands (PowerShell/Python/EXE), локальные действия без AI.
-- **Agent** — нет: явный маршрут действий через CLI-агента (Claude Code или Codex), этапы — `docs/stages/`.
+- **Agent** — сделано (этап 4, 2026-09-30, на проверке): маршрут Agent через Claude Code или Codex CLI, карточка
+  подтверждения, Activity со Stop, решения (Allow and retry, Retry with edits, Run the plan), откат, `↻ Agent` /
+  `↻ To chat`. Дальше — этап 5 (Нори).
 
 ## Стек
 
@@ -112,6 +114,16 @@ Capture.
   Conversation` (коротко и разговорно, детали потом). Набор в поле, кнопки Link и Settings ставят слушание на
   паузу (фокус в поле — нет: после живой проверки 2026-09-30). Push-to-talk работает и пока чат думает. Ослышка
   исправляется ✎ Edit — новой попыткой из того же снимка; нераспознанную фразу просто повторяют.
+- Agent (2026-09-30, этап 4): общий раннер (`AgentProcess`: без окна, UTF-8, stdout/stderr параллельно, лог до
+  256 КБ, Job Object с kill-on-close) и два тонких адаптера: Claude Code `-p --output-format stream-json`, Codex
+  `exec --json`; задача — через stdin, продолжение — `--resume` / `exec resume` (у resume sandbox — через
+  `-c sandbox_mode=…`). Stop — сразу kill дерева: штатного прерывания без консоли у обоих CLI нет. Процесс, оставленный
+  агентом (сервер, watcher), держит stdout — через 2 с после выхода агента Job его завершает. Отказ read-only у Codex
+  виден только в stderr («blocked by read-only sandbox»). Codex открывает картинку посреди работы (проверено: PNG в
+  workspace прочитан верно) — этапу 5 кадры проверки подходят обоим. Карточка подтверждения и Activity — в боковой
+  панели, а не в layered-карточке: поверхность overlay не растёт. Одна задача агента за раз. Изменённый файл
+  открывается выделением в Explorer, не запуском. У проекта два списка правил Claude: «только чтение» (идёт и в
+  Analyze) и «для Do»; «Always allow» кладёт в список текущего доступа.
 - Fast / Normal / Deep: provider-neutral подсказка в запросе плюс переключение режима ChatGPT с проверкой; Normal
   возвращает режим, который был до LINK.
 - ChatGPT — только встроенная страница WebView2 (2026-09-26). Расширение и loopback HTTP-мост удалены, когда
@@ -205,6 +217,11 @@ Capture.
    тишины. Каждый запрос пишет строку `[Chat]`: подготовка в Link 16–90 мс, приём страницей 0,3–3,9 с, первый текст
    6–13 с.
 4. **Проекты и контекст** — память, решения, summaries, handoff, context router.
+5. **Agent** (этап 4) — Codex проверен вживую через раннер LINK (2026-09-30): ответ в read-only, session id,
+   строка `[Agent]`, Stop за ~1 с без оставшихся процессов; простой вопрос — первое событие через 5 с, ответ через
+   ~60 с. Claude Code вживую не прогонялся: CLI был без входа, фикстуры собраны по документированному формату
+   stream-json — после `claude auth login` сверить на живом прогоне (`permission_denials`, `system/init`). UI агента
+   (карточка, Activity, решения, откат) вживую проверяет пользователь.
 
 ## Для AI-агентов
 
