@@ -89,7 +89,8 @@ public partial class MainWindow
     {
         if (_panel is null || _projectPanel is null) return;
         var project = _projects.ActiveProject;
-        _panel.SetContent(project.Name, _projectPanel);
+        // The agent's card or Activity keeps the panel until the user goes back to the project.
+        if (!_panelShowsAgent) _panel.SetContent(project.Name, _projectPanel);
         _projectPanel.ShowProject(project);
         _projectPanel.ShowHistory(_projects.ReadHistory(project).Select(ToHistoryRow));
         _projectPanel.SetBusy(_sending);

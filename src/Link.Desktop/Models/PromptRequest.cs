@@ -27,7 +27,10 @@ public enum RequestRoute
     Chat,
 
     /// <summary>Only the text and the context the user attached, to see what Link's additions are worth.</summary>
-    Direct
+    Direct,
+
+    /// <summary>Not to the chat: a CLI agent works in the project's workspace, after a confirmation card.</summary>
+    Agent
 }
 
 /// <summary>How much time and length the assistant should spend on an answer.</summary>

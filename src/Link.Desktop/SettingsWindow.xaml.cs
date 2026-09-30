@@ -29,15 +29,22 @@ public partial class SettingsWindow : Window
     private AudioInputDevice? _disconnectedMicrophone;
     private CancellationTokenSource? _microphoneTest;
     private CancellationTokenSource? _voiceTest;
+    private readonly IAgentProvider[] _agents;
+    // The agents' files as chosen here; they apply on Save, like the rest.
+    private readonly AgentSettings _agentPaths;
+    private readonly CancellationTokenSource _agentChecks = new();
 
     public SettingsWindow(
         SettingsService settings,
         IAudioRecorder audio,
         TextToSpeechService textToSpeech,
         GeminiKeyStore geminiKey,
-        SpeechModelManager models)
+        SpeechModelManager models,
+        IEnumerable<IAgentProvider> agents)
     {
         _settings = settings;
+        _agents = agents.ToArray();
+        _agentPaths = settings.Current.Agent.Clone();
         _audio = audio;
         _textToSpeech = textToSpeech;
         _geminiKey = geminiKey;
@@ -79,6 +86,60 @@ public partial class SettingsWindow : Window
         SetHotkey(RegionHotkey, current.Hotkeys.CaptureRegion);
         SetHotkey(ConversationHotkey, current.Hotkeys.Conversation);
         VersionText.Text = $"Version {GetInformationalVersion()}";
+        DefaultAgentCombo.ItemsSource = _agents.Select(agent => agent.Name).ToArray();
+        DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_agents, agent => agent.Kind == current.Agent.DefaultProvider));
+        Closing += (_, _) => _agentChecks.Cancel();
+        Loaded += (_, _) => _ = CheckAgentsAsync();
+    }
+
+    /// <summary>
+    /// Runs each agent's CLI for its version and sign-in, off the UI thread; the files chosen here are tried before
+    /// they are saved.
+    /// </summary>
+    private async Task CheckAgentsAsync()
+    {
+        foreach (var agent in _agents)
+        {
+            var text = agent.Kind == AgentProviderKind.ClaudeCode ? ClaudeStatusText : CodexStatusText;
+            text.Text = "Checking…";
+            var chosen = _agentPaths.PathFor(agent.Kind);
+            try
+            {
+                var status = await agent.CheckAsync(chosen, _agentChecks.Token);
+                text.Text = !status.Installed
+                    ? chosen is null ? "Not found. Install it, or choose its file." : $"Not found: {chosen}"
+                    : $"{(status.SignedIn switch { true => "Signed in", false => "Not signed in", null => "Sign-in unknown" })}" +
+                      $" · {status.Version ?? "version unknown"}\n{status.ExecutablePath}";
+            }
+            catch (OperationCanceledException)
+            {
+                return;
+            }
+        }
+    }
+
+    private void ChooseAgent_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { Tag: string tag } || !Enum.TryParse<AgentProviderKind>(tag, out var kind)) return;
+        var dialog = new Microsoft.Win32.OpenFileDialog
+        {
+            Title = kind == AgentProviderKind.ClaudeCode ? "Choose claude.exe" : "Choose codex.exe",
+            Filter = "Programs (*.exe;*.cmd)|*.exe;*.cmd"
+        };
+        if (dialog.ShowDialog(this) != true) return;
+        SetAgentPath(kind, dialog.FileName);
+    }
+
+    private void AutoAgent_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { Tag: string tag } && Enum.TryParse<AgentProviderKind>(tag, out var kind)) SetAgentPath(kind, null);
+    }
+
+    private void SetAgentPath(AgentProviderKind kind, string? path)
+    {
+        if (kind == AgentProviderKind.ClaudeCode) _agentPaths.ClaudePath = path;
+        else _agentPaths.CodexPath = path;
+        _ = CheckAgentsAsync();
     }
 
     private void LoadMicrophones(AppSettings current)
@@ -489,6 +550,9 @@ public partial class SettingsWindow : Window
         current.Hotkeys.CaptureActiveWindow = GetHotkey(WindowHotkey);
         current.Hotkeys.CaptureRegion = GetHotkey(RegionHotkey);
         current.Hotkeys.Conversation = GetHotkey(ConversationHotkey);
+        current.Agent.DefaultProvider = DefaultAgentCombo.SelectedIndex >= 0 ? _agents[DefaultAgentCombo.SelectedIndex].Kind : current.Agent.DefaultProvider;
+        current.Agent.ClaudePath = _agentPaths.ClaudePath;
+        current.Agent.CodexPath = _agentPaths.CodexPath;
 
         try
         {

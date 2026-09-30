@@ -43,6 +43,7 @@ public partial class MainWindow : Window
         ScreenshotHistoryService history,
         ClipboardContextService clipboard,
         VoiceSession voice,
+        AgentCoordinator agents,
         SoundCues cues)
     {
         _settings = settings;
@@ -55,6 +56,7 @@ public partial class MainWindow : Window
         _clipboard = clipboard;
         _voice = voice;
         _cues = cues;
+        _agents = agents;
 
         InitializeComponent();
         _voice.PhaseChanged += OnVoicePhaseChanged;
@@ -200,6 +202,7 @@ public partial class MainWindow : Window
         }
 
         _sendCancellation?.Cancel();
+        _agentCancellation?.Cancel();
         _attempts.Forget();
         ClearContext(prune: true);
     }
@@ -229,7 +232,7 @@ public partial class MainWindow : Window
     }
 
     private LinkState State =>
-        _sending ? LinkState.Working
+        _sending || AgentRunning ? LinkState.Working
         : _connectionState == ChatConnectionState.SignInRequired ? LinkState.NeedsDecision
         : _unseen ?? LinkState.Idle;
 
@@ -331,6 +334,8 @@ public partial class MainWindow : Window
         // A correction belongs to the other project's snapshot.
         _editing = null;
         ProjectNameText.Text = project.Name;
+        // The Agent route names the project's own agent.
+        UpdateRouteButton();
         UpdateTaskChip();
         ShowProjectStateContext();
         UpdateConnectionState();
@@ -456,7 +461,7 @@ public partial class MainWindow : Window
     {
         if (!IsInitialized) return;
         // Direct takes no screenshot of its own.
-        var enabled = _settings.Current.AutoCaptureActiveWindowOnSend && _settings.Current.Route == RequestRoute.Chat;
+        var enabled = _settings.Current.AutoCaptureActiveWindowOnSend && _settings.Current.Route != RequestRoute.Direct;
         AutoScreenIndicator.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
         ScreenButton.ToolTip = enabled
             ? "Attach screen context · auto active window is on"
@@ -539,6 +544,7 @@ public partial class MainWindow : Window
     {
         var empty = string.IsNullOrEmpty(PromptBox.Text);
         PromptPlaceholder.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
+        UpdateAgentHint();
         // A cleared prompt no longer holds the dictated words, so its answer is not read aloud.
         if (!empty) return;
         _voice.ForgetVoicePrompt();
@@ -556,6 +562,13 @@ public partial class MainWindow : Window
         // Enter sends, Shift+Enter keeps the TextBox newline. IME composition arrives as ImeProcessed.
         if (e.Key != Key.Return || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
         e.Handled = true;
+        // Ctrl+Enter: to the agent, through its confirmation card.
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            if (!_sending && !e.IsRepeat) await OpenAgentCardFromPromptAsync();
+            return;
+        }
+
         // The send button may mean Stop right now; Enter only ever sends.
         if (!_sending && !e.IsRepeat) await SendOrQueueAsync();
     }

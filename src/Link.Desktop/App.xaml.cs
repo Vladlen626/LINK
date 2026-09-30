@@ -22,6 +22,7 @@ public partial class App : System.Windows.Application
     private SherpaStreamingSpeechToText? _streamingSpeech;
     private SpeechModelManager? _speechModels;
     private GeminiKeyStore? _geminiKey;
+    private AgentCoordinator? _agents;
     private TextToSpeechService? _textToSpeech;
     private EmbeddedChatIntegration? _chat;
     private ChatPageWindow? _chatPage;
@@ -81,6 +82,14 @@ public partial class App : System.Windows.Application
             TimeProvider.System,
             Log);
         var cues = new SoundCues(speaker, _settings.Current, () => voice.Phase == VoicePhase.Speaking);
+        // The agents' CLIs start only for a task or a check in Settings, never with Link.
+        var settings = _settings;
+        _agents = new AgentCoordinator(
+            [
+                new ClaudeCodeProvider(() => settings.Current.Agent, Log),
+                new CodexProvider(() => settings.Current.Agent, Log)
+            ],
+            new AgentChanges(paths.Backups));
 
         _mainWindow = new MainWindow(
             _settings,
@@ -92,6 +101,7 @@ public partial class App : System.Windows.Application
             history,
             clipboard,
             voice,
+            _agents,
             cues);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
@@ -232,7 +242,7 @@ public partial class App : System.Windows.Application
     private void ShowSettings()
     {
         if (_settings is null || _mainWindow is null || _hotkeys is null || _audio is null || _textToSpeech is null
-            || _geminiKey is null || _speechModels is null)
+            || _geminiKey is null || _speechModels is null || _agents is null)
         {
             return;
         }
@@ -243,7 +253,7 @@ public partial class App : System.Windows.Application
         _mainWindow.PauseConversation(true);
         try
         {
-            var window = new SettingsWindow(_settings, _audio, _textToSpeech, _geminiKey, _speechModels);
+            var window = new SettingsWindow(_settings, _audio, _textToSpeech, _geminiKey, _speechModels, _agents.Providers);
             if (_mainWindow.IsVisible) window.Owner = _mainWindow;
             if (window.ShowDialog() == true)
             {

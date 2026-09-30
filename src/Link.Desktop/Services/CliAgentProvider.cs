@@ -24,9 +24,9 @@ public abstract class CliAgentProvider : IAgentProvider
 
     public string? FindExecutable() => AgentExecutables.Find(Kind, _settings().PathFor(Kind));
 
-    public async Task<AgentProviderStatus> CheckAsync(CancellationToken cancellationToken)
+    public async Task<AgentProviderStatus> CheckAsync(string? chosenPath, CancellationToken cancellationToken)
     {
-        var executable = FindExecutable();
+        var executable = AgentExecutables.Find(Kind, chosenPath);
         if (executable is null) return new AgentProviderStatus(null, null, null);
         var version = await QuietAsync(executable, ["--version"], cancellationToken);
         var signedIn = await QuietAsync(executable, SignInCheck, cancellationToken) is { } answer
@@ -86,7 +86,8 @@ public abstract class CliAgentProvider : IAgentProvider
             Stopped = process.Stopped,
             ExitCode = process.ExitCode,
             Denials = parser.Denials.Distinct().ToArray(),
-            ChangedFiles = parser.ChangedFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToArray()
+            ChangedFiles = parser.ChangedFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            Log = process.Log
         };
         // Never the task's text: it can hold anything the user wrote.
         var outcome = result.Stopped ? "stopped" : result.Succeeded ? "done" : $"failed (exit {result.ExitCode})";

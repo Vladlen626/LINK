@@ -28,7 +28,8 @@ public partial class MainWindow
     private static readonly (RequestRoute Route, string Label, string Description)[] RouteOptions =
     [
         (RequestRoute.Chat, "Chat", "Chat — with the project, its task and state, the work window and a depth hint"),
-        (RequestRoute.Direct, "Direct", "Direct — only your text and what you attached")
+        (RequestRoute.Direct, "Direct", "Direct — only your text and what you attached"),
+        (RequestRoute.Agent, "Agent", "Agent — Claude Code or Codex works in the workspace, after a card you confirm")
     ];
     private static readonly (ResponseEffort Effort, string Label, string Description)[] EffortOptions =
     [
@@ -132,6 +133,12 @@ public partial class MainWindow
         if (_editing is { } edited && !string.IsNullOrWhiteSpace(PromptBox.Text))
         {
             await SendCorrectedAsync(edited);
+            return;
+        }
+
+        if (_settings.Current.Route == RequestRoute.Agent)
+        {
+            await OpenAgentCardFromPromptAsync();
             return;
         }
 
@@ -467,13 +474,15 @@ public partial class MainWindow
         UpdateTaskChip();
         ShowProjectStateContext();
         UpdateAutoScreenIndicator();
+        UpdateAgentHint();
         SetStatus($"Route: {RouteText.Text} — applies to the next message");
     }
 
     private void UpdateRouteButton()
     {
         var option = RouteOptions.First(option => option.Route == _settings.Current.Route);
-        RouteText.Text = option.Label;
+        // Agent shows who works and how: read only unless a task's card says otherwise.
+        RouteText.Text = option.Route == RequestRoute.Agent ? $"{ShortName(ProjectProvider)} · read" : option.Label;
         RouteButton.ToolTip = $"Route: {option.Description}";
     }
 

@@ -13,8 +13,11 @@ public interface IAgentProvider
     /// <summary>The name the user sees: "Claude Code", "Codex".</summary>
     string Name { get; }
 
-    /// <summary>Whether the CLI is found and signed in, and its version. Runs the CLI, so call it off the UI path.</summary>
-    Task<AgentProviderStatus> CheckAsync(CancellationToken cancellationToken);
+    /// <summary>
+    /// Whether the CLI is found and signed in, and its version; <paramref name="chosenPath"/> is a file chosen for it,
+    /// null finds it. Runs the CLI, so call it off the UI path.
+    /// </summary>
+    Task<AgentProviderStatus> CheckAsync(string? chosenPath, CancellationToken cancellationToken);
 
     /// <summary>
     /// Runs the task and reports its events as they come. Cancelling stops the agent and its child processes; the

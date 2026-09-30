@@ -185,6 +185,12 @@
                                                Foreground="{StaticResource MutedBrush}" Text="Conversation" />
                                 </StackPanel>
                             </Button>
+                            <!-- Lit by a verb of action; the route itself stays. -->
+                            <Button x:Name="AgentHintButton" Style="{StaticResource GhostButtonStyle}" Height="24" Margin="2,0,0,0"
+                                    Padding="8,2,8,2" Click="AgentHint_OnClick" Visibility="Collapsed"
+                                    ToolTip="Sounds like work: let an agent do it in the workspace (Ctrl+Enter). A card confirms first.">
+                                <TextBlock VerticalAlignment="Center" FontSize="11.5" Foreground="{StaticResource AccentBrush}" Text="↳ Agent?" />
+                            </Button>
                         </StackPanel>
 
                         <Grid x:Name="ContextActionsPanel" Margin="0,6,0,0">
@@ -351,6 +357,9 @@
                                         ToolTip="Ask the same again with only its text and attachments" />
                                 <Button x:Name="FreshScreenButton" Height="22" Margin="0,4,4,0" Padding="9,0" FontSize="11"
                                         Click="Redirect_OnClick" Content="↻ Fresh screen" />
+                                <Button x:Name="ToAgentButton" Height="22" Margin="0,4,4,0" Padding="9,0" FontSize="11"
+                                        Click="ToAgent_OnClick" Content="↻ Agent"
+                                        ToolTip="Give the same to an agent in the workspace; a card confirms first" />
                                 <Button x:Name="EditButton" Height="22" Margin="0,4,0,0" Padding="9,0" FontSize="11" Click="Edit_OnClick"
                                         Content="✎ Edit" ToolTip="Correct the question, e.g. a misheard word, and ask again with the same screen and context" />
                             </WrapPanel>

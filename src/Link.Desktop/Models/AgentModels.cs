@@ -78,6 +78,9 @@ public sealed record AgentResult
     public int ExitCode { get; init; }
     public IReadOnlyList<string> Denials { get; init; } = [];
     public IReadOnlyList<string> ChangedFiles { get; init; } = [];
+
+    /// <summary>The tail of the CLI's stdout and stderr, shown on request.</summary>
+    public string Log { get; init; } = string.Empty;
 }
 
 /// <summary>What Settings shows for a provider: whether its CLI is found, signed in, and its version.</summary>
@@ -106,4 +109,6 @@ public sealed class AgentSettings
 
     public string? PathFor(AgentProviderKind provider) =>
         provider == AgentProviderKind.ClaudeCode ? ClaudePath : CodexPath;
+
+    public AgentSettings Clone() => new() { DefaultProvider = DefaultProvider, ClaudePath = ClaudePath, CodexPath = CodexPath };
 }

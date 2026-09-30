@@ -21,5 +21,8 @@ public enum ContextItemType
     ChatSummary,
 
     /// <summary>The project's state. It goes to the chat; a request that sends only the prompt leaves it out.</summary>
-    ProjectState
+    ProjectState,
+
+    /// <summary>An agent's result and the files it changed, sent to the chat to ask about the work.</summary>
+    AgentResult
 }
