@@ -55,6 +55,23 @@ internal static class NativeMethods
     internal const int WaveHeaderDone = 0x00000001;
     internal const int DrvQueryFunctionInstanceId = 0x0811;
     internal const int DrvQueryFunctionInstanceIdSize = 0x0812;
+    internal const int JobObjectExtendedLimitInformationClass = 9;
+    internal const uint JobObjectLimitKillOnJobClose = 0x00002000;
+
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
+    internal static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateJobObject(IntPtr attributes, string? name);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool SetInformationJobObject(
+        Microsoft.Win32.SafeHandles.SafeFileHandle job,
+        int infoClass,
+        ref JobObjectExtendedLimitInformation info,
+        int infoLength);
+
+    [DllImport("kernel32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool AssignProcessToJobObject(Microsoft.Win32.SafeHandles.SafeFileHandle job, IntPtr process);
 
     [DllImport("user32.dll", EntryPoint = "GetWindowLongPtrW")]
     internal static extern IntPtr GetWindowLongPtr(IntPtr hWnd, int index);
@@ -340,4 +357,40 @@ internal struct DwmMargins
     public int Right;
     public int Top;
     public int Bottom;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct JobObjectBasicLimitInformation
+{
+    public long PerProcessUserTimeLimit;
+    public long PerJobUserTimeLimit;
+    public uint LimitFlags;
+    public UIntPtr MinimumWorkingSetSize;
+    public UIntPtr MaximumWorkingSetSize;
+    public uint ActiveProcessLimit;
+    public UIntPtr Affinity;
+    public uint PriorityClass;
+    public uint SchedulingClass;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct IoCounters
+{
+    public ulong ReadOperationCount;
+    public ulong WriteOperationCount;
+    public ulong OtherOperationCount;
+    public ulong ReadTransferCount;
+    public ulong WriteTransferCount;
+    public ulong OtherTransferCount;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct JobObjectExtendedLimitInformation
+{
+    public JobObjectBasicLimitInformation BasicLimitInformation;
+    public IoCounters IoInfo;
+    public UIntPtr ProcessMemoryLimit;
+    public UIntPtr JobMemoryLimit;
+    public UIntPtr PeakProcessMemoryUsed;
+    public UIntPtr PeakJobMemoryUsed;
 }
