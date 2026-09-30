@@ -41,7 +41,7 @@ public abstract class CliAgentProvider : IAgentProvider
     {
         var executable = FindExecutable()
             ?? throw new InvalidOperationException($"{Name} is not found. Install it or choose its file in Settings.");
-        var parser = CreateParser();
+        var parser = CreateParser(task);
         var loops = new AgentLoopDetector(task.Access == AgentAccess.Do && !task.PlanOnly);
         var clock = Stopwatch.StartNew();
         TimeSpan? firstEvent = null;
@@ -115,7 +115,7 @@ public abstract class CliAgentProvider : IAgentProvider
     {
         var before = stats.SearchesBeforeChange is { } count ? $" ({count} before a change)" : string.Empty;
         var tokens = stats.InputTokens is { } input
-            ? $"tokens in {input} (cached {stats.CachedTokens ?? 0}) out {stats.OutputTokens ?? 0}"
+            ? $"tokens in {input} (cached {stats.CachedTokens ?? 0}) out {stats.OutputTokens ?? 0}{(stats.SessionTokens ? " for the session" : string.Empty)}"
             : "tokens unknown";
         var cost = stats.CostUsd is { } usd ? ", cost $" + usd.ToString("0.####", CultureInfo.InvariantCulture) : string.Empty;
         return $"turns {stats.Turns}, tools {stats.ToolCalls}, searches {stats.Searches}{before}, tool errors {stats.ToolErrors}, {tokens}{cost}";
@@ -127,7 +127,7 @@ public abstract class CliAgentProvider : IAgentProvider
     /// <summary>What the CLI reads on stdin: the task's text, and whatever the provider cannot take as an argument.</summary>
     public virtual string Input(AgentTask task) => task.Prompt;
 
-    public abstract AgentEventParser CreateParser();
+    public abstract AgentEventParser CreateParser(AgentTask task);
 
     protected abstract IReadOnlyList<string> SignInCheck { get; }
 
@@ -201,10 +201,14 @@ public abstract partial class AgentEventParser
         InputTokens = _inputTokens,
         CachedTokens = _cachedTokens,
         OutputTokens = _outputTokens,
-        CostUsd = _cost
+        CostUsd = _cost,
+        SessionTokens = TokensOfSession && _inputTokens is not null
     };
 
     protected int Turns { get; set; }
+
+    /// <summary>The provider reports the tokens of the whole session so far, as Codex does for a resumed one.</summary>
+    protected bool TokensOfSession { get; init; }
 
     public IReadOnlyList<AgentEvent> Read(string line)
     {

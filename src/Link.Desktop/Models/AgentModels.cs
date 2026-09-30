@@ -133,22 +133,35 @@ public sealed record AgentStats
     /// <summary>What the run would cost on the API; Claude Code reports it, Codex does not.</summary>
     public decimal? CostUsd { get; init; }
 
+    /// <summary>
+    /// The tokens are the whole session's so far, not this run's: Codex counts them so when it resumes a session.
+    /// </summary>
+    public bool SessionTokens { get; init; }
+
     public TimeSpan Duration { get; init; }
 
     /// <summary>These numbers and those of the run that continued this one, as one task's.</summary>
-    public AgentStats Add(AgentStats next) => new()
+    public AgentStats Add(AgentStats next)
     {
-        Turns = Turns + next.Turns,
-        ToolCalls = ToolCalls + next.ToolCalls,
-        Searches = Searches + next.Searches,
-        SearchesBeforeChange = SearchesBeforeChange ?? (next.SearchesBeforeChange is { } count ? Searches + count : null),
-        ToolErrors = ToolErrors + next.ToolErrors,
-        InputTokens = InputTokens is null && next.InputTokens is null ? null : (InputTokens ?? 0) + (next.InputTokens ?? 0),
-        CachedTokens = CachedTokens is null && next.CachedTokens is null ? null : (CachedTokens ?? 0) + (next.CachedTokens ?? 0),
-        OutputTokens = OutputTokens is null && next.OutputTokens is null ? null : (OutputTokens ?? 0) + (next.OutputTokens ?? 0),
-        CostUsd = CostUsd is null && next.CostUsd is null ? null : (CostUsd ?? 0) + (next.CostUsd ?? 0),
-        Duration = Duration + next.Duration
-    };
+        // A continuation that counts the session already holds this run's tokens.
+        var tokens = next.SessionTokens ? next : null;
+        return new AgentStats
+        {
+            Turns = Turns + next.Turns,
+            ToolCalls = ToolCalls + next.ToolCalls,
+            Searches = Searches + next.Searches,
+            SearchesBeforeChange = SearchesBeforeChange ?? (next.SearchesBeforeChange is { } count ? Searches + count : null),
+            ToolErrors = ToolErrors + next.ToolErrors,
+            InputTokens = tokens is not null ? tokens.InputTokens : Sum(InputTokens, next.InputTokens),
+            CachedTokens = tokens is not null ? tokens.CachedTokens : Sum(CachedTokens, next.CachedTokens),
+            OutputTokens = tokens is not null ? tokens.OutputTokens : Sum(OutputTokens, next.OutputTokens),
+            CostUsd = CostUsd is null && next.CostUsd is null ? null : (CostUsd ?? 0) + (next.CostUsd ?? 0),
+            SessionTokens = SessionTokens || next.SessionTokens,
+            Duration = Duration + next.Duration
+        };
+
+        static long? Sum(long? first, long? second) => first is null && second is null ? null : (first ?? 0) + (second ?? 0);
+    }
 }
 
 /// <summary>What Settings shows for a provider: whether its CLI is found, signed in, and its version.</summary>

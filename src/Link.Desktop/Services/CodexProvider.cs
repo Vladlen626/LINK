@@ -42,15 +42,21 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
             ? "Make a plan only: read what you need, change nothing, and answer with the steps you would take.\n\n" + task.Prompt
             : task.Prompt;
 
-    public override AgentEventParser CreateParser() => new CodexEventParser();
+    public override AgentEventParser CreateParser(AgentTask task) => new CodexEventParser(resumed: task.ResumeSessionId is not null);
 
     protected override bool IsSignedIn(string answer) =>
         answer.Contains("Logged in", StringComparison.OrdinalIgnoreCase);
 }
 
-/// <summary>Codex's JSONL: <c>thread.started</c>, <c>item.*</c> (messages, commands, file changes, MCP calls), <c>turn.*</c>.</summary>
+/// <summary>
+/// Codex's JSONL: <c>thread.started</c>, <c>item.*</c> (messages, commands, file changes, MCP calls), <c>turn.*</c>.
+/// The usage of <c>turn.completed</c> is the thread's total so far, so a resumed run reports its session's tokens.
+/// </summary>
 public sealed partial class CodexEventParser : AgentEventParser
 {
+    // Seen on a real resume: the note asked after a 33-minute run reported that whole run's tokens.
+    public CodexEventParser(bool resumed = false) => TokensOfSession = resumed;
+
     protected override void Read(JsonElement root, List<AgentEvent> events)
     {
         switch (Text(root, "type"))

@@ -85,6 +85,14 @@ internal static class AgentTests
 
     private static void ProjectCheck()
     {
+        var project = new LinkProject { Name = "Nori", DataFolder = "C:\\Data", CheckCommand = "dotnet build" };
+        var snapshot = new InputSnapshot { ProjectId = project.Id, ProjectName = project.Name, Text = "Fix the camera" };
+        var edits = AgentCoordinator.BuildTask(new AgentPlan(AgentProviderKind.Codex, "C:\\Work", AgentAccess.Do, false, false, "Fix the camera"), snapshot, project);
+        Program.Equal("check: with edits the agent is told that Link runs the check",
+            edits.Prompt.EndsWith(AgentCoordinator.CheckNote("dotnet build"), StringComparison.Ordinal) && edits.Prompt.Contains("`dotnet build`"), true);
+        var readOnly = AgentCoordinator.BuildTask(new AgentPlan(AgentProviderKind.Codex, "C:\\Work", AgentAccess.Analyze, false, false, "Fix the camera"), snapshot, project);
+        Program.Equal("check: read only is told nothing of it", readOnly.Prompt, "Fix the camera");
+
         var old = JsonSerializer.Deserialize<LinkProject>("""{"Name":"Nori","DataFolder":"C:\\Data"}""")!;
         old.Normalize();
         Program.Equal("project: older JSON loads without a check", old.CheckCommand, null);
@@ -372,6 +380,15 @@ internal static class AgentTests
             ((long?)182340, (long?)160512, (long?)3120, (decimal?)null));
         Program.Equal("Codex stats: git status, even with a read after it, is not a search",
             Parse(new CodexEventParser(), "codex-read.jsonl").Parser.Stats.Searches, 0);
+        var resumed = Parse(new CodexEventParser(resumed: true), "codex-do.jsonl").Parser.Stats;
+        Program.Equal("Codex stats: a resumed run reports the session's tokens and says so",
+            (resumed.SessionTokens, CliAgentProvider.LogStats(resumed).EndsWith("out 3120 for the session", StringComparison.Ordinal)), (true, true));
+        var first = new AgentStats { InputTokens = 100, CachedTokens = 50, OutputTokens = 10 };
+        Program.Equal("stats: a continuation that counts its own run adds up",
+            first.Add(new AgentStats { InputTokens = 40, CachedTokens = 30, OutputTokens = 5 }).InputTokens, (long?)140);
+        var session = first.Add(new AgentStats { InputTokens = 180, CachedTokens = 120, OutputTokens = 20, SessionTokens = true });
+        Program.Equal("stats: a continuation that counts the session already holds the first run",
+            (session.InputTokens, session.OutputTokens, session.SessionTokens), ((long?)180, (long?)20, true));
 
         foreach (var (command, search) in new[]
                  {
@@ -558,7 +575,7 @@ internal static class AgentTests
         public override string Name => "Fake";
         protected override IReadOnlyList<string> SignInCheck => [];
         public override IReadOnlyList<string> Arguments(AgentTask task) => [FakeFlag, scenario];
-        public override AgentEventParser CreateParser() => new ClaudeEventParser();
+        public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser();
         protected override bool IsSignedIn(string answer) => true;
     }
 

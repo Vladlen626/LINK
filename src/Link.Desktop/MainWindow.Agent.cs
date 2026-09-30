@@ -425,7 +425,8 @@ public partial class MainWindow
                 ResumeSessionId = session,
                 Access = AgentAccess.Do,
                 PlanOnly = false,
-                Prompt = "You may change files in the workspace now. Carry out the task.",
+                Prompt = "You may change files in the workspace now. Carry out the task." +
+                         (task.CheckCommand is { } check ? " " + AgentCoordinator.CheckNote(check) : string.Empty),
                 Images = []
             }, task.Access == AgentAccess.Do ? run : null);
             return true;
@@ -571,7 +572,8 @@ public partial class MainWindow
         if (stats.ToolErrors > 0) parts.Add(Plural(stats.ToolErrors, "tool error", "tool errors"));
         if (stats.InputTokens is { } input)
         {
-            parts.Add($"{Tokens(input)} tokens in ({Tokens(stats.CachedTokens ?? 0)} cached), {Tokens(stats.OutputTokens ?? 0)} out");
+            parts.Add($"{Tokens(input)} tokens in ({Tokens(stats.CachedTokens ?? 0)} cached), {Tokens(stats.OutputTokens ?? 0)} out" +
+                      (stats.SessionTokens ? " for the session" : string.Empty));
         }
 
         if (stats.CostUsd is { } usd) parts.Add(usd.ToString("$0.00", CultureInfo.InvariantCulture));

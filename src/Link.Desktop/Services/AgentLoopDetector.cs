@@ -87,7 +87,8 @@ public sealed partial class AgentLoopDetector
     private static string Telling(string error)
     {
         var lines = error.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries);
-        var line = lines.FirstOrDefault(line => line.Contains("error", StringComparison.OrdinalIgnoreCase)) ?? lines.FirstOrDefault() ?? string.Empty;
+        // A command killed or refused in the sandbox may fail without a word.
+        var line = lines.FirstOrDefault(line => line.Contains("error", StringComparison.OrdinalIgnoreCase)) ?? lines.FirstOrDefault() ?? "no output";
         return line.Length <= 120 ? line : line[..119] + "…";
     }
 

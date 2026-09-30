@@ -40,7 +40,7 @@ public sealed class ClaudeCodeProvider(Func<AgentSettings> settings, Action<stri
             ? task.Prompt
             : task.Prompt + "\n\nImages attached to this task (open them with Read):\n" + string.Join('\n', task.Images);
 
-    public override AgentEventParser CreateParser() => new ClaudeEventParser();
+    public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser();
 
     protected override bool IsSignedIn(string answer)
     {

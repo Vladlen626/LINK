@@ -53,7 +53,7 @@ public sealed class AgentCoordinator
     /// <summary>
     /// The task the card describes: the goal first, then what Link knows of the project (task and state) and the
     /// snapshot's text context; its screenshots go as images. The project's read tools are always allowed, its Do tools
-    /// only in Do.
+    /// only in Do. With edits and a check, the agent is told that Link runs the check, as the card says.
     /// </summary>
     public static AgentTask BuildTask(AgentPlan plan, InputSnapshot snapshot, LinkProject project)
     {
@@ -73,6 +73,7 @@ public sealed class AgentCoordinator
             }
         }
 
+        if (plan.Access == AgentAccess.Do && project.CheckCommand is { } check) prompt.Append("\n\n").Append(CheckNote(check));
         var tools = plan.Access == AgentAccess.Do ? project.AgentReadTools.Concat(project.AgentDoTools) : project.AgentReadTools;
         return new AgentTask
         {
@@ -174,6 +175,14 @@ public sealed class AgentCoordinator
         _log($"[Agent] check {(retry == 0 ? "after Do" : $"after retry {retry}")}: {check}, {CliAgentProvider.Seconds(check.Duration)}");
         return check;
     }
+
+    /// <summary>
+    /// What the agent is told of the check with its task. Told nothing, Codex ran a browser check in its own sandbox,
+    /// where it cannot work, for half an hour, and changed the check and the project's server to get it going.
+    /// </summary>
+    public static string CheckNote(string command) =>
+        $"When you finish, Link runs the project's check `{command}` itself and gives you its output if it fails: " +
+        "you need not run it, and leave it as it is.";
 
     /// <summary>What the agent is told when the check fails: the command, its exit and the end of its output.</summary>
     internal static string CheckFailed(string command, AgentCheckResult check) =>

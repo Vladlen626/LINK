@@ -217,8 +217,8 @@ public partial class AgentPanel : UserControl
         if (_card is not { } card) return;
         var edits = SelectedAccess == AgentAccess.Do;
         BackupBox.Visibility = edits && !card.WorkspaceHasGit ? Visibility.Visible : Visibility.Collapsed;
-        CheckText.Text = $"After the edits Link runs the check: {card.CheckCommand}. While it fails, the agent gets its output, " +
-                         $"{AgentCoordinator.CheckRetries} times at most.";
+        CheckText.Text = $"After the edits Link runs the check itself, and the agent is told so: {card.CheckCommand}. " +
+                         $"While it fails, the agent gets its output, {AgentCoordinator.CheckRetries} times at most.";
         CheckText.Visibility = edits && card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
         RunButton.IsEnabled = card.Workspace is not null;
         RunButton.Content = PlanFirstBox.IsChecked == true ? "Make a plan" : edits ? "Run with edits" : "Run";
