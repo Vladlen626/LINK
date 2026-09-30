@@ -59,10 +59,12 @@ public sealed class AppSettings
     public WindowPlacement Window { get; set; } = new();
     public SidePanelSettings SidePanel { get; set; } = new();
     public HotkeySettings Hotkeys { get; set; } = new();
+    public AgentSettings Agent { get; set; } = new();
 
     public void Normalize()
     {
         Window ??= new WindowPlacement();
+        Agent ??= new AgentSettings();
         SidePanel ??= new SidePanelSettings();
         Hotkeys ??= new HotkeySettings();
         if (SchemaVersion < 4)
@@ -99,6 +101,7 @@ public sealed class AppSettings
         Window.Normalize();
         SidePanel.Normalize();
         Hotkeys.Normalize();
+        Agent.Normalize();
     }
 }
 
