@@ -39,7 +39,8 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The agent's task for the project map lies beside Link.exe: it can be changed without a new build. -->
+    <!-- The agent's rules and tasks lie beside Link.exe: they can be changed without a new build. -->
+    <Content Include="..\..\docs\harness\agent-rules.md" Link="harness\agent-rules.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\map-task.md" Link="harness\map-task.md" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 

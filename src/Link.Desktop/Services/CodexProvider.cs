@@ -15,6 +15,9 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
     public override string Name => "Codex";
     protected override IReadOnlyList<string> SignInCheck => ["login", "status"];
 
+    // Codex reads .agents/skills from its folder up to the repository's root.
+    protected override bool FindsSkills => true;
+
     public override IReadOnlyList<string> Arguments(AgentTask task)
     {
         var sandbox = task.Access == AgentAccess.Do && !task.PlanOnly ? "workspace-write" : "read-only";

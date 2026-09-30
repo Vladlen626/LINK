@@ -486,8 +486,42 @@ internal static class AgentTests
             "exec resume t1 --json --skip-git-repo-check -c sandbox_mode=read-only -");
         Program.Equal("Codex plan-first stays read-only",
             codex.Arguments(analyze with { Access = AgentAccess.Do, PlanOnly = true }).Contains("read-only"), true);
+        Rules(claude, codex);
         Program.Equal("cmd.exe quoting leaves a plain flag alone and quotes a path with spaces",
             AgentProcess.QuoteForCmd("--json") + " " + AgentProcess.QuoteForCmd(@"C:\My Work"), "--json \"C:\\My Work\"");
+    }
+
+    /// <summary>Every new session starts with the rules; Claude gets the workspace's skills listed, Codex finds them itself.</summary>
+    private static void Rules(ClaudeCodeProvider claude, CodexProvider codex)
+    {
+        Program.Equal("rules: they ship beside Link", File.Exists(AgentRules.File), true);
+        var workspace = TempFolder();
+        try
+        {
+            var skill = Path.Combine(ProjectSkills.FolderIn(workspace), "browser-check");
+            Directory.CreateDirectory(skill);
+            File.WriteAllText(Path.Combine(skill, "SKILL.md"), "---\nname: browser-check\ndescription: >\n  Check the game\n  in a browser.\n---\n\n# Steps\n");
+            Directory.CreateDirectory(Path.Combine(ProjectSkills.FolderIn(workspace), "empty"));
+            Program.Equal("skills: a folder without SKILL.md is not one, a folded description is one line",
+                string.Join("|", ProjectSkills.In(workspace).Select(s => $"{s.Name}: {s.Description}")), "browser-check: Check the game in a browser.");
+
+            var task = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = workspace, Prompt = "Fix the camera" };
+            var input = claude.StandardInput(task);
+            Program.Equal("rules: a new session gets them before the task, without the editor's note",
+                input.StartsWith("# ", StringComparison.Ordinal) && input.EndsWith("\n\n# Task\n\nFix the camera", StringComparison.Ordinal) && !input.Contains("<!--"), true);
+            Program.Equal("rules: Claude gets the workspace's skills listed",
+                input.Contains("- `.agents/skills/browser-check/SKILL.md`: Check the game in a browser."), true);
+            Program.Equal("rules: Codex finds the skills itself", codex.StandardInput(task).Contains("browser-check"), false);
+            Program.Equal("rules: a resumed session has them already", claude.StandardInput(task with { ResumeSessionId = "s1" }), "Fix the camera");
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+
+        Program.Equal("skills: names as both agents accept them",
+            string.Join(",", new[] { "browser-check", "a1", "Browser", "a--b", "-a", "a_b", "" }.Select(ProjectSkills.IsName)),
+            "True,True,False,False,False,False,False");
     }
 
     private static async Task StreamAsync()

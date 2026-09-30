@@ -45,7 +45,7 @@ public abstract class CliAgentProvider : IAgentProvider
         var loops = new AgentLoopDetector(task.Access == AgentAccess.Do && !task.PlanOnly);
         var clock = Stopwatch.StartNew();
         TimeSpan? firstEvent = null;
-        var command = new AgentCommand(executable, Arguments(task), task.Workspace, Input(task));
+        var command = new AgentCommand(executable, Arguments(task), task.Workspace, StandardInput(task));
         AgentProcessResult process;
         try
         {
@@ -126,6 +126,13 @@ public abstract class CliAgentProvider : IAgentProvider
 
     /// <summary>What the CLI reads on stdin: the task's text, and whatever the provider cannot take as an argument.</summary>
     public virtual string Input(AgentTask task) => task.Prompt;
+
+    /// <summary>Whether the CLI finds the workspace's skills (<see cref="ProjectSkills"/>) by itself.</summary>
+    protected virtual bool FindsSkills => false;
+
+    /// <summary>What the CLI gets on stdin: a new session starts with the agent's rules, a resumed one has them.</summary>
+    public string StandardInput(AgentTask task) =>
+        task.ResumeSessionId is null ? AgentRules.Before(Input(task), task.Workspace, !FindsSkills) : Input(task);
 
     public abstract AgentEventParser CreateParser(AgentTask task);
 
