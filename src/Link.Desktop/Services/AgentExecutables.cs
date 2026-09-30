@@ -34,7 +34,16 @@ public static class AgentExecutables
             // The native installer, WinGet, then the copy the Claude desktop app keeps for itself, newest first.
             yield return Path.Combine(profile, ".local", "bin", "claude.exe");
             yield return Path.Combine(local, "Microsoft", "WinGet", "Links", "claude.exe");
-            foreach (var bundled in Newest(Path.Combine(roaming, "Claude", "claude-code"), "claude.exe")) yield return bundled;
+            // The Claude app is packaged (MSIX): Windows keeps its Roaming folder under Packages, and only the app
+            // itself sees it at the usual place.
+            var packaged = Directory.Exists(Path.Combine(local, "Packages"))
+                ? Directory.GetDirectories(Path.Combine(local, "Packages"), "Claude_*")
+                    .Select(package => Path.Combine(package, "LocalCache", "Roaming", "Claude", "claude-code"))
+                : [];
+            foreach (var root in packaged.Prepend(Path.Combine(roaming, "Claude", "claude-code")))
+            {
+                foreach (var bundled in Newest(root, "claude.exe")) yield return bundled;
+            }
         }
         else
         {
