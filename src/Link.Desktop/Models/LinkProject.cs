@@ -16,8 +16,14 @@ public sealed class LinkProject
     /// <summary>The agent this project works with; null uses the default from Settings.</summary>
     public AgentProviderKind? AgentProvider { get; set; }
 
-    /// <summary>Tool rules Claude Code may use without asking in Do here, added by "always for this project".</summary>
-    public List<string> AgentAllowedTools { get; set; } = [];
+    /// <summary>
+    /// Tool rules Claude Code may use without asking here, in Analyze as well: tools that only look, such as a Blender
+    /// scene summary. Nothing that runs code or changes files.
+    /// </summary>
+    public List<string> AgentReadTools { get; set; } = [];
+
+    /// <summary>Tool rules allowed only in Do: builds, exports, running code; "always for this project" adds here.</summary>
+    public List<string> AgentDoTools { get; set; } = [];
 
     public ChatConversationLink? LinkedConversation { get; set; }
     public ProjectResponse? LastResponse { get; set; }

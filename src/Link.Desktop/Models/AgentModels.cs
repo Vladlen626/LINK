@@ -28,7 +28,10 @@ public sealed record AgentTask
     /// <summary>The session to continue; null starts a new one.</summary>
     public string? ResumeSessionId { get; init; }
 
-    /// <summary>Tools Claude Code may use without asking in Do, as its own rules, e.g. <c>Bash(dotnet build:*)</c>.</summary>
+    /// <summary>
+    /// Tool rules Claude Code may use without asking, e.g. <c>Bash(dotnet build:*)</c>: the project's read list, and
+    /// its Do list when the access is Do.
+    /// </summary>
     public IReadOnlyList<string> AllowedTools { get; init; } = [];
 
     /// <summary>Images to look at, such as the snapshot's screenshot.</summary>
