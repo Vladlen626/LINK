@@ -37,7 +37,7 @@
 | 1 | [1-window.md](stages/1-window.md) | Hide, Expand-панель: задача, состояние проекта, беседа, история, рабочая папка; иконка tray, звуки | — | принят 29.09 |
 | 2 | [2-route.md](stages/2-route.md) | снимок и координатор, Direct, перенаправление, метка маршрута | — | сделан 29.09, на проверке |
 | 3 | [3-voice.md](stages/3-voice.md) | Conversation Mode | 2 | сделан 30.09, на проверке |
-| 4 | [4-agent.md](stages/4-agent.md) | Agent на Claude Code или Codex: карточка, Activity, Stop, изменения и откат | 1, 2 | — |
+| 4 | [4-agent.md](stages/4-agent.md) | Agent на Claude Code или Codex: карточка, Activity, Stop, изменения и откат | 1, 2 | сделан 30.09, на проверке |
 | 5 | [5-nori.md](stages/5-nori.md) | главный сценарий брифа на проекте Нори | 4 | — |
 
 **Почему так.** Порядок — как в брифе, с одной поправкой: Conversation Mode сам отправляет запросы, поэтому идёт после
