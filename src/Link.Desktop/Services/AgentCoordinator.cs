@@ -3,14 +3,24 @@ using Link.Desktop.Models;
 
 namespace Link.Desktop.Services;
 
-/// <summary>What the confirmation card settled: who works, where, with what access, on what goal.</summary>
+/// <summary>What the confirmation card settled: who works, where, with what access and effort, on what goal.</summary>
 public sealed record AgentPlan(
     AgentProviderKind Provider,
     string Workspace,
     AgentAccess Access,
     bool PlanFirst,
     bool BackupBeforeDo,
-    string Goal);
+    string Goal)
+{
+    /// <summary>The agent's model from Settings; null: the CLI's own.</summary>
+    public string? Model { get; init; }
+
+    /// <summary>The effort chosen on the card; null: the CLI's own.</summary>
+    public string? Effort { get; init; }
+
+    /// <summary>Auto on the card: with edits, nothing is asked (see <see cref="AgentTask.AutoApprove"/>).</summary>
+    public bool AutoApprove { get; init; }
+}
 
 /// <summary>
 /// A run of an agent as Activity shows it: the task, what the workspace was before, how it ended and, after Do, the
@@ -84,9 +94,21 @@ public sealed class AgentCoordinator
             PlanOnly = plan.PlanFirst,
             Images = images,
             AllowedTools = tools.Distinct(StringComparer.Ordinal).ToArray(),
-            CheckCommand = project.CheckCommand
+            CheckCommand = project.CheckCommand,
+            AutoApprove = plan.AutoApprove && plan.Access == AgentAccess.Do,
+            Model = plan.Model,
+            Effort = plan.Effort
         };
     }
+
+    /// <summary>
+    /// The user's reply after a run: the same session goes on with it, with the same access, folder, model and check,
+    /// and without the first task's images. Null without a session or a reply.
+    /// </summary>
+    public static AgentTask? ContinueTask(AgentRun run, string reply) =>
+        run.Result.SessionId is { } session && reply.Trim() is { Length: > 0 } text
+            ? run.Task with { ResumeSessionId = session, Prompt = text, Images = [] }
+            : null;
 
     /// <summary>
     /// Runs a task and returns it with what it changed. <paramref name="previous"/>: the run this one continues, whose

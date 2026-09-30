@@ -98,13 +98,16 @@ public partial class MainWindow
             return;
         }
 
+        var agent = _settings.Current.Agent;
         _agentOrigin = new AgentTask
         {
             Provider = ProjectProvider,
             Workspace = workspace,
             Prompt = prompt,
             AllowedTools = project.AgentReadTools,
-            AnswerFile = ProjectMap.RelativePath
+            AnswerFile = ProjectMap.RelativePath,
+            Model = agent.ModelFor(ProjectProvider),
+            Effort = agent.EffortFor(ProjectProvider)
         };
         await StartAgentAsync(_agentOrigin, null);
     }
@@ -143,15 +146,20 @@ public partial class MainWindow
         _agentSnapshot = snapshot;
         var project = _projects.ActiveProject;
         var attachments = snapshot.Context.Append(snapshot.Screen).OfType<ContextItem>().Select(item => item.Label).ToArray();
+        var settings = _settings.Current.Agent;
         var card = new AgentCardModel(
-            _agents.Providers.Select(provider => (provider.Kind, provider.Name)).ToArray(),
+            _agents.Providers.Select(provider => (provider.Kind, provider.Name, provider.Efforts)).ToArray(),
             ProjectProvider,
             project.Name,
             project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null,
             project.WorkspaceRoot is { } folder && HasGit(folder),
             attachments.Length == 0 ? string.Empty : "Goes along: " + string.Join(", ", attachments),
             snapshot.Text,
-            project.CheckCommand);
+            project.CheckCommand,
+            _agents.Providers
+                .Where(provider => settings.EffortFor(provider.Kind) is not null)
+                .ToDictionary(provider => provider.Kind, provider => settings.EffortFor(provider.Kind)!),
+            settings.DefaultAccess);
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
         SetStatus("Check the card and press Run: nothing runs before that");
@@ -183,6 +191,7 @@ public partial class MainWindow
         panel.UndoRequested += () => _ = UndoAgentChangesAsync();
         panel.RestartRequested += RequestRestart;
         panel.SaveSkillRequested += () => _ = SaveSkillAsync();
+        panel.ContinueRequested += ContinueAgent;
         panel.OpenFileRequested += ShowFile;
         return panel;
     }
@@ -205,11 +214,29 @@ public partial class MainWindow
             UpdateRouteButton();
         }
 
+        // The effort chosen on the card stays for the agent; the model comes from Settings.
+        var agent = _settings.Current.Agent;
+        if (agent.EffortFor(plan.Provider) != plan.Effort)
+        {
+            agent.SetEffort(plan.Provider, plan.Effort);
+            _settings.Save();
+        }
+
         _backupBeforeDo = plan.BackupBeforeDo;
         // The input went to the agent: like a sent message, it leaves the prompt.
         if (PromptBox.Text.Trim() == snapshot.Text) ClearSentInput(PromptBox.Text);
-        _agentOrigin = AgentCoordinator.BuildTask(plan, snapshot, project);
+        _agentOrigin = AgentCoordinator.BuildTask(plan with { Model = agent.ModelFor(plan.Provider) }, snapshot, project);
         await StartAgentAsync(_agentOrigin, null);
+    }
+
+    /// <summary>
+    /// The user's reply after a run: the same session goes on with it, and undo still covers the whole exchange.
+    /// Start over keeps the task the exchange began with.
+    /// </summary>
+    private void ContinueAgent(string reply)
+    {
+        if (_lastRun is not { } run || AgentRunning) return;
+        if (AgentCoordinator.ContinueTask(run, reply) is { } task) _ = StartAgentAsync(task, run);
     }
 
     /// <summary>
@@ -354,7 +381,7 @@ public partial class MainWindow
         var access = task.PlanOnly ? "plan"
             : task.AnswerFile is { } file ? $"read only, {Path.GetFileName(file)}"
             : task.AnswerIsSkill ? "read only, SKILL.md"
-            : task.Access == AgentAccess.Do ? "edits"
+            : task.Access == AgentAccess.Do ? task.AutoApprove ? "auto" : "edits"
             : "read only";
         var elapsed = _agentClock.Elapsed;
         return $"{_agents.Provider(task.Provider).Name} · {access} · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
@@ -383,11 +410,14 @@ public partial class MainWindow
         _agentPanel.ShowStats(StatsLine(result.Stats));
         _agentPanel.ShowLog(result.Log);
         ShowUndoOffer(run);
-        // After a loop or a failure; a Stop without a loop was the user's own choice.
-        _agentPanel.ShowRestart(_agentOrigin is not null && (result.Loops.Count > 0 || (!stopped && (!result.Succeeded || checkFailed))));
+        // After a failure, or a Stop in a loop; a Stop without a loop was the user's own choice, and a task done in the
+        // end got past its loop.
+        var failed = !stopped && (!result.Succeeded || checkFailed);
+        _agentPanel.ShowRestart(_agentOrigin is not null && (failed || (stopped && result.Loops.Count > 0)));
         // Work that went well can be kept as a skill; a map or a skill is no such work.
         _agentPanel.ShowSaveSkill(result.Succeeded && !stopped && !checkFailed && !task.PlanOnly && task.AnswerFile is null &&
                                   !task.AnswerIsSkill && result.SessionId is not null);
+        _agentPanel.ShowReply(result.SessionId is not null);
 
         var decision = OfferDecision(run);
         var summary = text.Length > 0 ? text : ending;
@@ -417,8 +447,8 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// What only the user can decide after a run: allow what Claude was refused and go on, let Codex retry with edits,
-    /// or carry out a plan. Returns whether a decision is offered.
+    /// What only the user can decide after a run: retry with edits what read only did not let the agent do, allow what
+    /// Claude was refused and go on, or carry out a plan. Returns whether a decision is offered.
     /// </summary>
     private bool OfferDecision(AgentRun run)
     {
@@ -426,9 +456,43 @@ public partial class MainWindow
         _decision = null;
         _agentPanel!.HideDecision();
         if (result.Stopped || result.SessionId is not { } session) return false;
-        if (task.Provider == AgentProviderKind.ClaudeCode && result.Denials.Count > 0)
+        // Changing files or running any command is never allowed in read only: it is a retry with edits, except for a
+        // task whose file Link writes itself (a map, a skill).
+        var claude = task.Provider == AgentProviderKind.ClaudeCode;
+        var readOnly = task.Access == AgentAccess.Analyze;
+        var answersInFile = task.AnswerFile is not null || task.AnswerIsSkill;
+        if (readOnly && !task.PlanOnly && !answersInFile && result.Denials.Count > 0 &&
+            (!claude || result.Denials.Any(AgentPermissions.ChangesThings)))
         {
-            var rules = result.Denials;
+            var rules = claude ? result.Denials : [];
+            _agentPanel.ShowDecision(
+                $"{_agents.Provider(task.Provider).Name} needs to change files or run commands, and read only does not let it. " +
+                $"Retry with edits in {task.Workspace}?",
+                "Retry with edits",
+                canRemember: claude);
+            _decision = () =>
+            {
+                if (_rememberAllowance) RememberAllowance(AgentAccess.Do, rules);
+                // A copy of a workspace without git is made before the edits, as the card does by default.
+                _backupBeforeDo = true;
+                _ = StartAgentAsync(task with
+                {
+                    ResumeSessionId = session,
+                    Access = AgentAccess.Do,
+                    AllowedTools = task.AllowedTools.Concat(rules).Distinct(StringComparer.Ordinal).ToArray(),
+                    Prompt = "You may change files in the workspace now. Carry out the task." +
+                             (task.CheckCommand is { } check ? " " + AgentCoordinator.CheckNote(check) : string.Empty),
+                    Images = []
+                }, null);
+            };
+            return true;
+        }
+
+        // In read only, only what looks can be allowed.
+        var allowable = result.Denials.Where(rule => !readOnly || !AgentPermissions.ChangesThings(rule)).ToArray();
+        if (claude && allowable.Length > 0)
+        {
+            IReadOnlyList<string> rules = allowable;
             _agentPanel.ShowDecision(
                 $"Claude Code was not allowed: {string.Join(", ", rules)}. Allow {(rules.Count == 1 ? "it" : "them")} and continue?",
                 "Allow and retry",
@@ -445,24 +509,6 @@ public partial class MainWindow
                     Images = []
                 }, run);
             };
-            return true;
-        }
-
-        if (task.Provider == AgentProviderKind.Codex && result.Denials.Count > 0 && task.Access == AgentAccess.Analyze)
-        {
-            _agentPanel.ShowDecision(
-                $"Codex needs to change files, and read only does not let it. Retry with edits in {task.Workspace}?",
-                "Retry with edits",
-                canRemember: false);
-            _decision = () => _ = StartAgentAsync(task with
-            {
-                ResumeSessionId = session,
-                Access = AgentAccess.Do,
-                PlanOnly = false,
-                Prompt = "You may change files in the workspace now. Carry out the task." +
-                         (task.CheckCommand is { } check ? " " + AgentCoordinator.CheckNote(check) : string.Empty),
-                Images = []
-            }, task.Access == AgentAccess.Do ? run : null);
             return true;
         }
 
@@ -487,12 +533,19 @@ public partial class MainWindow
         return false;
     }
 
-    /// <summary>"Always for this project": in Do the rules join the Do list, in read only the read list.</summary>
+    /// <summary>
+    /// "Always for this project": in Do the rules join the Do list, in read only the read list, except a rule that
+    /// changes things, which belongs to Do whatever the access.
+    /// </summary>
     private void RememberAllowance(AgentAccess access, IEnumerable<string> rules)
     {
         var project = _projects.ActiveProject;
-        var list = access == AgentAccess.Do ? project.AgentDoTools : project.AgentReadTools;
-        foreach (var rule in rules.Where(rule => !list.Contains(rule))) list.Add(rule);
+        foreach (var rule in rules)
+        {
+            var list = access == AgentAccess.Do || AgentPermissions.ChangesThings(rule) ? project.AgentDoTools : project.AgentReadTools;
+            if (!list.Contains(rule)) list.Add(rule);
+        }
+
         _projects.Save();
     }
 

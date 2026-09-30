@@ -13,6 +13,9 @@ public interface IAgentProvider
     /// <summary>The name the user sees: "Claude Code", "Codex".</summary>
     string Name { get; }
 
+    /// <summary>The effort levels its CLI takes, lowest first; the card offers them beside the CLI's own default.</summary>
+    IReadOnlyList<string> Efforts { get; }
+
     /// <summary>
     /// Whether the CLI is found and signed in, and its version; <paramref name="chosenPath"/> is a file chosen for it,
     /// null finds it. Runs the CLI, so call it off the UI path.

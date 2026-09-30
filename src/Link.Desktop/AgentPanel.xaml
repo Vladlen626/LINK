@@ -34,18 +34,24 @@
                     <Grid.ColumnDefinitions><ColumnDefinition Width="80" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Agent" />
                     <ComboBox x:Name="ProviderCombo" Grid.Column="1" SelectionChanged="Card_OnChanged" />
                     <TextBlock Grid.Row="1" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Access" />
                     <ComboBox x:Name="AccessCombo" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Card_OnChanged">
                         <ComboBoxItem Content="Read only — changes nothing" />
-                        <ComboBoxItem Content="Edit — changes files in the workspace" />
+                        <ComboBoxItem Content="Edit — changes files, asks for commands" />
+                        <ComboBoxItem Content="Auto — edits and runs commands, asks nothing"
+                                      ToolTip="The agent's own review stops risky actions: Claude Code's auto mode, Codex's automatic review" />
                     </ComboBox>
-                    <TextBlock Grid.Row="2" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Project" />
-                    <TextBlock x:Name="ProjectText" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
-                    <TextBlock Grid.Row="3" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Workspace" />
-                    <TextBlock x:Name="WorkspaceText" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
+                    <TextBlock Grid.Row="2" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Effort" />
+                    <ComboBox x:Name="EffortCombo" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0"
+                              ToolTip="How hard the agent thinks on this task; the choice stays for the agent. Default: the agent's own setting" />
+                    <TextBlock Grid.Row="3" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Project" />
+                    <TextBlock x:Name="ProjectText" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
+                    <TextBlock Grid.Row="4" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Workspace" />
+                    <TextBlock x:Name="WorkspaceText" Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
                 </Grid>
 
                 <CheckBox x:Name="PlanFirstBox" Margin="0,10,0,0" Content="Plan first: the agent only reads and proposes, then you run it"
@@ -69,7 +75,7 @@
         <!-- Activity: what the agent does, what it changed, how it ended. -->
         <Grid x:Name="ActivityView" Visibility="Collapsed">
             <Grid.RowDefinitions>
-                <RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" />
+                <RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
             <StackPanel>
                 <Grid>
@@ -111,8 +117,12 @@
                         <StackPanel>
                             <TextBlock Style="{StaticResource RowTextStyle}" Foreground="{StaticResource MutedBrush}"
                                        Text="Start over in a clean session: the agent writes in five lines what it tried and why it did not work, then a new session takes the task with that note, the same access and folder." />
-                            <Button Style="{StaticResource PrimaryButtonStyle}" Height="28" Margin="0,8,0,0" Padding="14,0" HorizontalAlignment="Left"
-                                    Click="Restart_OnClick" Content="Start over with a note" />
+                            <WrapPanel Margin="0,2,0,0">
+                                <Button Style="{StaticResource PrimaryButtonStyle}" Height="28" Margin="0,6,6,0" Padding="14,0"
+                                        Click="Restart_OnClick" Content="Start over with a note" />
+                                <Button Style="{StaticResource SmallChipStyle}" Click="RestartNotNow_OnClick" Content="Not now"
+                                        ToolTip="The agent goes on as it is; Start over stays possible after the task" />
+                            </WrapPanel>
                         </StackPanel>
                     </Border>
 
@@ -140,7 +150,22 @@
                 </StackPanel>
             </ScrollViewer>
 
-            <WrapPanel Grid.Row="2" Margin="0,4,0,0">
+            <!-- A reply to the agent: the same session goes on with it, like a message in its own terminal. -->
+            <Border x:Name="ReplyPanel" Grid.Row="2" Style="{StaticResource FieldStyle}" Margin="0,8,0,0" Visibility="Collapsed">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBox x:Name="ReplyBox" Style="{StaticResource BareTextBoxStyle}" Padding="4,4" FontSize="12.5" MaxHeight="120"
+                             AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                             TextChanged="ReplyBox_OnTextChanged" PreviewKeyDown="ReplyBox_OnPreviewKeyDown" />
+                    <TextBlock x:Name="ReplyPlaceholder" Margin="6,5,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="12.5" IsHitTestVisible="False"
+                               Text="Reply to the agent: answer it or ask for more" />
+                    <Button x:Name="ContinueButton" Grid.Column="1" Style="{StaticResource SmallChipStyle}" Margin="6,3,3,3"
+                            VerticalAlignment="Bottom" Click="Continue_OnClick" Content="Continue"
+                            ToolTip="The same session goes on with your reply, with the same access and folder (Enter)" />
+                </Grid>
+            </Border>
+
+            <WrapPanel Grid.Row="3" Margin="0,4,0,0">
                 <Button x:Name="ToChatButton" Style="{StaticResource SmallChipStyle}" Click="ToChat_OnClick" Content="↻ To chat"
                         ToolTip="Put the result and the changed files into the context for your next Chat message" Visibility="Collapsed" />
                 <Button x:Name="UndoButton" Style="{StaticResource SmallChipStyle}" Click="Undo_OnClick" Visibility="Collapsed" />

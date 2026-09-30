@@ -13,19 +13,24 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
 {
     public override AgentProviderKind Kind => AgentProviderKind.Codex;
     public override string Name => "Codex";
+
+    // Reasoning efforts every model of the account's Codex list takes; some go on to max and ultra.
+    public override IReadOnlyList<string> Efforts => ["low", "medium", "high", "xhigh"];
+
     protected override IReadOnlyList<string> SignInCheck => ["login", "status"];
 
     // Codex reads .agents/skills from its folder up to the repository's root.
     protected override bool FindsSkills => true;
 
     /// <summary>
-    /// What the Codex desktop app adds and a task in a workspace does not need: its plugins (with their skills and
-    /// computer control), connected apps, plugin suggestions, computer and browser use. They ride along on every
-    /// request, and in 12 of 14 measured runs the agent read the computer-use plugin's guide (~10k tokens) to look at
-    /// the game it was building, once for 33 minutes. Mouse control goes only through an explicit choice. MCP servers
-    /// of the user's config, such as Blender, stay.
+    /// What a task in a workspace does without. The Codex desktop app's plugins (with their skills and computer
+    /// control), connected apps, plugin suggestions, computer and browser use ride along on every request, and in 12
+    /// of 14 measured runs the agent read the computer-use plugin's guide (~10k tokens) to look at the game it was
+    /// building, once for 33 minutes; mouse control goes only through an explicit choice. Subagents work out of
+    /// Activity's sight and outside the task's numbers (none of the 14 runs used them). MCP servers of the user's
+    /// config, such as Blender, stay.
     /// </summary>
-    internal static readonly string[] DesktopFeatures = ["plugins", "apps", "tool_suggest", "computer_use", "browser_use"];
+    internal static readonly string[] FeaturesOff = ["plugins", "apps", "tool_suggest", "computer_use", "browser_use", "multi_agent"];
 
     public override IReadOnlyList<string> Arguments(AgentTask task)
     {
@@ -43,8 +48,16 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
             arguments.AddRange(["--json", "--skip-git-repo-check", "--sandbox", sandbox, "--cd", task.Workspace]);
         }
 
-        // The same on resume: a session keeps its tools and its cached start.
-        foreach (var feature in DesktopFeatures) arguments.AddRange(["-c", $"features.{feature}=false"]);
+        // The same on resume: a session keeps its tools, model and cached start. A bare value is read as a string.
+        foreach (var feature in FeaturesOff) arguments.AddRange(["-c", $"features.{feature}=false"]);
+        if (task.Model is { } model) arguments.AddRange(["-c", $"model={model}"]);
+        if (task.Effort is { } effort) arguments.AddRange(["-c", $"model_reasoning_effort={effort}"]);
+        // Auto: what would leave the sandbox (the network, a file outside the workspace) goes to Codex's automatic
+        // review instead of failing, as --approve-for-me does; resume takes it only through config.
+        if (task.AutoApprove && sandbox == "workspace-write")
+        {
+            arguments.AddRange(["-c", "approval_policy=on-request", "-c", "approvals_reviewer=auto_review"]);
+        }
         foreach (var image in task.Images) arguments.AddRange(["--image", image]);
         // The task comes on stdin.
         arguments.Add("-");

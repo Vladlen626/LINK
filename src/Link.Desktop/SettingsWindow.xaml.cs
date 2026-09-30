@@ -88,9 +88,24 @@ public partial class SettingsWindow : Window
         VersionText.Text = $"Version {GetInformationalVersion()}";
         DefaultAgentCombo.ItemsSource = _agents.Select(agent => agent.Name).ToArray();
         DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_agents, agent => agent.Kind == current.Agent.DefaultProvider));
+        DefaultAccessCombo.SelectedIndex = (int)current.Agent.DefaultAccess;
+        ClaudeModelBox.Text = current.Agent.ClaudeModel ?? string.Empty;
+        CodexModelBox.Text = current.Agent.CodexModel ?? string.Empty;
+        ShowEfforts(ClaudeEffortCombo, AgentProviderKind.ClaudeCode, current.Agent.ClaudeEffort);
+        ShowEfforts(CodexEffortCombo, AgentProviderKind.Codex, current.Agent.CodexEffort);
         Closing += (_, _) => _agentChecks.Cancel();
         Loaded += (_, _) => _ = CheckAgentsAsync();
     }
+
+    /// <summary>An agent's effort levels after its own default, the saved one selected.</summary>
+    private void ShowEfforts(ComboBox combo, AgentProviderKind kind, string? effort)
+    {
+        var levels = _agents.First(agent => agent.Kind == kind).Efforts.ToList();
+        combo.ItemsSource = levels.Prepend("Default").ToArray();
+        combo.SelectedIndex = effort is null ? 0 : levels.IndexOf(effort) + 1;
+    }
+
+    private static string? SelectedEffort(ComboBox combo) => combo.SelectedIndex > 0 ? combo.SelectedItem as string : null;
 
     /// <summary>
     /// Runs each agent's CLI for its version and sign-in, off the UI thread; the files chosen here are tried before
@@ -553,6 +568,12 @@ public partial class SettingsWindow : Window
         current.Agent.DefaultProvider = DefaultAgentCombo.SelectedIndex >= 0 ? _agents[DefaultAgentCombo.SelectedIndex].Kind : current.Agent.DefaultProvider;
         current.Agent.ClaudePath = _agentPaths.ClaudePath;
         current.Agent.CodexPath = _agentPaths.CodexPath;
+        current.Agent.DefaultAccess = (AgentAccessChoice)Math.Max(0, DefaultAccessCombo.SelectedIndex);
+        current.Agent.ClaudeModel = ClaudeModelBox.Text;
+        current.Agent.CodexModel = CodexModelBox.Text;
+        current.Agent.SetEffort(AgentProviderKind.ClaudeCode, SelectedEffort(ClaudeEffortCombo));
+        current.Agent.SetEffort(AgentProviderKind.Codex, SelectedEffort(CodexEffortCombo));
+        current.Agent.Normalize();
 
         try
         {

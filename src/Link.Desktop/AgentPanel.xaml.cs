@@ -1,22 +1,28 @@
 using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Input;
 using System.Windows.Media;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
-/// <summary>What the confirmation card starts from; <see cref="CheckCommand"/> is the project's check after edits.</summary>
+/// <summary>
+/// What the confirmation card starts from: the agents with their effort levels, <see cref="CheckCommand"/> is the
+/// project's check after edits, <see cref="Efforts"/> the effort last chosen for each agent.
+/// </summary>
 public sealed record AgentCardModel(
-    IReadOnlyList<(AgentProviderKind Kind, string Name)> Providers,
+    IReadOnlyList<(AgentProviderKind Kind, string Name, IReadOnlyList<string> Efforts)> Providers,
     AgentProviderKind Provider,
     string ProjectName,
     string? Workspace,
     bool WorkspaceHasGit,
     string Attachments,
     string Goal,
-    string? CheckCommand);
+    string? CheckCommand,
+    IReadOnlyDictionary<AgentProviderKind, string> Efforts,
+    AgentAccessChoice Access);
 
 /// <summary>A row of Activity: a step, a message or a problem, in its colour.</summary>
 public sealed record AgentStepRow(string Text, Brush Brush);
@@ -34,6 +40,7 @@ public partial class AgentPanel : UserControl
     private readonly ObservableCollection<AgentStepRow> _steps = [];
     private AgentCardModel? _card;
     private bool _showingCard;
+    private AgentProviderKind? _effortsFor;
 
     public AgentPanel()
     {
@@ -54,6 +61,10 @@ public partial class AgentPanel : UserControl
     /// <summary>Start over in a clean session with the agent's note on what did not work.</summary>
     public event Action? RestartRequested;
     public event Action? SaveSkillRequested;
+
+    /// <summary>The user's reply: the last run's session goes on with it.</summary>
+    public event Action<string>? ContinueRequested;
+
     public event Action<string>? OpenFileRequested;
     public event Action? Closed;
 
@@ -66,8 +77,8 @@ public partial class AgentPanel : UserControl
         _showingCard = true;
         ProviderCombo.ItemsSource = card.Providers.Select(provider => provider.Name).ToArray();
         ProviderCombo.SelectedIndex = Math.Max(0, card.Providers.ToList().FindIndex(provider => provider.Kind == card.Provider));
-        // Read only by default: edits are chosen for this task, never assumed.
-        AccessCombo.SelectedIndex = 0;
+        // Read only unless Settings says otherwise: edits are the user's choice, never assumed.
+        AccessCombo.SelectedIndex = (int)card.Access;
         PlanFirstBox.IsChecked = false;
         BackupBox.IsChecked = true;
         GoalBox.Text = card.Goal;
@@ -77,6 +88,7 @@ public partial class AgentPanel : UserControl
         AttachmentsText.Text = card.Attachments;
         AttachmentsText.Visibility = card.Attachments.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         CardWarningText.Visibility = Visibility.Collapsed;
+        _effortsFor = null;
         _showingCard = false;
         UpdateCard();
         ActivityView.Visibility = Visibility.Collapsed;
@@ -118,9 +130,14 @@ public partial class AgentPanel : UserControl
     {
         StopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         foreach (var button in new[] { ToChatButton, LogButton, NewTaskButton }) button.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
-        if (running) UndoButton.Visibility = Visibility.Collapsed;
-        if (running) SaveSkillButton.Visibility = Visibility.Collapsed;
+        if (!running) return;
+        UndoButton.Visibility = Visibility.Collapsed;
+        SaveSkillButton.Visibility = Visibility.Collapsed;
+        ReplyPanel.Visibility = Visibility.Collapsed;
     }
+
+    /// <summary>The reply box, offered after a run whose session can go on.</summary>
+    public void ShowReply(bool show) => ReplyPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>Save as skill, offered after a task that went well.</summary>
     public void ShowSaveSkill(bool show) => SaveSkillButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
@@ -210,7 +227,13 @@ public partial class AgentPanel : UserControl
     private AgentProviderKind SelectedProvider =>
         _card is { } card && ProviderCombo.SelectedIndex >= 0 ? card.Providers[ProviderCombo.SelectedIndex].Kind : AgentProviderKind.ClaudeCode;
 
-    private AgentAccess SelectedAccess => AccessCombo.SelectedIndex == 1 ? AgentAccess.Do : AgentAccess.Analyze;
+    // The items follow AgentAccessChoice: read only, edit, auto.
+    private AgentAccess SelectedAccess => AccessCombo.SelectedIndex >= (int)AgentAccessChoice.Edit ? AgentAccess.Do : AgentAccess.Analyze;
+
+    private bool SelectedAuto => AccessCombo.SelectedIndex == (int)AgentAccessChoice.Auto;
+
+    // The first item is the agent's own setting.
+    private string? SelectedEffort => EffortCombo.SelectedIndex > 0 ? EffortCombo.SelectedItem as string : null;
 
     private void Card_OnChanged(object sender, RoutedEventArgs e)
     {
@@ -220,13 +243,14 @@ public partial class AgentPanel : UserControl
     private void UpdateCard()
     {
         if (_card is not { } card) return;
+        if (_effortsFor != SelectedProvider) ShowEfforts(card);
         var edits = SelectedAccess == AgentAccess.Do;
         BackupBox.Visibility = edits && !card.WorkspaceHasGit ? Visibility.Visible : Visibility.Collapsed;
         CheckText.Text = $"After the edits Link runs the check itself, and the agent is told so: {card.CheckCommand}. " +
                          $"While it fails, the agent gets its output, {AgentCoordinator.CheckRetries} times at most.";
         CheckText.Visibility = edits && card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
         RunButton.IsEnabled = card.Workspace is not null;
-        RunButton.Content = PlanFirstBox.IsChecked == true ? "Make a plan" : edits ? "Run with edits" : "Run";
+        RunButton.Content = PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : edits ? "Run with edits" : "Run";
     }
 
     private void Run_OnClick(object sender, RoutedEventArgs e)
@@ -244,7 +268,42 @@ public partial class AgentPanel : UserControl
             SelectedAccess,
             PlanFirstBox.IsChecked == true,
             BackupBox.Visibility == Visibility.Visible && BackupBox.IsChecked == true,
-            GoalBox.Text.Trim()));
+            GoalBox.Text.Trim())
+        {
+            Effort = SelectedEffort,
+            AutoApprove = SelectedAuto
+        });
+    }
+
+    /// <summary>The selected agent's effort levels after its own default, the one last chosen for it selected.</summary>
+    private void ShowEfforts(AgentCardModel card)
+    {
+        var provider = SelectedProvider;
+        var levels = card.Providers.First(agent => agent.Kind == provider).Efforts.ToList();
+        EffortCombo.ItemsSource = levels.Prepend("Default").ToArray();
+        EffortCombo.SelectedIndex = card.Efforts.TryGetValue(provider, out var chosen) ? levels.IndexOf(chosen) + 1 : 0;
+        _effortsFor = provider;
+    }
+
+    private void Continue_OnClick(object sender, RoutedEventArgs e) => SendReply();
+
+    private void ReplyBox_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        // Enter sends, Shift+Enter starts a new line, as in Link's own box.
+        if (e.Key != Key.Enter || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
+        e.Handled = true;
+        SendReply();
+    }
+
+    private void ReplyBox_OnTextChanged(object sender, TextChangedEventArgs e) =>
+        ReplyPlaceholder.Visibility = ReplyBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+
+    private void SendReply()
+    {
+        var reply = ReplyBox.Text.Trim();
+        if (reply.Length == 0) return;
+        ReplyBox.Clear();
+        ContinueRequested?.Invoke(reply);
     }
 
     private void CancelCard_OnClick(object sender, RoutedEventArgs e) => CardCancelled?.Invoke();
@@ -253,6 +312,7 @@ public partial class AgentPanel : UserControl
     private void ToChat_OnClick(object sender, RoutedEventArgs e) => ToChatRequested?.Invoke();
     private void Undo_OnClick(object sender, RoutedEventArgs e) => UndoRequested?.Invoke();
     private void Restart_OnClick(object sender, RoutedEventArgs e) => RestartRequested?.Invoke();
+    private void RestartNotNow_OnClick(object sender, RoutedEventArgs e) => ShowRestart(false);
     private void SaveSkill_OnClick(object sender, RoutedEventArgs e) => SaveSkillRequested?.Invoke();
     private void Close_OnClick(object sender, RoutedEventArgs e) => Closed?.Invoke();
 

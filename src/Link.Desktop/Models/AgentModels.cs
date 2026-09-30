@@ -14,6 +14,36 @@ public enum AgentAccess
     Do
 }
 
+/// <summary>What the task card offers first; Settings chooses it.</summary>
+public enum AgentAccessChoice
+{
+    /// <summary>Changes nothing.</summary>
+    ReadOnly,
+
+    /// <summary>Changes files in the workspace; any other command needs the user's yes.</summary>
+    Edit,
+
+    /// <summary>Changes files and runs commands without asking; the agent's own review stops risky ones.</summary>
+    Auto
+}
+
+/// <summary>Claude Code's tool rules as Link sorts them: what only looks and what changes things.</summary>
+public static class AgentPermissions
+{
+    /// <summary>Claude Code's tools that change files; read only denies them whatever the project's rules allow.</summary>
+    public static readonly IReadOnlyList<string> EditTools = ["Edit", "Write", "NotebookEdit"];
+
+    /// <summary>
+    /// Whether a rule lets the agent change things: a file tool, or a whole shell (any command, not one command such as
+    /// <c>Bash(git log:*)</c>). Such a rule belongs to edits, never to read only.
+    /// </summary>
+    public static bool ChangesThings(string rule)
+    {
+        var tool = rule.Split('(')[0].Trim();
+        return EditTools.Contains(tool) || tool is "MultiEdit" || (!rule.Contains('(') && tool is "Bash" or "PowerShell");
+    }
+}
+
 /// <summary>One run of an agent: what to do, where and with what access. A resumed run continues its session.</summary>
 public sealed record AgentTask
 {
@@ -36,6 +66,18 @@ public sealed record AgentTask
 
     /// <summary>Images to look at, such as the snapshot's screenshot.</summary>
     public IReadOnlyList<string> Images { get; init; } = [];
+
+    /// <summary>
+    /// With edits: files change and commands run without asking, and the agent's own review stops risky ones (Claude
+    /// Code's auto mode, Codex's automatic review of what would leave its sandbox).
+    /// </summary>
+    public bool AutoApprove { get; init; }
+
+    /// <summary>The model to run, such as claude-opus-5-5; null leaves it to the CLI's own settings.</summary>
+    public string? Model { get; init; }
+
+    /// <summary>How hard the model thinks, in the CLI's own levels (see <c>IAgentProvider.Efforts</c>); null: its settings.</summary>
+    public string? Effort { get; init; }
 
     /// <summary>
     /// A guard against a run that goes on and on (Claude Code's <c>--max-turns</c>): each turn spends the provider's
@@ -181,21 +223,65 @@ public sealed class AgentSettings
 {
     public AgentProviderKind DefaultProvider { get; set; } = AgentProviderKind.ClaudeCode;
 
+    /// <summary>The access the task card starts with; read only unless the user chooses otherwise.</summary>
+    public AgentAccessChoice DefaultAccess { get; set; } = AgentAccessChoice.ReadOnly;
+
     /// <summary>A chosen claude.exe; null finds it in PATH and the usual install places.</summary>
     public string? ClaudePath { get; set; }
 
     /// <summary>A chosen codex.exe; null finds it in PATH and the usual install places.</summary>
     public string? CodexPath { get; set; }
 
+    /// <summary>Claude Code's model, such as claude-opus-5-5 or the alias opus; null: Claude Code's own setting.</summary>
+    public string? ClaudeModel { get; set; }
+
+    /// <summary>Claude Code's effort, the last one chosen on the card; null: Claude Code's own setting.</summary>
+    public string? ClaudeEffort { get; set; }
+
+    /// <summary>Codex's model, such as gpt-5.6-sol; null: the model of Codex's config.</summary>
+    public string? CodexModel { get; set; }
+
+    /// <summary>Codex's reasoning effort, the last one chosen on the card; null: the effort of Codex's config.</summary>
+    public string? CodexEffort { get; set; }
+
     public void Normalize()
     {
         if (!Enum.IsDefined(DefaultProvider)) DefaultProvider = AgentProviderKind.ClaudeCode;
-        ClaudePath = string.IsNullOrWhiteSpace(ClaudePath) ? null : ClaudePath.Trim();
-        CodexPath = string.IsNullOrWhiteSpace(CodexPath) ? null : CodexPath.Trim();
+        if (!Enum.IsDefined(DefaultAccess)) DefaultAccess = AgentAccessChoice.ReadOnly;
+        ClaudePath = Trimmed(ClaudePath);
+        CodexPath = Trimmed(CodexPath);
+        ClaudeModel = Trimmed(ClaudeModel);
+        ClaudeEffort = Trimmed(ClaudeEffort);
+        CodexModel = Trimmed(CodexModel);
+        CodexEffort = Trimmed(CodexEffort);
     }
 
     public string? PathFor(AgentProviderKind provider) =>
         provider == AgentProviderKind.ClaudeCode ? ClaudePath : CodexPath;
 
-    public AgentSettings Clone() => new() { DefaultProvider = DefaultProvider, ClaudePath = ClaudePath, CodexPath = CodexPath };
+    public string? ModelFor(AgentProviderKind provider) =>
+        provider == AgentProviderKind.ClaudeCode ? ClaudeModel : CodexModel;
+
+    public string? EffortFor(AgentProviderKind provider) =>
+        provider == AgentProviderKind.ClaudeCode ? ClaudeEffort : CodexEffort;
+
+    public void SetEffort(AgentProviderKind provider, string? effort)
+    {
+        if (provider == AgentProviderKind.ClaudeCode) ClaudeEffort = Trimmed(effort);
+        else CodexEffort = Trimmed(effort);
+    }
+
+    public AgentSettings Clone() => new()
+    {
+        DefaultProvider = DefaultProvider,
+        DefaultAccess = DefaultAccess,
+        ClaudePath = ClaudePath,
+        CodexPath = CodexPath,
+        ClaudeModel = ClaudeModel,
+        ClaudeEffort = ClaudeEffort,
+        CodexModel = CodexModel,
+        CodexEffort = CodexEffort
+    };
+
+    private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

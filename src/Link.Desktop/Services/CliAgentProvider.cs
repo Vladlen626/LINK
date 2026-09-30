@@ -23,6 +23,7 @@ public abstract class CliAgentProvider : IAgentProvider
 
     public abstract AgentProviderKind Kind { get; }
     public abstract string Name { get; }
+    public abstract IReadOnlyList<string> Efforts { get; }
 
     public string? FindExecutable() => AgentExecutables.Find(Kind, _settings().PathFor(Kind));
 

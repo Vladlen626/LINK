@@ -5,24 +5,36 @@ namespace Link.Desktop.Services;
 
 /// <summary>
 /// Claude Code in print mode with stream-json events. Analyze runs in <c>dontAsk</c>: reads go, anything else not
-/// allowed by the project's rules is refused and listed in the result. Do runs in <c>acceptEdits</c>; a plan runs in
+/// allowed by the project's rules is refused and listed in the result, and the file tools are denied outright. Do runs
+/// in <c>acceptEdits</c>, or in <c>auto</c> on Auto, where Claude Code's own check stops risky actions; a plan runs in
 /// <c>plan</c>. <c>bypassPermissions</c> is never used.
 /// </summary>
 public sealed class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log) : CliAgentProvider(settings, log)
 {
     public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
     public override string Name => "Claude Code";
+
+    // Claude Code's --effort levels.
+    public override IReadOnlyList<string> Efforts => ["low", "medium", "high", "xhigh", "max"];
+
     protected override IReadOnlyList<string> SignInCheck => ["auth", "status"];
 
     public override IReadOnlyList<string> Arguments(AgentTask task)
     {
-        var mode = task.PlanOnly ? "plan" : task.Access == AgentAccess.Do ? "acceptEdits" : "dontAsk";
+        var edits = task.Access == AgentAccess.Do && !task.PlanOnly;
+        var mode = task.PlanOnly ? "plan" : !edits ? "dontAsk" : task.AutoApprove ? "auto" : "acceptEdits";
         var arguments = new List<string>
         {
             "-p", "--output-format", "stream-json", "--verbose",
             "--permission-mode", mode,
             "--max-turns", task.MaxTurns.ToString(System.Globalization.CultureInfo.InvariantCulture)
         };
+        if (task.Model is { } model) arguments.AddRange(["--model", model]);
+        if (task.Effort is { } effort) arguments.AddRange(["--effort", effort]);
+        // No subagents: they work out of Activity's sight and outside the task's numbers. Task is the tool's old name.
+        // Read only stays read only whatever the project's rules allow: a denial wins over an allowance.
+        arguments.AddRange(["--disallowedTools", "Agent", "Task"]);
+        if (!edits) arguments.AddRange(AgentPermissions.EditTools);
         if (task.ResumeSessionId is { } session) arguments.AddRange(["--resume", session]);
         // Images live in Link's data, outside the workspace: their folders are opened for reading.
         foreach (var folder in task.Images.Select(Path.GetDirectoryName).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))

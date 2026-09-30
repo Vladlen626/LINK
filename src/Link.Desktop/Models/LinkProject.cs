@@ -34,8 +34,18 @@ public sealed class LinkProject
     public ChatConversationLink? LinkedConversation { get; set; }
     public ProjectResponse? LastResponse { get; set; }
 
-    /// <summary>Settles what older or hand-edited JSON may leave blank.</summary>
-    public void Normalize() => CheckCommand = string.IsNullOrWhiteSpace(CheckCommand) ? null : CheckCommand.Trim();
+    /// <summary>
+    /// Settles what older or hand-edited JSON may leave blank. Rules that change files or run any command, which an
+    /// older Link let into the read-only list, move to the Do list: read only stays read only.
+    /// </summary>
+    public void Normalize()
+    {
+        CheckCommand = string.IsNullOrWhiteSpace(CheckCommand) ? null : CheckCommand.Trim();
+        var changing = AgentReadTools.Where(AgentPermissions.ChangesThings).ToArray();
+        if (changing.Length == 0) return;
+        AgentReadTools.RemoveAll(AgentPermissions.ChangesThings);
+        AgentDoTools.AddRange(changing.Where(rule => !AgentDoTools.Contains(rule)));
+    }
 
     public override string ToString() => Name;
 }

@@ -39,6 +39,44 @@ internal static class AgentTests
         await CheckCommandAsync();
         await CheckRetriesAsync();
         await StartOverAsync();
+        ContinueAndPermissions();
+    }
+
+    /// <summary>A reply goes on in the run's session; a rule that changes things never stays in the read-only list.</summary>
+    private static void ContinueAndPermissions()
+    {
+        var run = new AgentRun(
+            new AgentTask
+            {
+                Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Fix", Access = AgentAccess.Do,
+                Images = [@"C:\shot.png"], Model = "opus", Effort = "high", AutoApprove = true
+            },
+            new WorkspaceBefore(@"C:\Work", true, new Dictionary<string, string>(), null, DateTime.UtcNow),
+            new AgentResult { SessionId = "s1", Succeeded = true },
+            []);
+        var next = AgentCoordinator.ContinueTask(run, "  and the jump too \n");
+        Program.Equal("continue: the same session, access, model and effort, the reply as the prompt, no images",
+            (next!.ResumeSessionId, next.Prompt, next.Access, next.Model, next.Effort, next.AutoApprove, next.Images.Count),
+            ("s1", "and the jump too", AgentAccess.Do, "opus", "high", true, 0));
+        Program.Equal("continue: nothing without a reply or a session",
+            (AgentCoordinator.ContinueTask(run, "  ") is null, AgentCoordinator.ContinueTask(run with { Result = new AgentResult() }, "go") is null), (true, true));
+
+        Program.Equal("permissions: file tools and a whole shell change things, one command or a read does not",
+            string.Join(",", new[] { "Edit", "Write", "PowerShell", "Bash", "Bash(git log:*)", "PowerShell(uv run:*)", "Read", "mcp__blender__get_scene" }
+                .Select(rule => AgentPermissions.ChangesThings(rule) ? "c" : "r")),
+            "c,c,c,c,r,r,r,r");
+        var project = new LinkProject
+        {
+            Name = "Bigsteps", DataFolder = @"C:\Data", AgentReadTools = ["Edit", "Write", "PowerShell", "Read"], AgentDoTools = ["Write"]
+        };
+        project.Normalize();
+        Program.Equal("permissions: what an older Link let into read only moves to the Do list",
+            (string.Join(",", project.AgentReadTools), string.Join(",", project.AgentDoTools)), ("Read", "Write,Edit,PowerShell"));
+
+        var settings = new AgentSettings { ClaudeModel = " opus ", CodexEffort = " ", DefaultAccess = (AgentAccessChoice)9 };
+        settings.Normalize();
+        Program.Equal("agent settings: trimmed, blank is the CLI's own, an unknown access is read only",
+            (settings.ClaudeModel, settings.CodexEffort, settings.DefaultAccess, settings.Clone().ClaudeModel), ("opus", (string?)null, AgentAccessChoice.ReadOnly, "opus"));
     }
 
     /// <summary>Start over with a note: the looping session is asked read only, and a new session gets the original task and the note.</summary>
@@ -540,15 +578,34 @@ internal static class AgentTests
             string.Join(' ', codex.Arguments(analyze with { Provider = AgentProviderKind.Codex })).Contains("--sandbox read-only"), true);
         Program.Equal("Codex Do writes only the workspace",
             string.Join(' ', codex.Arguments(analyze with { Access = AgentAccess.Do })).Contains("--sandbox workspace-write"), true);
-        var desktopOff = string.Join(' ', CodexProvider.DesktopFeatures.Select(feature => $"-c features.{feature}=false"));
+        var featuresOff = string.Join(' ', CodexProvider.FeaturesOff.Select(feature => $"-c features.{feature}=false"));
         Program.Equal("Codex resume sets the sandbox through config and keeps the desktop app's extras off",
             string.Join(' ', codex.Arguments(analyze with { ResumeSessionId = "t1" })),
-            $"exec resume t1 --json --skip-git-repo-check -c sandbox_mode=read-only {desktopOff} -");
-        Program.Equal("Codex: a new session runs without the desktop app's plugins, apps and computer use",
-            string.Join(' ', codex.Arguments(analyze)).Contains(desktopOff) && desktopOff.Contains("features.plugins=false") &&
-            desktopOff.Contains("features.computer_use=false"), true);
+            $"exec resume t1 --json --skip-git-repo-check -c sandbox_mode=read-only {featuresOff} -");
+        Program.Equal("Codex: a new session runs without the desktop app's plugins, computer use and subagents",
+            string.Join(' ', codex.Arguments(analyze)).Contains(featuresOff) && featuresOff.Contains("features.plugins=false") &&
+            featuresOff.Contains("features.computer_use=false") && featuresOff.Contains("features.multi_agent=false"), true);
         Program.Equal("Codex plan-first stays read-only",
             codex.Arguments(analyze with { Access = AgentAccess.Do, PlanOnly = true }).Contains("read-only"), true);
+
+        // Model, effort, auto and subagents.
+        var chosen = analyze with { Model = "claude-opus-5-5", Effort = "high" };
+        Program.Equal("Claude takes the model and effort, and runs without subagents",
+            string.Join(' ', claude.Arguments(chosen)).Contains("--model claude-opus-5-5 --effort high --disallowedTools Agent Task"), true);
+        Program.Equal("Claude without a model or effort leaves them to its own settings",
+            claude.Arguments(analyze).Any(argument => argument is "--model" or "--effort"), false);
+        Program.Equal("Claude read only denies the file tools whatever the project allows",
+            string.Join(' ', claude.Arguments(analyze)).Contains("--disallowedTools Agent Task Edit Write NotebookEdit") &&
+            !string.Join(' ', claude.Arguments(analyze with { Access = AgentAccess.Do })).Contains("Write"), true);
+        Program.Equal("Claude auto runs in its auto mode, only with edits",
+            (claude.Arguments(analyze with { Access = AgentAccess.Do, AutoApprove = true }).Contains("auto"),
+                claude.Arguments(analyze with { AutoApprove = true }).Contains("auto")), (true, false));
+        var codexChosen = string.Join(' ', codex.Arguments(analyze with { Provider = AgentProviderKind.Codex, Model = "gpt-6-sol", Effort = "xhigh", ResumeSessionId = "t1" }));
+        Program.Equal("Codex takes the model and effort through config, on resume too",
+            codexChosen.Contains("-c model=gpt-6-sol -c model_reasoning_effort=xhigh"), true);
+        Program.Equal("Codex auto sends what would leave the sandbox to its automatic review, only with edits",
+            (string.Join(' ', codex.Arguments(analyze with { Access = AgentAccess.Do, AutoApprove = true })).Contains("-c approval_policy=on-request -c approvals_reviewer=auto_review"),
+                string.Join(' ', codex.Arguments(analyze with { AutoApprove = true })).Contains("approval")), (true, false));
         Rules(claude, codex);
         Program.Equal("cmd.exe quoting leaves a plain flag alone and quotes a path with spaces",
             AgentProcess.QuoteForCmd("--json") + " " + AgentProcess.QuoteForCmd(@"C:\My Work"), "--json \"C:\\My Work\"");
@@ -697,6 +754,7 @@ internal static class AgentTests
     {
         public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
         public override string Name => "Fake";
+        public override IReadOnlyList<string> Efforts => [];
         protected override IReadOnlyList<string> SignInCheck => [];
         public override IReadOnlyList<string> Arguments(AgentTask task) => [FakeFlag, scenario];
         public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser();
@@ -709,6 +767,7 @@ internal static class AgentTests
         public List<AgentTask> Tasks { get; } = [];
         public AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
         public string Name => "Scripted";
+        public IReadOnlyList<string> Efforts => [];
 
         public static ScriptedProvider Answering(string answer, bool succeeded = true) =>
             new((_, _) => new AgentResult { SessionId = "answer", Summary = answer, Succeeded = succeeded });
