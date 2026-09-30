@@ -25,8 +25,17 @@ public sealed class LinkProject
     /// <summary>Tool rules allowed only in Do: builds, exports, running code; "always for this project" adds here.</summary>
     public List<string> AgentDoTools { get; set; } = [];
 
+    /// <summary>
+    /// The user's own check of the workspace (a build, a linter, smoke tests), run as written after the agent's edits;
+    /// null runs none.
+    /// </summary>
+    public string? CheckCommand { get; set; }
+
     public ChatConversationLink? LinkedConversation { get; set; }
     public ProjectResponse? LastResponse { get; set; }
+
+    /// <summary>Settles what older or hand-edited JSON may leave blank.</summary>
+    public void Normalize() => CheckCommand = string.IsNullOrWhiteSpace(CheckCommand) ? null : CheckCommand.Trim();
 
     public override string ToString() => Name;
 }

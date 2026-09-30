@@ -117,7 +117,8 @@ public partial class MainWindow
             project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null,
             project.WorkspaceRoot is { } folder && HasGit(folder),
             attachments.Length == 0 ? string.Empty : "Goes along: " + string.Join(", ", attachments),
-            snapshot.Text);
+            snapshot.Text,
+            project.CheckCommand);
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
         SetStatus("Check the card and press Run: nothing runs before that");
@@ -265,16 +266,21 @@ public partial class MainWindow
         var project = _projects.ActiveProject;
         _agentPanel!.ShowChanges(run.Changes.Select(ToChangeRow).ToArray());
         var elapsed = $"{(int)_agentClock.Elapsed.TotalMinutes}:{_agentClock.Elapsed.Seconds:00}";
-        var ending = result.Stopped ? $"Stopped after {elapsed}"
-            : result.Succeeded ? $"Done in {elapsed}"
-            : $"Failed after {elapsed}";
-        _agentPanel.ShowResult(result.Summary, ending);
+        var stopped = result.Stopped || run.Check is { Outcome: AgentCheckOutcome.Stopped };
+        // A red check is not "done", whatever the agent's own summary says.
+        var checkFailed = !stopped && run.Check is { Passed: false };
+        var ending = stopped ? $"Stopped after {elapsed}"
+            : !result.Succeeded ? $"Failed after {elapsed}"
+            : checkFailed ? $"Check failed after {elapsed}"
+            : $"Done in {elapsed}";
+        var text = checkFailed ? CheckReport(task, run.Check!) + (result.Summary.Length > 0 ? "\n\n" + result.Summary : string.Empty) : result.Summary;
+        _agentPanel.ShowResult(text, ending);
         _agentPanel.ShowStats(StatsLine(result.Stats));
         _agentPanel.ShowLog(result.Log);
         ShowUndoOffer(run);
 
         var decision = OfferDecision(run);
-        var summary = result.Summary.Length > 0 ? result.Summary : ending;
+        var summary = text.Length > 0 ? text : ending;
         if (decision)
         {
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
@@ -282,19 +288,19 @@ public partial class MainWindow
             SayAgent($"{provider.Name} needs your decision.");
             NotifyIfAway(project, "Agent needs a decision", ToPreviewText(summary));
         }
-        else if (result.Succeeded)
+        else if (result.Succeeded && !stopped && !checkFailed)
         {
             if (!IsVisible) _unseen = LinkState.Done;
             _cues.Play(SoundCue.Done);
             SayAgent(SpokenSummary(result.Summary, run.Changes.Count));
             NotifyIfAway(project, "Agent finished", ToPreviewText(summary));
         }
-        else if (!result.Stopped)
+        else if (!stopped)
         {
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
             _cues.Play(SoundCue.Error);
-            SayAgent($"{provider.Name} failed.");
-            NotifyIfAway(project, "Agent failed", ToPreviewText(summary));
+            SayAgent(checkFailed ? $"{provider.Name} finished, but the check fails." : $"{provider.Name} failed.");
+            NotifyIfAway(project, checkFailed ? "The check fails after the agent" : "Agent failed", ToPreviewText(summary));
         }
 
         SetStatus($"{provider.Name}: {ending.ToLowerInvariant()} · {run.Changes.Count} files changed");
@@ -468,6 +474,13 @@ public partial class MainWindow
     {
         var show = _settings.Current.Route != RequestRoute.Agent && ActionVerbs.IsMatch(PromptBox.Text);
         AgentHintButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Why a task is not done: the check, how it ended and its last lines.</summary>
+    private static string CheckReport(AgentTask task, AgentCheckResult check)
+    {
+        var last = check.Tail.Split('\n').TakeLast(12);
+        return $"The check fails: {task.CheckCommand} {check}." + (check.Tail.Length > 0 ? "\n" + string.Join('\n', last) : string.Empty);
     }
 
     /// <summary>What the task cost, in one line: "12 turns · 34 tool calls, 20 searches · 1 tool error · 152k tokens in…".</summary>

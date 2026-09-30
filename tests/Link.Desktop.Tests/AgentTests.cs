@@ -32,6 +32,97 @@ internal static class AgentTests
         await GitUndoAsync();
         await CopyRestoreAsync();
         await MapAsync();
+        ProjectCheck();
+        await CheckCommandAsync();
+        await CheckRetriesAsync();
+    }
+
+    private static void ProjectCheck()
+    {
+        var old = JsonSerializer.Deserialize<LinkProject>("""{"Name":"Nori","DataFolder":"C:\\Data"}""")!;
+        old.Normalize();
+        Program.Equal("project: older JSON loads without a check", old.CheckCommand, null);
+        var blank = new LinkProject { Name = "a", DataFolder = "b", CheckCommand = "  " };
+        blank.Normalize();
+        Program.Equal("project: a blank check is none", blank.CheckCommand, null);
+        var padded = new LinkProject { Name = "a", DataFolder = "b", CheckCommand = " dotnet build\n" };
+        padded.Normalize();
+        Program.Equal("project: the check is kept trimmed", padded.CheckCommand, "dotnet build");
+    }
+
+    /// <summary>The check runs exactly as written through cmd.exe, keeps its exit code and its last lines, and ends on time or on Stop.</summary>
+    private static async Task CheckCommandAsync()
+    {
+        var folder = AppContext.BaseDirectory;
+        var passed = await AgentCheck.RunAsync("echo \"a b\"&& echo c", folder, TimeSpan.FromSeconds(10), CancellationToken.None);
+        Program.Equal("check: quotes and && reach cmd as written", (passed.Outcome, passed.Tail), (AgentCheckOutcome.Passed, "\"a b\"\nc"));
+        var failed = await AgentCheck.RunAsync("echo bad 1>&2 & exit /b 3", folder, TimeSpan.FromSeconds(10), CancellationToken.None);
+        Program.Equal("check: a failure keeps its exit code and what it wrote to stderr",
+            (failed.Outcome, failed.ExitCode, failed.Tail, failed.ForTheAgent), (AgentCheckOutcome.Failed, 3, "bad", true));
+        var missing = await AgentCheck.RunAsync("echo x", Path.Combine(folder, "no such folder"), TimeSpan.FromSeconds(10), CancellationToken.None);
+        Program.Equal("check: a check that cannot start is not the agent's to fix", (missing.Outcome, missing.ForTheAgent), (AgentCheckOutcome.NotStarted, false));
+
+        var sleep = $"\"{Environment.ProcessPath}\" {FakeFlag} sleep";
+        var clock = Stopwatch.StartNew();
+        var hung = await AgentCheck.RunAsync(sleep, folder, TimeSpan.FromSeconds(1), CancellationToken.None);
+        Program.Equal("check: a check that hangs ends at its time limit", (hung.Outcome, clock.Elapsed < TimeSpan.FromSeconds(8)), (AgentCheckOutcome.TimedOut, true));
+        using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(1));
+        var stopped = await AgentCheck.RunAsync(sleep, folder, TimeSpan.FromMinutes(1), stop.Token);
+        Program.Equal("check: Stop ends it", (stopped.Outcome, stopped.ForTheAgent), (AgentCheckOutcome.Stopped, false));
+    }
+
+    /// <summary>After Do a red check goes back to the agent's session, twice at most; read only and a plan are not checked.</summary>
+    private static async Task CheckRetriesAsync()
+    {
+        var root = TempFolder();
+        var workspace = Path.Combine(root, "work");
+        try
+        {
+            Directory.CreateDirectory(workspace);
+            var changes = new AgentChanges(Path.Combine(root, "backups"));
+            // The agent fixes the state on its second run; the check looks for it.
+            var fixing = new ScriptedProvider((_, number) =>
+            {
+                File.WriteAllText(Path.Combine(workspace, "state.txt"), number >= 2 ? "fixed" : "broken");
+                return new AgentResult { SessionId = "s1", Succeeded = true, Summary = $"run {number}", Stats = new AgentStats { Turns = 3 } };
+            });
+            var log = new List<string>();
+            var task = new AgentTask
+            {
+                Provider = AgentProviderKind.ClaudeCode,
+                Workspace = workspace,
+                Prompt = "fix",
+                Access = AgentAccess.Do,
+                Images = ["shot.png"],
+                CheckCommand = "findstr /c:fixed state.txt"
+            };
+            var run = await new AgentCoordinator([fixing], changes, log.Add).RunAsync(task, false, null, new SyncProgress(_ => { }), CancellationToken.None);
+            var retry = fixing.Tasks[^1];
+            Program.Equal("check: a red check goes back to the agent's session with the check's end",
+                (fixing.Tasks.Count, retry.ResumeSessionId, retry.Prompt.Contains("findstr /c:fixed state.txt` failed with exit code 1"), retry.Images.Count),
+                (2, "s1", true, 0));
+            Program.Equal("check: green after the fix, with the numbers of both runs", (run.Check?.Passed, run.Result.Stats.Turns, run.Result.Summary), ((bool?)true, 6, "run 2"));
+            Program.Equal("check: link.log has how it went, not the command or its output",
+                log.Count(line => line.StartsWith("[Agent] check", StringComparison.Ordinal)) == 2 && !log.Any(line => line.Contains("findstr") || line.Contains("broken")),
+                true);
+
+            var never = new ScriptedProvider((_, _) => new AgentResult { SessionId = "s2", Succeeded = true });
+            var red = await new AgentCoordinator([never], changes, _ => { })
+                .RunAsync(task with { CheckCommand = "exit /b 5" }, false, null, new SyncProgress(_ => { }), CancellationToken.None);
+            Program.Equal("check: two retries, then the red check ends the task",
+                (never.Tasks.Count, red.Check?.Outcome, red.Check?.ExitCode), (3, (AgentCheckOutcome?)AgentCheckOutcome.Failed, (int?)5));
+
+            foreach (var (name, quiet) in new[] { ("read only", task with { Access = AgentAccess.Analyze }), ("a plan", task with { PlanOnly = true }) })
+            {
+                var agent = new ScriptedProvider((_, _) => new AgentResult { SessionId = "s3", Succeeded = true });
+                var none = await new AgentCoordinator([agent], changes, _ => { }).RunAsync(quiet, false, null, new SyncProgress(_ => { }), CancellationToken.None);
+                Program.Equal($"check: {name} runs none", (none.Check, agent.Tasks.Count), ((AgentCheckResult?)null, 1));
+            }
+        }
+        finally
+        {
+            DeleteFolder(root);
+        }
     }
 
     /// <summary>The map: the agent answers read only, Link writes the answer, and it is the run's one change, undone in git.</summary>
@@ -48,8 +139,8 @@ internal static class AgentTests
             File.WriteAllText(Path.Combine(workspace, "a.txt"), "a");
             await GitAsync(workspace, "add", ".");
             await GitAsync(workspace, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "start");
-            var agents = new AgentCoordinator([new AnswerProvider("```markdown\n# Sample\n\n- a.txt: the letter a\n```")],
-                new AgentChanges(Path.Combine(root, "backups")));
+            var agents = new AgentCoordinator([ScriptedProvider.Answering("```markdown\n# Sample\n\n- a.txt: the letter a\n```")],
+                new AgentChanges(Path.Combine(root, "backups")), _ => { });
             var task = new AgentTask
             {
                 Provider = AgentProviderKind.ClaudeCode,
@@ -67,7 +158,7 @@ internal static class AgentTests
             await agents.Changes.UndoAsync(run.Before, run.Changes, CancellationToken.None);
             Program.Equal("map: undo takes it away", File.Exists(ProjectMap.PathIn(workspace)), false);
 
-            var failed = await new AgentCoordinator([new AnswerProvider("# Half a map", succeeded: false)], agents.Changes)
+            var failed = await new AgentCoordinator([ScriptedProvider.Answering("# Half a map", succeeded: false)], agents.Changes, _ => { })
                 .RunAsync(task, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
             Program.Equal("map: a failed run writes nothing", (File.Exists(ProjectMap.PathIn(workspace)), failed.Changes.Count), (false, 0));
         }
@@ -383,17 +474,24 @@ internal static class AgentTests
         protected override bool IsSignedIn(string answer) => true;
     }
 
-    /// <summary>An agent that answers at once with a set text, for what Link does around a run.</summary>
-    private sealed class AnswerProvider(string answer, bool succeeded = true) : IAgentProvider
+    /// <summary>An agent whose runs do what the check says, for what Link does around a run; it keeps the tasks it got.</summary>
+    private sealed class ScriptedProvider(Func<AgentTask, int, AgentResult> run) : IAgentProvider
     {
+        public List<AgentTask> Tasks { get; } = [];
         public AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
-        public string Name => "Answer";
+        public string Name => "Scripted";
+
+        public static ScriptedProvider Answering(string answer, bool succeeded = true) =>
+            new((_, _) => new AgentResult { SessionId = "answer", Summary = answer, Succeeded = succeeded });
 
         public Task<AgentProviderStatus> CheckAsync(string? chosenPath, CancellationToken cancellationToken) =>
             System.Threading.Tasks.Task.FromResult(new AgentProviderStatus(null, null, null));
 
-        public Task<AgentResult> RunAsync(AgentTask task, IProgress<AgentEvent> progress, CancellationToken cancellationToken) =>
-            System.Threading.Tasks.Task.FromResult(new AgentResult { SessionId = "answer", Summary = answer, Succeeded = succeeded });
+        public Task<AgentResult> RunAsync(AgentTask task, IProgress<AgentEvent> progress, CancellationToken cancellationToken)
+        {
+            Tasks.Add(task);
+            return System.Threading.Tasks.Task.FromResult(run(task, Tasks.Count));
+        }
     }
 
     /// <summary>Reports on the reporting thread: the checks need no dispatcher.</summary>

@@ -103,6 +103,8 @@ public sealed class ProjectService
 
     private List<LinkProject> Load()
     {
-        return AtomicJsonFile.Read<List<LinkProject>>(_paths.ProjectsFile, _json) ?? [];
+        var projects = AtomicJsonFile.Read<List<LinkProject>>(_paths.ProjectsFile, _json) ?? [];
+        foreach (var project in projects) project.Normalize();
+        return projects;
     }
 }

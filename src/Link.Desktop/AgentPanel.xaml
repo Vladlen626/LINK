@@ -52,6 +52,8 @@
                           Checked="Card_OnChanged" Unchecked="Card_OnChanged" />
                 <CheckBox x:Name="BackupBox" Margin="0,6,0,0" IsChecked="True"
                           Content="Copy the workspace before edits (it has no git)" />
+                <TextBlock x:Name="CheckText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                           Visibility="Collapsed" />
                 <TextBlock x:Name="AttachmentsText" Margin="0,10,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
                 <TextBlock x:Name="CardWarningText" Margin="0,8,0,0" FontSize="12" Foreground="{StaticResource ErrorBrush}"
                            TextWrapping="Wrap" Visibility="Collapsed" />

@@ -45,6 +45,9 @@ public sealed record AgentTask
     /// only change of a read-only task, made by Link rather than by the agent.
     /// </summary>
     public string? AnswerFile { get; init; }
+
+    /// <summary>The project's check, run in the workspace after Do; while it fails, the agent gets its output to fix.</summary>
+    public string? CheckCommand { get; init; }
 }
 
 public enum AgentEventKind
@@ -122,6 +125,21 @@ public sealed record AgentStats
     public decimal? CostUsd { get; init; }
 
     public TimeSpan Duration { get; init; }
+
+    /// <summary>These numbers and those of the run that continued this one, as one task's.</summary>
+    public AgentStats Add(AgentStats next) => new()
+    {
+        Turns = Turns + next.Turns,
+        ToolCalls = ToolCalls + next.ToolCalls,
+        Searches = Searches + next.Searches,
+        SearchesBeforeChange = SearchesBeforeChange ?? (next.SearchesBeforeChange is { } count ? Searches + count : null),
+        ToolErrors = ToolErrors + next.ToolErrors,
+        InputTokens = InputTokens is null && next.InputTokens is null ? null : (InputTokens ?? 0) + (next.InputTokens ?? 0),
+        CachedTokens = CachedTokens is null && next.CachedTokens is null ? null : (CachedTokens ?? 0) + (next.CachedTokens ?? 0),
+        OutputTokens = OutputTokens is null && next.OutputTokens is null ? null : (OutputTokens ?? 0) + (next.OutputTokens ?? 0),
+        CostUsd = CostUsd is null && next.CostUsd is null ? null : (CostUsd ?? 0) + (next.CostUsd ?? 0),
+        Duration = Duration + next.Duration
+    };
 }
 
 /// <summary>What Settings shows for a provider: whether its CLI is found, signed in, and its version.</summary>

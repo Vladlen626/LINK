@@ -41,6 +41,9 @@ public partial class ProjectPanel : UserControl
     /// <summary>The map of the workspace is to be written or brought up to date.</summary>
     public event Action? MapRequested;
 
+    /// <summary>The check after edits was typed; empty runs none.</summary>
+    public event Action<string>? CheckCommandChanged;
+
     public event Action<ProjectExchange>? HistorySelected;
 
     public void ShowProject(LinkProject project)
@@ -48,6 +51,7 @@ public partial class ProjectPanel : UserControl
         _showing = true;
         TaskBox.Text = project.CurrentTask;
         StateBox.Text = project.State?.Text ?? string.Empty;
+        CheckCommandBox.Text = project.CheckCommand ?? string.Empty;
         _showing = false;
         ShowStateDate(project.State);
         _workspace = project.WorkspaceRoot;
@@ -58,7 +62,7 @@ public partial class ProjectPanel : UserControl
         WorkspaceText.Foreground = (Brush)FindResource(_workspace is null ? "MutedBrush" : "TextBrush");
         WorkspaceText.ToolTip = _workspace;
         ClearWorkspaceButton.Visibility = _workspace is null ? Visibility.Collapsed : Visibility.Visible;
-        MapRow.Visibility = _workspace is null ? Visibility.Collapsed : Visibility.Visible;
+        WorkspaceTools.Visibility = _workspace is null ? Visibility.Collapsed : Visibility.Visible;
         var map = _workspace is null ? null : new FileInfo(ProjectMap.PathIn(_workspace));
         MapText.Text = map is { Exists: true }
             ? $"{ProjectMap.RelativePath} · {map.LastWriteTime.ToString("d MMM", CultureInfo.InvariantCulture)}"
@@ -110,6 +114,12 @@ public partial class ProjectPanel : UserControl
     {
         StatePlaceholder.Visibility = StateBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         if (!_showing) StateChanged?.Invoke(StateBox.Text.Trim());
+    }
+
+    private void CheckCommandBox_OnTextChanged(object sender, TextChangedEventArgs e)
+    {
+        CheckPlaceholder.Visibility = CheckCommandBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (!_showing) CheckCommandChanged?.Invoke(CheckCommandBox.Text.Trim());
     }
 
     private void Field_OnLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => EditEnded?.Invoke();

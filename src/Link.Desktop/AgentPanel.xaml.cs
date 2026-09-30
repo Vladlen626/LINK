@@ -7,7 +7,7 @@ using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
-/// <summary>What the confirmation card starts from.</summary>
+/// <summary>What the confirmation card starts from; <see cref="CheckCommand"/> is the project's check after edits.</summary>
 public sealed record AgentCardModel(
     IReadOnlyList<(AgentProviderKind Kind, string Name)> Providers,
     AgentProviderKind Provider,
@@ -15,7 +15,8 @@ public sealed record AgentCardModel(
     string? Workspace,
     bool WorkspaceHasGit,
     string Attachments,
-    string Goal);
+    string Goal,
+    string? CheckCommand);
 
 /// <summary>A row of Activity: a step, a message or a problem, in its colour.</summary>
 public sealed record AgentStepRow(string Text, Brush Brush);
@@ -199,6 +200,9 @@ public partial class AgentPanel : UserControl
         if (_card is not { } card) return;
         var edits = SelectedAccess == AgentAccess.Do;
         BackupBox.Visibility = edits && !card.WorkspaceHasGit ? Visibility.Visible : Visibility.Collapsed;
+        CheckText.Text = $"After the edits Link runs the check: {card.CheckCommand}. While it fails, the agent gets its output, " +
+                         $"{AgentCoordinator.CheckRetries} times at most.";
+        CheckText.Visibility = edits && card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
         RunButton.IsEnabled = card.Workspace is not null;
         RunButton.Content = PlanFirstBox.IsChecked == true ? "Make a plan" : edits ? "Run with edits" : "Run";
     }

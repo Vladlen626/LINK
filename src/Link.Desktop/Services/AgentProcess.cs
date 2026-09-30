@@ -5,7 +5,21 @@ using Link.Desktop.Windows;
 namespace Link.Desktop.Services;
 
 /// <summary>An agent CLI to start: its file, arguments, the folder it works in and the text it reads from stdin.</summary>
-public sealed record AgentCommand(string Executable, IReadOnlyList<string> Arguments, string WorkingDirectory, string Input);
+public sealed record AgentCommand(string Executable, IReadOnlyList<string> Arguments, string WorkingDirectory, string Input)
+{
+    /// <summary>The whole argument line, passed as it is instead of <see cref="Arguments"/>.</summary>
+    public string? CommandLine { get; init; }
+
+    /// <summary>
+    /// A command line of the user's, run exactly as written through cmd.exe, the one shell: <c>/s</c> takes away only
+    /// the quotes put around it here.
+    /// </summary>
+    public static AgentCommand Shell(string commandLine, string workingDirectory) =>
+        new(Path.Combine(Environment.SystemDirectory, "cmd.exe"), [], workingDirectory, string.Empty)
+        {
+            CommandLine = "/d /s /c \"" + commandLine + "\""
+        };
+}
 
 /// <summary>How the process ended, with the tail of what it wrote for the user to look at.</summary>
 public sealed record AgentProcessResult(int ExitCode, bool Stopped, string Log);
@@ -94,7 +108,12 @@ public static class AgentProcess
             StandardErrorEncoding = Encoding.UTF8,
             WorkingDirectory = command.WorkingDirectory
         };
-        if (command.Executable.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase))
+        if (command.CommandLine is { } line)
+        {
+            info.FileName = command.Executable;
+            info.Arguments = line;
+        }
+        else if (command.Executable.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase))
         {
             // A batch wrapper runs only through cmd.exe, which parses the whole line itself. The task goes on stdin,
             // so the arguments are flags, paths and tool rules; anything cmd would treat as syntax is refused.

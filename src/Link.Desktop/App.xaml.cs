@@ -89,7 +89,8 @@ public partial class App : System.Windows.Application
                 new ClaudeCodeProvider(() => settings.Current.Agent, Log),
                 new CodexProvider(() => settings.Current.Agent, Log)
             ],
-            new AgentChanges(paths.Backups));
+            new AgentChanges(paths.Backups),
+            Log);
 
         _mainWindow = new MainWindow(
             _settings,
