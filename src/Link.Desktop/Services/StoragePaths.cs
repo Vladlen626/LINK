@@ -32,6 +32,9 @@ public sealed class StoragePaths
     /// <summary>What the embedded page's companion keeps across restarts: the chat modes it set.</summary>
     public string CompanionStateFile => Path.Combine(Root, "companion-state.json");
 
+    /// <summary>Copies of workspaces without git, made before an agent changed them; created when first needed.</summary>
+    public string Backups => Path.Combine(Root, "Backups");
+
     /// <summary>The Gemini API key for voice replies, encrypted for this Windows user.</summary>
     public string GeminiKeyFile => Path.Combine(Root, "gemini-key.bin");
 }
