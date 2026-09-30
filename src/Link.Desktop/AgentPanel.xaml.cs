@@ -50,6 +50,9 @@ public partial class AgentPanel : UserControl
 
     public event Action? ToChatRequested;
     public event Action? UndoRequested;
+
+    /// <summary>Start over in a clean session with the agent's note on what did not work.</summary>
+    public event Action? RestartRequested;
     public event Action<string>? OpenFileRequested;
     public event Action? Closed;
 
@@ -96,6 +99,7 @@ public partial class AgentPanel : UserControl
         WhereText.ToolTip = where;
         CurrentStepText.Text = "Starting…";
         DecisionCard.Visibility = Visibility.Collapsed;
+        RestartCard.Visibility = Visibility.Collapsed;
         ShowChanges([]);
         ResultLabel.Visibility = Visibility.Collapsed;
         ResultText.Visibility = Visibility.Collapsed;
@@ -178,6 +182,18 @@ public partial class AgentPanel : UserControl
 
     public void HideDecision() => DecisionCard.Visibility = Visibility.Collapsed;
 
+    public void ShowRestart(bool show) => RestartCard.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Link's own step around a run, such as asking for a note; while it runs, Stop shows and the choices hide.</summary>
+    public void ShowStep(string step, bool running)
+    {
+        CurrentStepText.Text = step;
+        SetRunning(running);
+        if (!running) return;
+        DecisionCard.Visibility = Visibility.Collapsed;
+        RestartCard.Visibility = Visibility.Collapsed;
+    }
+
     /// <summary>Offers to undo the changes or restore the copy; null hides the button.</summary>
     public void ShowUndo(string? label, string tooltip = "")
     {
@@ -231,6 +247,7 @@ public partial class AgentPanel : UserControl
     private void Decision_OnClick(object sender, RoutedEventArgs e) => DecisionTaken?.Invoke(AlwaysBox.IsChecked == true);
     private void ToChat_OnClick(object sender, RoutedEventArgs e) => ToChatRequested?.Invoke();
     private void Undo_OnClick(object sender, RoutedEventArgs e) => UndoRequested?.Invoke();
+    private void Restart_OnClick(object sender, RoutedEventArgs e) => RestartRequested?.Invoke();
     private void Close_OnClick(object sender, RoutedEventArgs e) => Closed?.Invoke();
 
     private void Log_OnClick(object sender, RoutedEventArgs e) =>

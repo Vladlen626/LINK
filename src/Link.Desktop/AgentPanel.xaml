@@ -106,6 +106,16 @@
                         </StackPanel>
                     </Border>
 
+                    <!-- Start over with a note: beside a loop's label and after a failure. -->
+                    <Border x:Name="RestartCard" Style="{StaticResource FieldStyle}" Margin="0,10,0,0" Padding="10,8" Visibility="Collapsed">
+                        <StackPanel>
+                            <TextBlock Style="{StaticResource RowTextStyle}" Foreground="{StaticResource MutedBrush}"
+                                       Text="Start over in a clean session: the agent writes in five lines what it tried and why it did not work, then a new session takes the task with that note, the same access and folder." />
+                            <Button Style="{StaticResource PrimaryButtonStyle}" Height="28" Margin="0,8,0,0" Padding="14,0" HorizontalAlignment="Left"
+                                    Click="Restart_OnClick" Content="Start over with a note" />
+                        </StackPanel>
+                    </Border>
+
                     <TextBlock x:Name="ChangesLabel" Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="CHANGED" Visibility="Collapsed" />
                     <ItemsControl x:Name="ChangesList" Margin="-8,2,0,0">
                         <ItemsControl.ItemTemplate>

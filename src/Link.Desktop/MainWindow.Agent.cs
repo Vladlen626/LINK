@@ -25,6 +25,9 @@ public partial class MainWindow
     private InputSnapshot? _agentSnapshot;
     private AgentRun? _lastRun;
     private AgentTask? _runningTask;
+    // The task as the card or the Map button started it: what "start over" starts again, whatever runs continued it.
+    private AgentTask? _agentOrigin;
+    private bool _restartWhenStopped;
     private bool _backupBeforeDo = true;
     private CancellationTokenSource? _agentCancellation;
     private DispatcherTimer? _activityTimer;
@@ -95,14 +98,15 @@ public partial class MainWindow
             return;
         }
 
-        await StartAgentAsync(new AgentTask
+        _agentOrigin = new AgentTask
         {
             Provider = ProjectProvider,
             Workspace = workspace,
             Prompt = prompt,
             AllowedTools = project.AgentReadTools,
             AnswerFile = ProjectMap.RelativePath
-        }, null);
+        };
+        await StartAgentAsync(_agentOrigin, null);
     }
 
     private void OpenAgentCard(InputSnapshot snapshot)
@@ -148,6 +152,7 @@ public partial class MainWindow
         };
         panel.ToChatRequested += AgentResultToChat;
         panel.UndoRequested += () => _ = UndoAgentChangesAsync();
+        panel.RestartRequested += RequestRestart;
         panel.OpenFileRequested += ShowFile;
         return panel;
     }
@@ -173,11 +178,15 @@ public partial class MainWindow
         _backupBeforeDo = plan.BackupBeforeDo;
         // The input went to the agent: like a sent message, it leaves the prompt.
         if (PromptBox.Text.Trim() == snapshot.Text) ClearSentInput(PromptBox.Text);
-        await StartAgentAsync(AgentCoordinator.BuildTask(plan, snapshot, project), null);
+        _agentOrigin = AgentCoordinator.BuildTask(plan, snapshot, project);
+        await StartAgentAsync(_agentOrigin, null);
     }
 
-    /// <summary>Runs a task, fresh or continuing <paramref name="previous"/>, and shows it in Activity.</summary>
-    private async Task StartAgentAsync(AgentTask task, AgentRun? previous)
+    /// <summary>
+    /// Runs a task, fresh or continuing <paramref name="previous"/>, and shows it in Activity; <paramref name="note"/>
+    /// opens Activity, such as the note a new session starts over with.
+    /// </summary>
+    private async Task StartAgentAsync(AgentTask task, AgentRun? previous, string? note = null)
     {
         var provider = _agents.Provider(task.Provider);
         var project = _projects.ActiveProject;
@@ -189,6 +198,7 @@ public partial class MainWindow
         _agentCancellation = cancellation;
         _agentClock = Stopwatch.StartNew();
         _pendingAgentEvents.Clear();
+        if (note is not null) _pendingAgentEvents.Add(new AgentEvent(AgentEventKind.Output, note));
         _activityTimer ??= CreateActivityTimer();
         _activityTimer.Start();
         _cues.Play(SoundCue.Sent);
@@ -221,6 +231,67 @@ public partial class MainWindow
             cancellation.Dispose();
             ReportState();
         }
+
+        if (_restartWhenStopped)
+        {
+            _restartWhenStopped = false;
+            await RestartWithNoteAsync();
+        }
+    }
+
+    /// <summary>Start over with a note; a running agent is stopped first, and its note is asked once it has ended.</summary>
+    private void RequestRestart()
+    {
+        if (!AgentRunning)
+        {
+            _ = RestartWithNoteAsync();
+            return;
+        }
+
+        _restartWhenStopped = true;
+        _agentCancellation?.Cancel();
+    }
+
+    /// <summary>
+    /// The last run's session writes a short note on what it tried and why it did not work (Stop ends the asking and
+    /// the new start); then a new session takes the original task with that note, the same access and folder, and undo
+    /// still covers both.
+    /// </summary>
+    private async Task RestartWithNoteAsync()
+    {
+        if (_lastRun is not { } run || _agentOrigin is not { } origin || AgentRunning) return;
+        var provider = _agents.Provider(run.Task.Provider);
+        var cancellation = new CancellationTokenSource();
+        _agentCancellation = cancellation;
+        _agentPanel?.ShowStep($"Asking {provider.Name} what it tried, for a new session…", running: true);
+        SetStatus($"{provider.Name} writes a note for a new session · Stop is in the panel");
+        (AgentTask Task, string Note)? next;
+        try
+        {
+            next = await _agents.StartOverAsync(run, origin, cancellation.Token);
+        }
+        catch (Exception exception) when (exception is not OperationCanceledException)
+        {
+            _agentPanel?.ShowStep("Could not ask for a note", running: false);
+            SetError(exception.Message);
+            return;
+        }
+        finally
+        {
+            _agentCancellation = null;
+            cancellation.Dispose();
+            ReportState();
+        }
+
+        if (next is not { } fresh)
+        {
+            _agentPanel?.ShowStep("Start over stopped", running: false);
+            SetStatus("Start over stopped: the last run stays as it was");
+            return;
+        }
+
+        await StartAgentAsync(fresh.Task, run,
+            fresh.Note.Length > 0 ? "Note from the last attempt:\n" + fresh.Note : "No note came back: the new session starts with the task alone.");
     }
 
     private DispatcherTimer CreateActivityTimer()
@@ -239,6 +310,7 @@ public partial class MainWindow
         var events = _pendingAgentEvents.ToArray();
         _pendingAgentEvents.Clear();
         _agentPanel.AddSteps(events);
+        if (_agentOrigin is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Loop)) _agentPanel.ShowRestart(true);
         // Changed files are listed as they come; the full list, from git or the copy, replaces them at the end.
         if (_runningTask is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Artifact))
         {
@@ -278,6 +350,8 @@ public partial class MainWindow
         _agentPanel.ShowStats(StatsLine(result.Stats));
         _agentPanel.ShowLog(result.Log);
         ShowUndoOffer(run);
+        // After a loop or a failure; a Stop without a loop was the user's own choice.
+        _agentPanel.ShowRestart(_agentOrigin is not null && (result.Loops.Count > 0 || (!stopped && (!result.Succeeded || checkFailed))));
 
         var decision = OfferDecision(run);
         var summary = text.Length > 0 ? text : ending;

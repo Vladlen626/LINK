@@ -129,6 +129,40 @@ public sealed class AgentCoordinator
         return new AgentRun(task, before, result, changes, check);
     }
 
+    /// <summary>
+    /// Start over with a note: the run's session is asked once, read only, what it tried and why it did not work; the
+    /// task returned is for a new session, with the original goal and images, that note, and the access, folder and
+    /// check of the run. Without a session to ask it goes without a note; null when Stop ended the asking.
+    /// </summary>
+    public async Task<(AgentTask Task, string Note)?> StartOverAsync(AgentRun run, AgentTask origin, CancellationToken cancellationToken)
+    {
+        var note = string.Empty;
+        if (run.Result.SessionId is { } session)
+        {
+            var asked = await Provider(run.Task.Provider).RunAsync(run.Task with
+            {
+                ResumeSessionId = session,
+                Access = AgentAccess.Analyze,
+                PlanOnly = false,
+                Prompt = NoteRequest,
+                Images = [],
+                AllowedTools = [],
+                AnswerFile = null,
+                MaxTurns = 3
+            }, new Progress<AgentEvent>(), cancellationToken);
+            if (asked.Stopped) return null;
+            if (asked.Succeeded) note = asked.Summary.Trim();
+        }
+
+        var prompt = note.Length == 0 ? origin.Prompt : $"{origin.Prompt}\n\nA note from an earlier attempt at this task, which did not work out:\n{note}";
+        return (run.Task with { ResumeSessionId = null, Prompt = prompt, Images = origin.Images }, note);
+    }
+
+    /// <summary>The one short request to a session that goes nowhere: its note for the clean session after it.</summary>
+    internal const string NoteRequest =
+        "Stop working on the task and change nothing. In five lines at most, write what you tried and why it did not work: " +
+        "a note for a new session that takes the task over from the start.";
+
     /// <summary>Runs the project's check and tells Activity and link.log how it went; the command and output stay out of the log.</summary>
     private async Task<AgentCheckResult> CheckAsync(string command, string workspace, int retry, IProgress<AgentEvent> progress, CancellationToken cancellationToken)
     {

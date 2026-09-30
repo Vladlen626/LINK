@@ -37,6 +37,50 @@ internal static class AgentTests
         ProjectCheck();
         await CheckCommandAsync();
         await CheckRetriesAsync();
+        await StartOverAsync();
+    }
+
+    /// <summary>Start over with a note: the looping session is asked read only, and a new session gets the original task and the note.</summary>
+    private static async Task StartOverAsync()
+    {
+        const string Note = "Tried Floor twice; the tests need Assert first.";
+        var agent = new ScriptedProvider((task, _) => task.Prompt == AgentCoordinator.NoteRequest
+            ? new AgentResult { SessionId = "s1", Succeeded = true, Summary = Note + "\n" }
+            : new AgentResult { SessionId = "s2", Succeeded = true });
+        var agents = new AgentCoordinator([agent], new AgentChanges(Path.GetTempPath()), _ => { });
+        var origin = new AgentTask
+        {
+            Provider = AgentProviderKind.ClaudeCode,
+            Workspace = @"C:\Work\Sample",
+            Prompt = "Fix the rounding",
+            Images = ["shot.png"],
+            Access = AgentAccess.Do,
+            AllowedTools = ["Read"],
+            CheckCommand = "dotnet test"
+        };
+        // The task went on after "allow and retry" and looped there.
+        var last = origin with { ResumeSessionId = "s1", Prompt = "These tools are allowed now. Continue the task.", Images = [], AllowedTools = ["Read", "Bash(dotnet test)"] };
+        var before = new WorkspaceBefore(origin.Workspace, false, new Dictionary<string, string>(), null, DateTime.UtcNow);
+        var looped = new AgentRun(last, before, new AgentResult { SessionId = "s1", Loops = ["repeated error"] }, []);
+
+        var fresh = (await agents.StartOverAsync(looped, origin, CancellationToken.None))!.Value;
+        var ask = agent.Tasks.Single();
+        Program.Equal("start over: the note is asked in the same session, read only, with no tools or images",
+            (ask.ResumeSessionId, ask.Access, ask.AllowedTools.Count, ask.Images.Count), ("s1", AgentAccess.Analyze, 0, 0));
+        Program.Equal("start over: a new session with the original goal and images, and the note",
+            (fresh.Task.ResumeSessionId, fresh.Task.Prompt, fresh.Task.Images.Count, fresh.Note),
+            ((string?)null, "Fix the rounding\n\nA note from an earlier attempt at this task, which did not work out:\n" + Note, 1, Note));
+        Program.Equal("start over: the access, folder, allowed tools and check of the run go on",
+            (fresh.Task.Access, fresh.Task.Workspace, string.Join(",", fresh.Task.AllowedTools), fresh.Task.CheckCommand),
+            (AgentAccess.Do, @"C:\Work\Sample", "Read,Bash(dotnet test)", "dotnet test"));
+
+        var stopping = new AgentCoordinator([new ScriptedProvider((_, _) => new AgentResult { Stopped = true })], agents.Changes, _ => { });
+        Program.Equal("start over: Stop while the note is asked starts nothing", (await stopping.StartOverAsync(looped, origin, CancellationToken.None)).HasValue, false);
+        var unasked = new ScriptedProvider((_, _) => new AgentResult());
+        var sessionless = await new AgentCoordinator([unasked], agents.Changes, _ => { })
+            .StartOverAsync(looped with { Result = new AgentResult() }, origin, CancellationToken.None);
+        Program.Equal("start over: without a session to ask, the task starts over without a note",
+            (unasked.Tasks.Count, sessionless?.Task.Prompt, sessionless?.Note), (0, "Fix the rounding", string.Empty));
     }
 
     private static void ProjectCheck()
