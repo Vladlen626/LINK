@@ -58,15 +58,22 @@ public enum AgentEventKind
     /// <summary>The agent was refused something only the user can allow.</summary>
     NeedsInput,
 
+    /// <summary>A tool call came back with an error; <see cref="AgentEvent.Text"/> is the error. Counted, not listed.</summary>
+    ToolFailed,
+
     Completed,
     Error
 }
 
 /// <summary>
-/// Something an agent did or said. <see cref="Detail"/> is the file path for an artifact and the refused tool for
-/// needs-input.
+/// Something an agent did or said. <see cref="Detail"/> is the file path for an artifact, the refused tool for
+/// needs-input and the tool's name for a tool call or its failure.
 /// </summary>
-public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail = null);
+public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail = null)
+{
+    /// <summary>A tool call that only looks around: it finds, lists or reads files.</summary>
+    public bool IsSearch { get; init; }
+}
 
 /// <summary>How a run ended. <see cref="Denials"/> are the tool rules the agent was refused, to allow and try again.</summary>
 public sealed record AgentResult
@@ -78,9 +85,37 @@ public sealed record AgentResult
     public int ExitCode { get; init; }
     public IReadOnlyList<string> Denials { get; init; } = [];
     public IReadOnlyList<string> ChangedFiles { get; init; } = [];
+    public AgentStats Stats { get; init; } = new();
 
     /// <summary>The tail of the CLI's stdout and stderr, shown on request.</summary>
     public string Log { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// What a run cost: its turns, tool calls and how many of them only looked around, failed calls, tokens, money and
+/// time. They tell which parts of the harness save work; a number the provider does not report is null.
+/// </summary>
+public sealed record AgentStats
+{
+    public int Turns { get; init; }
+    public int ToolCalls { get; init; }
+    public int Searches { get; init; }
+
+    /// <summary>Searches before the first changed file, null when nothing changed: what a map of the project cuts.</summary>
+    public int? SearchesBeforeChange { get; init; }
+
+    public int ToolErrors { get; init; }
+
+    /// <summary>All the input the model read, the cached part included.</summary>
+    public long? InputTokens { get; init; }
+
+    public long? CachedTokens { get; init; }
+    public long? OutputTokens { get; init; }
+
+    /// <summary>What the run would cost on the API; Claude Code reports it, Codex does not.</summary>
+    public decimal? CostUsd { get; init; }
+
+    public TimeSpan Duration { get; init; }
 }
 
 /// <summary>What Settings shows for a provider: whether its CLI is found, signed in, and its version.</summary>

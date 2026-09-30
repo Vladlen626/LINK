@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Threading;
@@ -224,6 +225,7 @@ public partial class MainWindow
             : result.Succeeded ? $"Done in {elapsed}"
             : $"Failed after {elapsed}";
         _agentPanel.ShowResult(result.Summary, ending);
+        _agentPanel.ShowStats(StatsLine(result.Stats));
         _agentPanel.ShowLog(result.Log);
         ShowUndoOffer(run);
 
@@ -422,6 +424,33 @@ public partial class MainWindow
     {
         var show = _settings.Current.Route != RequestRoute.Agent && ActionVerbs.IsMatch(PromptBox.Text);
         AgentHintButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>What the task cost, in one line: "12 turns · 34 tool calls, 20 searches · 1 tool error · 152k tokens in…".</summary>
+    private static string StatsLine(AgentStats stats)
+    {
+        var parts = new List<string>();
+        if (stats.Turns > 0) parts.Add(Plural(stats.Turns, "turn", "turns"));
+        var before = stats.SearchesBeforeChange is { } count ? $" ({count} before the first change)" : string.Empty;
+        parts.Add($"{Plural(stats.ToolCalls, "tool call", "tool calls")}, {Plural(stats.Searches, "search", "searches")}{before}");
+        if (stats.ToolErrors > 0) parts.Add(Plural(stats.ToolErrors, "tool error", "tool errors"));
+        if (stats.InputTokens is { } input)
+        {
+            parts.Add($"{Tokens(input)} tokens in ({Tokens(stats.CachedTokens ?? 0)} cached), {Tokens(stats.OutputTokens ?? 0)} out");
+        }
+
+        if (stats.CostUsd is { } usd) parts.Add(usd.ToString("$0.00", CultureInfo.InvariantCulture));
+        return string.Join(" · ", parts);
+
+        static string Plural(int number, string one, string many) => $"{number} {(number == 1 ? one : many)}";
+
+        static string Tokens(long number) => number switch
+        {
+            < 1_000 => number.ToString(CultureInfo.InvariantCulture),
+            < 100_000 => (number / 1_000.0).ToString("0.#k", CultureInfo.InvariantCulture),
+            < 1_000_000 => (number / 1_000.0).ToString("0k", CultureInfo.InvariantCulture),
+            _ => (number / 1_000_000.0).ToString("0.#M", CultureInfo.InvariantCulture)
+        };
     }
 
     private AgentChangeRow ToChangeRow(AgentChange change)

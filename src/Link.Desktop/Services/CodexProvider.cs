@@ -60,12 +60,20 @@ public sealed partial class CodexEventParser : AgentEventParser
                 events.Add(new AgentEvent(AgentEventKind.Status, "Session started"));
                 break;
             case "item.started" when root.TryGetProperty("item", out var item) && Text(item, "type") == "command_execution":
-                events.Add(new AgentEvent(AgentEventKind.Tool, Short(Unwrap(Text(item, "command"))), "command"));
+                var command = Unwrap(Text(item, "command"));
+                Called("command", command, IsSearchCommand(command), events);
                 break;
             case "item.completed" when root.TryGetProperty("item", out var item):
                 ReadItem(item, events);
                 break;
             case "turn.completed":
+                Turns++;
+                // Input counts the cached part too, as the API does.
+                if (root.TryGetProperty("usage", out var usage))
+                {
+                    Spent(Number(usage, "input_tokens"), Number(usage, "cached_input_tokens"), Number(usage, "output_tokens"), null);
+                }
+
                 events.Add(new AgentEvent(AgentEventKind.Completed, Summary));
                 break;
             case "turn.failed":
@@ -82,33 +90,37 @@ public sealed partial class CodexEventParser : AgentEventParser
     private void ReadItem(JsonElement item, List<AgentEvent> events)
     {
         var status = Text(item, "status");
+        var failed = status is "declined" or "failed";
         switch (Text(item, "type"))
         {
             case "agent_message" when Text(item, "text").Trim() is { Length: > 0 } text:
                 Summary = text;
                 events.Add(new AgentEvent(AgentEventKind.Output, text));
                 break;
-            case "command_execution" when status is "declined" or "failed" && IsSandboxRefusal(Text(item, "aggregated_output")):
-                Denied("workspace-write", events, "The read-only sandbox refused a change");
+            case "command_execution":
+                var output = Text(item, "aggregated_output");
+                if (failed || Number(item, "exit_code") != 0) ToolFailed("command", output, events);
+                if (failed && IsSandboxRefusal(output)) Denied("workspace-write", events, "The read-only sandbox refused a change");
                 break;
             case "file_change" when item.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Array:
-                if (status is "declined" or "failed")
+                var paths = changes.EnumerateArray().Select(change => Text(change, "path")).Where(path => path.Length > 0).ToArray();
+                // Codex has no edit tool of its own: its patch is the call.
+                Called("file_change", "Edit: " + string.Join(", ", paths), false, events);
+                if (failed)
                 {
+                    ToolFailed("file_change", "The patch was not applied.", events);
                     Denied("workspace-write", events, "The sandbox refused a file change");
                     break;
                 }
 
-                foreach (var change in changes.EnumerateArray())
-                {
-                    if (Text(change, "path") is { Length: > 0 } path) Changed(path, events);
-                }
-
+                foreach (var path in paths) Changed(path, events);
                 break;
             case "mcp_tool_call":
-                events.Add(new AgentEvent(AgentEventKind.Tool, Short($"{Text(item, "server")}: {Text(item, "tool")}"), "mcp"));
+                Called("mcp", $"{Text(item, "server")}: {Text(item, "tool")}", false, events);
+                if (failed) ToolFailed("mcp", item.TryGetProperty("error", out var error) ? Text(error, "message") : string.Empty, events);
                 break;
             case "web_search":
-                events.Add(new AgentEvent(AgentEventKind.Tool, Short($"Search: {Text(item, "query")}"), "search"));
+                Called("search", $"Search: {Text(item, "query")}", false, events);
                 break;
             case "error" when Text(item, "message") is { Length: > 0 } warning:
                 // Codex reports warnings as error items and goes on; a real failure ends the turn.

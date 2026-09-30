@@ -98,6 +98,7 @@ public partial class AgentPanel : UserControl
         ShowChanges([]);
         ResultLabel.Visibility = Visibility.Collapsed;
         ResultText.Visibility = Visibility.Collapsed;
+        ShowStats(string.Empty);
         LogText.Visibility = Visibility.Collapsed;
         UndoButton.Visibility = Visibility.Collapsed;
         SetRunning(true);
@@ -121,8 +122,8 @@ public partial class AgentPanel : UserControl
         foreach (var agentEvent in events)
         {
             if (agentEvent.Kind is AgentEventKind.Tool or AgentEventKind.Status) CurrentStepText.Text = agentEvent.Text;
-            // The result has its own place; a change is listed under Changed.
-            if (agentEvent.Kind is AgentEventKind.Completed or AgentEventKind.Artifact) continue;
+            // The result has its own place, a change is listed under Changed and failed calls are counted under the result.
+            if (agentEvent.Kind is AgentEventKind.Completed or AgentEventKind.Artifact or AgentEventKind.ToolFailed) continue;
             var (prefix, brush) = agentEvent.Kind switch
             {
                 AgentEventKind.Tool => ("▸ ", "MutedBrush"),
@@ -152,6 +153,13 @@ public partial class AgentPanel : UserControl
         ResultLabel.Visibility = shown;
         ResultText.Visibility = shown;
         SetRunning(false);
+    }
+
+    /// <summary>The task's numbers in one line under its result; empty hides it.</summary>
+    public void ShowStats(string text)
+    {
+        StatsText.Text = text;
+        StatsText.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     public void ShowLog(string log) => LogText.Text = log;

@@ -119,6 +119,9 @@
                     <TextBlock x:Name="ResultLabel" Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="RESULT" Visibility="Collapsed" />
                     <TextBox x:Name="ResultText" Margin="0,4,0,0" Style="{StaticResource BareTextBoxStyle}" FontSize="12.5" IsReadOnly="True"
                              TextWrapping="Wrap" Visibility="Collapsed" />
+                    <!-- What the task cost: turns, tool calls, searches, failed calls, tokens. -->
+                    <TextBlock x:Name="StatsText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
+                               TextWrapping="Wrap" Visibility="Collapsed" />
 
                     <TextBox x:Name="LogText" Margin="0,10,0,0" Style="{StaticResource BareTextBoxStyle}" FontFamily="Consolas" FontSize="10.5"
                              IsReadOnly="True" TextWrapping="Wrap" MaxHeight="260" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" />

@@ -60,8 +60,11 @@ public sealed class ClaudeCodeProvider(Func<AgentSettings> settings, Action<stri
 public sealed class ClaudeEventParser : AgentEventParser
 {
     private static readonly HashSet<string> EditTools = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
+    private static readonly HashSet<string> SearchTools = ["Glob", "Grep", "Read", "LS"];
+    private static readonly HashSet<string> ShellTools = ["Bash", "PowerShell"];
 
-    // An edit counts as a change once its result comes back without an error.
+    // Each call's tool until its result comes back; an edit counts as a change only when that result is not an error.
+    private readonly Dictionary<string, string> _pendingTools = [];
     private readonly Dictionary<string, string> _pendingEdits = [];
 
     protected override void Read(JsonElement root, List<AgentEvent> events)
@@ -94,30 +97,54 @@ public sealed class ClaudeEventParser : AgentEventParser
             case "tool_use":
                 var name = Text(block, "name");
                 var input = block.TryGetProperty("input", out var value) ? value : default;
+                var command = Text(input, "command");
                 var target = Text(input, "file_path") is { Length: > 0 } file ? file
-                    : Text(input, "command") is { Length: > 0 } command ? command
+                    : command.Length > 0 ? command
                     : Text(input, "pattern") is { Length: > 0 } pattern ? pattern
                     : Text(input, "url");
-                events.Add(new AgentEvent(AgentEventKind.Tool, Short(target.Length > 0 ? $"{name}: {target}" : name), name));
-                if (EditTools.Contains(name) && Text(input, "file_path") is { Length: > 0 } edited)
-                {
-                    _pendingEdits[Text(block, "id")] = edited;
-                }
-
+                var search = SearchTools.Contains(name) || (ShellTools.Contains(name) && IsSearchCommand(command));
+                Called(name, target.Length > 0 ? $"{name}: {target}" : name, search, events);
+                var id = Text(block, "id");
+                _pendingTools[id] = name;
+                if (EditTools.Contains(name) && Text(input, "file_path") is { Length: > 0 } edited) _pendingEdits[id] = edited;
                 break;
         }
     }
 
     private void ReadToolResult(JsonElement block, List<AgentEvent> events)
     {
-        if (Text(block, "type") != "tool_result" || !_pendingEdits.Remove(Text(block, "tool_use_id"), out var file)) return;
+        if (Text(block, "type") != "tool_result") return;
+        var id = Text(block, "tool_use_id");
         var failed = block.TryGetProperty("is_error", out var isError) && isError.ValueKind == JsonValueKind.True;
-        if (!failed) Changed(file, events);
+        if (_pendingTools.Remove(id, out var tool) && failed) ToolFailed(tool, ResultText(block), events);
+        if (_pendingEdits.Remove(id, out var file) && !failed) Changed(file, events);
+    }
+
+    /// <summary>A tool result's text: a string, or text blocks.</summary>
+    private static string ResultText(JsonElement block)
+    {
+        if (!block.TryGetProperty("content", out var content)) return string.Empty;
+        if (content.ValueKind == JsonValueKind.String) return content.GetString() ?? string.Empty;
+        return content.ValueKind == JsonValueKind.Array
+            ? string.Join('\n', content.EnumerateArray().Select(part => Text(part, "text")).Where(text => text.Length > 0))
+            : string.Empty;
     }
 
     private void ReadResult(JsonElement root, List<AgentEvent> events)
     {
         SessionId = Text(root, "session_id") is { Length: > 0 } session ? session : SessionId;
+        Turns = (int)Number(root, "num_turns");
+        if (root.TryGetProperty("usage", out var usage))
+        {
+            // The API counts fresh, cache-written and cache-read input apart; together they are all the model read.
+            var cached = Number(usage, "cache_read_input_tokens");
+            Spent(
+                Number(usage, "input_tokens") + Number(usage, "cache_creation_input_tokens") + cached,
+                cached,
+                Number(usage, "output_tokens"),
+                root.TryGetProperty("total_cost_usd", out var cost) && cost.TryGetDecimal(out var usd) ? usd : null);
+        }
+
         if (root.TryGetProperty("permission_denials", out var denials) && denials.ValueKind == JsonValueKind.Array)
         {
             foreach (var denial in denials.EnumerateArray())
@@ -141,8 +168,7 @@ public sealed class ClaudeEventParser : AgentEventParser
             return;
         }
 
-        var turns = root.TryGetProperty("num_turns", out var count) && count.TryGetInt32(out var number) ? number : 0;
-        events.Add(new AgentEvent(AgentEventKind.Completed, text, turns > 0 ? $"{turns} turns" : null));
+        events.Add(new AgentEvent(AgentEventKind.Completed, text, Turns > 0 ? $"{Turns} turns" : null));
     }
 
     private static IEnumerable<JsonElement> Content(JsonElement root) =>

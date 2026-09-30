@@ -23,6 +23,7 @@ internal static class AgentTests
     {
         ClaudeFixtures();
         CodexFixtures();
+        Stats();
         Arguments();
         await StreamAsync();
         await FailureAsync();
@@ -164,6 +165,50 @@ internal static class AgentTests
             string.Join(";", refused.Denials), "workspace-write");
     }
 
+    /// <summary>A task's numbers from its events: the Do fixtures follow the recorded format with searches, a failed build and two edits.</summary>
+    private static void Stats()
+    {
+        var claude = Parse(new ClaudeEventParser(), "claude-do.jsonl").Parser.Stats;
+        Program.Equal("Claude stats: turns, calls, searches, searches before the first change, failed calls",
+            (claude.Turns, claude.ToolCalls, claude.Searches, claude.SearchesBeforeChange, claude.ToolErrors), (10, 9, 5, (int?)4, 1));
+        Program.Equal("Claude stats: all the input with the cache, the output and the cost come from the result",
+            (claude.InputTokens, claude.CachedTokens, claude.OutputTokens, claude.CostUsd),
+            ((long?)157371, (long?)148230, (long?)2105, (decimal?)0.1834m));
+        var read = Parse(new ClaudeEventParser(), "claude-read.jsonl").Parser.Stats;
+        Program.Equal("Claude stats: a run that changed nothing has no searches before a change",
+            (read.Searches, read.SearchesBeforeChange, read.InputTokens), (1, (int?)null, (long?)12));
+        Program.Equal("Claude stats: a failed edit and a refused command are tool errors",
+            Parse(new ClaudeEventParser(), "claude-denied.jsonl").Parser.Stats.ToolErrors, 2);
+        Program.Equal("link.log: the numbers whole, in one order",
+            CliAgentProvider.LogStats(claude),
+            "turns 10, tools 9, searches 5 (4 before a change), tool errors 1, tokens in 157371 (cached 148230) out 2105, cost $0.1834");
+
+        var codex = Parse(new CodexEventParser(), "codex-do.jsonl").Parser.Stats;
+        Program.Equal("Codex stats: commands and patches are calls, a search is told by its program",
+            (codex.Turns, codex.ToolCalls, codex.Searches, codex.SearchesBeforeChange, codex.ToolErrors), (1, 7, 3, (int?)2, 1));
+        Program.Equal("Codex stats: tokens come from the turn, the cost is not reported",
+            (codex.InputTokens, codex.CachedTokens, codex.OutputTokens, codex.CostUsd),
+            ((long?)182340, (long?)160512, (long?)3120, (decimal?)null));
+        Program.Equal("Codex stats: git status, even with a read after it, is not a search",
+            Parse(new CodexEventParser(), "codex-read.jsonl").Parser.Stats.Searches, 0);
+
+        foreach (var (command, search) in new[]
+                 {
+                     ("rg -n Cents src", true),
+                     ("cd C:/Work/Sample && grep -rn Cents .", true),
+                     ("Get-ChildItem -Recurse -Filter *.cs | Select-Object FullName", true),
+                     (@"& 'C:\Tools\rg.exe' Cents", true),
+                     ("git grep -n Cents", true),
+                     ("dotnet build 2>&1 | Select-String error", false),
+                     ("git status --short; Get-Content a.cs", false),
+                     ("npm test", false),
+                     ("", false)
+                 })
+        {
+            Program.Equal($"search command: {command}", AgentEventParser.IsSearchCommand(command), search);
+        }
+    }
+
     private static void Arguments()
     {
         var settings = new AgentSettings();
@@ -199,11 +244,17 @@ internal static class AgentTests
 
     private static async Task StreamAsync()
     {
-        var (result, events) = await RunFakeAsync("stream");
+        var log = new List<string>();
+        var events = new List<AgentEvent>();
+        var result = await new FakeProvider("stream", new AgentSettings { ClaudePath = Environment.ProcessPath }, log.Add)
+            .RunAsync(Task(), new SyncProgress(events.Add), CancellationToken.None);
         Program.Equal("fake CLI: events arrive in order, junk skipped",
             string.Join(",", events.Select(e => e.Kind)), "Status,Tool,Output,Completed");
         Program.Equal("fake CLI: a clean exit succeeds", result.Succeeded, true);
         Program.Equal("fake CLI: the session id is kept", result.SessionId, "fake-session");
+        Program.Equal("fake CLI: the run's numbers are in the result", (result.Stats.Turns, result.Stats.ToolCalls, result.Stats.Searches), (1, 1, 1));
+        Program.Equal("the [Agent] line has the numbers and not the task",
+            log.Count == 1 && log[0].Contains("turns 1, tools 1, searches 1") && !log[0].Contains("fake task"), true);
     }
 
     private static async Task FailureAsync()
@@ -268,7 +319,7 @@ internal static class AgentTests
         new() { Provider = AgentProviderKind.ClaudeCode, Workspace = AppContext.BaseDirectory, Prompt = "fake task" };
 
     private static FakeProvider Provider(string scenario) =>
-        new(scenario, new AgentSettings { ClaudePath = Environment.ProcessPath });
+        new(scenario, new AgentSettings { ClaudePath = Environment.ProcessPath }, _ => { });
 
     private static (AgentEventParser Parser, List<AgentEvent> Events) Parse(AgentEventParser parser, string fixture)
     {
@@ -278,7 +329,7 @@ internal static class AgentTests
     }
 
     /// <summary>Claude Code's parser on a fake CLI: this program, which plays a scenario instead of running tests.</summary>
-    private sealed class FakeProvider(string scenario, AgentSettings settings) : CliAgentProvider(() => settings, _ => { })
+    private sealed class FakeProvider(string scenario, AgentSettings settings, Action<string> log) : CliAgentProvider(() => settings, log)
     {
         public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
         public override string Name => "Fake";

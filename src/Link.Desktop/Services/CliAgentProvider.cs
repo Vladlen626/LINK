@@ -1,5 +1,7 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Link.Desktop.Models;
 
 namespace Link.Desktop.Services;
@@ -87,15 +89,31 @@ public abstract class CliAgentProvider : IAgentProvider
             ExitCode = process.ExitCode,
             Denials = parser.Denials.Distinct().ToArray(),
             ChangedFiles = parser.ChangedFiles.Distinct(StringComparer.OrdinalIgnoreCase).ToArray(),
+            Stats = parser.Stats with { Duration = clock.Elapsed },
             Log = process.Log
         };
         // Never the task's text: it can hold anything the user wrote.
         var outcome = result.Stopped ? "stopped" : result.Succeeded ? "done" : $"failed (exit {result.ExitCode})";
-        var first = firstEvent is { } elapsed ? $"{elapsed.TotalSeconds:0.0} s" : "none";
+        var first = firstEvent is { } elapsed ? Seconds(elapsed) : "none";
         _log($"[Agent] {Name}, {task.Access}{(task.PlanOnly ? ", plan" : string.Empty)}: {outcome}; " +
-             $"session {result.SessionId ?? "none"}, first event {first}, {clock.Elapsed.TotalSeconds:0.0} s, " +
-             $"{result.ChangedFiles.Count} files, denials: {(result.Denials.Count == 0 ? "none" : string.Join(", ", result.Denials))}");
+             $"session {result.SessionId ?? "none"}, first event {first}, {Seconds(clock.Elapsed)}, " +
+             $"{result.ChangedFiles.Count} files, denials: {(result.Denials.Count == 0 ? "none" : string.Join(", ", result.Denials))}; " +
+             LogStats(result.Stats));
         return result;
+    }
+
+    /// <summary>Seconds for link.log, with a point whatever the language of Windows.</summary>
+    internal static string Seconds(TimeSpan time) => time.TotalSeconds.ToString("0.0", CultureInfo.InvariantCulture) + " s";
+
+    /// <summary>The run's numbers for link.log, whole and in one order, so that runs can be compared line by line.</summary>
+    internal static string LogStats(AgentStats stats)
+    {
+        var before = stats.SearchesBeforeChange is { } count ? $" ({count} before a change)" : string.Empty;
+        var tokens = stats.InputTokens is { } input
+            ? $"tokens in {input} (cached {stats.CachedTokens ?? 0}) out {stats.OutputTokens ?? 0}"
+            : "tokens unknown";
+        var cost = stats.CostUsd is { } usd ? ", cost $" + usd.ToString("0.####", CultureInfo.InvariantCulture) : string.Empty;
+        return $"turns {stats.Turns}, tools {stats.ToolCalls}, searches {stats.Searches}{before}, tool errors {stats.ToolErrors}, {tokens}{cost}";
     }
 
     /// <summary>The CLI's arguments for a task; the task's text itself goes on stdin.</summary>
@@ -137,19 +155,51 @@ public abstract class CliAgentProvider : IAgentProvider
 }
 
 /// <summary>
-/// Reads one provider's JSONL into events and keeps what the result needs. Lines that are not JSON and events it does
-/// not know are skipped: a newer CLI may add them.
+/// Reads one provider's JSONL into events and keeps what the result needs, its numbers included. Lines that are not
+/// JSON and events it does not know are skipped: a newer CLI may add them.
 /// </summary>
-public abstract class AgentEventParser
+public abstract partial class AgentEventParser
 {
+    // Programs that only find, list or read files, by the name a shell command starts with.
+    private static readonly HashSet<string> SearchPrograms = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "rg", "grep", "egrep", "fgrep", "findstr", "find", "fd", "ls", "dir", "tree", "cat", "type", "head", "tail", "more",
+        "Get-ChildItem", "gci", "Select-String", "sls", "Get-Content", "gc"
+    };
+
+    private static readonly HashSet<string> FolderChanges = new(StringComparer.OrdinalIgnoreCase) { "cd", "Set-Location", "sl", "pushd", "Push-Location" };
     private readonly List<string> _denials = [];
     private readonly List<string> _changedFiles = [];
+    private int _toolCalls;
+    private int _searches;
+    private int _searchesBeforeChange;
+    private int _toolErrors;
+    private long? _inputTokens;
+    private long? _cachedTokens;
+    private long? _outputTokens;
+    private decimal? _cost;
 
     public string? SessionId { get; protected set; }
     public string Summary { get; protected set; } = string.Empty;
     public bool Failed { get; protected set; }
     public IReadOnlyList<string> Denials => _denials;
     public IReadOnlyList<string> ChangedFiles => _changedFiles;
+
+    /// <summary>The run's numbers so far; its time is the runner's to add.</summary>
+    public AgentStats Stats => new()
+    {
+        Turns = Turns,
+        ToolCalls = _toolCalls,
+        Searches = _searches,
+        SearchesBeforeChange = _changedFiles.Count > 0 ? _searchesBeforeChange : null,
+        ToolErrors = _toolErrors,
+        InputTokens = _inputTokens,
+        CachedTokens = _cachedTokens,
+        OutputTokens = _outputTokens,
+        CostUsd = _cost
+    };
+
+    protected int Turns { get; set; }
 
     public IReadOnlyList<AgentEvent> Read(string line)
     {
@@ -185,6 +235,60 @@ public abstract class AgentEventParser
         events.Add(new AgentEvent(AgentEventKind.Artifact, path, path));
     }
 
+    /// <summary>A tool call, a step of Activity; <paramref name="search"/>: it only looks around.</summary>
+    protected void Called(string name, string text, bool search, List<AgentEvent> events)
+    {
+        _toolCalls++;
+        if (search)
+        {
+            _searches++;
+            if (_changedFiles.Count == 0) _searchesBeforeChange++;
+        }
+
+        events.Add(new AgentEvent(AgentEventKind.Tool, Short(text), name) { IsSearch = search });
+    }
+
+    /// <summary>A tool call that came back with an error; the end of a long error is where its cause usually is.</summary>
+    protected void ToolFailed(string name, string error, List<AgentEvent> events)
+    {
+        _toolErrors++;
+        var text = error.Trim();
+        events.Add(new AgentEvent(AgentEventKind.ToolFailed, text.Length <= 2000 ? text : text[^2000..], name));
+    }
+
+    /// <summary>Tokens and money as the provider's final events tell them; a run of several turns adds them up.</summary>
+    protected void Spent(long input, long cached, long output, decimal? cost)
+    {
+        _inputTokens = (_inputTokens ?? 0) + input;
+        _cachedTokens = (_cachedTokens ?? 0) + cached;
+        _outputTokens = (_outputTokens ?? 0) + output;
+        if (cost is { } usd) _cost = (_cost ?? 0) + usd;
+    }
+
+    /// <summary>
+    /// Whether a shell command only looks around: the first program it runs, after any change of folder, finds, lists
+    /// or reads files. Codex searches only this way; Claude Code mostly with its own tools.
+    /// </summary>
+    internal static bool IsSearchCommand(string command)
+    {
+        foreach (var part in CommandSeparators().Split(command))
+        {
+            var words = part.Trim().TrimStart('(', '&', '@', '$').Split((char[]?)null, 3, StringSplitOptions.RemoveEmptyEntries);
+            if (words.Length == 0) continue;
+            var program = Path.GetFileNameWithoutExtension(words[0].Trim('"', '\''));
+            if (FolderChanges.Contains(program)) continue;
+            if (program.Equals("git", StringComparison.OrdinalIgnoreCase)) return words.Length > 1 && words[1] is "grep" or "ls-files";
+            return SearchPrograms.Contains(program);
+        }
+
+        return false;
+    }
+
+    protected static long Number(JsonElement element, string property) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.TryGetInt64(out var number)
+            ? number
+            : 0;
+
     protected static string Text(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.ValueKind == JsonValueKind.String
             ? value.GetString() ?? string.Empty
@@ -196,4 +300,8 @@ public abstract class AgentEventParser
         var line = text.Trim().Split('\n', 2)[0].Trim();
         return line.Length <= length ? line : line[..(length - 1)] + "…";
     }
+
+    // Commands one after another: ; && || and new lines. A pipe is not one: what it feeds belongs to the first program.
+    [GeneratedRegex(@"&&|\|\||;|\n")]
+    private static partial Regex CommandSeparators();
 }
