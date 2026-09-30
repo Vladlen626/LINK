@@ -39,6 +39,12 @@ public sealed record AgentTask
 
     /// <summary>A guard against a run that goes on and on; each turn spends the provider's subscription.</summary>
     public int MaxTurns { get; init; } = 40;
+
+    /// <summary>
+    /// A file of the workspace, relative to it, that Link writes the agent's answer to, such as the project map: the
+    /// only change of a read-only task, made by Link rather than by the agent.
+    /// </summary>
+    public string? AnswerFile { get; init; }
 }
 
 public enum AgentEventKind

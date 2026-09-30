@@ -5,6 +5,7 @@ using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using Link.Desktop.Models;
+using Link.Desktop.Services;
 using Microsoft.Win32;
 
 namespace Link.Desktop;
@@ -37,6 +38,9 @@ public partial class ProjectPanel : UserControl
     /// <summary>A workspace folder was chosen, or null when the user forgot it.</summary>
     public event Action<string?>? WorkspaceChosen;
 
+    /// <summary>The map of the workspace is to be written or brought up to date.</summary>
+    public event Action? MapRequested;
+
     public event Action<ProjectExchange>? HistorySelected;
 
     public void ShowProject(LinkProject project)
@@ -54,6 +58,12 @@ public partial class ProjectPanel : UserControl
         WorkspaceText.Foreground = (Brush)FindResource(_workspace is null ? "MutedBrush" : "TextBrush");
         WorkspaceText.ToolTip = _workspace;
         ClearWorkspaceButton.Visibility = _workspace is null ? Visibility.Collapsed : Visibility.Visible;
+        MapRow.Visibility = _workspace is null ? Visibility.Collapsed : Visibility.Visible;
+        var map = _workspace is null ? null : new FileInfo(ProjectMap.PathIn(_workspace));
+        MapText.Text = map is { Exists: true }
+            ? $"{ProjectMap.RelativePath} · {map.LastWriteTime.ToString("d MMM", CultureInfo.InvariantCulture)}"
+            : "No map yet: agents search the folder";
+        MapButton.Content = map is { Exists: true } ? "Update map" : "Write map";
     }
 
     public void ShowStateDate(ProjectState? state) =>
@@ -136,6 +146,8 @@ public partial class ProjectPanel : UserControl
     }
 
     private void ClearWorkspace_OnClick(object sender, RoutedEventArgs e) => WorkspaceChosen?.Invoke(null);
+
+    private void Map_OnClick(object sender, RoutedEventArgs e) => MapRequested?.Invoke();
 
     private void HistoryItem_OnClick(object sender, RoutedEventArgs e)
     {

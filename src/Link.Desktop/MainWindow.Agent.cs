@@ -64,6 +64,47 @@ public partial class MainWindow
         OpenAgentCard(snapshot);
     }
 
+    /// <summary>
+    /// The workspace's Map button: the agent looks through the folder read only and Link writes its answer to
+    /// docs/map.md, the one change, shown and undone like any other. The same button updates the map.
+    /// </summary>
+    private async Task WriteProjectMapAsync()
+    {
+        if (AgentRunning)
+        {
+            SetStatus("An agent is already working: Stop it or wait for it first");
+            ShowAgentPanel();
+            return;
+        }
+
+        var project = _projects.ActiveProject;
+        if (project.WorkspaceRoot is not { } workspace || !Directory.Exists(workspace))
+        {
+            SetError("Choose the workspace folder first.");
+            return;
+        }
+
+        string prompt;
+        try
+        {
+            prompt = await File.ReadAllTextAsync(ProjectMap.TaskFile);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            SetError($"The map's task is missing: {ProjectMap.TaskFile}");
+            return;
+        }
+
+        await StartAgentAsync(new AgentTask
+        {
+            Provider = ProjectProvider,
+            Workspace = workspace,
+            Prompt = prompt,
+            AllowedTools = project.AgentReadTools,
+            AnswerFile = ProjectMap.RelativePath
+        }, null);
+    }
+
     private void OpenAgentCard(InputSnapshot snapshot)
     {
         _agentSnapshot = snapshot;
@@ -207,7 +248,10 @@ public partial class MainWindow
 
     private string AgentHeader(AgentTask task)
     {
-        var access = task.PlanOnly ? "plan" : task.Access == AgentAccess.Do ? "edits" : "read only";
+        var access = task.PlanOnly ? "plan"
+            : task.AnswerFile is { } file ? $"read only, writes {file}"
+            : task.Access == AgentAccess.Do ? "edits"
+            : "read only";
         var elapsed = _agentClock.Elapsed;
         return $"{_agents.Provider(task.Provider).Name} · {access} · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
     }

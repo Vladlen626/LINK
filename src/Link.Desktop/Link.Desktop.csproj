@@ -38,6 +38,11 @@
     <EmbeddedResource Include="..\..\companion\embedded-host.js" LogicalName="ChatPage.embedded-host.js" />
   </ItemGroup>
 
+  <ItemGroup>
+    <!-- The agent's task for the project map lies beside Link.exe: it can be changed without a new build. -->
+    <Content Include="..\..\docs\harness\map-task.md" Link="harness\map-task.md" CopyToOutputDirectory="PreserveNewest" />
+  </ItemGroup>
+
   <!-- The Vulkan runtime copies its Linux build too, unconditionally; Link runs on Windows only. -->
   <Target Name="SkipLinuxVulkanRuntime" BeforeTargets="AssignTargetPaths">
     <ItemGroup>

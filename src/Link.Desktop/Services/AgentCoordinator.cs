@@ -88,8 +88,54 @@ public sealed class AgentCoordinator
             backup && task.Access == AgentAccess.Do && !task.PlanOnly,
             cancellationToken);
         var result = await Provider(task.Provider).RunAsync(task, progress, cancellationToken);
+        var written = task.AnswerFile is { } file && result.Succeeded
+            ? await WriteAnswerAsync(task.Workspace, file, result.Summary, progress)
+            : null;
         // A stopped run is compared too: the user sees what it changed before Stop.
         var changes = await _changes.CompareAsync(before, CancellationToken.None);
+        // Without git and a copy nothing else can be told, but the file Link wrote is known.
+        if (written is not null && !changes.Any(change => change.Path.Equals(written.Path, StringComparison.OrdinalIgnoreCase)))
+        {
+            changes = [.. changes, written];
+        }
+
         return new AgentRun(task, before, result, changes);
+    }
+
+    /// <summary>The answer without the code block it may have come in: ```markdown … ```.</summary>
+    internal static string Unfenced(string answer)
+    {
+        var text = answer.Trim();
+        if (!text.StartsWith("```", StringComparison.Ordinal) || !text.EndsWith("```", StringComparison.Ordinal)) return text;
+        var start = text.IndexOf('\n');
+        var end = text.LastIndexOf("```", StringComparison.Ordinal);
+        return start < 0 || end <= start ? text : text[(start + 1)..end].Trim();
+    }
+
+    /// <summary>Writes a read-only task's answer to its file: the one change, made by Link and shown in Activity.</summary>
+    private static async Task<AgentChange?> WriteAnswerAsync(string workspace, string file, string answer, IProgress<AgentEvent> progress)
+    {
+        var text = Unfenced(answer);
+        if (text.Length == 0)
+        {
+            progress.Report(new AgentEvent(AgentEventKind.Error, $"The agent gave no answer to write to {file}."));
+            return null;
+        }
+
+        var path = Path.GetFullPath(Path.Combine(workspace, file));
+        var existed = File.Exists(path);
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+            await File.WriteAllTextAsync(path, text + "\n");
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            progress.Report(new AgentEvent(AgentEventKind.Error, $"Could not write {file}: {exception.Message}"));
+            return null;
+        }
+
+        progress.Report(new AgentEvent(AgentEventKind.Status, $"Link wrote {file}: {text.Split('\n').Length} lines"));
+        return new AgentChange(path, existed ? "M" : "??", true);
     }
 }

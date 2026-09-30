@@ -80,6 +80,7 @@ public partial class MainWindow
         _projectPanel.NewChatRequested += withSummary => _ = StartNewChatAsync(withSummary);
         _projectPanel.OpenChatRequested += () => OpenChat(_projects.ActiveProject.LinkedConversation);
         _projectPanel.WorkspaceChosen += OnWorkspaceChosen;
+        _projectPanel.MapRequested += () => _ = WriteProjectMapAsync();
         _projectPanel.HistorySelected += OnHistorySelected;
         return panel;
     }

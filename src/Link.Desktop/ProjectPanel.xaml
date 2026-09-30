@@ -85,6 +85,14 @@
                 <Button x:Name="ChooseWorkspaceButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="4,0,0,0"
                         Click="ChooseWorkspace_OnClick" Content="Choose…" ToolTip="The folder this project's work lives in" />
             </Grid>
+            <!-- The project map: what is where and how to check, read by agents instead of searching. -->
+            <Grid x:Name="MapRow" Margin="0,6,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <TextBlock x:Name="MapText" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
+                <Button x:Name="MapButton" Grid.Column="1" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="4,0,0,0"
+                        Click="Map_OnClick"
+                        ToolTip="The agent looks through the folder, read only, and Link writes its answer to docs/map.md: what is where, how to build and check. Agents read the map instead of searching; press again when it is out of date." />
+            </Grid>
 
             <TextBlock Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="HISTORY" />
             <TextBlock x:Name="HistoryEmptyText" Margin="0,5,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"

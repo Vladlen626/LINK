@@ -31,6 +31,50 @@ internal static class AgentTests
         await LeftoversAsync();
         await GitUndoAsync();
         await CopyRestoreAsync();
+        await MapAsync();
+    }
+
+    /// <summary>The map: the agent answers read only, Link writes the answer, and it is the run's one change, undone in git.</summary>
+    private static async Task MapAsync()
+    {
+        Program.Equal("map: its task ships beside Link", File.Exists(ProjectMap.TaskFile), true);
+        Program.Equal("map: a plain answer is kept as it is", AgentCoordinator.Unfenced("# Map\n\n- src: code\n"), "# Map\n\n- src: code");
+        var root = TempFolder();
+        var workspace = Path.Combine(root, "work");
+        try
+        {
+            Directory.CreateDirectory(workspace);
+            await GitAsync(workspace, "init", "-q");
+            File.WriteAllText(Path.Combine(workspace, "a.txt"), "a");
+            await GitAsync(workspace, "add", ".");
+            await GitAsync(workspace, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "start");
+            var agents = new AgentCoordinator([new AnswerProvider("```markdown\n# Sample\n\n- a.txt: the letter a\n```")],
+                new AgentChanges(Path.Combine(root, "backups")));
+            var task = new AgentTask
+            {
+                Provider = AgentProviderKind.ClaudeCode,
+                Workspace = workspace,
+                Prompt = "map",
+                AnswerFile = ProjectMap.RelativePath
+            };
+            var events = new List<AgentEvent>();
+            var run = await agents.RunAsync(task, backup: false, previous: null, new SyncProgress(events.Add), CancellationToken.None);
+            Program.Equal("map: Link writes the answer without its code block",
+                File.ReadAllText(ProjectMap.PathIn(workspace)), "# Sample\n\n- a.txt: the letter a\n");
+            Program.Equal("map: the file is the run's one change, new and undoable",
+                string.Join(",", run.Changes.Select(change => $"{Path.GetFileName(change.Path)}:{change.Kind}:{change.Undoable}")), "map.md:??:True");
+            Program.Equal("map: Activity says Link wrote it", events.Any(e => e.Kind == AgentEventKind.Status && e.Text.StartsWith("Link wrote docs/map.md")), true);
+            await agents.Changes.UndoAsync(run.Before, run.Changes, CancellationToken.None);
+            Program.Equal("map: undo takes it away", File.Exists(ProjectMap.PathIn(workspace)), false);
+
+            var failed = await new AgentCoordinator([new AnswerProvider("# Half a map", succeeded: false)], agents.Changes)
+                .RunAsync(task, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
+            Program.Equal("map: a failed run writes nothing", (File.Exists(ProjectMap.PathIn(workspace)), failed.Changes.Count), (false, 0));
+        }
+        finally
+        {
+            DeleteFolder(root);
+        }
     }
 
     private static async Task GitUndoAsync()
@@ -337,6 +381,19 @@ internal static class AgentTests
         public override IReadOnlyList<string> Arguments(AgentTask task) => [FakeFlag, scenario];
         public override AgentEventParser CreateParser() => new ClaudeEventParser();
         protected override bool IsSignedIn(string answer) => true;
+    }
+
+    /// <summary>An agent that answers at once with a set text, for what Link does around a run.</summary>
+    private sealed class AnswerProvider(string answer, bool succeeded = true) : IAgentProvider
+    {
+        public AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
+        public string Name => "Answer";
+
+        public Task<AgentProviderStatus> CheckAsync(string? chosenPath, CancellationToken cancellationToken) =>
+            System.Threading.Tasks.Task.FromResult(new AgentProviderStatus(null, null, null));
+
+        public Task<AgentResult> RunAsync(AgentTask task, IProgress<AgentEvent> progress, CancellationToken cancellationToken) =>
+            System.Threading.Tasks.Task.FromResult(new AgentResult { SessionId = "answer", Summary = answer, Succeeded = succeeded });
     }
 
     /// <summary>Reports on the reporting thread: the checks need no dispatcher.</summary>
