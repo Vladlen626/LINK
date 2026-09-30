@@ -34,6 +34,7 @@ internal static class AgentTests
         await GitUndoAsync();
         await CopyRestoreAsync();
         await MapAsync();
+        await SkillAsync();
         ProjectCheck();
         await CheckCommandAsync();
         await CheckRetriesAsync();
@@ -215,6 +216,64 @@ internal static class AgentTests
             var failed = await new AgentCoordinator([ScriptedProvider.Answering("# Half a map", succeeded: false)], agents.Changes, _ => { })
                 .RunAsync(task, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
             Program.Equal("map: a failed run writes nothing", (File.Exists(ProjectMap.PathIn(workspace)), failed.Changes.Count), (false, 0));
+        }
+        finally
+        {
+            DeleteFolder(root);
+        }
+    }
+
+    /// <summary>Save as skill: the session answers read only, Link writes the SKILL.md under its name, and only a good name, and a replace the user allowed.</summary>
+    private static async Task SkillAsync()
+    {
+        Program.Equal("skill: its task ships beside Link", File.Exists(ProjectSkills.TaskFile), true);
+        var root = TempFolder();
+        var workspace = Path.Combine(root, "work");
+        try
+        {
+            Directory.CreateDirectory(workspace);
+            await GitAsync(workspace, "init", "-q");
+            File.WriteAllText(Path.Combine(workspace, "a.txt"), "a");
+            await GitAsync(workspace, "add", ".");
+            await GitAsync(workspace, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "start");
+            var work = new AgentRun(
+                new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = workspace, Prompt = "Check the game", Access = AgentAccess.Do, CheckCommand = "check" },
+                new WorkspaceBefore(workspace, true, new Dictionary<string, string>(), null, DateTime.UtcNow),
+                new AgentResult { SessionId = "work", Succeeded = true },
+                []);
+            var task = AgentCoordinator.SkillTask(work, "Save it as a skill.\n")!;
+            Program.Equal("skill: the work's session is asked, read only, without its check",
+                (task.ResumeSessionId, task.Access, task.AnswerIsSkill, task.CheckCommand, task.Prompt),
+                ("work", AgentAccess.Analyze, true, (string?)null, "Save it as a skill.\n\nSkills of the workspace: none yet."));
+
+            const string answer = "---\nname: game-check\ndescription: Check the game in a browser.\n---\n\n1. Run tools/check.ps1.";
+            var changes = new AgentChanges(Path.Combine(root, "backups"));
+            var events = new List<AgentEvent>();
+            var run = await new AgentCoordinator([ScriptedProvider.Answering("```markdown\n" + answer + "\n```")], changes, _ => { })
+                .RunAsync(task, false, null, new SyncProgress(events.Add), CancellationToken.None);
+            var file = Path.Combine(ProjectSkills.FolderIn(workspace), "game-check", "SKILL.md");
+            Program.Equal("skill: Link writes it under its name, the run's one change",
+                (File.ReadAllText(file), string.Join(",", run.Changes.Select(change => Path.GetFileName(change.Path)))), (answer + "\n", "SKILL.md"));
+            Program.Equal("skill: the next ask names the skills there are", AgentCoordinator.SkillTask(work, "Save")!.Prompt.EndsWith("workspace: game-check."), true);
+
+            var asked = new List<string>();
+            var kept = await new AgentCoordinator([ScriptedProvider.Answering(answer.Replace("tools/check.ps1", "other"))], changes, _ => { })
+                .RunAsync(task, false, null, new SyncProgress(_ => { }), CancellationToken.None, name =>
+                {
+                    asked.Add(name);
+                    return false;
+                });
+            Program.Equal("skill: one of the same name stays unless the user says replace",
+                (string.Join(",", asked), File.ReadAllText(file).Contains("other"), kept.Changes.Count(change => change.Path == file)), ("game-check", false, 0));
+            await new AgentCoordinator([ScriptedProvider.Answering(answer.Replace("tools/check.ps1", "other"))], changes, _ => { })
+                .RunAsync(task, false, null, new SyncProgress(_ => { }), CancellationToken.None, _ => true);
+            Program.Equal("skill: replaced when the user says so", File.ReadAllText(file).Contains("other"), true);
+
+            var badEvents = new List<AgentEvent>();
+            var bad = await new AgentCoordinator([ScriptedProvider.Answering(answer.Replace("game-check", "../Game Check"))], changes, _ => { })
+                .RunAsync(task, false, null, new SyncProgress(badEvents.Add), CancellationToken.None, _ => true);
+            Program.Equal("skill: a bad name writes nothing and says why",
+                (Directory.GetDirectories(ProjectSkills.FolderIn(workspace)).Length, badEvents.Any(e => e.Kind == AgentEventKind.Error && e.Text.Contains("../Game Check"))), (1, true));
         }
         finally
         {

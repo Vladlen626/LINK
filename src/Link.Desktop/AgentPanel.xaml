@@ -144,6 +144,9 @@
                 <Button x:Name="ToChatButton" Style="{StaticResource SmallChipStyle}" Click="ToChat_OnClick" Content="↻ To chat"
                         ToolTip="Put the result and the changed files into the context for your next Chat message" Visibility="Collapsed" />
                 <Button x:Name="UndoButton" Style="{StaticResource SmallChipStyle}" Click="Undo_OnClick" Visibility="Collapsed" />
+                <Button x:Name="SaveSkillButton" Style="{StaticResource SmallChipStyle}" Click="SaveSkill_OnClick" Content="Save as skill"
+                        ToolTip="The agent describes what it just did as a skill; Link writes it to .agents/skills in the workspace"
+                        Visibility="Collapsed" />
                 <Button x:Name="LogButton" Style="{StaticResource SmallChipStyle}" Click="Log_OnClick" Content="Log"
                         ToolTip="Show what the agent's CLI wrote (stdout and stderr)" Visibility="Collapsed" />
                 <Button x:Name="NewTaskButton" Style="{StaticResource SmallChipStyle}" Click="Close_OnClick" Content="Done"

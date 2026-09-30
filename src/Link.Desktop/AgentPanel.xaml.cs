@@ -53,6 +53,7 @@ public partial class AgentPanel : UserControl
 
     /// <summary>Start over in a clean session with the agent's note on what did not work.</summary>
     public event Action? RestartRequested;
+    public event Action? SaveSkillRequested;
     public event Action<string>? OpenFileRequested;
     public event Action? Closed;
 
@@ -118,7 +119,11 @@ public partial class AgentPanel : UserControl
         StopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         foreach (var button in new[] { ToChatButton, LogButton, NewTaskButton }) button.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         if (running) UndoButton.Visibility = Visibility.Collapsed;
+        if (running) SaveSkillButton.Visibility = Visibility.Collapsed;
     }
+
+    /// <summary>Save as skill, offered after a task that went well.</summary>
+    public void ShowSaveSkill(bool show) => SaveSkillButton.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>A batch of events at once: Activity redraws at most a few times a second, however fast they come.</summary>
     public void AddSteps(IEnumerable<AgentEvent> events)
@@ -248,6 +253,7 @@ public partial class AgentPanel : UserControl
     private void ToChat_OnClick(object sender, RoutedEventArgs e) => ToChatRequested?.Invoke();
     private void Undo_OnClick(object sender, RoutedEventArgs e) => UndoRequested?.Invoke();
     private void Restart_OnClick(object sender, RoutedEventArgs e) => RestartRequested?.Invoke();
+    private void SaveSkill_OnClick(object sender, RoutedEventArgs e) => SaveSkillRequested?.Invoke();
     private void Close_OnClick(object sender, RoutedEventArgs e) => Closed?.Invoke();
 
     private void Log_OnClick(object sender, RoutedEventArgs e) =>

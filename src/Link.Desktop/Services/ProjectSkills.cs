@@ -15,6 +15,9 @@ public static partial class ProjectSkills
     /// <summary>Where skills live in a workspace, as the agent's rules name it.</summary>
     public const string RelativeFolder = ".agents/skills";
 
+    /// <summary>The agent's task for Save as skill: a file beside Link.exe, to be changed without a new build.</summary>
+    public static string TaskFile => Path.Combine(AppContext.BaseDirectory, "harness", "skill-task.md");
+
     public static string FolderIn(string workspace) => Path.Combine(workspace, ".agents", "skills");
 
     /// <summary>A skill's file relative to the workspace, as Link writes it.</summary>

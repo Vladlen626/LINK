@@ -98,7 +98,10 @@ public abstract class CliAgentProvider : IAgentProvider
         // Never the task's text: it can hold anything the user wrote.
         var outcome = result.Stopped ? "stopped" : result.Succeeded ? "done" : $"failed (exit {result.ExitCode})";
         var first = firstEvent is { } elapsed ? Seconds(elapsed) : "none";
-        var kind = task.PlanOnly ? ", plan" : task.AnswerFile is { } answer ? $", answer to {answer}" : string.Empty;
+        var kind = task.PlanOnly ? ", plan"
+            : task.AnswerFile is { } answer ? $", answer to {answer}"
+            : task.AnswerIsSkill ? ", skill"
+            : string.Empty;
         _log($"[Agent] {Name}, {task.Access}{kind}: {outcome}; " +
              $"session {result.SessionId ?? "none"}, first event {first}, {Seconds(clock.Elapsed)}, " +
              $"{result.ChangedFiles.Count} files, denials: {(result.Denials.Count == 0 ? "none" : string.Join(", ", result.Denials))}; " +

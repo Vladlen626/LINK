@@ -46,6 +46,9 @@ public sealed record AgentTask
     /// </summary>
     public string? AnswerFile { get; init; }
 
+    /// <summary>The answer is a SKILL.md, which Link writes to the workspace's skills under the name it gives.</summary>
+    public bool AnswerIsSkill { get; init; }
+
     /// <summary>The project's check, run in the workspace after Do; while it fails, the agent gets its output to fix.</summary>
     public string? CheckCommand { get; init; }
 }

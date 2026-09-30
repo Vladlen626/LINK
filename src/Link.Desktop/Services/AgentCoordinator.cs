@@ -92,14 +92,16 @@ public sealed class AgentCoordinator
     /// Runs a task and returns it with what it changed. <paramref name="previous"/>: the run this one continues, whose
     /// "before" still holds. A copy is made before Do in a workspace without git when <paramref name="backup"/> says so.
     /// After Do the project's check runs; while it fails, the agent continues its session with the check's output, up to
-    /// <see cref="CheckRetries"/> times, and the run returned is the last one with the numbers of all.
+    /// <see cref="CheckRetries"/> times, and the run returned is the last one with the numbers of all. A skill of a name
+    /// the workspace has already is written over only when <paramref name="replaceSkill"/> says yes.
     /// </summary>
     public async Task<AgentRun> RunAsync(
         AgentTask task,
         bool backup,
         AgentRun? previous,
         IProgress<AgentEvent> progress,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        Func<string, bool>? replaceSkill = null)
     {
         var before = previous?.Before ?? await _changes.CaptureAsync(
             task.Workspace,
@@ -116,9 +118,10 @@ public sealed class AgentCoordinator
             result = Continued(result, await provider.RunAsync(task, progress, cancellationToken));
         }
 
-        var written = task.AnswerFile is { } file && result.Succeeded
-            ? await WriteAnswerAsync(task.Workspace, file, result.Summary, progress)
-            : null;
+        var answerFile = !result.Succeeded ? null
+            : task.AnswerIsSkill ? SkillFile(task.Workspace, result.Summary, replaceSkill, progress)
+            : task.AnswerFile;
+        var written = answerFile is not null ? await WriteAnswerAsync(task.Workspace, answerFile, result.Summary, progress) : null;
         // A stopped run is compared too: the user sees what it changed before Stop.
         var changes = await _changes.CompareAsync(before, CancellationToken.None);
         // Without git and a copy nothing else can be told, but the file Link wrote is known.
@@ -157,6 +160,30 @@ public sealed class AgentCoordinator
 
         var prompt = note.Length == 0 ? origin.Prompt : $"{origin.Prompt}\n\nA note from an earlier attempt at this task, which did not work out:\n{note}";
         return (run.Task with { ResumeSessionId = null, Prompt = prompt, Images = origin.Images }, note);
+    }
+
+    /// <summary>
+    /// Save as skill: the run's session, read only, answers with a SKILL.md of what it has just done, and Link writes it
+    /// (see <see cref="SkillFile"/>). The request is the task file with the workspace's skills, so that the same work
+    /// keeps its name. Null without a session to ask.
+    /// </summary>
+    public static AgentTask? SkillTask(AgentRun run, string request)
+    {
+        if (run.Result.SessionId is not { } session) return null;
+        var skills = ProjectSkills.In(run.Task.Workspace).Select(skill => skill.Name).ToArray();
+        return run.Task with
+        {
+            ResumeSessionId = session,
+            Access = AgentAccess.Analyze,
+            PlanOnly = false,
+            Prompt = $"{request.Trim()}\n\nSkills of the workspace: {(skills.Length == 0 ? "none yet" : string.Join(", ", skills))}.",
+            Images = [],
+            AllowedTools = [],
+            AnswerFile = null,
+            AnswerIsSkill = true,
+            CheckCommand = null,
+            MaxTurns = 10
+        };
     }
 
     /// <summary>The one short request to a session that goes nowhere: its note for the clean session after it.</summary>
@@ -211,6 +238,30 @@ public sealed class AgentCoordinator
         var start = text.IndexOf('\n');
         var end = text.LastIndexOf("```", StringComparison.Ordinal);
         return start < 0 || end <= start ? text : text[(start + 1)..end].Trim();
+    }
+
+    /// <summary>
+    /// Where a skill the agent answered with goes: by the name of its front matter, which must be one both agents accept.
+    /// Null writes nothing: a bad name, or a skill of that name that is to stay.
+    /// </summary>
+    private static string? SkillFile(string workspace, string answer, Func<string, bool>? replace, IProgress<AgentEvent> progress)
+    {
+        var name = ProjectSkills.Header(Unfenced(answer)).Name ?? string.Empty;
+        if (!ProjectSkills.IsName(name))
+        {
+            progress.Report(new AgentEvent(AgentEventKind.Error,
+                $"The skill's name \"{name}\" is not lowercase Latin letters, digits and hyphens: nothing was written."));
+            return null;
+        }
+
+        var file = ProjectSkills.RelativePath(name);
+        if (File.Exists(Path.Combine(workspace, file)) && replace?.Invoke(name) != true)
+        {
+            progress.Report(new AgentEvent(AgentEventKind.Status, $"The skill {name} stays as it was: nothing was written."));
+            return null;
+        }
+
+        return file;
     }
 
     /// <summary>Writes a read-only task's answer to its file: the one change, made by Link and shown in Activity.</summary>

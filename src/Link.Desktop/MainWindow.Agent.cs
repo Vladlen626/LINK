@@ -109,6 +109,35 @@ public partial class MainWindow
         await StartAgentAsync(_agentOrigin, null);
     }
 
+    /// <summary>
+    /// Save as skill: the last run's session describes what it did as a skill, read only, and Link writes the SKILL.md
+    /// to the workspace's skills, the one change, shown and undone like any other.
+    /// </summary>
+    private async Task SaveSkillAsync()
+    {
+        if (_lastRun is not { } run || AgentRunning) return;
+        string request;
+        try
+        {
+            request = await File.ReadAllTextAsync(ProjectSkills.TaskFile);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            SetError($"The skill's task is missing: {ProjectSkills.TaskFile}");
+            return;
+        }
+
+        if (AgentCoordinator.SkillTask(run, request) is not { } task) return;
+        // Start over belongs to the work, not to its skill.
+        _agentOrigin = null;
+        await StartAgentAsync(task, null);
+    }
+
+    /// <summary>A skill of the same name is written over only when the user says so.</summary>
+    private bool ReplaceSkill(string name) =>
+        MessageBox.Show(this, $"The workspace has the skill {name} already. Replace it with the new one?",
+            "Link · save as skill", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+
     private void OpenAgentCard(InputSnapshot snapshot)
     {
         _agentSnapshot = snapshot;
@@ -153,6 +182,7 @@ public partial class MainWindow
         panel.ToChatRequested += AgentResultToChat;
         panel.UndoRequested += () => _ = UndoAgentChangesAsync();
         panel.RestartRequested += RequestRestart;
+        panel.SaveSkillRequested += () => _ = SaveSkillAsync();
         panel.OpenFileRequested += ShowFile;
         return panel;
     }
@@ -207,7 +237,7 @@ public partial class MainWindow
         var progress = new Progress<AgentEvent>(_pendingAgentEvents.Add);
         try
         {
-            var run = await _agents.RunAsync(task, _backupBeforeDo, previous, progress, cancellation.Token);
+            var run = await _agents.RunAsync(task, _backupBeforeDo, previous, progress, cancellation.Token, ReplaceSkill);
             if (run.Before is { IsGit: false, Backup: null } && _backupBeforeDo && task.Access == AgentAccess.Do && previous is null)
             {
                 _pendingAgentEvents.Add(new AgentEvent(AgentEventKind.Error, "No copy was made: the workspace is over 2 GB."));
@@ -323,6 +353,7 @@ public partial class MainWindow
     {
         var access = task.PlanOnly ? "plan"
             : task.AnswerFile is { } file ? $"read only, {Path.GetFileName(file)}"
+            : task.AnswerIsSkill ? "read only, SKILL.md"
             : task.Access == AgentAccess.Do ? "edits"
             : "read only";
         var elapsed = _agentClock.Elapsed;
@@ -346,7 +377,7 @@ public partial class MainWindow
             : checkFailed ? $"Check failed after {elapsed}"
             : $"Done in {elapsed}";
         // An answer Link wrote to a file is shown as written.
-        var answer = task.AnswerFile is null ? result.Summary : AgentCoordinator.Unfenced(result.Summary);
+        var answer = task.AnswerFile is null && !task.AnswerIsSkill ? result.Summary : AgentCoordinator.Unfenced(result.Summary);
         var text = checkFailed ? CheckReport(task, run.Check!) + (answer.Length > 0 ? "\n\n" + answer : string.Empty) : answer;
         _agentPanel.ShowResult(text, ending);
         _agentPanel.ShowStats(StatsLine(result.Stats));
@@ -354,6 +385,9 @@ public partial class MainWindow
         ShowUndoOffer(run);
         // After a loop or a failure; a Stop without a loop was the user's own choice.
         _agentPanel.ShowRestart(_agentOrigin is not null && (result.Loops.Count > 0 || (!stopped && (!result.Succeeded || checkFailed))));
+        // Work that went well can be kept as a skill; a map or a skill is no such work.
+        _agentPanel.ShowSaveSkill(result.Succeeded && !stopped && !checkFailed && !task.PlanOnly && task.AnswerFile is null &&
+                                  !task.AnswerIsSkill && result.SessionId is not null);
 
         var decision = OfferDecision(run);
         var summary = text.Length > 0 ? text : ending;
