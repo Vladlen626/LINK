@@ -18,6 +18,15 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
     // Codex reads .agents/skills from its folder up to the repository's root.
     protected override bool FindsSkills => true;
 
+    /// <summary>
+    /// What the Codex desktop app adds and a task in a workspace does not need: its plugins (with their skills and
+    /// computer control), connected apps, plugin suggestions, computer and browser use. They ride along on every
+    /// request, and in 12 of 14 measured runs the agent read the computer-use plugin's guide (~10k tokens) to look at
+    /// the game it was building, once for 33 minutes. Mouse control goes only through an explicit choice. MCP servers
+    /// of the user's config, such as Blender, stay.
+    /// </summary>
+    internal static readonly string[] DesktopFeatures = ["plugins", "apps", "tool_suggest", "computer_use", "browser_use"];
+
     public override IReadOnlyList<string> Arguments(AgentTask task)
     {
         var sandbox = task.Access == AgentAccess.Do && !task.PlanOnly ? "workspace-write" : "read-only";
@@ -34,6 +43,8 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
             arguments.AddRange(["--json", "--skip-git-repo-check", "--sandbox", sandbox, "--cd", task.Workspace]);
         }
 
+        // The same on resume: a session keeps its tools and its cached start.
+        foreach (var feature in DesktopFeatures) arguments.AddRange(["-c", $"features.{feature}=false"]);
         foreach (var image in task.Images) arguments.AddRange(["--image", image]);
         // The task comes on stdin.
         arguments.Add("-");
@@ -44,6 +55,34 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
         task.PlanOnly
             ? "Make a plan only: read what you need, change nothing, and answer with the steps you would take.\n\n" + task.Prompt
             : task.Prompt;
+
+    /// <summary>
+    /// Codex's Windows sandbox runs commands as a user of its own, so git calls the user's repository "dubious
+    /// ownership" and refuses it: 13 of 14 measured runs met it and asked again with <c>-c safe.directory</c>. The
+    /// workspace's repository is safe for the agent's commands only.
+    /// </summary>
+    public override IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task)
+    {
+        if (GitRoot(task.Workspace) is not { } root) return new Dictionary<string, string>();
+        // Git reads each setting in single quotes; one inside the path is closed, escaped and opened again.
+        var setting = "'safe.directory=" + root.Replace('\\', '/').Replace("'", @"'\''") + "'";
+        var inherited = System.Environment.GetEnvironmentVariable("GIT_CONFIG_PARAMETERS");
+        return new Dictionary<string, string>
+        {
+            ["GIT_CONFIG_PARAMETERS"] = string.IsNullOrWhiteSpace(inherited) ? setting : $"{inherited} {setting}"
+        };
+    }
+
+    private static string? GitRoot(string folder)
+    {
+        for (var directory = new DirectoryInfo(folder); directory is not null; directory = directory.Parent)
+        {
+            var git = Path.Combine(directory.FullName, ".git");
+            if (Directory.Exists(git) || File.Exists(git)) return directory.FullName;
+        }
+
+        return null;
+    }
 
     public override AgentEventParser CreateParser(AgentTask task) => new CodexEventParser(resumed: task.ResumeSessionId is not null);
 

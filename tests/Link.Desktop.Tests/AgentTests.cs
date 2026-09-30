@@ -540,9 +540,13 @@ internal static class AgentTests
             string.Join(' ', codex.Arguments(analyze with { Provider = AgentProviderKind.Codex })).Contains("--sandbox read-only"), true);
         Program.Equal("Codex Do writes only the workspace",
             string.Join(' ', codex.Arguments(analyze with { Access = AgentAccess.Do })).Contains("--sandbox workspace-write"), true);
-        Program.Equal("Codex resume sets the sandbox through config",
+        var desktopOff = string.Join(' ', CodexProvider.DesktopFeatures.Select(feature => $"-c features.{feature}=false"));
+        Program.Equal("Codex resume sets the sandbox through config and keeps the desktop app's extras off",
             string.Join(' ', codex.Arguments(analyze with { ResumeSessionId = "t1" })),
-            "exec resume t1 --json --skip-git-repo-check -c sandbox_mode=read-only -");
+            $"exec resume t1 --json --skip-git-repo-check -c sandbox_mode=read-only {desktopOff} -");
+        Program.Equal("Codex: a new session runs without the desktop app's plugins, apps and computer use",
+            string.Join(' ', codex.Arguments(analyze)).Contains(desktopOff) && desktopOff.Contains("features.plugins=false") &&
+            desktopOff.Contains("features.computer_use=false"), true);
         Program.Equal("Codex plan-first stays read-only",
             codex.Arguments(analyze with { Access = AgentAccess.Do, PlanOnly = true }).Contains("read-only"), true);
         Rules(claude, codex);
@@ -576,6 +580,25 @@ internal static class AgentTests
         finally
         {
             DeleteFolder(workspace);
+        }
+
+        var repository = Path.Combine(TempFolder(), "it's a repo");
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(repository, ".git"));
+            Directory.CreateDirectory(Path.Combine(repository, "game"));
+            var inRepository = codex.EnvironmentVariables(new AgentTask { Provider = AgentProviderKind.Codex, Workspace = Path.Combine(repository, "game"), Prompt = "x" });
+            Program.Equal("Codex: git in its sandbox takes the workspace's repository as safe, a quote in the path escaped",
+                inRepository.TryGetValue("GIT_CONFIG_PARAMETERS", out var parameters) &&
+                parameters.EndsWith("'safe.directory=" + repository.Replace('\\', '/').Replace("'", @"'\''") + "'", StringComparison.Ordinal), true);
+            Program.Equal("Codex: a folder without git gets no git settings",
+                codex.EnvironmentVariables(new AgentTask { Provider = AgentProviderKind.Codex, Workspace = Path.GetTempPath(), Prompt = "x" }).Count, 0);
+            Program.Equal("Claude runs as the user and needs no git settings",
+                claude.EnvironmentVariables(new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = repository, Prompt = "x" }).Count, 0);
+        }
+        finally
+        {
+            DeleteFolder(Path.GetDirectoryName(repository)!);
         }
 
         Program.Equal("skills: names as both agents accept them",

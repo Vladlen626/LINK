@@ -45,7 +45,10 @@ public abstract class CliAgentProvider : IAgentProvider
         var loops = new AgentLoopDetector(task.Access == AgentAccess.Do && !task.PlanOnly);
         var clock = Stopwatch.StartNew();
         TimeSpan? firstEvent = null;
-        var command = new AgentCommand(executable, Arguments(task), task.Workspace, StandardInput(task));
+        var command = new AgentCommand(executable, Arguments(task), task.Workspace, StandardInput(task))
+        {
+            EnvironmentVariables = EnvironmentVariables(task)
+        };
         AgentProcessResult process;
         try
         {
@@ -129,6 +132,9 @@ public abstract class CliAgentProvider : IAgentProvider
 
     /// <summary>What the CLI reads on stdin: the task's text, and whatever the provider cannot take as an argument.</summary>
     public virtual string Input(AgentTask task) => task.Prompt;
+
+    /// <summary>Variables the CLI's process gets on top of Link's own.</summary>
+    public virtual IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task) => new Dictionary<string, string>();
 
     /// <summary>Whether the CLI finds the workspace's skills (<see cref="ProjectSkills"/>) by itself.</summary>
     protected virtual bool FindsSkills => false;

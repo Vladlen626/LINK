@@ -10,6 +10,9 @@ public sealed record AgentCommand(string Executable, IReadOnlyList<string> Argum
     /// <summary>The whole argument line, passed as it is instead of <see cref="Arguments"/>.</summary>
     public string? CommandLine { get; init; }
 
+    /// <summary>Variables set for the process on top of Link's own.</summary>
+    public IReadOnlyDictionary<string, string> EnvironmentVariables { get; init; } = new Dictionary<string, string>();
+
     /// <summary>
     /// A command line of the user's, run exactly as written through cmd.exe, the one shell: <c>/s</c> takes away only
     /// the quotes put around it here.
@@ -108,6 +111,7 @@ public static class AgentProcess
             StandardErrorEncoding = Encoding.UTF8,
             WorkingDirectory = command.WorkingDirectory
         };
+        foreach (var (name, value) in command.EnvironmentVariables) info.Environment[name] = value;
         if (command.CommandLine is { } line)
         {
             info.FileName = command.Executable;
