@@ -16,10 +16,26 @@ C#, .NET 10, WPF, one assembly.
 - Read only the section of PROJECT_CONTEXT.md you need (status, decisions, state and next); history is in git log.
 - Locate code with Grep/Glob and read only the relevant part of big files (MainWindow.Chat.cs, companion/content.js).
 
+## Harness
+The same harness Link gives its agents, for work on this repo.
+- Skills: `.agents/skills/<name>/SKILL.md`, one source for Claude and Codex; read the one that fits before the work.
+  `rebuild-link` — build, test and restart the user's Link, never while an agent works in it; `preview-svg` — look at
+  the README's drawings; `agent-token-review` — where an agent's tokens and turns went, from the session logs.
+- Repeated work without a skill: once it has worked out, add one there (a short SKILL.md and its script).
+- The environment, as met here (Windows 11, Git Bash and Windows PowerShell 5.1, Russian locale):
+  - PowerShell 5.1 reads BOM-less UTF-8 as ANSI: scripts it runs stay ASCII (other characters from char codes),
+    text files are read with `Get-Content -Encoding UTF8`.
+  - `dotnet` prints in Russian (`Ошибок: 0`, `Предупреждений: 0`); a failed build leaves the old test exe, which
+    passes: check the build line before the tests.
+  - `cd` in the Bash tool moves the session's folder: use absolute paths or `git -C`.
+  - In Bash, `sed` makes `\n` in a replacement a line break, and `\uXXXX` in a command may become the character:
+    change code with the Edit tool.
+
 ## Build and run
 - `dotnet build Link.sln -c Release` must end with 0 warnings and 0 errors; CI runs the same build.
 - The user runs `src/Link.Desktop/bin/Release/net10.0-windows/Link.exe`. A running Link locks it and is
-  single-instance: ask the user to quit via tray → Exit before rebuilding; never kill their Link without asking.
+  single-instance: close it gracefully (`rebuild-link`) unless the user rebuilds it themselves, never while an agent
+  works in it, and never kill it. Building the tests into the scratchpad needs no closing.
 - Never run Link on the real data in `%LocalAppData%\Link` without an exact backup and restore; never leave test data there.
 - `companion/content.js` and `embedded-host.js` are built into LINK: a change there needs a LINK rebuild.
 
@@ -57,4 +73,7 @@ C#, .NET 10, WPF, one assembly.
 
 ## Git
 - Branch `LeN`. Commit only when asked and report the SHA; push only when asked.
+- Other sessions may edit the tree: stage explicit paths and check the commit's files. Commit from Bash with a
+  heredoc (`git commit -F -`): PowerShell 5.1 splits a message with quotes. Push from PowerShell: Bash does not reach
+  github.com:443.
 - Update PROJECT_CONTEXT.md and README.md only for accepted decisions and user-visible changes.

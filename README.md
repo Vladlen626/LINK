@@ -296,6 +296,7 @@ src/Link.Desktop/
 ├── SettingsWindow*, RegionSelectionWindow*, ...
 companion/                  content.js работает с DOM ChatGPT во встроенной странице
 docs/harness/               правила и задания агента (копируются к Link.exe), инструкции для ChatGPT
+.agents/skills/             skills агентов, которые работают над самим Link: пересборка, рисунки, разбор токенов
 tests/Link.Desktop.Tests/   проверки логики без тестового фреймворка
 tests/companion/            проверки companion на мок-страницах ChatGPT
 ```
