@@ -96,7 +96,7 @@ public sealed class ProjectService
     /// <summary>The project's last agent sessions, newest first, in its data folder.</summary>
     public IReadOnlyList<AgentSessionRecord> ReadAgentSessions(LinkProject project) =>
         (AtomicJsonFile.Read<List<AgentSessionRecord>>(AgentSessionsFile(project), _json) ?? [])
-        .Where(session => session.SessionId.Length > 0)
+        .Where(session => session.SessionId.Length > 0 && Enum.IsDefined(session.Provider) && Enum.IsDefined(session.Access))
         .ToList();
 
     /// <summary>

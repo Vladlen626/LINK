@@ -32,6 +32,8 @@ public partial class SettingsWindow : Window
     private readonly IAgentProvider[] _agents;
     // The agents' files as chosen here; they apply on Save, like the rest.
     private readonly AgentSettings _agentPaths;
+    // What each model or effort list shows after its default, to read the choice back on Save.
+    private readonly Dictionary<ComboBox, List<AgentChoice>> _choices = [];
     private readonly CancellationTokenSource _agentChecks = new();
 
     public SettingsWindow(
@@ -89,23 +91,30 @@ public partial class SettingsWindow : Window
         DefaultAgentCombo.ItemsSource = _agents.Select(agent => agent.Name).ToArray();
         DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_agents, agent => agent.Kind == current.Agent.DefaultProvider));
         DefaultAccessCombo.SelectedIndex = (int)current.Agent.DefaultAccess;
-        ClaudeModelBox.Text = current.Agent.ClaudeModel ?? string.Empty;
-        CodexModelBox.Text = current.Agent.CodexModel ?? string.Empty;
-        ShowEfforts(ClaudeEffortCombo, AgentProviderKind.ClaudeCode, current.Agent.ClaudeEffort);
-        ShowEfforts(CodexEffortCombo, AgentProviderKind.Codex, current.Agent.CodexEffort);
+        var claude = _agents.First(agent => agent.Kind == AgentProviderKind.ClaudeCode);
+        var codex = _agents.First(agent => agent.Kind == AgentProviderKind.Codex);
+        ShowChoices(ClaudeModelCombo, claude.Models, current.Agent.ClaudeModel, "Default — Claude Code's own");
+        ShowChoices(CodexModelCombo, codex.Models, current.Agent.CodexModel, "Default — Codex's config");
+        ShowChoices(ClaudeEffortCombo, claude.Efforts, current.Agent.ClaudeEffort, "Default — Claude Code's own");
+        ShowChoices(CodexEffortCombo, codex.Efforts, current.Agent.CodexEffort, "Default — Codex's config");
         Closing += (_, _) => _agentChecks.Cancel();
         Loaded += (_, _) => _ = CheckAgentsAsync();
     }
 
-    /// <summary>An agent's effort levels after its own default, the saved one selected.</summary>
-    private void ShowEfforts(ComboBox combo, AgentProviderKind kind, string? effort)
+    /// <summary>
+    /// A model or effort list after the agent's own default, the saved value selected; a saved value the list lacks,
+    /// such as a model set by hand, stays as an item of its own.
+    /// </summary>
+    private void ShowChoices(ComboBox combo, IEnumerable<AgentChoice> choices, string? value, string ownDefault)
     {
-        var levels = _agents.First(agent => agent.Kind == kind).Efforts.ToList();
-        combo.ItemsSource = levels.Prepend("Default").ToArray();
-        combo.SelectedIndex = effort is null ? 0 : levels.IndexOf(effort) + 1;
+        var list = choices.ToList();
+        if (value is not null && list.All(choice => choice.Value != value)) list.Add(new AgentChoice(value, value));
+        _choices[combo] = list;
+        combo.ItemsSource = list.Select(choice => choice.Label).Prepend(ownDefault).ToArray();
+        combo.SelectedIndex = value is null ? 0 : list.FindIndex(choice => choice.Value == value) + 1;
     }
 
-    private static string? SelectedEffort(ComboBox combo) => combo.SelectedIndex > 0 ? combo.SelectedItem as string : null;
+    private string? Chosen(ComboBox combo) => combo.SelectedIndex > 0 ? _choices[combo][combo.SelectedIndex - 1].Value : null;
 
     /// <summary>
     /// Runs each agent's CLI for its version and sign-in, off the UI thread; the files chosen here are tried before
@@ -569,10 +578,10 @@ public partial class SettingsWindow : Window
         current.Agent.ClaudePath = _agentPaths.ClaudePath;
         current.Agent.CodexPath = _agentPaths.CodexPath;
         current.Agent.DefaultAccess = (AgentAccessChoice)Math.Max(0, DefaultAccessCombo.SelectedIndex);
-        current.Agent.ClaudeModel = ClaudeModelBox.Text;
-        current.Agent.CodexModel = CodexModelBox.Text;
-        current.Agent.SetEffort(AgentProviderKind.ClaudeCode, SelectedEffort(ClaudeEffortCombo));
-        current.Agent.SetEffort(AgentProviderKind.Codex, SelectedEffort(CodexEffortCombo));
+        current.Agent.ClaudeModel = Chosen(ClaudeModelCombo);
+        current.Agent.CodexModel = Chosen(CodexModelCombo);
+        current.Agent.SetEffort(AgentProviderKind.ClaudeCode, Chosen(ClaudeEffortCombo));
+        current.Agent.SetEffort(AgentProviderKind.Codex, Chosen(CodexEffortCombo));
         current.Agent.Normalize();
 
         try

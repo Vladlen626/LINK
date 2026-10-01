@@ -14,8 +14,19 @@ public sealed class ClaudeCodeProvider(Func<AgentSettings> settings, Action<stri
     public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
     public override string Name => "Claude Code";
 
-    // Claude Code's --effort levels.
-    public override IReadOnlyList<string> Efforts => ["low", "medium", "high", "xhigh", "max"];
+    // Claude Code's --effort levels; max is the highest. Ultracode is no effort but a setting that runs subagent
+    // workflows, and Link runs agents without subagents.
+    public override IReadOnlyList<AgentChoice> Efforts =>
+        [new("low", "Low"), new("medium", "Medium"), new("high", "High"), new("xhigh", "Extra high"), new("max", "Max — the highest")];
+
+    // Full names: an alias (opus) would move to the next version without the user's choice.
+    public override IReadOnlyList<AgentChoice> Models =>
+    [
+        new("claude-opus-5-5", "Opus 5.5"),
+        new("claude-fable-5-1", "Fable 5.1"),
+        new("claude-sonnet-5-5", "Sonnet 5.5"),
+        new("claude-haiku-4-5-20251001", "Haiku 4.5")
+    ];
 
     protected override IReadOnlyList<string> SignInCheck => ["auth", "status"];
 

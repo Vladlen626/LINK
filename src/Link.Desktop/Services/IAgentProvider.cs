@@ -14,7 +14,10 @@ public interface IAgentProvider
     string Name { get; }
 
     /// <summary>The effort levels its CLI takes, lowest first; the card offers them beside the CLI's own default.</summary>
-    IReadOnlyList<string> Efforts { get; }
+    IReadOnlyList<AgentChoice> Efforts { get; }
+
+    /// <summary>The models Settings offers beside the CLI's own default; reading them may touch the disk.</summary>
+    IReadOnlyList<AgentChoice> Models { get; }
 
     /// <summary>
     /// Whether the CLI is found and signed in, and its version; <paramref name="chosenPath"/> is a file chosen for it,

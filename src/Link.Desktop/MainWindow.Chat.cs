@@ -481,8 +481,14 @@ public partial class MainWindow
     private void UpdateRouteButton()
     {
         var option = RouteOptions.First(option => option.Route == _settings.Current.Route);
-        // Agent shows who works and how: read only unless a task's card says otherwise.
-        RouteText.Text = option.Route == RequestRoute.Agent ? $"{ShortName(ProjectProvider)} · read" : option.Label;
+        // Agent shows who works and how the card starts: the access Settings chose, which a task's card can change.
+        var access = _settings.Current.Agent.DefaultAccess switch
+        {
+            AgentAccessChoice.Auto => "auto",
+            AgentAccessChoice.Edit => "edit",
+            _ => "read"
+        };
+        RouteText.Text = option.Route == RequestRoute.Agent ? $"{ShortName(ProjectProvider)} · {access}" : option.Label;
         RouteButton.ToolTip = $"Route: {option.Description}";
     }
 

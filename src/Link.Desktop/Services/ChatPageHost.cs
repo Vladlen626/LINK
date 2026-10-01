@@ -435,6 +435,7 @@ internal sealed partial class ChatPageHost : IDisposable
     {
         IChatPage? page;
         string? conversationId;
+        TimeSpan quiet;
         lock (_gate)
         {
             if (_disposed) return;
@@ -445,7 +446,10 @@ internal sealed partial class ChatPageHost : IDisposable
                 : null;
             // The page is awake while LINK has a request for it, and rests once LINK has not needed it for a while.
             if (_broker.HasPending) _usedAt = Stopwatch.GetTimestamp();
-            page?.Rest(Since(_usedAt) >= _timings.Rest);
+            // Measured once: a second measure could pass the rest a moment after the page was kept awake, and the
+            // next look would then come only after IdleCheck.
+            quiet = Since(_usedAt);
+            page?.Rest(quiet >= _timings.Rest);
         }
 
         if (page is not null && conversationId is not null)
@@ -464,7 +468,6 @@ internal sealed partial class ChatPageHost : IDisposable
         lock (_gate)
         {
             if (_disposed) return;
-            var quiet = Since(_usedAt);
             _timer.Change(
                 _broker.HasPending ? _timings.Delivery : quiet < _timings.Rest ? _timings.Rest - quiet : _timings.IdleCheck,
                 Timeout.InfiniteTimeSpan);

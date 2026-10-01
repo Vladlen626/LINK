@@ -23,7 +23,8 @@ public abstract class CliAgentProvider : IAgentProvider
 
     public abstract AgentProviderKind Kind { get; }
     public abstract string Name { get; }
-    public abstract IReadOnlyList<string> Efforts { get; }
+    public abstract IReadOnlyList<AgentChoice> Efforts { get; }
+    public abstract IReadOnlyList<AgentChoice> Models { get; }
 
     public string? FindExecutable() => AgentExecutables.Find(Kind, _settings().PathFor(Kind));
 
@@ -105,8 +106,11 @@ public abstract class CliAgentProvider : IAgentProvider
         var kind = task.PlanOnly ? ", plan"
             : task.AnswerFile is { } answer ? $", answer to {answer}"
             : task.AnswerIsSkill ? ", skill"
+            : task.AutoApprove ? ", auto"
             : string.Empty;
-        _log($"[Agent] {Name}, {task.Access}{kind}: {outcome}; " +
+        // Runs compare only with the same model and effort.
+        var setup = (task.Model is { } model ? $", {model}" : string.Empty) + (task.Effort is { } effort ? $", effort {effort}" : string.Empty);
+        _log($"[Agent] {Name}, {task.Access}{kind}{setup}: {outcome}; " +
              $"session {result.SessionId ?? "none"}, first event {first}, {Seconds(clock.Elapsed)}, " +
              $"{result.ChangedFiles.Count} files, denials: {(result.Denials.Count == 0 ? "none" : string.Join(", ", result.Denials))}; " +
              LogStats(result.Stats) +

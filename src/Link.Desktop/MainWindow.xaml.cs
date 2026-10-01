@@ -118,6 +118,8 @@ public partial class MainWindow : Window
         // Voice replies may have been switched off or on.
         UpdateReadAloudButton();
         HideButton.ToolTip = $"Hide Link · {_settings.Current.Hotkeys.ShowHide} brings it back";
+        // The default agent or the access the card starts with may have changed.
+        UpdateRouteButton();
         ApplyConversation();
     }
 

@@ -14,8 +14,37 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
     public override AgentProviderKind Kind => AgentProviderKind.Codex;
     public override string Name => "Codex";
 
-    // Reasoning efforts every model of the account's Codex list takes; some go on to max and ultra.
-    public override IReadOnlyList<string> Efforts => ["low", "medium", "high", "xhigh"];
+    // Codex lowers a level its model lacks to the model's highest. Ultra is left out: it works through parallel
+    // subagents, and Link runs agents without them.
+    public override IReadOnlyList<AgentChoice> Efforts =>
+        [new("low", "Low"), new("medium", "Medium"), new("high", "High"), new("xhigh", "Extra high"), new("max", "Max — the highest")];
+
+    /// <summary>The models of the account, as Codex keeps them in its own list (models_cache.json); none when it cannot be read.</summary>
+    public override IReadOnlyList<AgentChoice> Models
+    {
+        get
+        {
+            var home = Environment.GetEnvironmentVariable("CODEX_HOME") is { Length: > 0 } codexHome
+                ? codexHome
+                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+            try
+            {
+                using var cache = JsonDocument.Parse(File.ReadAllText(Path.Combine(home, "models_cache.json")));
+                return cache.RootElement.GetProperty("models").EnumerateArray()
+                    .Where(model => Text(model, "visibility") == "list" && Text(model, "slug") is { Length: > 0 })
+                    .Select(model => new AgentChoice(Text(model, "slug")!, Text(model, "display_name") ?? Text(model, "slug")!))
+                    .ToArray();
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException
+                                                  or KeyNotFoundException or InvalidOperationException)
+            {
+                return [];
+            }
+
+            static string? Text(JsonElement element, string name) =>
+                element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+        }
+    }
 
     protected override IReadOnlyList<string> SignInCheck => ["login", "status"];
 

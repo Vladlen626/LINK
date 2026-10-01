@@ -116,8 +116,9 @@ src\Link.Desktop\bin\Release\net10.0-windows\Link.exe
    строку беседы и **Link**. Или сразу **New chat** — первое сообщение из Link создаст беседу и свяжет её с проектом.
 2. **Агенты.** Один раз `claude auth login` или `codex login`. Settings → Agents показывает, найден ли агент, вошли
    ли вы и его версию; там же — агент по умолчанию, доступ, с которого начинается карточка, свой путь к exe, модель
-   (для Claude — алиас `opus`, `sonnet`, `fable` или полное имя, например `claude-opus-5-5`; пусто — настройка
-   самого агента) и effort.
+   (у Claude — Opus 5.5, Fable 5.1, Sonnet 5.5, Haiku 4.5; у Codex — модели вашего аккаунта из его списка; Default —
+   настройка самого агента) и effort: Low, Medium, High, Extra high, Max — самый высокий. Ultra у Codex и ultracode у
+   Claude работают через субагентов, а Link запускает агентов без них, поэтому их в списке нет.
 3. **Инструкции для ChatGPT** — вставьте [docs/harness/chat-instructions.md](docs/harness/chat-instructions.md) в
    инструкции проекта ChatGPT, с которым связан Link; общие советы — [docs/harness/prompting.md](docs/harness/prompting.md).
 

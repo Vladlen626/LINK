@@ -38,6 +38,9 @@ public sealed class AgentSessionRecord
     public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.Now;
 }
 
+/// <summary>A model or effort level as the agent's CLI takes it, and as the user reads it.</summary>
+public sealed record AgentChoice(string Value, string Label);
+
 /// <summary>What the task card offers first; Settings chooses it.</summary>
 public enum AgentAccessChoice
 {

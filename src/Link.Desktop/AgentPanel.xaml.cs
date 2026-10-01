@@ -13,7 +13,7 @@ namespace Link.Desktop;
 /// project's check after edits, <see cref="Efforts"/> the effort last chosen for each agent.
 /// </summary>
 public sealed record AgentCardModel(
-    IReadOnlyList<(AgentProviderKind Kind, string Name, IReadOnlyList<string> Efforts)> Providers,
+    IReadOnlyList<(AgentProviderKind Kind, string Name, IReadOnlyList<AgentChoice> Efforts)> Providers,
     AgentProviderKind Provider,
     string ProjectName,
     string? Workspace,
@@ -250,7 +250,10 @@ public partial class AgentPanel : UserControl
     private bool SelectedAuto => AccessCombo.SelectedIndex == (int)AgentAccessChoice.Auto;
 
     // The first item is the agent's own setting.
-    private string? SelectedEffort => EffortCombo.SelectedIndex > 0 ? EffortCombo.SelectedItem as string : null;
+    private string? SelectedEffort =>
+        _card is { } card && EffortCombo.SelectedIndex > 0
+            ? card.Providers.First(agent => agent.Kind == SelectedProvider).Efforts[EffortCombo.SelectedIndex - 1].Value
+            : null;
 
     private void Card_OnChanged(object sender, RoutedEventArgs e)
     {
@@ -296,9 +299,11 @@ public partial class AgentPanel : UserControl
     private void ShowEfforts(AgentCardModel card)
     {
         var provider = SelectedProvider;
-        var levels = card.Providers.First(agent => agent.Kind == provider).Efforts.ToList();
-        EffortCombo.ItemsSource = levels.Prepend("Default").ToArray();
-        EffortCombo.SelectedIndex = card.Efforts.TryGetValue(provider, out var chosen) ? levels.IndexOf(chosen) + 1 : 0;
+        var levels = card.Providers.First(agent => agent.Kind == provider).Efforts;
+        EffortCombo.ItemsSource = levels.Select(level => level.Label).Prepend("Default — the agent's own").ToArray();
+        EffortCombo.SelectedIndex = card.Efforts.TryGetValue(provider, out var chosen)
+            ? levels.Select(level => level.Value).ToList().IndexOf(chosen) + 1
+            : 0;
         _effortsFor = provider;
     }
 

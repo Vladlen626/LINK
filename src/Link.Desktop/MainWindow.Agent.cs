@@ -397,6 +397,8 @@ public partial class MainWindow
         {
             FlushAgentEvents();
             _agentPanel.ShowResult(exception.Message, "Could not start");
+            // No session began: a reply here would go to an older run.
+            _agentPanel.ShowReply(false);
             _cues.Play(SoundCue.Error);
             SetError(exception.Message);
         }

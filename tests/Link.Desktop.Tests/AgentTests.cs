@@ -40,6 +40,36 @@ internal static class AgentTests
         await CheckRetriesAsync();
         await StartOverAsync();
         ContinueAndPermissions();
+        Choices();
+    }
+
+    /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
+    private static void Choices()
+    {
+        var settings = new AgentSettings();
+        var claude = new ClaudeCodeProvider(() => settings, _ => { });
+        var codex = new CodexProvider(() => settings, _ => { });
+        Program.Equal("choices: efforts lowest first, max the highest, no ultra (it works through subagents)",
+            (string.Join(",", claude.Efforts.Select(effort => effort.Value)), string.Join(",", codex.Efforts.Select(effort => effort.Value))),
+            ("low,medium,high,xhigh,max", "low,medium,high,xhigh,max"));
+        Program.Equal("choices: Claude's models by full name, Opus 5.5 first", claude.Models[0], new AgentChoice("claude-opus-5-5", "Opus 5.5"));
+
+        var home = TempFolder();
+        var before = Environment.GetEnvironmentVariable("CODEX_HOME");
+        try
+        {
+            Environment.SetEnvironmentVariable("CODEX_HOME", home);
+            Program.Equal("choices: no Codex list, no models", codex.Models.Count, 0);
+            File.WriteAllText(Path.Combine(home, "models_cache.json"),
+                """{"models":[{"slug":"gpt-6-sol","display_name":"GPT-6-Sol","visibility":"list"},{"slug":"gpt-reserve","visibility":"hide"},{"slug":"gpt-5.5","visibility":"list"}]}""");
+            Program.Equal("choices: Codex offers the models its list shows, by their names",
+                string.Join(",", codex.Models.Select(model => $"{model.Value}={model.Label}")), "gpt-6-sol=GPT-6-Sol,gpt-5.5=gpt-5.5");
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CODEX_HOME", before);
+            DeleteFolder(home);
+        }
     }
 
     /// <summary>A reply goes on in the run's session; a rule that changes things never stays in the read-only list.</summary>
@@ -756,7 +786,8 @@ internal static class AgentTests
     {
         public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
         public override string Name => "Fake";
-        public override IReadOnlyList<string> Efforts => [];
+        public override IReadOnlyList<AgentChoice> Efforts => [];
+        public override IReadOnlyList<AgentChoice> Models => [];
         protected override IReadOnlyList<string> SignInCheck => [];
         public override IReadOnlyList<string> Arguments(AgentTask task) => [FakeFlag, scenario];
         public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser();
@@ -769,7 +800,8 @@ internal static class AgentTests
         public List<AgentTask> Tasks { get; } = [];
         public AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
         public string Name => "Scripted";
-        public IReadOnlyList<string> Efforts => [];
+        public IReadOnlyList<AgentChoice> Efforts => [];
+        public IReadOnlyList<AgentChoice> Models => [];
 
         public static ScriptedProvider Answering(string answer, bool succeeded = true) =>
             new((_, _) => new AgentResult { SessionId = "answer", Summary = answer, Succeeded = succeeded });
