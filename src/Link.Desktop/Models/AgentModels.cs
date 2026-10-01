@@ -14,6 +14,30 @@ public enum AgentAccess
     Do
 }
 
+/// <summary>
+/// An agent session Link ran in a project, kept in the project's data so that it can be taken up again after Link
+/// restarts or another task: the goal it began with, how it ran and how it last ended.
+/// </summary>
+public sealed class AgentSessionRecord
+{
+    public required string SessionId { get; init; }
+    public AgentProviderKind Provider { get; init; }
+    public required string Workspace { get; init; }
+
+    /// <summary>The task the session began with, as the card's goal said it.</summary>
+    public required string Goal { get; init; }
+
+    public AgentAccess Access { get; init; }
+    public bool AutoApprove { get; init; }
+    public string? Model { get; init; }
+    public string? Effort { get; init; }
+
+    /// <summary>The last run's result, or how it ended.</summary>
+    public string Summary { get; init; } = string.Empty;
+
+    public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.Now;
+}
+
 /// <summary>What the task card offers first; Settings chooses it.</summary>
 public enum AgentAccessChoice
 {

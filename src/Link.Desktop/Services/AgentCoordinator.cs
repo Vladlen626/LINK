@@ -208,6 +208,13 @@ public sealed class AgentCoordinator
         };
     }
 
+    /// <summary>
+    /// What the session goes on with when the user speaks up while the agent works: neither CLI takes words during a
+    /// run, so Link stops it and the same session goes on with them.
+    /// </summary>
+    public static string Interrupted(string words) =>
+        $"The user stopped you to say this:\n{words.Trim()}\nTake it into account and go on with the task.";
+
     /// <summary>The one short request to a session that goes nowhere: its note for the clean session after it.</summary>
     internal const string NoteRequest =
         "Stop working on the task and change nothing. In five lines at most, write what you tried and why it did not work: " +

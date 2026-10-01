@@ -27,6 +27,10 @@ public partial class MainWindow
     private AgentTask? _runningTask;
     // The task as the card or the Map button started it: what "start over" starts again, whatever runs continued it.
     private AgentTask? _agentOrigin;
+    // An earlier session opened from the project panel: the next reply takes it up again.
+    private AgentTask? _earlierSession;
+    // Words the user gave while the agent worked: the stopped session goes on with them.
+    private string? _steerWith;
     private bool _restartWhenStopped;
     private bool _backupBeforeDo = true;
     private CancellationTokenSource? _agentCancellation;
@@ -230,14 +234,126 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The user's reply after a run: the same session goes on with it, and undo still covers the whole exchange.
-    /// Start over keeps the task the exchange began with.
+    /// The user's reply: the same session goes on with it, and undo still covers the whole exchange; Start over keeps
+    /// the task the exchange began with. An earlier session opened from the panel is taken up again in its folder,
+    /// with a copy before edits where there is no git, as the card makes by default.
     /// </summary>
     private void ContinueAgent(string reply)
     {
-        if (_lastRun is not { } run || AgentRunning) return;
-        if (AgentCoordinator.ContinueTask(run, reply) is { } task) _ = StartAgentAsync(task, run);
+        if (reply.Trim() is not { Length: > 0 } text) return;
+        if (AgentRunning)
+        {
+            // Words while the agent works: it stops, and the session goes on with them once it has ended. Link's own
+            // step (a note for Start over) takes none.
+            if (_runningTask is null || _restartWhenStopped) return;
+            _steerWith = text;
+            _agentCancellation?.Cancel();
+            SetStatus("Stopping the agent to pass your words on…");
+            return;
+        }
+
+        if (_earlierSession is { } earlier)
+        {
+            _agentOrigin = earlier with { ResumeSessionId = null };
+            _backupBeforeDo = true;
+            _ = StartAgentAsync(earlier with { Prompt = text }, null);
+            return;
+        }
+
+        if (_lastRun is { } run && AgentCoordinator.ContinueTask(run, text) is { } task) _ = StartAgentAsync(task, run);
     }
+
+    /// <summary>
+    /// Keeps the run's session in the project, so that it can be taken up again after Link restarts; a map or a skill,
+    /// written by Link from one answer, is no session to go on with.
+    /// </summary>
+    private void RememberAgentSession(LinkProject project, AgentRun run)
+    {
+        var task = run.Task;
+        if (run.Result.SessionId is not { } session || task.AnswerFile is not null || task.AnswerIsSkill) return;
+        try
+        {
+            var earlier = _projects.ReadAgentSessions(project)
+                .FirstOrDefault(record => record.SessionId == session || record.SessionId == task.ResumeSessionId);
+            // The goal is the card's, the first paragraph of the task: a continued run's prompt is only the reply.
+            var goal = earlier?.Goal ?? (_agentOrigin ?? task).Prompt.Split("\n\n")[0].Trim();
+            var summary = run.Result.Summary.Trim() is { Length: > 0 } text ? text : run.Result.Stopped ? "Stopped." : "No answer.";
+            var sessions = _projects.RememberAgentSession(project, new AgentSessionRecord
+            {
+                SessionId = session,
+                Provider = task.Provider,
+                Workspace = task.Workspace,
+                Goal = goal.Length <= 300 ? goal : goal[..300] + "…",
+                Access = task.Access,
+                AutoApprove = task.AutoApprove,
+                Model = task.Model,
+                Effort = task.Effort,
+                Summary = summary.Length <= 4000 ? summary : summary[..4000] + "…"
+            }, task.ResumeSessionId);
+            if (project == _projects.ActiveProject) _projectPanel?.ShowAgentSessions(sessions.Select(ToSessionRow));
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            DiagnosticsReported?.Invoke($"Agent session not saved: {exception.Message}");
+        }
+    }
+
+    /// <summary>An earlier session from the project panel: its last result and the reply box; a reply takes it up again.</summary>
+    private void OpenAgentSession(AgentSessionRecord session)
+    {
+        if (AgentRunning)
+        {
+            SetStatus("An agent is already working: Stop it or wait for it first");
+            ShowAgentPanel();
+            return;
+        }
+
+        if (!Directory.Exists(session.Workspace))
+        {
+            SetError($"The session's folder is gone: {session.Workspace}");
+            return;
+        }
+
+        var project = _projects.ActiveProject;
+        var tools = session.Access == AgentAccess.Do ? project.AgentReadTools.Concat(project.AgentDoTools) : project.AgentReadTools;
+        _earlierSession = new AgentTask
+        {
+            Provider = session.Provider,
+            Workspace = session.Workspace,
+            Prompt = session.Goal,
+            Access = session.Access,
+            AutoApprove = session.AutoApprove,
+            Model = session.Model,
+            Effort = session.Effort,
+            AllowedTools = tools.Distinct(StringComparer.Ordinal).ToArray(),
+            CheckCommand = project.CheckCommand,
+            ResumeSessionId = session.SessionId
+        };
+        ShowAgentPanel();
+        _agentPanel!.ShowEarlierSession(
+            $"{_agents.Provider(session.Provider).Name} · {SessionAccess(session)} · {session.Goal}",
+            $"{project.Name} · {session.Workspace}",
+            session.Summary,
+            $"Earlier session · {SessionTime(session.UpdatedAt)}");
+        SetStatus("Write a reply to take the session up again");
+    }
+
+    private static string SessionAccess(AgentSessionRecord session) =>
+        session.Access != AgentAccess.Do ? "read only" : session.AutoApprove ? "auto" : "edits";
+
+    private static string SessionTime(DateTimeOffset at)
+    {
+        var when = at.ToLocalTime();
+        return when.Date == DateTime.Today
+            ? when.ToString("HH:mm", CultureInfo.InvariantCulture)
+            : when.ToString("d MMM", CultureInfo.InvariantCulture);
+    }
+
+    private AgentSessionRow ToSessionRow(AgentSessionRecord session) =>
+        new(session.Goal,
+            $"{_agents.Provider(session.Provider).Name} · {SessionAccess(session)} · {ToPreviewText(session.Summary)}",
+            SessionTime(session.UpdatedAt),
+            session);
 
     /// <summary>
     /// Runs a task, fresh or continuing <paramref name="previous"/>, and shows it in Activity; <paramref name="note"/>
@@ -249,6 +365,7 @@ public partial class MainWindow
         var project = _projects.ActiveProject;
         _runningTask = task;
         _decision = null;
+        _earlierSession = null;
         ShowAgentPanel();
         _agentPanel!.ShowActivity(AgentHeader(task), $"{project.Name} · {task.Workspace}");
         var cancellation = new CancellationTokenSource();
@@ -262,6 +379,7 @@ public partial class MainWindow
         SayAgent($"{provider.Name} started.");
         SetStatus($"{provider.Name} is working · Stop is in the panel");
         var progress = new Progress<AgentEvent>(_pendingAgentEvents.Add);
+        AgentRun? ended = null;
         try
         {
             var run = await _agents.RunAsync(task, _backupBeforeDo, previous, progress, cancellation.Token, ReplaceSkill);
@@ -272,6 +390,8 @@ public partial class MainWindow
 
             FlushAgentEvents();
             ShowAgentRun(run);
+            RememberAgentSession(project, run);
+            ended = run;
         }
         catch (Exception exception)
         {
@@ -293,6 +413,18 @@ public partial class MainWindow
         {
             _restartWhenStopped = false;
             await RestartWithNoteAsync();
+        }
+        else if (_steerWith is { } words)
+        {
+            _steerWith = null;
+            if (ended is not null && AgentCoordinator.ContinueTask(ended, AgentCoordinator.Interrupted(words)) is { } next)
+            {
+                await StartAgentAsync(next, ended);
+            }
+            else
+            {
+                SetError("The agent stopped before its session began: give your words as a new task.");
+            }
         }
     }
 

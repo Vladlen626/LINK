@@ -93,6 +93,29 @@ public sealed class ProjectService
 
     private static string HistoryFile(LinkProject project) => Path.Combine(project.DataFolder, "history.json");
 
+    /// <summary>The project's last agent sessions, newest first, in its data folder.</summary>
+    public IReadOnlyList<AgentSessionRecord> ReadAgentSessions(LinkProject project) =>
+        (AtomicJsonFile.Read<List<AgentSessionRecord>>(AgentSessionsFile(project), _json) ?? [])
+        .Where(session => session.SessionId.Length > 0)
+        .ToList();
+
+    /// <summary>
+    /// Puts a session at the top, in place of the same session or the one it went on from, and keeps the last ten;
+    /// returns the list.
+    /// </summary>
+    public IReadOnlyList<AgentSessionRecord> RememberAgentSession(LinkProject project, AgentSessionRecord session, string? wentOnFrom)
+    {
+        var sessions = ReadAgentSessions(project)
+            .Where(old => old.SessionId != session.SessionId && old.SessionId != wentOnFrom)
+            .Prepend(session)
+            .Take(HistorySize)
+            .ToList();
+        AtomicJsonFile.Write(AgentSessionsFile(project), sessions, _json);
+        return sessions;
+    }
+
+    private static string AgentSessionsFile(LinkProject project) => Path.Combine(project.DataFolder, "agent-sessions.json");
+
     private LinkProject CreateCore(string name)
     {
         var id = Guid.NewGuid();

@@ -161,7 +161,7 @@
                                Text="Reply to the agent: answer it or ask for more" />
                     <Button x:Name="ContinueButton" Grid.Column="1" Style="{StaticResource SmallChipStyle}" Margin="6,3,3,3"
                             VerticalAlignment="Bottom" Click="Continue_OnClick" Content="Continue"
-                            ToolTip="The same session goes on with your reply, with the same access and folder (Enter)" />
+                            ToolTip="The same session goes on with your words, with the same access and folder (Enter). While the agent works, it stops first" />
                 </Grid>
             </Border>
 

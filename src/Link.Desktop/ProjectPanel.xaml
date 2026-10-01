@@ -124,6 +124,30 @@
                 </Border>
             </StackPanel>
 
+            <!-- The project's last agent sessions: one opens with its last result, and a reply takes it up again. -->
+            <TextBlock x:Name="AgentSessionsLabel" Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="AGENT SESSIONS"
+                       Visibility="Collapsed" />
+            <ItemsControl x:Name="AgentSessionsList" Margin="-8,3,0,0">
+                <ItemsControl.ItemTemplate>
+                    <DataTemplate>
+                        <Button Style="{StaticResource GhostButtonStyle}" Margin="0,0,0,2" Padding="8,5" HorizontalContentAlignment="Stretch"
+                                Click="AgentSession_OnClick" ToolTip="Open the session: its last result, and a reply goes on with it">
+                            <StackPanel>
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Goal}" TextTrimming="CharacterEllipsis" />
+                                    <TextBlock Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
+                                               Text="{Binding Time}" />
+                                </Grid>
+                                <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="11.5" LineHeight="16" LineStackingStrategy="BlockLineHeight"
+                                           Foreground="{StaticResource MutedBrush}" Text="{Binding Details}" TextTrimming="CharacterEllipsis"
+                                           TextWrapping="Wrap" />
+                            </StackPanel>
+                        </Button>
+                    </DataTemplate>
+                </ItemsControl.ItemTemplate>
+            </ItemsControl>
+
             <TextBlock Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="HISTORY" />
             <TextBlock x:Name="HistoryEmptyText" Margin="0,5,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
                        Text="The last ten answers of this project appear here." />

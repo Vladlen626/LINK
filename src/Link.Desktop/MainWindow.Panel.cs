@@ -85,6 +85,7 @@ public partial class MainWindow
         // Saved with the task and the state, when the field is left.
         _projectPanel.CheckCommandChanged += command => _projects.ActiveProject.CheckCommand = command.Length == 0 ? null : command;
         _projectPanel.HistorySelected += OnHistorySelected;
+        _projectPanel.AgentSessionSelected += OpenAgentSession;
         return panel;
     }
 
@@ -96,6 +97,7 @@ public partial class MainWindow
         // The agent's card or Activity keeps the panel until the user goes back to the project.
         if (!_panelShowsAgent) _panel.SetContent(project.Name, _projectPanel);
         _projectPanel.ShowProject(project);
+        _projectPanel.ShowAgentSessions(_projects.ReadAgentSessions(project).Select(ToSessionRow));
         _projectPanel.ShowHistory(_projects.ReadHistory(project).Select(ToHistoryRow));
         _projectPanel.SetBusy(_sending);
         UpdateConnectionState();

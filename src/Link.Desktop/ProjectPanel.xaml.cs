@@ -49,6 +49,9 @@ public partial class ProjectPanel : UserControl
 
     public event Action<ProjectExchange>? HistorySelected;
 
+    /// <summary>An earlier agent session, to be opened and taken up again.</summary>
+    public event Action<AgentSessionRecord>? AgentSessionSelected;
+
     public void ShowProject(LinkProject project)
     {
         _showing = true;
@@ -85,6 +88,14 @@ public partial class ProjectPanel : UserControl
         ChatConnectionText.Text = text;
         ChatStatusDot.Fill = dot;
         _canSummarize = canSummarize;
+    }
+
+    /// <summary>The project's last agent sessions; none hides the section.</summary>
+    public void ShowAgentSessions(IEnumerable<AgentSessionRow> rows)
+    {
+        var list = rows.ToList();
+        AgentSessionsList.ItemsSource = list;
+        AgentSessionsLabel.Visibility = list.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     public void ShowHistory(IEnumerable<HistoryRow> rows)
@@ -170,6 +181,11 @@ public partial class ProjectPanel : UserControl
         if ((sender as FrameworkElement)?.DataContext is ProjectSkill skill) SkillRequested?.Invoke(skill.FilePath);
     }
 
+    private void AgentSession_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: AgentSessionRow row }) AgentSessionSelected?.Invoke(row.Session);
+    }
+
     private void HistoryItem_OnClick(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: HistoryRow row }) HistorySelected?.Invoke(row.Exchange);
@@ -178,3 +194,6 @@ public partial class ProjectPanel : UserControl
 
 /// <summary>A line of the panel's history: the question, a glance at its answer and when it came.</summary>
 public sealed record HistoryRow(string Question, string Preview, string Time, ProjectExchange Exchange);
+
+/// <summary>An agent session in the project panel: its goal, agent and last result, and when it last ran.</summary>
+public sealed record AgentSessionRow(string Goal, string Details, string Time, AgentSessionRecord Session);

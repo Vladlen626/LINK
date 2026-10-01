@@ -58,6 +58,8 @@ internal static class AgentTests
         Program.Equal("continue: the same session, access, model and effort, the reply as the prompt, no images",
             (next!.ResumeSessionId, next.Prompt, next.Access, next.Model, next.Effort, next.AutoApprove, next.Images.Count),
             ("s1", "and the jump too", AgentAccess.Do, "opus", "high", true, 0));
+        Program.Equal("continue: words given while the agent worked say it was stopped for them",
+            AgentCoordinator.Interrupted("  use the old jump  ").Contains("stopped you to say this:\nuse the old jump\n"), true);
         Program.Equal("continue: nothing without a reply or a session",
             (AgentCoordinator.ContinueTask(run, "  ") is null, AgentCoordinator.ContinueTask(run with { Result = new AgentResult() }, "go") is null), (true, true));
 

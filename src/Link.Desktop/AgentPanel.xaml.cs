@@ -130,10 +130,13 @@ public partial class AgentPanel : UserControl
     {
         StopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         foreach (var button in new[] { ToChatButton, LogButton, NewTaskButton }) button.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        // While the agent works, words for it stop the step it is on and the session goes on with them.
+        ReplyPlaceholder.Text = running ? "Tell the agent: it stops and goes on with your words" : "Reply to the agent: answer it or ask for more";
+        ContinueButton.Content = running ? "Send" : "Continue";
         if (!running) return;
         UndoButton.Visibility = Visibility.Collapsed;
         SaveSkillButton.Visibility = Visibility.Collapsed;
-        ReplyPanel.Visibility = Visibility.Collapsed;
+        ReplyPanel.Visibility = Visibility.Visible;
     }
 
     /// <summary>The reply box, offered after a run whose session can go on.</summary>
@@ -183,6 +186,18 @@ public partial class AgentPanel : UserControl
         SetRunning(false);
     }
 
+    /// <summary>An earlier session, opened from the project panel: its last result and the reply box that takes it up.</summary>
+    public void ShowEarlierSession(string header, string where, string summary, string ending)
+    {
+        ShowActivity(header, where);
+        ShowResult(summary, ending);
+        // No run of this Link stands behind it: nothing to take to the chat or to read in the log.
+        ToChatButton.Visibility = Visibility.Collapsed;
+        LogButton.Visibility = Visibility.Collapsed;
+        ShowReply(true);
+        ReplyBox.Focus();
+    }
+
     /// <summary>The task's numbers in one line under its result; empty hides it.</summary>
     public void ShowStats(string text)
     {
@@ -214,6 +229,8 @@ public partial class AgentPanel : UserControl
         if (!running) return;
         DecisionCard.Visibility = Visibility.Collapsed;
         RestartCard.Visibility = Visibility.Collapsed;
+        // Link's own step, such as asking for a note, takes no words for the agent.
+        ReplyPanel.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>Offers to undo the changes or restore the copy; null hides the button.</summary>
