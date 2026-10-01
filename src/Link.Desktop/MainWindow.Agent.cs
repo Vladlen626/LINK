@@ -334,25 +334,17 @@ public partial class MainWindow
             $"{_agents.Provider(session.Provider).Name} · {SessionAccess(session)} · {session.Goal}",
             $"{project.Name} · {session.Workspace}",
             session.Summary,
-            $"Earlier session · {SessionTime(session.UpdatedAt)}");
+            $"Earlier session · {ShortTime(session.UpdatedAt)}");
         SetStatus("Write a reply to take the session up again");
     }
 
     private static string SessionAccess(AgentSessionRecord session) =>
         session.Access != AgentAccess.Do ? "read only" : session.AutoApprove ? "auto" : "edits";
 
-    private static string SessionTime(DateTimeOffset at)
-    {
-        var when = at.ToLocalTime();
-        return when.Date == DateTime.Today
-            ? when.ToString("HH:mm", CultureInfo.InvariantCulture)
-            : when.ToString("d MMM", CultureInfo.InvariantCulture);
-    }
-
     private AgentSessionRow ToSessionRow(AgentSessionRecord session) =>
         new(session.Goal,
             $"{_agents.Provider(session.Provider).Name} · {SessionAccess(session)} · {ToPreviewText(session.Summary)}",
-            SessionTime(session.UpdatedAt),
+            ShortTime(session.UpdatedAt),
             session);
 
     /// <summary>

@@ -175,12 +175,15 @@ public partial class MainWindow
         }
     }
 
-    private static HistoryRow ToHistoryRow(ProjectExchange exchange)
+    private static HistoryRow ToHistoryRow(ProjectExchange exchange) =>
+        new(exchange.Question, ToPreviewText(exchange.Answer), ShortTime(exchange.AnsweredAt), exchange);
+
+    /// <summary>When something in the panel happened: the time today, the day before that.</summary>
+    private static string ShortTime(DateTimeOffset at)
     {
-        var when = exchange.AnsweredAt.ToLocalTime();
-        var time = when.Date == DateTime.Today
+        var when = at.ToLocalTime();
+        return when.Date == DateTime.Today
             ? when.ToString("HH:mm", CultureInfo.InvariantCulture)
             : when.ToString("d MMM", CultureInfo.InvariantCulture);
-        return new HistoryRow(exchange.Question, ToPreviewText(exchange.Answer), time, exchange);
     }
 }
