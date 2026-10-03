@@ -19,6 +19,21 @@ public partial class MainWindow
     private bool _phraseInFlight;
     // The user types in the prompt: conversation pauses until they send, clear it or leave it.
     private bool _typing;
+    // The held "ask about the screen" hotkey: the phrase goes once transcribed, with a fresh frame of the work window.
+    private bool _askingAboutScreen;
+
+    /// <summary>"Ask about the screen" held: Link listens as with push-to-talk, and letting go sends the words at once.</summary>
+    public void StartAskingAboutScreen()
+    {
+        if (_sending)
+        {
+            SetStatus("An answer is on its way: ask about the screen once it is in");
+            return;
+        }
+
+        StartPushToTalk();
+        _askingAboutScreen = _voice.Phase == VoicePhase.Listening && !_voice.IsHandsFree;
+    }
 
     /// <summary>Push-to-talk pressed; during a spoken answer it silences Link and listens right away.</summary>
     public void StartPushToTalk()
@@ -164,6 +179,8 @@ public partial class MainWindow
     private async Task TranscribeAndSendAsync(bool send)
     {
         var conversation = _settings.Current.ConversationMode;
+        var askingAboutScreen = _askingAboutScreen;
+        _askingAboutScreen = false;
         VoiceTranscript? transcript;
         try
         {
@@ -187,6 +204,13 @@ public partial class MainWindow
 
         // The final pass replaces the live words instead of adding a second version of them.
         SetPromptText(_draft.Commit(PromptBox.Text, transcript?.Text ?? string.Empty));
+        if (askingAboutScreen)
+        {
+            if (transcript is null) SetStatus("No speech heard — hold the key while you ask");
+            else await AskAboutScreenAsync();
+            return;
+        }
+
         if (transcript is null && !send)
         {
             SetStatus(conversation ? "Didn't catch that — say it again" : "No speech heard — hold the key while speaking");

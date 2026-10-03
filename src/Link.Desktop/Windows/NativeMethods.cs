@@ -57,6 +57,60 @@ internal static class NativeMethods
     internal const int DrvQueryFunctionInstanceIdSize = 0x0812;
     internal const int JobObjectExtendedLimitInformationClass = 9;
     internal const uint JobObjectLimitKillOnJobClose = 0x00002000;
+    internal const int GwlStyle = -16;
+    internal const long WsCaption = 0x00C00000;
+    internal const long WsExTransparent = 0x00000020;
+    internal const uint PwRenderFullContent = 0x00000002;
+    internal const int QunsRunningD3dFullScreen = 3;
+    internal const int D3DDriverTypeHardware = 1;
+    internal const int D3DDriverTypeWarp = 5;
+    internal const uint D3D11CreateDeviceBgraSupport = 0x20;
+    internal const uint D3D11SdkVersion = 7;
+    internal const int RgnDiff = 4;
+    internal static readonly IntPtr HwndTopmost = new(-1);
+
+    [DllImport("d3d11.dll", ExactSpelling = true)]
+    internal static extern int D3D11CreateDevice(
+        IntPtr adapter,
+        int driverType,
+        IntPtr software,
+        uint flags,
+        IntPtr featureLevels,
+        uint featureLevelCount,
+        uint sdkVersion,
+        out IntPtr device,
+        out int featureLevel,
+        out IntPtr immediateContext);
+
+    [DllImport("d3d11.dll", ExactSpelling = true)]
+    internal static extern int CreateDirect3D11DeviceFromDXGIDevice(IntPtr dxgiDevice, out IntPtr graphicsDevice);
+
+    [DllImport("user32.dll", SetLastError = true)]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool PrintWindow(IntPtr hWnd, IntPtr hdc, uint flags);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool IsIconic(IntPtr hWnd);
+
+    [DllImport("user32.dll")]
+    internal static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
+
+    [DllImport("shell32.dll")]
+    internal static extern int SHQueryUserNotificationState(out int state);
+
+    [DllImport("gdi32.dll")]
+    internal static extern IntPtr CreateRectRgn(int left, int top, int right, int bottom);
+
+    [DllImport("gdi32.dll")]
+    internal static extern int CombineRgn(IntPtr destination, IntPtr source1, IntPtr source2, int mode);
+
+    [DllImport("gdi32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool DeleteObject(IntPtr handle);
+
+    [DllImport("user32.dll")]
+    internal static extern int SetWindowRgn(IntPtr hWnd, IntPtr region, [MarshalAs(UnmanagedType.Bool)] bool redraw);
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode, SetLastError = true)]
     internal static extern Microsoft.Win32.SafeHandles.SafeFileHandle CreateJobObject(IntPtr attributes, string? name);

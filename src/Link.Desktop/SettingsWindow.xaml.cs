@@ -80,6 +80,7 @@ public partial class SettingsWindow : Window
         LaunchWithWindowsBox.IsChecked = current.LaunchWithWindows;
         SoundCuesBox.IsChecked = current.SoundCues;
         DiagnosticsBox.IsChecked = current.Diagnostics;
+        OutlineCapturedWindowBox.IsChecked = current.OutlineCapturedWindow;
         SetHotkey(ShowHideHotkey, current.Hotkeys.ShowHide);
         SetHotkey(PushToTalkHotkey, current.Hotkeys.PushToTalk);
         SetHotkey(SendHotkey, current.Hotkeys.Send);
@@ -87,6 +88,7 @@ public partial class SettingsWindow : Window
         SetHotkey(WindowHotkey, current.Hotkeys.CaptureActiveWindow);
         SetHotkey(RegionHotkey, current.Hotkeys.CaptureRegion);
         SetHotkey(ConversationHotkey, current.Hotkeys.Conversation);
+        SetHotkey(AskAboutScreenHotkey, current.Hotkeys.AskAboutScreen);
         VersionText.Text = $"Version {GetInformationalVersion()}";
         DefaultAgentCombo.ItemsSource = _agents.Select(agent => agent.Name).ToArray();
         DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_agents, agent => agent.Kind == current.Agent.DefaultProvider));
@@ -510,7 +512,8 @@ public partial class SettingsWindow : Window
             GetHotkey(DesktopHotkey),
             GetHotkey(WindowHotkey),
             GetHotkey(RegionHotkey),
-            GetHotkey(ConversationHotkey)
+            GetHotkey(ConversationHotkey),
+            GetHotkey(AskAboutScreenHotkey)
         };
         if (hotkeys.Any(string.IsNullOrWhiteSpace))
         {
@@ -567,6 +570,7 @@ public partial class SettingsWindow : Window
         current.LaunchWithWindows = LaunchWithWindowsBox.IsChecked == true;
         current.SoundCues = SoundCuesBox.IsChecked == true;
         current.Diagnostics = DiagnosticsBox.IsChecked == true;
+        current.OutlineCapturedWindow = OutlineCapturedWindowBox.IsChecked == true;
         current.Hotkeys.ShowHide = GetHotkey(ShowHideHotkey);
         current.Hotkeys.PushToTalk = GetHotkey(PushToTalkHotkey);
         current.Hotkeys.Send = GetHotkey(SendHotkey);
@@ -574,6 +578,7 @@ public partial class SettingsWindow : Window
         current.Hotkeys.CaptureActiveWindow = GetHotkey(WindowHotkey);
         current.Hotkeys.CaptureRegion = GetHotkey(RegionHotkey);
         current.Hotkeys.Conversation = GetHotkey(ConversationHotkey);
+        current.Hotkeys.AskAboutScreen = GetHotkey(AskAboutScreenHotkey);
         current.Agent.DefaultProvider = DefaultAgentCombo.SelectedIndex >= 0 ? _agents[DefaultAgentCombo.SelectedIndex].Kind : current.Agent.DefaultProvider;
         current.Agent.ClaudePath = _agentPaths.ClaudePath;
         current.Agent.CodexPath = _agentPaths.CodexPath;

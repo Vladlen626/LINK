@@ -77,7 +77,7 @@ public partial class MainWindow
         }
 
         var project = _projects.ActiveProject;
-        var snapshot = await TakeSnapshotAsync(project, PromptBox.Text, RequestRoute.Agent);
+        var snapshot = await TakeSnapshotAsync(project, PromptBox.Text, RequestRoute.Agent, AutoFrameOn);
         _attempts.Keep(snapshot);
         OpenAgentCard(snapshot);
     }

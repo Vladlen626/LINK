@@ -16,9 +16,10 @@ public sealed class GlobalHotkeyService : IDisposable
     private readonly HwndSource _source;
     private readonly NativeMethods.LowLevelKeyboardProc _keyboardCallback;
     private readonly Dictionary<int, HotkeyAction> _registeredActions = [];
+    // Hotkeys that are held, not pressed: the low-level hook sees them go down and up again.
+    private readonly Dictionary<HotkeyAction, HotkeyGesture> _holds = [];
     private IntPtr _keyboardHook;
-    private HotkeyGesture? _pushToTalk;
-    private bool _pushToTalkActive;
+    private HotkeyAction? _held;
     private bool _isSuspended;
     private bool _disposed;
 
@@ -32,8 +33,11 @@ public sealed class GlobalHotkeyService : IDisposable
     }
 
     public event Action<HotkeyAction>? Pressed;
-    public event Action? PushToTalkStarted;
-    public event Action? PushToTalkEnded;
+
+    /// <summary>A held hotkey went down: push-to-talk or ask about the screen. <see cref="Released"/> follows.</summary>
+    public event Action<HotkeyAction>? Held;
+
+    public event Action<HotkeyAction>? Released;
 
     public bool IsSuspended
     {
@@ -41,7 +45,7 @@ public sealed class GlobalHotkeyService : IDisposable
         set
         {
             _isSuspended = value;
-            if (value) ResetPushToTalk();
+            if (value) ReleaseHold();
         }
     }
 
@@ -57,7 +61,8 @@ public sealed class GlobalHotkeyService : IDisposable
             [HotkeyAction.CaptureDesktop] = HotkeyGesture.Parse(settings.CaptureDesktop),
             [HotkeyAction.CaptureActiveWindow] = HotkeyGesture.Parse(settings.CaptureActiveWindow),
             [HotkeyAction.CaptureRegion] = HotkeyGesture.Parse(settings.CaptureRegion),
-            [HotkeyAction.Conversation] = HotkeyGesture.Parse(settings.Conversation)
+            [HotkeyAction.Conversation] = HotkeyGesture.Parse(settings.Conversation),
+            [HotkeyAction.AskAboutScreen] = HotkeyGesture.Parse(settings.AskAboutScreen)
         };
 
         if (gestures.Values.Any(gesture => !gesture.IsSafeGlobalShortcut))
@@ -68,7 +73,7 @@ public sealed class GlobalHotkeyService : IDisposable
         try
         {
             var id = FirstHotkeyId;
-            foreach (var pair in gestures.Where(pair => pair.Key != HotkeyAction.PushToTalk))
+            foreach (var pair in gestures.Where(pair => !IsHeld(pair.Key)))
             {
                 var gesture = pair.Value;
                 if (!NativeMethods.RegisterHotKey(
@@ -86,7 +91,7 @@ public sealed class GlobalHotkeyService : IDisposable
                 id++;
             }
 
-            _pushToTalk = gestures[HotkeyAction.PushToTalk];
+            foreach (var pair in gestures.Where(pair => IsHeld(pair.Key))) _holds[pair.Key] = pair.Value;
             _keyboardHook = NativeMethods.SetWindowsHookEx(
                 NativeMethods.WhKeyboardLl,
                 _keyboardCallback,
@@ -106,6 +111,8 @@ public sealed class GlobalHotkeyService : IDisposable
             throw;
         }
     }
+
+    private static bool IsHeld(HotkeyAction action) => action is HotkeyAction.PushToTalk or HotkeyAction.AskAboutScreen;
 
     private static string GetActionName(HotkeyAction action) => action switch
     {
@@ -132,8 +139,8 @@ public sealed class GlobalHotkeyService : IDisposable
             _keyboardHook = IntPtr.Zero;
         }
 
-        _pushToTalk = null;
-        ResetPushToTalk();
+        ReleaseHold();
+        _holds.Clear();
     }
 
     public void Dispose()
@@ -158,34 +165,35 @@ public sealed class GlobalHotkeyService : IDisposable
 
     private IntPtr OnKeyboardEvent(int code, IntPtr wParam, IntPtr lParam)
     {
-        if (code >= 0 && !IsSuspended && _pushToTalk is not null)
+        if (code >= 0 && !IsSuspended && _holds.Count > 0)
         {
             var message = wParam.ToInt32();
             var virtualKey = Marshal.ReadInt32(lParam);
             if (message is NativeMethods.WmKeyDown or NativeMethods.WmSysKeyDown)
             {
-                if (!_pushToTalkActive && _pushToTalk.Matches(virtualKey))
+                // The modifiers must match exactly, so a gesture and the same key with Shift are two hotkeys.
+                if (_held is null && _holds.FirstOrDefault(pair => pair.Value.Matches(virtualKey)) is { Value: not null } hold)
                 {
-                    _pushToTalkActive = true;
-                    _dispatcher.BeginInvoke(() => PushToTalkStarted?.Invoke());
+                    _held = hold.Key;
+                    _dispatcher.BeginInvoke(() => Held?.Invoke(hold.Key));
                 }
             }
             else if ((message is NativeMethods.WmKeyUp or NativeMethods.WmSysKeyUp) &&
-                     _pushToTalkActive && _pushToTalk.VirtualKey == virtualKey)
+                     _held is { } held && _holds.TryGetValue(held, out var gesture) && gesture.VirtualKey == virtualKey)
             {
-                ResetPushToTalk();
+                ReleaseHold();
             }
         }
 
         return NativeMethods.CallNextHookEx(_keyboardHook, code, wParam, lParam);
     }
 
-    private void ResetPushToTalk()
+    private void ReleaseHold()
     {
-        if (!_pushToTalkActive) return;
-        _pushToTalkActive = false;
-        if (_dispatcher.CheckAccess()) PushToTalkEnded?.Invoke();
-        else _dispatcher.BeginInvoke(() => PushToTalkEnded?.Invoke());
+        if (_held is not { } held) return;
+        _held = null;
+        if (_dispatcher.CheckAccess()) Released?.Invoke(held);
+        else _dispatcher.BeginInvoke(() => Released?.Invoke(held));
     }
 }
 
@@ -197,7 +205,8 @@ public enum HotkeyAction
     CaptureDesktop,
     CaptureActiveWindow,
     CaptureRegion,
-    Conversation
+    Conversation,
+    AskAboutScreen
 }
 
 public sealed record HotkeyGesture(int VirtualKey, bool Control, bool Alt, bool Shift, bool Windows, string DisplayText)

@@ -55,7 +55,7 @@ public partial class App : System.Windows.Application
         ThemeService.Apply(this, _settings.Current);
         _projects = new ProjectService(paths, _settings);
         var history = new ScreenshotHistoryService(paths, _settings);
-        var capture = new ScreenCaptureService(history);
+        var capture = new ScreenCaptureService(history, Log);
         _currentApplication = new CurrentApplicationService();
         var clipboard = new ClipboardContextService(history);
         var chat = new EmbeddedChatIntegration(paths.CompanionStateFile);
@@ -118,12 +118,13 @@ public partial class App : System.Windows.Application
 
         _hotkeys = new GlobalHotkeyService(_mainWindow, Dispatcher);
         _hotkeys.Pressed += OnHotkeyPressed;
-        _hotkeys.PushToTalkStarted += () =>
+        _hotkeys.Held += action =>
         {
             _currentApplication.LatchForeground();
-            _mainWindow.StartPushToTalk();
+            if (action == HotkeyAction.AskAboutScreen) _mainWindow.StartAskingAboutScreen();
+            else _mainWindow.StartPushToTalk();
         };
-        _hotkeys.PushToTalkEnded += async () => await _mainWindow.StopPushToTalkAsync();
+        _hotkeys.Released += async _ => await _mainWindow.StopPushToTalkAsync();
         TryStartHotkeys();
 
         _tray = new TrayIconService(

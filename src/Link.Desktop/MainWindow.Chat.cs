@@ -143,8 +143,9 @@ public partial class MainWindow
         }
 
         RemoveMissingContextFiles();
-        // The project state alone is not a question.
-        if (string.IsNullOrWhiteSpace(PromptBox.Text) && _context.All(item => item.Type == ContextItemType.ProjectState))
+        // What Link adds by itself (the project state, the app) is not a question.
+        if (string.IsNullOrWhiteSpace(PromptBox.Text) &&
+            _context.All(item => item.Type is ContextItemType.ProjectState or ContextItemType.Application))
         {
             SetError("Add text or context before sending.");
             return;
@@ -163,7 +164,30 @@ public partial class MainWindow
             prompt,
             route,
             _settings.Current.ResponseEffort,
-            () => TakeSnapshotAsync(project, prompt, route));
+            () => TakeSnapshotAsync(project, prompt, route, AutoFrameOn));
+        if (answered) ClearSentInput(prompt);
+    }
+
+    /// <summary>
+    /// The held "ask about the screen" hotkey let go: the words go by Chat at once, with a fresh frame of the work window
+    /// whatever Auto says, and the answer is read aloud like any dictated one.
+    /// </summary>
+    private async Task AskAboutScreenAsync()
+    {
+        if (_sending) return;
+        var project = _projects.ActiveProject;
+        if (project.LinkedConversation is null)
+        {
+            SetError("Link this project to a ChatGPT conversation first.");
+            return;
+        }
+
+        var prompt = PromptBox.Text;
+        var answered = await AttemptAsync(
+            prompt,
+            RequestRoute.Chat,
+            _settings.Current.ResponseEffort,
+            () => TakeSnapshotAsync(project, prompt, RequestRoute.Chat, freshFrame: true));
         if (answered) ClearSentInput(prompt);
     }
 
@@ -249,12 +273,13 @@ public partial class MainWindow
         if (answered) ClearSentPrompt(prompt);
     }
 
-    /// <summary>The answered input leaves the prompt and the context stack.</summary>
+    /// <summary>The answered input leaves the prompt and the context stack; Link's own chips come back.</summary>
     private void ClearSentInput(string prompt)
     {
         ClearSentPrompt(prompt);
         ClearContext(prune: true);
         ShowProjectStateContext();
+        ShowApplicationContext();
     }
 
     private void ClearSentPrompt(string prompt)
@@ -267,25 +292,27 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The input as it is now: the prompt, the context stack, the work target and, with Auto active window on, a
-    /// screenshot of the work window. Direct sends no screenshot of its own, so none is taken for it.
+    /// The input as it is now: the prompt, the context stack, the work target while its chip stands, and with
+    /// <paramref name="freshFrame"/> a screenshot of the work window. Direct sends no screenshot of its own.
     /// </summary>
-    private async Task<InputSnapshot> TakeSnapshotAsync(LinkProject project, string prompt, RequestRoute route)
+    private async Task<InputSnapshot> TakeSnapshotAsync(LinkProject project, string prompt, RequestRoute route, bool freshFrame)
     {
         // The app Link was invoked from, not whatever took the focus since (the browser, Link's own captures).
         var workTarget = _currentApplication.WorkTarget;
         var workWindow = _currentApplication.IsExternalWindow(workTarget) ? workTarget : IntPtr.Zero;
+        var named = _context.Any(item => item.Type == ContextItemType.Application);
         var snapshot = new InputSnapshot
         {
             ProjectId = project.Id,
             ProjectName = project.Name,
             CurrentTask = project.CurrentTask,
             Text = prompt.Trim(),
-            Context = [.. _context],
-            WorkTarget = _currentApplication.GetContext(workWindow),
+            // The app's chip only says that its name and title go; they travel as the work target.
+            Context = [.. _context.Where(item => item.Type != ContextItemType.Application)],
+            WorkTarget = named ? _currentApplication.GetContext(workWindow) : null,
             WorkWindow = workWindow
         };
-        if (!_settings.Current.AutoCaptureActiveWindowOnSend || route == RequestRoute.Direct || workWindow == IntPtr.Zero)
+        if (!freshFrame || route == RequestRoute.Direct || workWindow == IntPtr.Zero)
         {
             return snapshot;
         }
@@ -331,10 +358,12 @@ public partial class MainWindow
         SetSending(true);
         _chatHeardAt = DateTime.UtcNow;
         ShowResponse(ChatProgressState.Sending, string.Empty);
+        ShowSaw(null);
 
         try
         {
             snapshot = await takeSnapshot();
+            ShowSaw(RequestService.Build(snapshot, route, effort, _settings.Current.ConversationMode));
             _attempts.Keep(snapshot);
             _cues.Play(SoundCue.Sent);
             var response = await _attempts.SendAsync(
@@ -473,7 +502,8 @@ public partial class MainWindow
         // What Direct does not send is not shown as going along.
         UpdateTaskChip();
         ShowProjectStateContext();
-        UpdateAutoScreenIndicator();
+        ShowApplicationContext();
+        UpdateSees();
         UpdateAgentHint();
         SetStatus($"Route: {RouteText.Text} — applies to the next message");
     }
@@ -701,7 +731,7 @@ public partial class MainWindow
         _projectPanel?.SetBusy(sending);
         ContextActionsPanel.IsEnabled = !sending;
         ContextItemsControl.IsEnabled = !sending;
-        ScreenButton.IsEnabled = !sending;
+        SeesRow.IsEnabled = !sending;
         ClipboardButton.IsEnabled = !sending;
         ReportState();
         if (sending) return;
@@ -826,6 +856,8 @@ public partial class MainWindow
     /// <summary>Shows the project's last answer, or hides the panel when its linked chat has none yet.</summary>
     private void ShowProjectResponse(LinkProject project)
     {
+        // What went with that answer is not known any more.
+        ShowSaw(null);
         // An answer belongs to the conversation it came from: after relinking the project it is not shown.
         if (project.LastResponse is not { } response ||
             response.ConversationId != project.LinkedConversation?.ConversationId)

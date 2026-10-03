@@ -55,6 +55,9 @@ public sealed class AppSettings
     /// <summary>Keeps the last request, with its prompt, file paths and window title, in last-request.json.</summary>
     public bool Diagnostics { get; set; }
     public bool AutoCaptureActiveWindowOnSend { get; set; }
+
+    /// <summary>A short outline around a window Link has just captured, so that the user sees which window went.</summary>
+    public bool OutlineCapturedWindow { get; set; } = true;
     public Guid? ActiveProjectId { get; set; }
     public WindowPlacement Window { get; set; } = new();
     public SidePanelSettings SidePanel { get; set; } = new();
@@ -161,6 +164,9 @@ public sealed class HotkeySettings
     // A registered hotkey takes its chord from every app, and IDEs use many Ctrl+Alt+letter ones.
     public string Conversation { get; set; } = "Ctrl+Alt+Shift+Space";
 
+    /// <summary>Held like push-to-talk: the question goes at once, with a fresh frame of the work window, and is answered aloud.</summary>
+    public string AskAboutScreen { get; set; } = "Ctrl+Alt+Shift+V";
+
     public void Normalize()
     {
         ShowHide = DefaultIfEmpty(ShowHide, "Ctrl+Alt+Space");
@@ -170,6 +176,7 @@ public sealed class HotkeySettings
         CaptureActiveWindow = DefaultIfEmpty(CaptureActiveWindow, "Ctrl+Alt+W");
         CaptureRegion = DefaultIfEmpty(CaptureRegion, "Ctrl+Alt+Shift+R");
         Conversation = DefaultIfEmpty(Conversation, "Ctrl+Alt+Shift+Space");
+        AskAboutScreen = DefaultIfEmpty(AskAboutScreen, "Ctrl+Alt+Shift+V");
     }
 
     public HotkeySettings Clone() => new()
@@ -180,7 +187,8 @@ public sealed class HotkeySettings
         CaptureDesktop = CaptureDesktop,
         CaptureActiveWindow = CaptureActiveWindow,
         CaptureRegion = CaptureRegion,
-        Conversation = Conversation
+        Conversation = Conversation,
+        AskAboutScreen = AskAboutScreen
     };
 
     private static string DefaultIfEmpty(string? value, string fallback) =>

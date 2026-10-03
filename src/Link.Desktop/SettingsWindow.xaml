@@ -50,7 +50,7 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
-                                <RowDefinition Height="36" /><RowDefinition Height="36" />
+                                <RowDefinition Height="36" /><RowDefinition Height="36" /><RowDefinition Height="36" />
                             </Grid.RowDefinitions>
                             <TextBlock VerticalAlignment="Center" Text="Screenshot history" />
                             <TextBox x:Name="HistorySizeBox" Grid.Column="1" Width="72" HorizontalAlignment="Left" VerticalAlignment="Center" />
@@ -59,6 +59,9 @@
                             <CheckBox x:Name="SoundCuesBox" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                       Content="Short sounds: listening, heard, sent, answer ready, needs you, error"
                                       ToolTip="Quiet while Link speaks, except when it needs you" />
+                            <CheckBox x:Name="OutlineCapturedWindowBox" Grid.Row="5" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                      Content="Outline a window for a moment when Link captures it"
+                                      ToolTip="Shows which window went with the question; never over a window in fullscreen" />
                             <CheckBox x:Name="DiagnosticsBox" Grid.Row="4" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                       Content="Diagnostics: keep the last request in last-request.json"
                                       ToolTip="Its prompt, file paths and window title stay in Link's data folder until the next request" />
@@ -219,10 +222,12 @@
                             <Grid.RowDefinitions>
                                 <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
                                 <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
-                                <RowDefinition Height="42" />
+                                <RowDefinition Height="42" /><RowDefinition Height="42" />
                             </Grid.RowDefinitions>
                             <TextBlock VerticalAlignment="Center" Text="Show / hide" />
                             <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Push to talk" />
+                            <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Ask about the screen (hold)"
+                                       ToolTip="Hold, ask, let go: the question goes at once with a fresh frame of the window you work in, and the answer is read aloud" />
                             <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Send prompt" />
                             <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Capture desktop" />
                             <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Capture active window" />
@@ -248,6 +253,9 @@
                             </Button>
                             <Button x:Name="ConversationHotkey" Grid.Row="6" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
                                 <TextBlock Text="Ctrl+Alt+Shift+Space" />
+                            </Button>
+                            <Button x:Name="AskAboutScreenHotkey" Grid.Row="7" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                <TextBlock Text="Ctrl+Alt+Shift+V" />
                             </Button>
                         </Grid>
                     </Border>

@@ -114,6 +114,33 @@ public static class WindowStyleService
         NativeMethods.SetWindowLongPtr(handle, NativeMethods.GwlExStyle, new IntPtr(style));
     }
 
+    /// <summary>
+    /// Places a helper window as a frame of <paramref name="thickness"/> pixels around another window, on top of it and
+    /// without taking the focus: a region cuts the window down to the frame, so nothing but the frame is drawn.
+    /// Nothing happens when the other window's bounds cannot be read.
+    /// </summary>
+    public static void FrameAround(Window frame, IntPtr target, int thickness)
+    {
+        var handle = new WindowInteropHelper(frame).Handle;
+        if (handle == IntPtr.Zero ||
+            NativeMethods.DwmGetWindowAttribute(target, NativeMethods.DwmwaExtendedFrameBounds, out var bounds,
+                Marshal.SizeOf<NativeRect>()) != 0 && !NativeMethods.GetWindowRect(target, out bounds))
+        {
+            return;
+        }
+
+        var width = bounds.Width + 2 * thickness;
+        var height = bounds.Height + 2 * thickness;
+        var outer = NativeMethods.CreateRectRgn(0, 0, width, height);
+        var inner = NativeMethods.CreateRectRgn(thickness, thickness, width - thickness, height - thickness);
+        NativeMethods.CombineRgn(outer, outer, inner, NativeMethods.RgnDiff);
+        NativeMethods.DeleteObject(inner);
+        // The window owns the region from here on.
+        if (NativeMethods.SetWindowRgn(handle, outer, true) == 0) NativeMethods.DeleteObject(outer);
+        NativeMethods.SetWindowPos(handle, NativeMethods.HwndTopmost, bounds.Left - thickness, bounds.Top - thickness, width, height,
+            NativeMethods.SwpNoActivate | NativeMethods.SwpShowWindow);
+    }
+
     /// <summary>Moves a window just past the right edge of all monitors: shown as far as Windows knows, seen by nobody.</summary>
     public static void MoveOffScreen(Window window)
     {

@@ -53,7 +53,19 @@ public sealed class CurrentApplicationService : IDisposable
     }
 
     /// <summary>The window the user invoked Link from; its app name, title and screenshot go with requests.</summary>
-    public IntPtr WorkTarget { get; private set; }
+    public IntPtr WorkTarget
+    {
+        get;
+        private set
+        {
+            if (field == value) return;
+            field = value;
+            WorkTargetChanged?.Invoke();
+        }
+    }
+
+    /// <summary>Link now means another window: the card shows what goes with the next question.</summary>
+    public event Action? WorkTargetChanged;
 
     /// <summary>A global hotkey was pressed: the application in front is what the user means.</summary>
     public void LatchForeground()

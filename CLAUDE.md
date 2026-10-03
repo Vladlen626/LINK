@@ -43,7 +43,7 @@ The same harness Link gives its agents, for work on this repo.
 - `Models/` settings, projects, `PromptRequest`, `ContextItem`.
 - `Services/` storage (`AtomicJsonFile`), request building, Whisper STT, `IChatIntegration` →
   `EmbeddedChatIntegration` (`ChatPageHost` ↔ `IChatPage`, requests followed by `ChatRequestBroker`).
-- `Windows/` Win32 only: `NativeMethods`, hotkeys (RegisterHotKey, low-level hook for push-to-talk), GDI capture,
+- `Windows/` Win32 only: `NativeMethods`, hotkeys (RegisterHotKey, low-level hook for held keys), capture (WGC, GDI),
   waveIn audio, tray, window styles, `CurrentApplicationService` (latched work target).
 - Agents: `AgentCoordinator` runs a task (check after Do, answer files such as the map or a skill, Start over);
   `CliAgentProvider` → `ClaudeCodeProvider` / `CodexProvider` over `AgentProcess`; `AgentChanges` finds and undoes

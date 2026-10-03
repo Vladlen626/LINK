@@ -24,5 +24,11 @@ public enum ContextItemType
     ProjectState,
 
     /// <summary>An agent's result and the files it changed, sent to the chat to ask about the work.</summary>
-    AgentResult
+    AgentResult,
+
+    /// <summary>
+    /// The app the user works in: its name and window title go with a Chat question while this chip stands in the
+    /// stack. The chip itself carries no text; removing it leaves them out of one question.
+    /// </summary>
+    Application
 }

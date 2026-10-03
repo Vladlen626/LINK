@@ -26,7 +26,8 @@ internal static class Program
                      ("voice session", VoiceSessionTests.RunAsync),
                      ("text to speech", TextToSpeechTests.RunAsync),
                      ("embedded chat", EmbeddedChatTests.RunAsync),
-                     ("agent", AgentTests.RunAsync)
+                     ("agent", AgentTests.RunAsync),
+                     ("capture", CaptureTests.RunAsync)
                  })
         {
             var run = checks();

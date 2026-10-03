@@ -37,8 +37,8 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
 - **Overlay** — сделано: frosted-glass always-on-top, drag, ширина 320–1200 px, высота по содержимому до выбранного
   предела, Hide (кнопка, двойной клик по заголовку, Esc в простое), боковая панель Expand, click-through,
   прозрачность, tray с иконкой по состоянию, короткие звуки, переназначаемые hotkeys.
-- **Vision** — сделано: монитор, весь desktop, каждый монитор, активное окно, область (одна за раз), Auto active
-  window на каждый Send. Позже, если понадобится, — Windows Graphics Capture.
+- **Vision** — сделано: монитор, весь desktop, каждый монитор, рабочее окно, область (одна за раз), свежий кадр окна
+  на каждый Send; Windows.Graphics.Capture с запасными путями, строка Sees, «Saw: …», вопрос про экран одной клавишей.
 - **Voice** — сделано: push-to-talk, live-черновик, финальный Whisper, голосовой ответ по мере прихода текста
   (Gemini TTS → локальный Supertonic 3), кнопка Listen/Stop на ответе, озвучка набранных вопросов по желанию,
   Conversation Mode (hands-free разговор) и ✎ Edit для ослышек. Дальше — по живому использованию.
@@ -64,8 +64,9 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
 C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, presentation) — отдельные assemblies не
 заводить, пока размер не требует. Зависимости: `Whisper.net` (CPU и Vulkan runtime), `org.k2fsa.sherpa.onnx`
 (live-черновик, VAD и локальный голос; сборка только win-x64), `Microsoft.Web.WebView2`
-(встроенный ChatGPT на Evergreen Runtime из Windows 11). Только под реальную фичу: SQLite для памяти, Windows Graphics
-Capture.
+(встроенный ChatGPT на Evergreen Runtime из Windows 11); целевая платформа с Windows SDK
+(`net10.0-windows10.0.22621.0`) — ради Windows.Graphics.Capture: проекция 26 МБ на диске, грузится при первом захвате,
+папка вывода прежняя (`bin\Release\net10.0-windows`). Только под реальную фичу: SQLite для памяти.
 
 ## Принятые решения
 
@@ -74,6 +75,16 @@ Capture.
   ChatGPT, нет; если понадобится — pull «последний ответ» при переключении проекта, а не push в announce.
 - Рабочее приложение (`CurrentApplicationService.WorkTarget`) фиксируется hotkey'ем или возвратом в Link после ≥ 2 с
   работы в приложении; окна ChatGPT и собственные hide/show Link его не подменяют.
+- Экран (2026-10-03, план, этап 1). Захват — Windows.Graphics.Capture (кадр того, что рисует композитор: игры, видео,
+  страницы на GPU; окно — целиком и под оверлеем), затем PrintWindow (`PW_RENDERFULLCONTENT`) для окна и снимок экрана
+  для монитора; чёрный кадр (выборка 128×128 пикселей) не прикладывается — статус называет причину. Окно Link не
+  прячет; монитор и область — прячет на 80 мс: `WDA_EXCLUDEFROMCAPTURE` не работает для окон WPF с
+  `AllowsTransparency`. После захвата Link активен, только если был активен. Fullscreen: геометрия окна и
+  `SHQueryUserNotificationState`; над borderless — без фокуса, над эксклюзивным — не показывается (уведомление и
+  голос). Видимость: строка Sees (что увидит модель; миниатюра рабочего окна при авто-кадре — только в памяти),
+  чип приложения и заголовка вместо молчаливых строк Application/Window, «Saw: …» над ответом из запроса как он ушёл,
+  оранжевая рамка 0,6 с вокруг снятого окна (обычное окно с регионом-рамкой, не layered). «Ask about the screen»
+  (`Ctrl+Alt+Shift+V`, держать) — вопрос сразу в Chat со свежим кадром; ответ голосом, как у продиктованного.
 - О готовом ответе, когда Link скрыт или неактивен, сообщает balloon через tray; сам Link не всплывает.
 - Окно (2026-09-29): Hide прячет Link целиком, капсулы Collapse больше нет (`IsCollapsed`
   убран в схеме 7 — Link всегда открывается целиком). Скрытый Link показывает состояние иконкой tray: работает (идёт

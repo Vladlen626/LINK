@@ -5,6 +5,7 @@ using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
@@ -27,7 +28,6 @@ public partial class MainWindow : Window
     private readonly VoiceSession _voice;
     private readonly SoundCues _cues;
     private readonly ObservableCollection<ContextItem> _context = [];
-    private Guid? _previewContextId;
     // What came while Link was hidden, an answer or a failed request; it lasts until Link is shown.
     private LinkState? _unseen;
     private IntPtr _windowHandle;
@@ -68,8 +68,13 @@ public partial class MainWindow : Window
             UpdateConnectionState();
             CheckQuietChat();
         };
-        ContextItemsControl.ItemsSource = _context;
+        // Screenshots show in the Sees line; the chips are everything else that goes along.
+        ContextItemsControl.ItemsSource = new ListCollectionView(_context)
+        {
+            Filter = item => ((ContextItem)item).Type != ContextItemType.Screenshot
+        };
         _context.CollectionChanged += Context_OnCollectionChanged;
+        _currentApplication.WorkTargetChanged += OnWorkTargetChanged;
         LoadProject(_projects.ActiveProject);
         _loadingProject = false;
         UpdateRouteButton();
@@ -87,6 +92,7 @@ public partial class MainWindow : Window
         Closing += OnClosing;
         Closed += (_, _) =>
         {
+            _currentApplication.WorkTargetChanged -= OnWorkTargetChanged;
             _connectionTimer.Stop();
             _sendCancellation?.Cancel();
             _sendCancellation?.Dispose();
@@ -114,7 +120,7 @@ public partial class MainWindow : Window
             ApplyGlass(_panel, _panel.ShellBorder);
         }
 
-        UpdateAutoScreenIndicator();
+        UpdateSees();
         // Voice replies may have been switched off or on.
         UpdateReadAloudButton();
         HideButton.ToolTip = $"Hide Link · {_settings.Current.Hotkeys.ShowHide} brings it back";
@@ -125,8 +131,21 @@ public partial class MainWindow : Window
 
     public void ToggleVisible()
     {
-        if (IsVisible) HideOverlay();
-        else ShowAndActivate();
+        if (IsVisible)
+        {
+            HideOverlay();
+        }
+        else if (OverExclusiveFullscreen())
+        {
+            NotificationRequested?.Invoke(
+                "Link stays hidden over this game",
+                $"It would throw the game out of exclusive fullscreen. Hold {_settings.Current.Hotkeys.AskAboutScreen} to ask about the screen by voice, or switch the game to borderless.",
+                _projects.ActiveProject.Id);
+        }
+        else
+        {
+            ShowAndActivate();
+        }
     }
 
     public void ShowNonBlockingWarning(string message) => SetStatus(message);
@@ -182,6 +201,7 @@ public partial class MainWindow : Window
             // Shown, Link tells its news itself.
             _unseen = null;
             ReportState();
+            RefreshWorkPreview();
         }
 
         FollowCardVisibility();
@@ -191,6 +211,7 @@ public partial class MainWindow : Window
     {
         // Coming back from an app the user worked in makes it the target; watching the linked chat does not.
         _currentApplication.LatchRecent(_chat.IsConversationWindow);
+        RefreshWorkPreview();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -225,9 +246,13 @@ public partial class MainWindow : Window
         Hide();
     }
 
+    /// <summary>
+    /// Shows Link without taking the focus from the app in front. Over a game in exclusive fullscreen Link stays hidden:
+    /// a window would throw the game out of full screen, so the answer comes by voice and notification.
+    /// </summary>
     private void ShowPassive()
     {
-        if (IsVisible) return;
+        if (IsVisible || OverExclusiveFullscreen()) return;
         ShowActivated = false;
         Show();
         ShowActivated = true;
@@ -248,8 +273,13 @@ public partial class MainWindow : Window
 
     private void ReportState() => LinkStateChanged?.Invoke(State, StatusText.Text);
 
-    private void Context_OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e) =>
-        ContextItemsControl.Visibility = _context.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    private void Context_OnCollectionChanged(object? sender, NotifyCollectionChangedEventArgs e)
+    {
+        ContextItemsControl.Visibility = _context.All(item => item.Type == ContextItemType.Screenshot)
+            ? Visibility.Collapsed
+            : Visibility.Visible;
+        UpdateSees();
+    }
 
     private void AddContext(ContextItem item)
     {
@@ -266,9 +296,7 @@ public partial class MainWindow : Window
     {
         foreach (var item in _context) ReleaseContext(item);
         _context.Clear();
-        _previewContextId = null;
-        ScreenshotPreview.ImageSource = null;
-        PreviewPanel.Visibility = Visibility.Collapsed;
+        _shotPicture = null;
         if (prune) _history.Prune();
     }
 
@@ -340,6 +368,7 @@ public partial class MainWindow : Window
         UpdateRouteButton();
         UpdateTaskChip();
         ShowProjectStateContext();
+        ShowApplicationContext();
         UpdateConnectionState();
         ShowProjectResponse(project);
         RefreshProjectPanel();
@@ -433,43 +462,6 @@ public partial class MainWindow : Window
     private void Hide_OnClick(object sender, RoutedEventArgs e) => HideOverlay();
     private void Settings_OnClick(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
 
-    private void Screen_OnClick(object sender, RoutedEventArgs e)
-    {
-        var menu = (ContextMenu)FindResource("ScreenMenu");
-        if (menu.Items.OfType<MenuItem>().FirstOrDefault(item => Equals(item.Tag, "AutoActiveWindow")) is { } autoItem)
-        {
-            autoItem.IsChecked = _settings.Current.AutoCaptureActiveWindowOnSend;
-        }
-        menu.PlacementTarget = ScreenButton;
-        menu.IsOpen = true;
-    }
-
-    private async void CurrentMonitor_OnClick(object sender, RoutedEventArgs e) => await CaptureCurrentMonitorAsync();
-    private async void Desktop_OnClick(object sender, RoutedEventArgs e) => await CaptureDesktopAsync();
-    private async void AllMonitors_OnClick(object sender, RoutedEventArgs e) => await CaptureAllMonitorsAsync();
-    private async void ActiveWindow_OnClick(object sender, RoutedEventArgs e) => await CaptureActiveWindowAsync();
-    private async void Region_OnClick(object sender, RoutedEventArgs e) => await CaptureRegionAsync();
-
-    private void AutoActiveWindow_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is not MenuItem item) return;
-        _settings.Current.AutoCaptureActiveWindowOnSend = item.IsChecked;
-        _settings.Save();
-        UpdateAutoScreenIndicator();
-        SetStatus(item.IsChecked ? "Auto screen enabled" : "Auto screen disabled");
-    }
-
-    private void UpdateAutoScreenIndicator()
-    {
-        if (!IsInitialized) return;
-        // Direct takes no screenshot of its own.
-        var enabled = _settings.Current.AutoCaptureActiveWindowOnSend && _settings.Current.Route != RequestRoute.Direct;
-        AutoScreenIndicator.Visibility = enabled ? Visibility.Visible : Visibility.Collapsed;
-        ScreenButton.ToolTip = enabled
-            ? "Attach screen context · auto active window is on"
-            : "Attach screen context";
-    }
-
     private void Clipboard_OnClick(object sender, RoutedEventArgs e)
     {
         if (_sending) return;
@@ -499,47 +491,7 @@ public partial class MainWindow : Window
 
         ReleaseContext(item);
         _context.Remove(item);
-        if (item.Type == ContextItemType.Screenshot) RefreshScreenshotPreview();
         _history.Prune();
-    }
-
-    private void RemovePreview_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_previewContextId is not { } id) return;
-        var item = _context.FirstOrDefault(candidate => candidate.Id == id);
-        if (item is not null)
-        {
-            ReleaseContext(item);
-            _context.Remove(item);
-        }
-        RefreshScreenshotPreview();
-        _history.Prune();
-    }
-
-    private void RefreshScreenshotPreview()
-    {
-        var item = _context.LastOrDefault(candidate => candidate.Type == ContextItemType.Screenshot &&
-                                                       candidate.FilePath is not null && File.Exists(candidate.FilePath));
-        if (item?.FilePath is null)
-        {
-            _previewContextId = null;
-            ScreenshotPreview.ImageSource = null;
-            PreviewPanel.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        var image = new BitmapImage();
-        image.BeginInit();
-        image.CacheOption = BitmapCacheOption.OnLoad;
-        // A full-resolution 4K capture costs ~33 MB; the preview strip needs a fraction of that.
-        image.DecodePixelWidth = 640;
-        image.UriSource = new Uri(item.FilePath, UriKind.Absolute);
-        image.EndInit();
-        image.Freeze();
-        _previewContextId = item.Id;
-        ScreenshotPreview.ImageSource = image;
-        PreviewLabel.Text = item.Label;
-        PreviewPanel.Visibility = Visibility.Visible;
     }
 
     private void PromptBox_OnTextChanged(object sender, TextChangedEventArgs e)
