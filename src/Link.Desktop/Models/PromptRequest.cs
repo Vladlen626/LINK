@@ -2,14 +2,13 @@ namespace Link.Desktop.Models;
 
 public sealed class PromptRequest
 {
-    // 4: the route. 5: the conversation hint.
-    public int SchemaVersion { get; init; } = 5;
+    // 4: the route. 5: the conversation hint. 6: the task is the project note's first line, in the context.
+    public int SchemaVersion { get; init; } = 6;
     public Guid Id { get; init; } = Guid.NewGuid();
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
     public required Guid ProjectId { get; init; }
     public required string ProjectName { get; init; }
     public RequestRoute Route { get; init; } = RequestRoute.Chat;
-    public string CurrentTask { get; init; } = string.Empty;
     public string Text { get; init; } = string.Empty;
     public ResponseEffort Effort { get; init; } = ResponseEffort.Normal;
 
@@ -23,10 +22,13 @@ public sealed class PromptRequest
 /// <summary>How a message goes to the chat.</summary>
 public enum RequestRoute
 {
-    /// <summary>With what Link adds: the project, its task and state, the work window and its screenshot, a depth hint.</summary>
+    /// <summary>With what Link adds: the project and its note, the work window and its screenshot, a depth hint.</summary>
     Chat,
 
-    /// <summary>Only the text and the context the user attached, to see what Link's additions are worth.</summary>
+    /// <summary>
+    /// "Only my text": the text and the context the user attached, without Link's chips. Not a choice of route any more,
+    /// an attempt's intent.
+    /// </summary>
     Direct,
 
     /// <summary>Not to the chat: a CLI agent works in the project's workspace, after a confirmation card.</summary>

@@ -9,12 +9,11 @@ public sealed record InputSnapshot
     public Guid Id { get; init; } = Guid.NewGuid();
     public required Guid ProjectId { get; init; }
     public required string ProjectName { get; init; }
-    public string CurrentTask { get; init; } = string.Empty;
 
     /// <summary>The prompt, typed or dictated.</summary>
     public string Text { get; init; } = string.Empty;
 
-    /// <summary>The context stack as it was sent, the project state included.</summary>
+    /// <summary>The context stack as it was sent, the project note included.</summary>
     public IReadOnlyList<ContextItem> Context { get; init; } = [];
 
     /// <summary>The app the user worked in; null when Link itself was the target.</summary>

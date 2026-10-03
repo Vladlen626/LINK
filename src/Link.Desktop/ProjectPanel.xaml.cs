@@ -11,8 +11,8 @@ using Microsoft.Win32;
 namespace Link.Desktop;
 
 /// <summary>
-/// The project panel beside Link: current task, project state, the linked chat, workspace folder and history. It only
-/// shows and edits; the card does the work behind each action.
+/// The Project tab beside Link: the project note, the linked chat, the workspace and one history of answers and tasks.
+/// It only shows and edits; the card does the work behind each action.
 /// </summary>
 public partial class ProjectPanel : UserControl
 {
@@ -22,10 +22,10 @@ public partial class ProjectPanel : UserControl
 
     public ProjectPanel() => InitializeComponent();
 
-    public event Action<string>? TaskChanged;
-    public event Action<string>? StateChanged;
+    /// <summary>The note was typed: its first line is the focus, the rest what the project stands on.</summary>
+    public event Action<string>? NoteChanged;
 
-    /// <summary>The task or the state lost the keyboard: what was typed can be saved.</summary>
+    /// <summary>The note or the check lost the keyboard: what was typed can be saved.</summary>
     public event Action? EditEnded;
 
     public event Action? ConversationRequested;
@@ -47,19 +47,16 @@ public partial class ProjectPanel : UserControl
     /// <summary>The check after edits was typed; empty runs none.</summary>
     public event Action<string>? CheckCommandChanged;
 
-    public event Action<ProjectExchange>? HistorySelected;
-
-    /// <summary>An earlier agent session, to be opened and taken up again.</summary>
-    public event Action<AgentSessionRecord>? AgentSessionSelected;
+    /// <summary>A line of the history: a chat answer to show, or an agent task to open.</summary>
+    public event Action<HistoryRow>? HistorySelected;
 
     public void ShowProject(LinkProject project)
     {
         _showing = true;
-        TaskBox.Text = project.CurrentTask;
-        StateBox.Text = project.State?.Text ?? string.Empty;
+        NoteBox.Text = project.State?.Text ?? string.Empty;
         CheckCommandBox.Text = project.CheckCommand ?? string.Empty;
         _showing = false;
-        ShowStateDate(project.State);
+        ShowNoteDate(project.State);
         _workspace = project.WorkspaceRoot;
         // The folder's own name tells it apart; the whole path is in the tooltip.
         WorkspaceText.Text = _workspace is null ? "Not chosen yet"
@@ -79,8 +76,8 @@ public partial class ProjectPanel : UserControl
         SkillsEmptyText.Visibility = skills.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    public void ShowStateDate(ProjectState? state) =>
-        StateDateText.Text = state is null ? string.Empty : $"updated {state.UpdatedAt.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
+    public void ShowNoteDate(ProjectState? note) =>
+        NoteDateText.Text = note is null ? string.Empty : $"updated {note.UpdatedAt.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
 
     /// <param name="canSummarize">The linked chat exists, so it can write a summary for a new one.</param>
     public void ShowConnection(string text, Brush dot, bool canSummarize)
@@ -88,14 +85,6 @@ public partial class ProjectPanel : UserControl
         ChatConnectionText.Text = text;
         ChatStatusDot.Fill = dot;
         _canSummarize = canSummarize;
-    }
-
-    /// <summary>The project's last agent sessions; none hides the section.</summary>
-    public void ShowAgentSessions(IEnumerable<AgentSessionRow> rows)
-    {
-        var list = rows.ToList();
-        AgentSessionsList.ItemsSource = list;
-        AgentSessionsLabel.Visibility = list.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     public void ShowHistory(IEnumerable<HistoryRow> rows)
@@ -113,24 +102,18 @@ public partial class ProjectPanel : UserControl
         HistoryList.IsEnabled = !busy;
     }
 
-    public void FocusTask()
+    public void FocusNote()
     {
         // The panel appears without taking the focus; typing needs it.
         Window.GetWindow(this)?.Activate();
-        TaskBox.Focus();
-        TaskBox.CaretIndex = TaskBox.Text.Length;
+        NoteBox.Focus();
+        NoteBox.CaretIndex = NoteBox.Text.Length;
     }
 
-    private void TaskBox_OnTextChanged(object sender, TextChangedEventArgs e)
+    private void NoteBox_OnTextChanged(object sender, TextChangedEventArgs e)
     {
-        TaskPlaceholder.Visibility = TaskBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (!_showing) TaskChanged?.Invoke(TaskBox.Text.Trim());
-    }
-
-    private void StateBox_OnTextChanged(object sender, TextChangedEventArgs e)
-    {
-        StatePlaceholder.Visibility = StateBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
-        if (!_showing) StateChanged?.Invoke(StateBox.Text.Trim());
+        NotePlaceholder.Visibility = NoteBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        if (!_showing) NoteChanged?.Invoke(NoteBox.Text.Trim());
     }
 
     private void CheckCommandBox_OnTextChanged(object sender, TextChangedEventArgs e)
@@ -181,19 +164,22 @@ public partial class ProjectPanel : UserControl
         if ((sender as FrameworkElement)?.DataContext is ProjectSkill skill) SkillRequested?.Invoke(skill.FilePath);
     }
 
-    private void AgentSession_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { DataContext: AgentSessionRow row }) AgentSessionSelected?.Invoke(row.Session);
-    }
-
     private void HistoryItem_OnClick(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: HistoryRow row }) HistorySelected?.Invoke(row.Exchange);
+        if (sender is FrameworkElement { DataContext: HistoryRow row }) HistorySelected?.Invoke(row);
     }
 }
 
-/// <summary>A line of the panel's history: the question, a glance at its answer and when it came.</summary>
-public sealed record HistoryRow(string Question, string Preview, string Time, ProjectExchange Exchange);
-
-/// <summary>An agent session in the project panel: its goal, agent and last result, and when it last ran.</summary>
-public sealed record AgentSessionRow(string Goal, string Details, string Time, AgentSessionRecord Session);
+/// <summary>
+/// A line of the panel's history: a chat answer (<see cref="Exchange"/>) or an agent task (<see cref="Task"/>), with
+/// its icon, a glance at it and when it happened.
+/// </summary>
+public sealed record HistoryRow(
+    string Title,
+    string Preview,
+    string Time,
+    string Hint,
+    Geometry Icon,
+    DateTimeOffset At,
+    ProjectExchange? Exchange = null,
+    AgentTaskRecord? Task = null);

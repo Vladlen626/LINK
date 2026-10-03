@@ -28,6 +28,8 @@ public partial class MainWindow : Window
     private readonly VoiceSession _voice;
     private readonly SoundCues _cues;
     private readonly ObservableCollection<ContextItem> _context = [];
+    // The next question goes with only the user's text and attachments.
+    private bool _onlyMyText;
     // What came while Link was hidden, an answer or a failed request; it lasts until Link is shown.
     private LinkState? _unseen;
     private IntPtr _windowHandle;
@@ -44,6 +46,7 @@ public partial class MainWindow : Window
         ClipboardContextService clipboard,
         VoiceSession voice,
         AgentCoordinator agents,
+        AgentLimits limits,
         SoundCues cues)
     {
         _settings = settings;
@@ -57,6 +60,7 @@ public partial class MainWindow : Window
         _voice = voice;
         _cues = cues;
         _agents = agents;
+        _limits = limits;
 
         InitializeComponent();
         _voice.PhaseChanged += OnVoicePhaseChanged;
@@ -300,21 +304,24 @@ public partial class MainWindow : Window
         if (prune) _history.Prune();
     }
 
-    /// <summary>
-    /// The project's state stands first in the context stack whenever the project has one, except in Direct, which
-    /// does not send it. Removed, it stays out of the next request only: it is back once that request is answered,
-    /// the state changes or the project does.
-    /// </summary>
-    private void ShowProjectStateContext()
+    /// <summary>"Only my text": the next question goes without Link's chips, its frame and its hints; the toggle shows it.</summary>
+    private void SetOnlyMyText(bool on)
     {
-        foreach (var item in _context.Where(item => item.Type == ContextItemType.ProjectState).ToArray()) _context.Remove(item);
-        if (_projects.ActiveProject.State is not { } state || _settings.Current.Route == RequestRoute.Direct) return;
-        _context.Insert(0, new ContextItem
-        {
-            Type = ContextItemType.ProjectState,
-            Label = $"Project state · {state.UpdatedAt.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}",
-            Text = state.Text
-        });
+        _onlyMyText = on;
+        OnlyMyTextDot.Fill = (Brush)FindResource(on ? "BusyOrbBrush" : "IdleOrbBrush");
+        OnlyMyTextText.Foreground = (Brush)FindResource(on ? "TextBrush" : "MutedBrush");
+        OnlyMyTextButton.ToolTip = on
+            ? "On for the next question: only your text and what you attached go. Click to send Link's chips too"
+            : "Send the next question with only your text and what you attached, without Link's chips";
+        UpdateNoteChip();
+        ShowApplicationContext();
+        UpdateSees();
+    }
+
+    private void OnlyMyText_OnClick(object sender, RoutedEventArgs e)
+    {
+        SetOnlyMyText(!_onlyMyText);
+        SetStatus(_onlyMyText ? "The next question goes with only your text and attachments" : "Link's chips go with the next question");
     }
 
     private void RemoveMissingContextFiles()
@@ -366,8 +373,8 @@ public partial class MainWindow : Window
         ProjectNameText.Text = project.Name;
         // The Agent route names the project's own agent.
         UpdateRouteButton();
-        UpdateTaskChip();
-        ShowProjectStateContext();
+        _noteLeftOut = false;
+        UpdateNoteChip();
         ShowApplicationContext();
         UpdateConnectionState();
         ShowProjectResponse(project);
@@ -428,9 +435,9 @@ public partial class MainWindow : Window
         if (dialog.ShowDialog() != true) return;
         var project = _projects.Create(dialog.ProjectName);
         LoadProject(project);
-        // A new project starts with its task, state and workspace.
+        // A new project starts with its note and workspace.
         SetPanelOpen(true);
-        _projectPanel?.FocusTask();
+        _projectPanel?.FocusNote();
     }
 
     private void RenameCurrentProject()
@@ -498,7 +505,6 @@ public partial class MainWindow : Window
     {
         var empty = string.IsNullOrEmpty(PromptBox.Text);
         PromptPlaceholder.Visibility = empty ? Visibility.Visible : Visibility.Collapsed;
-        UpdateAgentHint();
         // A cleared prompt no longer holds the dictated words, so its answer is not read aloud.
         if (!empty) return;
         _voice.ForgetVoicePrompt();

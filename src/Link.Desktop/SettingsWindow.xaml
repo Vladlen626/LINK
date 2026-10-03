@@ -182,14 +182,22 @@
                                     <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0" Tag="ClaudeCode" Click="AutoAgent_OnClick"
                                             Content="Find automatically" />
                                 </StackPanel>
+                                <!-- The three levels a task card offers: each a model and an effort. -->
                                 <Grid Margin="0,8,0,0">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="56" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Model" />
-                                    <ComboBox x:Name="ClaudeModelCombo" Grid.Column="1" Width="190" HorizontalAlignment="Left"
-                                              ToolTip="The model Claude Code works with in Link's tasks" />
-                                    <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Effort" />
-                                    <ComboBox x:Name="ClaudeEffortCombo" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" Width="190" HorizontalAlignment="Left" />
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Light"
+                                               ToolTip="Quick, cheaper work, and Link's own answers: a map, a skill, a note for Start over" />
+                                    <ComboBox x:Name="ClaudeLightModelCombo" Grid.Column="1" />
+                                    <ComboBox x:Name="ClaudeLightEffortCombo" Grid.Column="2" Margin="6,0,0,0" />
+                                    <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Standard"
+                                               ToolTip="Everyday tasks: what the card starts with" />
+                                    <ComboBox x:Name="ClaudeModelCombo" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" />
+                                    <ComboBox x:Name="ClaudeEffortCombo" Grid.Row="1" Grid.Column="2" Margin="6,6,0,0" />
+                                    <TextBlock Grid.Row="2" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Deep"
+                                               ToolTip="Plans, hard problems, and Escalate after a task failed" />
+                                    <ComboBox x:Name="ClaudeDeepModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" />
+                                    <ComboBox x:Name="ClaudeDeepEffortCombo" Grid.Row="2" Grid.Column="2" Margin="6,6,0,0" />
                                 </Grid>
                             </StackPanel>
                             <TextBlock Grid.Row="3" Margin="0,12,0,0" Text="Codex" />
@@ -201,17 +209,21 @@
                                             Content="Find automatically" />
                                 </StackPanel>
                                 <Grid Margin="0,8,0,0">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="56" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Model" />
-                                    <ComboBox x:Name="CodexModelCombo" Grid.Column="1" Width="190" HorizontalAlignment="Left"
-                                              ToolTip="The model Codex works with in Link's tasks: the models of your account, as Codex lists them" />
-                                    <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Effort" />
-                                    <ComboBox x:Name="CodexEffortCombo" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" Width="190" HorizontalAlignment="Left" />
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Light" />
+                                    <ComboBox x:Name="CodexLightModelCombo" Grid.Column="1" ToolTip="The models of your account, as Codex lists them" />
+                                    <ComboBox x:Name="CodexLightEffortCombo" Grid.Column="2" Margin="6,0,0,0" />
+                                    <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Standard" />
+                                    <ComboBox x:Name="CodexModelCombo" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" />
+                                    <ComboBox x:Name="CodexEffortCombo" Grid.Row="1" Grid.Column="2" Margin="6,6,0,0" />
+                                    <TextBlock Grid.Row="2" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Deep" />
+                                    <ComboBox x:Name="CodexDeepModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" />
+                                    <ComboBox x:Name="CodexDeepEffortCombo" Grid.Row="2" Grid.Column="2" Margin="6,6,0,0" />
                                 </Grid>
                             </StackPanel>
                             <TextBlock Grid.Row="4" Grid.ColumnSpan="2" Margin="0,10,0,6" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                                       Text="Link neither installs the agents nor signs in to them: run 'claude auth login' or 'codex login' once. They spend your Claude or ChatGPT subscription. Default leaves the model or the effort to the agent's own settings; the task card changes the effort too, and it stays. Agents run without subagents, so Codex's Ultra and Claude's ultracode, which work through them, are not offered." />
+                                       Text="Link neither installs the agents nor signs in to them: run 'claude auth login' or 'codex login' once. They spend your Claude or ChatGPT subscription. Each agent has three levels the task card offers: Light, Standard and Deep. Plan first makes the plan on Deep and carries it out on the card's level in the same session; Link's own answers (map, skill, note) run on Light. Default leaves the model or the effort to the agent's own settings. Agents run without subagents, so Codex's Ultra and Claude's ultracode, which work through them, are not offered." />
                         </Grid>
                     </Border>
 

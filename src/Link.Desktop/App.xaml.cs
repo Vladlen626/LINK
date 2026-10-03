@@ -105,6 +105,7 @@ public partial class App : System.Windows.Application
             clipboard,
             voice,
             _agents,
+            new AgentLimits(paths.AgentLimitsFile),
             cues);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;

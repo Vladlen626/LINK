@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Link.Desktop.Models;
 
 /// <summary>The command-line agent that does work in a workspace.</summary>
@@ -15,8 +17,181 @@ public enum AgentAccess
 }
 
 /// <summary>
-/// An agent session Link ran in a project, kept in the project's data so that it can be taken up again after Link
-/// restarts or another task: the goal it began with, how it ran and how it last ended.
+/// One task of the user's, as the Task tab shows it: the goal and the brief Link gave, every run of every agent on it,
+/// the user's words on the way, checks and hand-overs, the agent's plan and the files changed. Kept in the project's
+/// data, so that it can be read and taken up again after Link restarts.
+/// </summary>
+public sealed class AgentTaskRecord
+{
+    public Guid Id { get; init; } = Guid.NewGuid();
+
+    /// <summary>The task in a line: the brief's first.</summary>
+    public required string Goal { get; set; }
+
+    /// <summary>What Link gave the first agent: the brief with the context that went along.</summary>
+    public string Brief { get; set; } = string.Empty;
+
+    public required string Workspace { get; init; }
+    public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
+    public DateTimeOffset UpdatedAt { get; set; } = DateTimeOffset.Now;
+    public AgentTaskStatus Status { get; set; } = AgentTaskStatus.Running;
+    public List<AgentRunRecord> Runs { get; set; } = [];
+    public List<AgentTaskEntry> Entries { get; set; } = [];
+
+    /// <summary>Every file the task changed, relative to the workspace, as git or the copy last told.</summary>
+    public List<string> ChangedFiles { get; set; } = [];
+
+    /// <summary>The agent's own plan as it last wrote it.</summary>
+    public List<AgentPlanItem> Plan { get; set; } = [];
+
+    /// <summary>The last steps in Activity's words: for an agent that takes the task over.</summary>
+    public List<string> Steps { get; set; } = [];
+
+    /// <summary>How the last run ended, in the agent's words.</summary>
+    public string LastWords { get; set; } = string.Empty;
+
+    /// <summary>The project's check as it last ran: command, outcome and the end of its output.</summary>
+    public string? LastCheck { get; set; }
+
+    [JsonIgnore]
+    public AgentRunRecord? LastRun => Runs.Count == 0 ? null : Runs[^1];
+
+    public void Add(AgentEntryKind kind, string text)
+    {
+        Entries.Add(new AgentTaskEntry(DateTimeOffset.Now, kind, text.Length <= 600 ? text : text[..600] + "…"));
+        UpdatedAt = DateTimeOffset.Now;
+    }
+
+    /// <summary>A session of an earlier Link, which kept sessions rather than tasks: a task of one run.</summary>
+    public static AgentTaskRecord FromSession(AgentSessionRecord session) => new()
+    {
+        Goal = session.Goal,
+        Brief = session.Goal,
+        Workspace = session.Workspace,
+        CreatedAt = session.UpdatedAt,
+        UpdatedAt = session.UpdatedAt,
+        Status = AgentTaskStatus.Done,
+        Runs =
+        [
+            new AgentRunRecord
+            {
+                Provider = session.Provider,
+                Model = session.Model,
+                Effort = session.Effort,
+                Access = session.Access,
+                AutoApprove = session.AutoApprove,
+                SessionId = session.SessionId,
+                StartedAt = session.UpdatedAt,
+                Outcome = "an earlier session"
+            }
+        ],
+        Steps = [.. session.Steps],
+        LastWords = session.Summary
+    };
+}
+
+/// <summary>How a task stands; only Finish closes it, and a closed one can still be taken up from the history.</summary>
+public enum AgentTaskStatus
+{
+    Running,
+    NeedsYou,
+    Done,
+    CheckFailed,
+    Failed,
+    Stopped,
+    Finished
+}
+
+/// <summary>One run on a task: who worked, how, in which session, how it ended and what it spent.</summary>
+public sealed record AgentRunRecord
+{
+    public AgentProviderKind Provider { get; init; }
+    public string? Model { get; init; }
+    public string? Effort { get; init; }
+    public AgentAccess Access { get; init; }
+    public bool AutoApprove { get; init; }
+    public string? SessionId { get; init; }
+    public DateTimeOffset StartedAt { get; init; } = DateTimeOffset.Now;
+    public TimeSpan Duration { get; init; }
+    public string Outcome { get; init; } = string.Empty;
+
+    /// <summary>This run's own tokens: for a Codex session the difference from its run before.</summary>
+    public long? InputTokens { get; init; }
+
+    public long? CachedTokens { get; init; }
+    public long? OutputTokens { get; init; }
+    public decimal? CostUsd { get; init; }
+}
+
+/// <summary>A line of a task's history.</summary>
+public sealed record AgentTaskEntry(DateTimeOffset At, AgentEntryKind Kind, string Text);
+
+public enum AgentEntryKind
+{
+    /// <summary>The brief the task began with.</summary>
+    Brief,
+
+    /// <summary>The user's words: a reply, a correction, words for after the run, a note.</summary>
+    You,
+
+    /// <summary>A run ended: who, how long, how.</summary>
+    Run,
+
+    Check,
+
+    /// <summary>Another agent took the task over, or the first one took it back.</summary>
+    HandOff,
+
+    /// <summary>The same session went on with another model.</summary>
+    Model,
+
+    /// <summary>An agent's usage limit ran out or ran low.</summary>
+    Limit,
+
+    /// <summary>The agent's last words of a run.</summary>
+    Said,
+
+    Finished
+}
+
+/// <summary>A step of the agent's own plan (Claude Code's todo list, Codex's plan).</summary>
+public sealed record AgentPlanItem(string Text, bool Done, bool Active);
+
+/// <summary>
+/// A usage window of an agent's subscription as the CLI last reported it: "5 h" or "week", how much of it is used and
+/// when it resets. <see cref="Reached"/>: the agent refuses work until then.
+/// </summary>
+public sealed record AgentLimit(
+    AgentProviderKind Provider,
+    string Window,
+    double? UsedPercent,
+    DateTimeOffset? ResetsAt,
+    bool Reached,
+    DateTimeOffset SeenAt);
+
+/// <summary>How much model a run gets: each agent's three levels are a model and an effort chosen in Settings.</summary>
+public enum AgentLevel
+{
+    /// <summary>Quick and cheap: small edits and Link's own answers (a map, a skill, a note).</summary>
+    Light,
+
+    /// <summary>The model and effort of everyday tasks.</summary>
+    Standard,
+
+    /// <summary>The strongest: plans, hard problems, and a task that failed on Standard.</summary>
+    Deep
+}
+
+/// <summary>A level's model and effort; null leaves either to the CLI's own settings.</summary>
+public sealed class AgentLevelChoice
+{
+    public string? Model { get; set; }
+    public string? Effort { get; set; }
+}
+
+/// <summary>
+/// A session an earlier Link kept per project (agent-sessions.json); read once to become a task, see
+/// <see cref="AgentTaskRecord.FromSession"/>.
 /// </summary>
 public sealed class AgentSessionRecord
 {
@@ -151,6 +326,12 @@ public enum AgentEventKind
     /// <summary>The agent seems to go round in circles; <see cref="AgentEvent.Detail"/> is the kind of loop. It goes on.</summary>
     Loop,
 
+    /// <summary>The agent wrote its plan again; <see cref="AgentEvent.Plan"/> is the whole of it.</summary>
+    Plan,
+
+    /// <summary>The CLI told how much of the subscription is used; <see cref="AgentEvent.Limits"/> are its windows.</summary>
+    Limit,
+
     Completed,
     Error
 }
@@ -166,6 +347,9 @@ public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail
 
     /// <summary>A tool call's arguments, as the loop check compares calls; the row shows only their start.</summary>
     public string Arguments { get; init; } = string.Empty;
+
+    public IReadOnlyList<AgentPlanItem> Plan { get; init; } = [];
+    public IReadOnlyList<AgentLimit> Limits { get; init; } = [];
 }
 
 /// <summary>How a run ended. <see cref="Denials"/> are the tool rules the agent was refused, to allow and try again.</summary>
@@ -274,6 +458,18 @@ public sealed class AgentSettings
     /// <summary>Codex's reasoning effort, the last one chosen on the card; null: the effort of Codex's config.</summary>
     public string? CodexEffort { get; set; }
 
+    // The Light and Deep levels; Standard is the model and effort above, the user's everyday choice.
+    public AgentLevelChoice ClaudeLight { get; set; } = new() { Model = "claude-sonnet-5-5", Effort = "medium" };
+    public AgentLevelChoice ClaudeDeep { get; set; } = new() { Model = "claude-opus-5-5", Effort = "xhigh" };
+    public AgentLevelChoice CodexLight { get; set; } = new() { Effort = "low" };
+    public AgentLevelChoice CodexDeep { get; set; } = new() { Effort = "xhigh" };
+
+    /// <summary>Plan first runs on Deep, and the plan is carried out on Standard in the same session.</summary>
+    public bool PlanOnDeep { get; set; } = true;
+
+    /// <summary>Link's own answers (a map, a skill, a note for Start over) run on Light.</summary>
+    public bool OwnAnswersOnLight { get; set; } = true;
+
     public void Normalize()
     {
         if (!Enum.IsDefined(DefaultProvider)) DefaultProvider = AgentProviderKind.ClaudeCode;
@@ -284,6 +480,24 @@ public sealed class AgentSettings
         ClaudeEffort = Trimmed(ClaudeEffort);
         CodexModel = Trimmed(CodexModel);
         CodexEffort = Trimmed(CodexEffort);
+        foreach (var level in new[] { ClaudeLight ??= new(), ClaudeDeep ??= new(), CodexLight ??= new(), CodexDeep ??= new() })
+        {
+            level.Model = Trimmed(level.Model);
+            level.Effort = Trimmed(level.Effort);
+        }
+    }
+
+    /// <summary>A level's model and effort for an agent; null parts are left to the CLI.</summary>
+    public (string? Model, string? Effort) Level(AgentProviderKind provider, AgentLevel level)
+    {
+        var claude = provider == AgentProviderKind.ClaudeCode;
+        var choice = level switch
+        {
+            AgentLevel.Light => claude ? ClaudeLight : CodexLight,
+            AgentLevel.Deep => claude ? ClaudeDeep : CodexDeep,
+            _ => null
+        };
+        return choice is null ? (ModelFor(provider), EffortFor(provider)) : (choice.Model, choice.Effort);
     }
 
     public string? PathFor(AgentProviderKind provider) =>
@@ -310,7 +524,13 @@ public sealed class AgentSettings
         ClaudeModel = ClaudeModel,
         ClaudeEffort = ClaudeEffort,
         CodexModel = CodexModel,
-        CodexEffort = CodexEffort
+        CodexEffort = CodexEffort,
+        ClaudeLight = new AgentLevelChoice { Model = ClaudeLight.Model, Effort = ClaudeLight.Effort },
+        ClaudeDeep = new AgentLevelChoice { Model = ClaudeDeep.Model, Effort = ClaudeDeep.Effort },
+        CodexLight = new AgentLevelChoice { Model = CodexLight.Model, Effort = CodexLight.Effort },
+        CodexDeep = new AgentLevelChoice { Model = CodexDeep.Model, Effort = CodexDeep.Effort },
+        PlanOnDeep = PlanOnDeep,
+        OwnAnswersOnLight = OwnAnswersOnLight
     };
 
     private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

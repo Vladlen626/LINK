@@ -20,6 +20,9 @@ public sealed record AgentPlan(
 
     /// <summary>Auto on the card: with edits, nothing is asked (see <see cref="AgentTask.AutoApprove"/>).</summary>
     public bool AutoApprove { get; init; }
+
+    /// <summary>The level chosen on the card, which gave the model and effort.</summary>
+    public AgentLevel Level { get; init; } = AgentLevel.Standard;
 }
 
 /// <summary>
@@ -72,7 +75,6 @@ public sealed class AgentCoordinator
     public static AgentTask BuildTask(AgentPlan plan, InputSnapshot snapshot, LinkProject project)
     {
         var prompt = new StringBuilder(plan.Goal.Trim());
-        if (snapshot.CurrentTask.Length > 0) prompt.Append("\n\nCurrent task of the project: ").Append(snapshot.CurrentTask);
         var images = new List<string>();
         foreach (var item in snapshot.Context.Append(snapshot.Screen).OfType<ContextItem>())
         {
@@ -115,36 +117,64 @@ public sealed class AgentCoordinator
             : null;
 
     /// <summary>
-    /// The other agent takes the task over, such as when the first one has run out of its limit. Neither CLI can resume
-    /// the other's session, so a new one starts in the same folder with the same access and check, told the task, how the
-    /// first agent ended, its last steps as Activity showed them and the files it changed, and the user's note.
+    /// The brief another agent takes the task over with. Neither CLI can resume the other's session, so the new one is
+    /// told, from the task's record: the task as it began, what the user said on the way, the first agent's plan, the
+    /// files changed (with lines added and removed where git tells them), the last check, how the first agent ended and
+    /// its last steps. Kept to about <see cref="BriefBudget"/> characters: steps go first, the task and the user's words
+    /// never.
     /// </summary>
-    public static AgentTask HandOffTask(
-        AgentTask first,
-        AgentProviderKind to,
-        string firstName,
-        string task,
-        string lastWords,
-        IReadOnlyList<string> steps,
-        IReadOnlyList<string> changedFiles,
-        string note)
+    public static string HandOffBrief(AgentTaskRecord record, string firstName, string? numstat)
     {
-        var prompt = new StringBuilder(task.Trim())
-            .Append($"\n\nYou take this task over from {firstName}, which worked on it in this workspace and stopped before it was done. ")
-            .Append("Its changes are in the workspace, finished or not: look at them before you go on, and do not redo what is done.");
-        if (lastWords.Trim() is { Length: > 0 } words) prompt.Append($"\n\nHow {firstName} ended:\n").Append(words);
-        if (steps.Count > 0) prompt.Append("\n\nIts last steps, oldest first:\n").AppendJoin('\n', steps.Select(step => "- " + step));
-        if (changedFiles.Count > 0) prompt.Append("\n\nFiles it changed:\n").AppendJoin('\n', changedFiles.Select(file => "- " + file));
-        if (note.Trim() is { Length: > 0 } added) prompt.Append("\n\nThe user adds: ").Append(added);
-        return first with
+        var said = record.Entries.Where(entry => entry.Kind == AgentEntryKind.You).Select(entry => "- " + entry.Text).ToArray();
+        var plan = record.Plan.Select(item => $"- [{(item.Done ? "x" : " ")}] {item.Text}").ToArray();
+        var files = numstat ?? string.Join('\n', record.ChangedFiles.Select(file => "- " + file));
+        var words = record.LastWords.Trim();
+        var steps = record.Steps.TakeLast(15).ToList();
+        while (true)
+        {
+            var brief = new StringBuilder(record.Brief.Trim())
+                .Append($"\n\nYou take this task over from {firstName}, which worked on it in this workspace and stopped before it was done. ")
+                .Append("Its changes are in the workspace, finished or not: look at them first (git diff, where there is git), and do not redo what is done.");
+            if (said.Length > 0) brief.Append("\n\nWhat the user said on the way, oldest first:\n").AppendJoin('\n', said);
+            if (plan.Length > 0) brief.Append($"\n\n{firstName}'s plan as it last stood:\n").AppendJoin('\n', plan);
+            if (files.Length > 0) brief.Append("\n\nFiles changed so far").Append(numstat is null ? ":\n" : " (lines added, removed, file):\n").Append(files);
+            if (record.LastCheck is { } check) brief.Append("\n\nThe project's check as it last ran:\n").Append(check);
+            if (words.Length > 0) brief.Append($"\n\nHow {firstName} ended:\n").Append(words);
+            if (steps.Count > 0) brief.Append("\n\nIts last steps, oldest first:\n").AppendJoin('\n', steps.Select(step => "- " + step));
+            if (brief.Length <= BriefBudget || steps.Count == 0 && words.Length <= 1500) return brief.ToString();
+            if (steps.Count > 0) steps.RemoveAt(0);
+            else words = words[..1500] + "…";
+        }
+    }
+
+    /// <summary>About 1.5k tokens: what a brief may take before its oldest steps go.</summary>
+    public const int BriefBudget = 6000;
+
+    /// <summary>The other agent takes the task over with the brief the user saw and maybe edited: a new session of its own.</summary>
+    public static AgentTask HandOffTask(AgentTask first, AgentProviderKind to, string brief, IReadOnlyList<string> images) =>
+        first with
         {
             Provider = to,
             ResumeSessionId = null,
-            Prompt = prompt.ToString(),
+            Prompt = brief.Trim(),
+            Images = images,
             PlanOnly = false,
             AnswerFile = null,
             AnswerIsSkill = false
         };
+
+    /// <summary>
+    /// The first agent takes its task back, such as once its limit has reset: its own session goes on, told what the
+    /// other agent did meanwhile, so that it does not learn the task anew.
+    /// </summary>
+    public static string ReturnBrief(AgentTaskRecord record, string otherName, string? numstat)
+    {
+        var brief = new StringBuilder($"While you were away, {otherName} worked on this task in the same workspace.");
+        var files = numstat ?? string.Join('\n', record.ChangedFiles.Select(file => "- " + file));
+        if (files.Length > 0) brief.Append("\n\nFiles changed so far:\n").Append(files);
+        if (record.LastCheck is { } check) brief.Append("\n\nThe project's check as it last ran:\n").Append(check);
+        if (record.LastWords.Trim() is { Length: > 0 } words) brief.Append($"\n\nHow {otherName} ended:\n").Append(words.Length <= 2000 ? words : words[..2000] + "…");
+        return brief.Append("\n\nLook at its changes, then finish the task.").ToString();
     }
 
     /// <summary>
@@ -197,7 +227,11 @@ public sealed class AgentCoordinator
     /// task returned is for a new session, with the original goal and images, that note, and the access, folder and
     /// check of the run. Without a session to ask it goes without a note; null when Stop ended the asking.
     /// </summary>
-    public async Task<(AgentTask Task, string Note)?> StartOverAsync(AgentRun run, AgentTask origin, CancellationToken cancellationToken)
+    public async Task<(AgentTask Task, string Note)?> StartOverAsync(
+        AgentRun run,
+        AgentTask origin,
+        (string? Model, string? Effort) asking,
+        CancellationToken cancellationToken)
     {
         var note = string.Empty;
         if (run.Result.SessionId is { } session)
@@ -211,7 +245,9 @@ public sealed class AgentCoordinator
                 Images = [],
                 AllowedTools = [],
                 AnswerFile = null,
-                MaxTurns = 3
+                MaxTurns = 3,
+                Model = asking.Model,
+                Effort = asking.Effort
             }, new Progress<AgentEvent>(), cancellationToken);
             if (asked.Stopped) return null;
             if (asked.Succeeded) note = asked.Summary.Trim();

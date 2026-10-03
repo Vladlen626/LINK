@@ -108,7 +108,39 @@ public sealed class ClaudeEventParser : AgentEventParser
             case "result":
                 ReadResult(root, events);
                 break;
+            case "rate_limit_event" when root.TryGetProperty("rate_limit_info", out var info) && Limits(info) is { Count: > 0 } limits:
+                events.Add(new AgentEvent(AgentEventKind.Limit, "Usage reported") { Limits = limits });
+                break;
         }
+    }
+
+    /// <summary>
+    /// The subscription's windows as Claude Code reports them when they change: the window the status is about, and
+    /// every window it lists with its share used and reset time.
+    /// </summary>
+    internal static IReadOnlyList<AgentLimit> Limits(JsonElement info)
+    {
+        var now = DateTimeOffset.Now;
+        var rejected = Text(info, "status") == "rejected";
+        var type = Text(info, "rateLimitType");
+        var limits = new List<AgentLimit>();
+        if (info.TryGetProperty("unifiedWindows", out var windows) && windows.ValueKind == JsonValueKind.Object)
+        {
+            foreach (var window in windows.EnumerateObject())
+            {
+                if (AgentLimits.WindowName(window.Name) is not { } name) continue;
+                limits.Add(new AgentLimit(AgentProviderKind.ClaudeCode, name, AgentLimits.Percent(window.Value, "utilization"),
+                    AgentLimits.UnixTime(window.Value, "resetsAt"), rejected && window.Name == type, now));
+            }
+        }
+
+        if (limits.Count == 0 && AgentLimits.WindowName(type) is { } single)
+        {
+            limits.Add(new AgentLimit(AgentProviderKind.ClaudeCode, single, AgentLimits.Percent(info, "utilization"),
+                AgentLimits.UnixTime(info, "resetsAt"), rejected, now));
+        }
+
+        return limits;
     }
 
     private void ReadAssistant(JsonElement block, List<AgentEvent> events)
@@ -121,6 +153,18 @@ public sealed class ClaudeEventParser : AgentEventParser
             case "tool_use":
                 var name = Text(block, "name");
                 var input = block.TryGetProperty("input", out var value) ? value : default;
+                // The agent's own plan is no step of the work: the Task tab shows it as a list.
+                if (name == "TodoWrite" && input.ValueKind == JsonValueKind.Object && input.TryGetProperty("todos", out var todos) &&
+                    todos.ValueKind == JsonValueKind.Array)
+                {
+                    var plan = todos.EnumerateArray()
+                        .Select(todo => new AgentPlanItem(Text(todo, "content"), Text(todo, "status") == "completed", Text(todo, "status") == "in_progress"))
+                        .Where(item => item.Text.Length > 0)
+                        .ToArray();
+                    events.Add(new AgentEvent(AgentEventKind.Plan, $"Plan: {plan.Count(item => item.Done)} of {plan.Length} done") { Plan = plan });
+                    break;
+                }
+
                 var command = Text(input, "command");
                 var target = Text(input, "file_path") is { Length: > 0 } file ? file
                     : command.Length > 0 ? command

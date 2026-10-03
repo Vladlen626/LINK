@@ -18,43 +18,50 @@
             <Setter Property="Height" Value="26" />
             <Setter Property="Margin" Value="0,6,6,0" />
         </Style>
+        <Style x:Key="SectionToggleStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
+            <Setter Property="Margin" Value="-8,12,0,0" />
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="HorizontalAlignment" Value="Left" />
+        </Style>
     </UserControl.Resources>
 
     <Grid>
-        <!-- The confirmation card: nothing runs before Run. -->
+        <!-- The task card: nothing runs before Run. Also the card a hand-over shows its brief on. -->
         <ScrollViewer x:Name="CardView" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
             <StackPanel Margin="0,0,4,0">
-                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="GOAL" />
+                <TextBlock x:Name="CardTitleText" Style="{StaticResource SectionLabelStyle}" Text="TASK FOR THE AGENT" />
                 <Border Style="{StaticResource FieldStyle}">
                     <TextBox x:Name="GoalBox" Style="{StaticResource BareTextBoxStyle}" Padding="4,4" FontSize="12.5" MinHeight="60"
-                             MaxHeight="200" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto" />
+                             MaxHeight="260" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                             ToolTip="What the agent is told, word for word: its first line names the task. Edit it before Run" />
                 </Border>
 
                 <Grid Margin="0,12,0,0">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="80" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Agent" />
                     <ComboBox x:Name="ProviderCombo" Grid.Column="1" SelectionChanged="Card_OnChanged" />
-                    <TextBlock Grid.Row="1" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Access" />
-                    <ComboBox x:Name="AccessCombo" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Card_OnChanged">
+                    <TextBlock x:Name="LimitsText" Grid.Row="1" Grid.Column="1" Margin="0,3,0,0" Style="{StaticResource SecondaryTextStyle}"
+                               FontSize="11" TextWrapping="Wrap" Visibility="Collapsed" />
+                    <TextBlock Grid.Row="2" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Level" />
+                    <ComboBox x:Name="LevelCombo" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Card_OnChanged"
+                              ToolTip="How much model the task gets: Light for quick, cheap work, Deep for hard problems. Settings chooses each level's model and effort" />
+                    <TextBlock Grid.Row="3" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Access" />
+                    <ComboBox x:Name="AccessCombo" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Card_OnChanged">
                         <ComboBoxItem Content="Edit — changes files, asks for commands" />
                         <ComboBoxItem Content="Auto — edits and runs commands, asks nothing"
                                       ToolTip="The agent's own review stops risky actions: Claude Code's auto mode, Codex's automatic review" />
                     </ComboBox>
-                    <TextBlock Grid.Row="2" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Effort" />
-                    <ComboBox x:Name="EffortCombo" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0"
-                              ToolTip="How hard the agent thinks on this task; the choice stays for the agent. Default: the agent's own setting" />
-                    <TextBlock Grid.Row="3" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Project" />
-                    <TextBlock x:Name="ProjectText" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
-                    <TextBlock Grid.Row="4" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Workspace" />
-                    <TextBlock x:Name="WorkspaceText" Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
+                    <TextBlock Grid.Row="4" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Project" />
+                    <TextBlock x:Name="ProjectText" Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
+                    <TextBlock Grid.Row="5" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Workspace" />
+                    <TextBlock x:Name="WorkspaceText" Grid.Row="5" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
                 </Grid>
 
-                <CheckBox x:Name="PlanFirstBox" Margin="0,10,0,0" Content="Plan first: the agent only reads and proposes, then you run it"
-                          Checked="Card_OnChanged" Unchecked="Card_OnChanged" />
+                <CheckBox x:Name="PlanFirstBox" Margin="0,10,0,0" Checked="Card_OnChanged" Unchecked="Card_OnChanged" />
                 <CheckBox x:Name="BackupBox" Margin="0,6,0,0" IsChecked="True"
                           Content="Copy the workspace before edits (it has no git)" />
                 <TextBlock x:Name="CheckText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
@@ -71,7 +78,7 @@
             </StackPanel>
         </ScrollViewer>
 
-        <!-- Activity: what the agent does, what it changed, how it ended. -->
+        <!-- The task: who works on it and how it stands, its plan, what it changed, its history, what Link gave, what it spent. -->
         <Grid x:Name="ActivityView" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
@@ -79,29 +86,41 @@
             <StackPanel>
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBlock x:Name="HeaderText" VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold"
+                    <TextBlock x:Name="GoalText" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold"
                                Foreground="{StaticResource TextBrush}" TextTrimming="CharacterEllipsis" />
                     <Button x:Name="ConsoleButton" Grid.Column="1" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0"
                             Click="Console_OnClick" Content="Console"
                             ToolTip="What Link gave the agent's CLI (command, folder, the whole text) and every line it writes back, live" />
                     <Button x:Name="StopButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0"
-                            Click="Stop_OnClick" Content="■ Stop" ToolTip="Stop the agent now; what it changed so far stays and is listed" />
+                            Click="Stop_OnClick" Content="■ Stop" ToolTip="Stop the agent now; what it changed so far stays, and the task stays open" />
                 </Grid>
-                <TextBlock x:Name="WhereText" Margin="0,3,0,0" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="HeaderText" Margin="0,3,0,0" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="WhereText" Margin="0,1,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11" TextTrimming="CharacterEllipsis" />
                 <TextBlock x:Name="CurrentStepText" Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource AccentBrush}"
                            TextTrimming="CharacterEllipsis" />
             </StackPanel>
 
-            <ScrollViewer x:Name="StepsScroll" Grid.Row="1" Margin="0,8,0,0" VerticalScrollBarVisibility="Auto"
+            <ScrollViewer x:Name="StepsScroll" Grid.Row="1" Margin="0,6,0,0" VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="0,0,4,0">
-                    <ItemsControl x:Name="StepsList">
+                    <!-- The agent's own plan, as it last wrote it. -->
+                    <TextBlock x:Name="PlanLabel" Margin="0,6,0,0" Style="{StaticResource SectionLabelStyle}" Visibility="Collapsed" />
+                    <ItemsControl x:Name="PlanList" Margin="0,3,0,0">
                         <ItemsControl.ItemTemplate>
                             <DataTemplate>
-                                <TextBlock Margin="0,1" FontSize="11.5" Foreground="{Binding Brush}" Text="{Binding Text}" TextWrapping="Wrap" />
+                                <TextBlock Margin="0,1" FontSize="12" Foreground="{Binding Brush}" Text="{Binding Text}" TextWrapping="Wrap" />
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+
+                    <!-- A usage limit near or reached: the ways on are offered, nothing is done by itself. -->
+                    <Border x:Name="LimitCard" Style="{StaticResource FieldStyle}" Margin="0,10,0,0" Padding="10,8"
+                            BorderBrush="{StaticResource AccentBorderBrush}" Visibility="Collapsed">
+                        <StackPanel>
+                            <TextBlock x:Name="LimitText" Style="{StaticResource RowTextStyle}" />
+                            <WrapPanel x:Name="LimitActions" Margin="0,2,0,0" />
+                        </StackPanel>
+                    </Border>
 
                     <!-- A decision only the user can make: allow and retry, retry with edits, or carry out the plan. -->
                     <Border x:Name="DecisionCard" Style="{StaticResource FieldStyle}" Margin="0,10,0,0" Padding="10,8"
@@ -114,19 +133,27 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- Start over with a note: beside a loop's label and after a failure. -->
+                    <!-- After a loop or a failure: start over with a note, or the same session on Deep. -->
                     <Border x:Name="RestartCard" Style="{StaticResource FieldStyle}" Margin="0,10,0,0" Padding="10,8" Visibility="Collapsed">
                         <StackPanel>
                             <TextBlock Style="{StaticResource RowTextStyle}" Foreground="{StaticResource MutedBrush}"
-                                       Text="Start over in a clean session: the agent writes in five lines what it tried and why it did not work, then a new session takes the task with that note, the same access and folder." />
+                                       Text="Start over: the agent writes in five lines what it tried and why it did not work, and a new session takes the task with that note. Escalate: the same session goes on with the Deep level's model." />
                             <WrapPanel Margin="0,2,0,0">
                                 <Button Style="{StaticResource PrimaryButtonStyle}" Height="28" Margin="0,6,6,0" Padding="14,0"
                                         Click="Restart_OnClick" Content="Start over with a note" />
+                                <Button x:Name="EscalateButton" Style="{StaticResource SmallChipStyle}" Click="Escalate_OnClick" Content="Escalate to Deep" />
                                 <Button Style="{StaticResource SmallChipStyle}" Click="RestartNotNow_OnClick" Content="Not now"
-                                        ToolTip="The agent goes on as it is; Start over stays possible after the task" />
+                                        ToolTip="The agent goes on as it is; both stay possible after the run" />
                             </WrapPanel>
                         </StackPanel>
                     </Border>
+
+                    <TextBlock x:Name="ResultLabel" Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="RESULT" Visibility="Collapsed" />
+                    <TextBox x:Name="ResultText" Margin="0,4,0,0" Style="{StaticResource BareTextBoxStyle}" FontSize="12.5" IsReadOnly="True"
+                             TextWrapping="Wrap" Visibility="Collapsed" />
+                    <!-- What the run cost: turns, tool calls, searches, failed calls, tokens. -->
+                    <TextBlock x:Name="StatsText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
+                               TextWrapping="Wrap" Visibility="Collapsed" />
 
                     <TextBlock x:Name="ChangesLabel" Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="CHANGED" Visibility="Collapsed" />
                     <ItemsControl x:Name="ChangesList" Margin="-8,2,0,0">
@@ -140,42 +167,71 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
 
-                    <TextBlock x:Name="ResultLabel" Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="RESULT" Visibility="Collapsed" />
-                    <TextBox x:Name="ResultText" Margin="0,4,0,0" Style="{StaticResource BareTextBoxStyle}" FontSize="12.5" IsReadOnly="True"
-                             TextWrapping="Wrap" Visibility="Collapsed" />
-                    <!-- What the task cost: turns, tool calls, searches, failed calls, tokens. -->
-                    <TextBlock x:Name="StatsText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
-                               TextWrapping="Wrap" Visibility="Collapsed" />
+                    <Button x:Name="StepsToggle" Style="{StaticResource SectionToggleStyle}" Click="StepsToggle_OnClick">
+                        <TextBlock x:Name="StepsToggleText" Style="{StaticResource SectionLabelStyle}" Text="STEPS ▾" />
+                    </Button>
+                    <ItemsControl x:Name="StepsList" Margin="0,2,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Margin="0,1" FontSize="11.5" Foreground="{Binding Brush}" Text="{Binding Text}" TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- The task's history: the brief, the user's words, every run, check and hand-over. -->
+                    <TextBlock x:Name="HistoryLabel" Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="HISTORY" Visibility="Collapsed" />
+                    <ItemsControl x:Name="HistoryList" Margin="0,3,0,0">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate>
+                                <TextBlock Margin="0,1" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding}" TextWrapping="Wrap" />
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+
+                    <!-- What Link gave the agent, word for word; the Console has the rest. -->
+                    <Button x:Name="BriefToggle" Style="{StaticResource SectionToggleStyle}" Click="BriefToggle_OnClick" Visibility="Collapsed"
+                            ToolTip="The text Link gave the agent for this task: the brief, and each correction or hand-over after it">
+                        <TextBlock x:Name="BriefToggleText" Style="{StaticResource SectionLabelStyle}" Text="WHAT LINK GAVE ▸" />
+                    </Button>
+                    <TextBox x:Name="BriefText" Margin="0,2,0,0" Style="{StaticResource BareTextBoxStyle}" FontFamily="Consolas" FontSize="11.5"
+                             IsReadOnly="True" TextWrapping="Wrap" MaxHeight="260" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" />
+
+                    <TextBlock x:Name="UsageLabel" Margin="0,12,0,0" Style="{StaticResource SectionLabelStyle}" Text="USAGE" Visibility="Collapsed" />
+                    <TextBlock x:Name="UsageText" Margin="0,3,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11.5" TextWrapping="Wrap"
+                               Visibility="Collapsed" />
                 </StackPanel>
             </ScrollViewer>
 
-            <!-- A reply to the agent: the same session goes on with it, like a message in its own terminal. -->
+            <!-- Words for the agent. While it works: a correction (Enter) or words for after this run (Tab); after it: a reply. -->
             <Border x:Name="ReplyPanel" Grid.Row="2" Style="{StaticResource FieldStyle}" Margin="0,8,0,0" Visibility="Collapsed">
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <TextBox x:Name="ReplyBox" Style="{StaticResource BareTextBoxStyle}" Padding="4,4" FontSize="12.5" MaxHeight="120"
-                             AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                             AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                              TextChanged="ReplyBox_OnTextChanged" PreviewKeyDown="ReplyBox_OnPreviewKeyDown" />
-                    <TextBlock x:Name="ReplyPlaceholder" Margin="6,5,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="12.5" IsHitTestVisible="False"
-                               Text="Reply to the agent: answer it or ask for more" />
+                    <TextBlock x:Name="ReplyPlaceholder" Margin="6,5,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="12"
+                               IsHitTestVisible="False" TextWrapping="Wrap" />
                     <Button x:Name="ContinueButton" Grid.Column="1" Style="{StaticResource SmallChipStyle}" Margin="6,3,3,3"
-                            VerticalAlignment="Bottom" Click="Continue_OnClick" Content="Continue"
-                            ToolTip="The same session goes on with your words, with the same access and folder (Enter). While the agent works, it stops first" />
+                            VerticalAlignment="Bottom" Click="Continue_OnClick" />
                 </Grid>
             </Border>
 
             <WrapPanel Grid.Row="3" Margin="0,4,0,0">
-                <Button x:Name="ToChatButton" Style="{StaticResource SmallChipStyle}" Click="ToChat_OnClick" Content="↻ To chat"
-                        ToolTip="Put the result and the changed files into the context for your next Chat message" Visibility="Collapsed" />
-                <Button x:Name="UndoButton" Style="{StaticResource SmallChipStyle}" Click="Undo_OnClick" Visibility="Collapsed" />
-                <Button x:Name="SaveSkillButton" Style="{StaticResource SmallChipStyle}" Click="SaveSkill_OnClick" Content="Save as skill"
-                        ToolTip="The agent describes what it just did as a skill; Link writes it to .agents/skills in the workspace"
-                        Visibility="Collapsed" />
-                <Button x:Name="HandOffButton" Style="{StaticResource SmallChipStyle}" Click="HandOff_OnClick" Visibility="Collapsed"
-                        ToolTip="The other agent takes the task over in a new session of its own: the goal, how this one ended, its last steps and changed files go along, and your reply as a note. For when one runs out of its limit" />
-                <Button x:Name="NewTaskButton" Style="{StaticResource SmallChipStyle}" Click="Close_OnClick" Content="Done"
-                        ToolTip="Back to the project panel" Visibility="Collapsed" />
+                <Button x:Name="HandOffButton" Style="{StaticResource SmallChipStyle}" Click="HandOff_OnClick" Content="Hand off ▾"
+                        ToolTip="Another agent in a new session with a brief you see first, another model in the same session, or the first agent back" />
+                <Button x:Name="StartOverButton" Style="{StaticResource SmallChipStyle}" Click="Restart_OnClick" Content="Start over"
+                        ToolTip="A new session of the same agent takes the task with a note of what was tried" />
+                <Button x:Name="FinishButton" Style="{StaticResource SmallChipStyle}" Click="Finish_OnClick" Content="Finish"
+                        ToolTip="Close the task; it stays in the project's history, where it can be taken up again" />
+                <Button x:Name="MoreButton" Style="{StaticResource SmallChipStyle}" Click="More_OnClick" Content="More ▾" />
             </WrapPanel>
         </Grid>
+
+        <!-- No task: how one starts. -->
+        <StackPanel x:Name="EmptyView" Visibility="Collapsed">
+            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="NO TASK" />
+            <TextBlock Margin="0,6,0,0" Style="{StaticResource RowTextStyle}" Foreground="{StaticResource MutedBrush}"
+                       Text="Ctrl+Enter in the question, To ▾ Agent task, or → Agent task under an answer opens a task card. Nothing runs before Run. Finished tasks are in the project's history." />
+        </StackPanel>
     </Grid>
 </UserControl>

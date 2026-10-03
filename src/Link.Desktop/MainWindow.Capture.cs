@@ -28,8 +28,8 @@ public partial class MainWindow
     // While the region selector is open another capture would photograph its dimmed overlay.
     private bool CanCapture => !_sending && !_selectingRegion;
 
-    // Auto active window: a fresh frame of the work window goes with each Chat question; Direct sends none.
-    private bool AutoFrameOn => _settings.Current.AutoCaptureActiveWindowOnSend && _settings.Current.Route != RequestRoute.Direct;
+    // Auto active window: a fresh frame of the work window goes with each question; "only my text" sends none.
+    private bool AutoFrameOn => _settings.Current.AutoCaptureActiveWindowOnSend && !_onlyMyText;
 
     public async Task CaptureCurrentMonitorAsync()
     {
@@ -345,21 +345,20 @@ public partial class MainWindow
     /// <summary>
     /// The app the user works in stands in the context stack as a chip: its name and window title go with a Chat
     /// question. Removed, they stay out of the next question only: the chip is back once it is answered or Link means
-    /// another window. Direct does not send them, and an agent's task does not carry them.
+    /// another window. "Only my text" does not send them, and an agent's task does not carry them.
     /// </summary>
     private void ShowApplicationContext()
     {
         foreach (var old in _context.Where(item => item.Type == ContextItemType.Application).ToArray()) _context.Remove(old);
         if (_currentApplication.GetContext(_currentApplication.WorkTarget) is not { } target ||
-            _settings.Current.Route is RequestRoute.Direct or RequestRoute.Agent)
+            _onlyMyText || _settings.Current.Route == RequestRoute.Agent)
         {
             return;
         }
 
         var label = string.IsNullOrWhiteSpace(target.WindowTitle) ? target.ProcessName : $"{target.ProcessName} · {target.WindowTitle}";
-        // After the project state, before what the user attached.
-        _context.Insert(_context.Count(item => item.Type == ContextItemType.ProjectState),
-            new ContextItem { Type = ContextItemType.Application, Label = label });
+        // First, before what the user attached.
+        _context.Insert(0, new ContextItem { Type = ContextItemType.Application, Label = label });
     }
 
     /// <summary>Link means another window now: its chip, and its picture in the Sees line.</summary>
@@ -386,7 +385,6 @@ public partial class MainWindow
 
         var parts = request.Context.Select(item => item.Label).ToList();
         if (request.CurrentApplication is { } app) parts.Add($"App: {app.ProcessName}");
-        if (request.CurrentTask.Length > 0) parts.Add("Task");
         SawText.Text = parts.Count == 0 ? "Saw only your text" : "Saw: " + string.Join(" · ", parts);
         SawText.ToolTip = SawText.Text;
         SawImage.ImageSource = _sawFrame is null ? null : ShotPicture(_sawFrame);

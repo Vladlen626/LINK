@@ -47,7 +47,7 @@ public sealed class AppSettings
     public bool SoundCues { get; set; } = true;
     public ResponseEffort ResponseEffort { get; set; } = ResponseEffort.Normal;
 
-    /// <summary>How Send sends: with what Link adds, or Direct with only the text and what was attached.</summary>
+    /// <summary>Where Send sends: to ChatGPT, or to the project's agent through its task card.</summary>
     public RequestRoute Route { get; set; } = RequestRoute.Chat;
     public int ScreenshotHistorySize { get; set; } = 5;
     public bool LaunchWithWindows { get; set; }
@@ -88,7 +88,8 @@ public sealed class AppSettings
         if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);
         if (!Enum.IsDefined(ResponseEffort)) ResponseEffort = ResponseEffort.Normal;
-        if (!Enum.IsDefined(Route)) Route = RequestRoute.Chat;
+        // Direct is no route to choose any more: "only my text" is a toggle of one question.
+        if (!Enum.IsDefined(Route) || Route == RequestRoute.Direct) Route = RequestRoute.Chat;
         if (string.IsNullOrWhiteSpace(MicrophoneDeviceId))
         {
             MicrophoneDeviceId = null;

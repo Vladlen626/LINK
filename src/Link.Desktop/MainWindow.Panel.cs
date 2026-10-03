@@ -13,16 +13,41 @@ public partial class MainWindow
 {
     private SidePanelWindow? _panel;
     private ProjectPanel? _projectPanel;
+    private PanelTab _panelTab = PanelTab.Project;
+    // The note's × in the card: the next question goes without it.
+    private bool _noteLeftOut;
 
     private bool IsLinkActive => IsActive || _panel?.IsActive == true;
 
     private void Expand_OnClick(object sender, RoutedEventArgs e) => SetPanelOpen(!_settings.Current.SidePanel.IsOpen);
 
-    private void TaskChip_OnClick(object sender, RoutedEventArgs e)
+    private void NoteChip_OnClick(object sender, RoutedEventArgs e)
     {
         SetPanelOpen(true);
-        _projectPanel?.FocusTask();
+        ShowProjectTab();
+        _projectPanel?.FocusNote();
     }
+
+    private void RemoveNote_OnClick(object sender, RoutedEventArgs e)
+    {
+        _noteLeftOut = true;
+        UpdateNoteChip();
+        SetStatus("The next question goes without the project note");
+    }
+
+    /// <summary>
+    /// The project note as it goes with the next question: first in its context, unless the user left it out of this
+    /// question or sends only their own text. Null when it does not go.
+    /// </summary>
+    private ContextItem? ProjectNote(LinkProject project) =>
+        project.State is { } note && !_noteLeftOut && !_onlyMyText
+            ? new ContextItem
+            {
+                Type = ContextItemType.ProjectState,
+                Label = $"Project note · {note.UpdatedAt.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}",
+                Text = note.Text
+            }
+            : null;
 
     private void SetPanelOpen(bool open)
     {
@@ -37,7 +62,7 @@ public partial class MainWindow
     {
         var open = _settings.Current.SidePanel.IsOpen;
         ExpandIcon.Stroke = (Brush)FindResource(open ? "AccentBrush" : "TextBrush");
-        ExpandButton.ToolTip = open ? "Close the panel" : "Open the project panel: task, state, chat, workspace, history";
+        ExpandButton.ToolTip = open ? "Close the panel" : "Open the panel: the project (note, chat, workspace, history) and the agent's task";
     }
 
     private void ShowPanel()
@@ -51,6 +76,25 @@ public partial class MainWindow
 
         _panel.PlaceBeside(this, _settings.Current.SidePanel.Width);
         _panel.Show();
+    }
+
+    private void ShowProjectTab() => ShowPanelTab(PanelTab.Project);
+
+    /// <summary>One of the panel's two tabs: the project, or the agent's task (its card, the task, or how one starts).</summary>
+    private void ShowPanelTab(PanelTab tab)
+    {
+        _panelTab = tab;
+        if (_panel is null || _projectPanel is null) return;
+        FrameworkElement content = _projectPanel;
+        if (tab == PanelTab.Task)
+        {
+            _agentPanel ??= CreateAgentPanel();
+            if (_task is null && !AgentRunning && _cardRun is null) _agentPanel.ShowNoTask();
+            content = _agentPanel;
+        }
+
+        _panel.ShowTab(tab, _projects.ActiveProject.Name, content);
+        UpdateAgentPill();
     }
 
     private SidePanelWindow CreatePanel()
@@ -71,10 +115,14 @@ public partial class MainWindow
             PlacePanel();
         };
         panel.DpiChanged += (_, _) => PlacePanel();
+        panel.TabChosen += tab =>
+        {
+            if (tab == PanelTab.Task) ShowAgentPanel();
+            else ShowPanelTab(PanelTab.Project);
+        };
 
         _projectPanel = new ProjectPanel();
-        _projectPanel.TaskChanged += OnTaskChanged;
-        _projectPanel.StateChanged += OnStateChanged;
+        _projectPanel.NoteChanged += OnNoteChanged;
         _projectPanel.EditEnded += _projects.Save;
         _projectPanel.ConversationRequested += LinkConversation;
         _projectPanel.NewChatRequested += withSummary => _ = StartNewChatAsync(withSummary);
@@ -85,7 +133,6 @@ public partial class MainWindow
         // Saved with the task and the state, when the field is left.
         _projectPanel.CheckCommandChanged += command => _projects.ActiveProject.CheckCommand = command.Length == 0 ? null : command;
         _projectPanel.HistorySelected += OnHistorySelected;
-        _projectPanel.AgentSessionSelected += OpenAgentSession;
         return panel;
     }
 
@@ -93,14 +140,32 @@ public partial class MainWindow
     private void RefreshProjectPanel()
     {
         if (_panel is null || _projectPanel is null) return;
-        var project = _projects.ActiveProject;
-        // The agent's card or Activity keeps the panel until the user goes back to the project.
-        if (!_panelShowsAgent) _panel.SetContent(project.Name, _projectPanel);
-        _projectPanel.ShowProject(project);
-        _projectPanel.ShowAgentSessions(_projects.ReadAgentSessions(project).Select(ToSessionRow));
-        _projectPanel.ShowHistory(_projects.ReadHistory(project).Select(ToHistoryRow));
+        _projectPanel.ShowProject(_projects.ActiveProject);
+        ShowProjectHistory();
         _projectPanel.SetBusy(_sending);
+        ShowPanelTab(_panelTab);
         UpdateConnectionState();
+    }
+
+    /// <summary>One history of the project: the chat's answers and the agent's tasks, newest first.</summary>
+    private void ShowProjectHistory()
+    {
+        if (_projectPanel is null) return;
+        var project = _projects.ActiveProject;
+        var chat = (Geometry)FindResource("ChatIconGeometry");
+        var agent = (Geometry)FindResource("AgentIconGeometry");
+        var answers = _projects.ReadHistory(project).Select(exchange => new HistoryRow(
+            exchange.Question, ToPreviewText(exchange.Answer), ShortTime(exchange.AnsweredAt), "Show this answer in Link", chat,
+            exchange.AnsweredAt, Exchange: exchange));
+        var tasks = _projects.ReadAgentTasks(project).Select(task => new HistoryRow(
+            task.Goal,
+            $"{StatusWords(task.Status)} · {(task.LastRun is { } run ? AgentName(run.Provider) + " · " : string.Empty)}{ToPreviewText(task.LastWords)}",
+            ShortTime(task.UpdatedAt),
+            "Open the task: its history and result; a reply takes up its last session",
+            agent,
+            task.UpdatedAt,
+            Task: task));
+        _projectPanel.ShowHistory(answers.Concat(tasks).OrderByDescending(row => row.At));
     }
 
     private void PlacePanel()
@@ -115,30 +180,24 @@ public partial class MainWindow
         else Dispatcher.BeginInvoke(ShowPanel, DispatcherPriority.Background);
     }
 
-    private void UpdateTaskChip()
+    /// <summary>The note's chip shows its first line, the focus, while the note goes with the next question.</summary>
+    private void UpdateNoteChip()
     {
-        var task = _projects.ActiveProject.CurrentTask;
-        // Direct sends no task.
-        TaskChip.Visibility = task.Length == 0 || _settings.Current.Route == RequestRoute.Direct
-            ? Visibility.Collapsed
-            : Visibility.Visible;
-        TaskChipText.Text = task;
-        TaskChip.ToolTip = $"Current task, it goes with your messages: {task}\nClick to change it";
+        var note = _projects.ActiveProject.State?.Text ?? string.Empty;
+        NoteChipRow.Visibility = ProjectNote(_projects.ActiveProject) is null ? Visibility.Collapsed : Visibility.Visible;
+        NoteChipText.Text = note.Split('\n')[0].Trim();
+        NoteChip.ToolTip = $"The project note goes with your questions and tasks:\n{note}\n\nClick to change it";
     }
 
     // Typing goes into the project at once, so a request sent meanwhile takes it; it is saved when the field is left.
-    private void OnTaskChanged(string task)
+    private void OnNoteChanged(string text)
     {
-        _projects.ActiveProject.CurrentTask = task;
-        UpdateTaskChip();
-    }
-
-    private void OnStateChanged(string text)
-    {
-        var state = text.Length == 0 ? null : new ProjectState { Text = text };
-        _projects.ActiveProject.State = state;
-        _projectPanel?.ShowStateDate(state);
-        ShowProjectStateContext();
+        var note = text.Length == 0 ? null : new ProjectState { Text = text };
+        _projects.ActiveProject.State = note;
+        _projectPanel?.ShowNoteDate(note);
+        // A changed note goes again, even if the last one was left out.
+        _noteLeftOut = false;
+        UpdateNoteChip();
     }
 
     private void OnWorkspaceChosen(string? folder)
@@ -149,9 +208,15 @@ public partial class MainWindow
         SetStatus(folder is null ? "Workspace folder forgotten" : $"Workspace: {folder}");
     }
 
-    private void OnHistorySelected(ProjectExchange exchange)
+    private void OnHistorySelected(HistoryRow row)
     {
-        if (_sending) return;
+        if (row.Task is { } task)
+        {
+            OpenAgentTask(task);
+            return;
+        }
+
+        if (_sending || row.Exchange is not { } exchange) return;
         ShowResponse(ChatProgressState.Completed, exchange.Answer);
         SetStatus($"From the history: {exchange.Question}");
     }
@@ -166,17 +231,14 @@ public partial class MainWindow
             : string.Join(", ", carried.Where(item => item.Type != ContextItemType.ProjectState).Select(item => item.Label));
         try
         {
-            var history = _projects.AddToHistory(project, new ProjectExchange { Question = question, Answer = answer });
-            _projectPanel?.ShowHistory(history.Select(ToHistoryRow));
+            _projects.AddToHistory(project, new ProjectExchange { Question = question, Answer = answer });
+            if (project == _projects.ActiveProject) ShowProjectHistory();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
             DiagnosticsReported?.Invoke($"Project history not saved: {exception.Message}");
         }
     }
-
-    private static HistoryRow ToHistoryRow(ProjectExchange exchange) =>
-        new(exchange.Question, ToPreviewText(exchange.Answer), ShortTime(exchange.AnsweredAt), exchange);
 
     /// <summary>When something in the panel happened: the time today, the day before that.</summary>
     private static string ShortTime(DateTimeOffset at)

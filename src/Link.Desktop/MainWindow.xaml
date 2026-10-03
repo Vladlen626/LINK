@@ -39,6 +39,7 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <StackPanel VerticalAlignment="Center" Orientation="Horizontal" IsHitTestVisible="False">
@@ -67,7 +68,17 @@
                         </Grid>
                     </Button>
 
-                    <Button x:Name="ExpandButton" Grid.Column="3" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
+                    <!-- The agent's task in one glance while there is one: who works and how it stands; a click opens it. -->
+                    <Button x:Name="AgentPill" Grid.Column="3" Style="{StaticResource ChipButtonStyle}" Height="24" MaxWidth="150"
+                            Margin="0,0,4,0" Padding="8,0" VerticalAlignment="Center" Click="AgentPill_OnClick" Visibility="Collapsed">
+                        <StackPanel Orientation="Horizontal">
+                            <Ellipse x:Name="AgentPillDot" Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center"
+                                     Fill="{StaticResource BusyOrbBrush}" />
+                            <TextBlock x:Name="AgentPillText" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                        </StackPanel>
+                    </Button>
+
+                    <Button x:Name="ExpandButton" Grid.Column="4" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
                             Click="Expand_OnClick">
                         <Viewbox Width="14" Height="14">
                             <Path x:Name="ExpandIcon" Data="{StaticResource PanelIconGeometry}" Fill="Transparent"
@@ -75,13 +86,13 @@
                         </Viewbox>
                     </Button>
 
-                    <Button x:Name="HideButton" Grid.Column="4" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
+                    <Button x:Name="HideButton" Grid.Column="5" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
                             Click="Hide_OnClick" ToolTip="Hide Link">
                         <Path Width="10" VerticalAlignment="Center" Stretch="Uniform" Data="{StaticResource HideIconGeometry}"
                               Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                     </Button>
 
-                    <Button Grid.Column="5" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
+                    <Button Grid.Column="6" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
                             Click="Settings_OnClick" ToolTip="Settings">
                         <Viewbox Width="15" Height="15">
                             <Path Data="{StaticResource SettingsIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}"
@@ -92,19 +103,27 @@
 
                 <DockPanel x:Name="CardContent" Grid.Row="1" Margin="12,0,12,10">
                     <StackPanel x:Name="InputPanel" DockPanel.Dock="Top">
-                        <!-- The task itself is edited in the panel; here it only shows that it goes along. -->
-                        <Button x:Name="TaskChip" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="0,0,4,0" Padding="8,2"
-                                HorizontalAlignment="Left" HorizontalContentAlignment="Left" Click="TaskChip_OnClick" Visibility="Collapsed">
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Viewbox Width="11" Height="11" VerticalAlignment="Center">
-                                    <Path Data="{StaticResource FlagIconGeometry}" Fill="Transparent" Stroke="{StaticResource MutedBrush}"
-                                          StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                                </Viewbox>
-                                <TextBlock x:Name="TaskChipText" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11.5"
-                                           Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
-                            </Grid>
-                        </Button>
+                        <!-- The project note goes with every question; its first line, the focus, shows here and is edited in the panel. -->
+                        <Grid x:Name="NoteChipRow" HorizontalAlignment="Left" Visibility="Collapsed">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <Button x:Name="NoteChip" Style="{StaticResource GhostButtonStyle}" Height="26" Padding="8,2"
+                                    HorizontalContentAlignment="Left" Click="NoteChip_OnClick">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Viewbox Width="11" Height="11" VerticalAlignment="Center">
+                                        <Path Data="{StaticResource FlagIconGeometry}" Fill="Transparent" Stroke="{StaticResource MutedBrush}"
+                                              StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                                    </Viewbox>
+                                    <TextBlock x:Name="NoteChipText" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11.5"
+                                               Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                                </Grid>
+                            </Button>
+                            <Button Grid.Column="1" Style="{StaticResource TinyIconButtonStyle}" Width="20" Height="20" Margin="2,0,0,0"
+                                    VerticalAlignment="Center" Click="RemoveNote_OnClick" ToolTip="Leave the project note out of the next question">
+                                <Path Width="7" Height="7" Stretch="Uniform" Data="{StaticResource CloseIconGeometry}" Stroke="{StaticResource MutedBrush}"
+                                      StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                            </Button>
+                        </Grid>
 
                         <Grid Margin="0,5,0,0">
                             <Border MinHeight="68" MaxHeight="136" Background="{StaticResource InnerGlassBrush}"
@@ -143,8 +162,8 @@
                             </Border>
                         </Grid>
 
-                        <!-- How Send sends: the route and the depth of the next message; and whether Link talks by itself. -->
-                        <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
+                        <!-- Where Send sends and how deep; whether Link talks by itself; whether only the user's own text goes. -->
+                        <WrapPanel Margin="0,4,0,0" Orientation="Horizontal">
                             <Button x:Name="RouteButton" Style="{StaticResource GhostButtonStyle}" Height="24" Padding="8,2,7,2"
                                     Click="Route_OnClick">
                                 <StackPanel Orientation="Horizontal">
@@ -174,13 +193,16 @@
                                                Foreground="{StaticResource MutedBrush}" Text="Conversation" />
                                 </StackPanel>
                             </Button>
-                            <!-- Lit by a verb of action; the route itself stays. -->
-                            <Button x:Name="AgentHintButton" Style="{StaticResource GhostButtonStyle}" Height="24" Margin="2,0,0,0"
-                                    Padding="8,2,8,2" Click="AgentHint_OnClick" Visibility="Collapsed"
-                                    ToolTip="Sounds like work: let an agent do it in the workspace (Ctrl+Enter). A card confirms first.">
-                                <TextBlock VerticalAlignment="Center" FontSize="11.5" Foreground="{StaticResource AccentBrush}" Text="↳ Agent?" />
+                            <Button x:Name="OnlyMyTextButton" Style="{StaticResource GhostButtonStyle}" Height="24" Margin="2,0,0,0"
+                                    Padding="8,2,8,2" Click="OnlyMyText_OnClick">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="OnlyMyTextDot" Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center"
+                                             Fill="{StaticResource IdleOrbBrush}" />
+                                    <TextBlock x:Name="OnlyMyTextText" VerticalAlignment="Center" FontSize="11.5"
+                                               Foreground="{StaticResource MutedBrush}" Text="Only my text" />
+                                </StackPanel>
                             </Button>
-                        </StackPanel>
+                        </WrapPanel>
 
                         <!-- What the model will see of the screen, before Send: a screenshot, the work window's fresh frame or nothing. -->
                         <Grid x:Name="SeesRow" Margin="0,6,0,0">
@@ -299,7 +321,8 @@
                             <Border Style="{StaticResource KeyCapStyle}">
                                 <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Enter" />
                             </Border>
-                            <TextBlock Margin="5,0,0,1" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" FontSize="11" Text="to send" />
+                            <TextBlock x:Name="SendHintText" Margin="5,0,0,1" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}"
+                                       FontSize="11" Text="sends to ChatGPT" />
                         </StackPanel>
                     </Grid>
 
@@ -359,20 +382,14 @@
                                 <FlowDocument x:Name="ResponseDocument" PagePadding="0,0,4,0" FontFamily="Segoe UI"
                                               FontSize="13.5" LineHeight="20" Foreground="{StaticResource TextBrush}" />
                             </FlowDocumentScrollViewer>
-                            <!-- The same message again another way, or corrected: nothing is dictated or captured again. -->
+                            <!-- The same question again another way, or as a task: nothing is dictated or captured again. -->
                             <WrapPanel x:Name="RedirectPanel" Grid.Row="3" Margin="0,2,0,0" Visibility="Collapsed">
-                                <Button x:Name="DeeperButton" Height="22" Margin="0,4,4,0" Padding="9,0" FontSize="11"
-                                        Click="Redirect_OnClick" Content="↻ Deeper" ToolTip="Ask the same again at Deep" />
-                                <Button x:Name="DirectButton" Height="22" Margin="0,4,4,0" Padding="9,0" FontSize="11"
-                                        Click="Redirect_OnClick" Content="↻ Direct"
-                                        ToolTip="Ask the same again with only its text and attachments" />
-                                <Button x:Name="FreshScreenButton" Height="22" Margin="0,4,4,0" Padding="9,0" FontSize="11"
-                                        Click="Redirect_OnClick" Content="↻ Fresh screen" />
-                                <Button x:Name="ToAgentButton" Height="22" Margin="0,4,4,0" Padding="9,0" FontSize="11"
-                                        Click="ToAgent_OnClick" Content="↻ Agent"
-                                        ToolTip="Give the same to an agent in the workspace; a card confirms first" />
-                                <Button x:Name="EditButton" Height="22" Margin="0,4,0,0" Padding="9,0" FontSize="11" Click="Edit_OnClick"
-                                        Content="✎ Edit" ToolTip="Correct the question, e.g. a misheard word, and ask again with the same screen and context" />
+                                <Button x:Name="AskAgainButton" Height="22" Margin="0,4,4,0" Padding="9,0" FontSize="11"
+                                        Click="AskAgain_OnClick" Content="Ask again ▾"
+                                        ToolTip="The same question again: deeper, with a fresh screen, with only its text, or corrected" />
+                                <Button x:Name="ToAgentButton" Height="22" Margin="0,4,0,0" Padding="9,0" FontSize="11"
+                                        Click="ToAgent_OnClick" Content="→ Agent task"
+                                        ToolTip="Make it a task for the project's agent: a card shows what goes and nothing runs before Run" />
                             </WrapPanel>
                         </Grid>
                     </Border>

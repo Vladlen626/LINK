@@ -224,6 +224,23 @@ public sealed class AgentChanges
         return entries;
     }
 
+    /// <summary>
+    /// What the agent changed in a git workspace, against the last commit: lines added and removed per file
+    /// (<paramref name="stat"/>), or the diff itself cut at <paramref name="limit"/> characters. Null without git or
+    /// changes; files git does not track yet are only listed.
+    /// </summary>
+    public async Task<string?> DiffAsync(WorkspaceBefore before, IEnumerable<AgentChange> changes, bool stat, int limit,
+        CancellationToken cancellationToken)
+    {
+        if (!before.IsGit) return null;
+        var paths = changes.Select(change => Path.GetRelativePath(before.Workspace, change.Path)).ToArray();
+        if (paths.Length == 0) return null;
+        string[] arguments = stat ? ["diff", "--no-color", "--numstat", "HEAD", "--", .. paths] : ["diff", "--no-color", "HEAD", "--", .. paths];
+        var diff = (await GitAsync(before.Workspace, arguments, cancellationToken))?.Trim();
+        if (string.IsNullOrEmpty(diff)) return null;
+        return diff.Length <= limit ? diff : diff[..limit] + $"\n… cut at {limit / 1000} KB of {diff.Length / 1000} KB";
+    }
+
     /// <summary>Runs git in the workspace; its output, or null when git is missing or the command failed.</summary>
     private static async Task<string?> GitAsync(string workspace, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
     {

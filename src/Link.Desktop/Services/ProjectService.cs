@@ -93,26 +93,33 @@ public sealed class ProjectService
 
     private static string HistoryFile(LinkProject project) => Path.Combine(project.DataFolder, "history.json");
 
-    /// <summary>The project's last agent sessions, newest first, in its data folder.</summary>
-    public IReadOnlyList<AgentSessionRecord> ReadAgentSessions(LinkProject project) =>
-        (AtomicJsonFile.Read<List<AgentSessionRecord>>(AgentSessionsFile(project), _json) ?? [])
-        .Where(session => session.SessionId.Length > 0 && Enum.IsDefined(session.Provider) && Enum.IsDefined(session.Access))
-        .ToList();
-
     /// <summary>
-    /// Puts a session at the top, in place of the same session or the one it went on from, and keeps the last ten;
-    /// returns the list.
+    /// The project's agent tasks, newest first, in its data folder. The sessions an earlier Link kept come as tasks of
+    /// one run until the first task is saved.
     /// </summary>
-    public IReadOnlyList<AgentSessionRecord> RememberAgentSession(LinkProject project, AgentSessionRecord session, string? wentOnFrom)
+    public IReadOnlyList<AgentTaskRecord> ReadAgentTasks(LinkProject project)
     {
-        var sessions = ReadAgentSessions(project)
-            .Where(old => old.SessionId != session.SessionId && old.SessionId != wentOnFrom)
-            .Prepend(session)
-            .Take(HistorySize)
-            .ToList();
-        AtomicJsonFile.Write(AgentSessionsFile(project), sessions, _json);
-        return sessions;
+        var tasks = File.Exists(AgentTasksFile(project)) || !File.Exists(AgentSessionsFile(project))
+            ? AtomicJsonFile.Read<List<AgentTaskRecord>>(AgentTasksFile(project), _json) ?? []
+            : (AtomicJsonFile.Read<List<AgentSessionRecord>>(AgentSessionsFile(project), _json) ?? [])
+                .Where(session => session.SessionId.Length > 0 && Enum.IsDefined(session.Provider) && Enum.IsDefined(session.Access))
+                .Select(AgentTaskRecord.FromSession)
+                .ToList();
+        // A record a newer Link or a hand wrote, with something this Link does not know, is skipped.
+        return tasks.Where(task => Enum.IsDefined(task.Status) && task.Runs.All(run => Enum.IsDefined(run.Provider))).ToList();
     }
+
+    /// <summary>Puts a task at the top, in place of its older record, and keeps the last <see cref="TasksKept"/>; returns the list.</summary>
+    public IReadOnlyList<AgentTaskRecord> SaveAgentTask(LinkProject project, AgentTaskRecord task)
+    {
+        var tasks = ReadAgentTasks(project).Where(old => old.Id != task.Id).Prepend(task).Take(TasksKept).ToList();
+        AtomicJsonFile.Write(AgentTasksFile(project), tasks, _json);
+        return tasks;
+    }
+
+    private const int TasksKept = 20;
+
+    private static string AgentTasksFile(LinkProject project) => Path.Combine(project.DataFolder, "agent-tasks.json");
 
     private static string AgentSessionsFile(LinkProject project) => Path.Combine(project.DataFolder, "agent-sessions.json");
 

@@ -25,11 +25,11 @@ public partial class MainWindow
         "Summarize this conversation so that the work can continue in a new chat: the goal, key decisions and facts, " +
         "the current state, the next step and open questions. At most 120 words, only the summary, no preamble. " +
         "Write it in the language of this conversation.";
+    // Where Send sends. What goes along is the chips, each removable; "Only my text" leaves all of Link's out.
     private static readonly (RequestRoute Route, string Label, string Description)[] RouteOptions =
     [
-        (RequestRoute.Chat, "Chat", "Chat — with the project, its task and state, the work window and a depth hint"),
-        (RequestRoute.Direct, "Direct", "Direct — only your text and what you attached"),
-        (RequestRoute.Agent, "Agent", "Agent — Claude Code or Codex works in the workspace, after a card you confirm")
+        (RequestRoute.Chat, "ChatGPT", "ChatGPT — an answer here, with the chips you see"),
+        (RequestRoute.Agent, "Agent task", "The project's agent — a task card first; nothing runs before Run")
     ];
     private static readonly (ResponseEffort Effort, string Label, string Description)[] EffortOptions =
     [
@@ -159,7 +159,7 @@ public partial class MainWindow
         }
 
         var prompt = PromptBox.Text;
-        var route = _settings.Current.Route;
+        var route = _onlyMyText ? RequestRoute.Direct : RequestRoute.Chat;
         var answered = await AttemptAsync(
             prompt,
             route,
@@ -192,10 +192,52 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// A redirect button: the snapshot on screen goes again, deeper, directly or with a fresh screenshot of its work
-    /// window, to the same chat. The prompt and the clipboard are not read again.
+    /// Ask again ▾: the question on screen again, deeper, with a fresh screen of its window or with only its text, or
+    /// back in the prompt to be corrected. Only what would change something is offered.
     /// </summary>
-    private async void Redirect_OnClick(object sender, RoutedEventArgs e)
+    private void AskAgain_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_attemptOnScreen is not { } shown) return;
+        var (snapshot, route, effort) = shown;
+        var menu = new ContextMenu { PlacementTarget = AskAgainButton, Placement = PlacementMode.Bottom };
+        if (effort != ResponseEffort.Deep) AddAgain(menu, "Deeper", "The same question, thought over longer", Redirect.Deeper);
+        if (snapshot.WorkWindow != IntPtr.Zero)
+        {
+            AddAgain(menu, $"With a fresh screen of {snapshot.WorkTarget?.ProcessName ?? "its window"}",
+                "The same question with a new screenshot of the window it was asked about", Redirect.FreshScreen);
+        }
+
+        if (route != RequestRoute.Direct) AddAgain(menu, "Only my text", "The same question with only its text and what you attached", Redirect.OnlyText);
+        menu.Items.Add(new Separator());
+        var edit = new MenuItem
+        {
+            Header = "Edit the question",
+            ToolTip = "Back into the prompt to correct, e.g. a misheard word; it is asked again with the same screen and context"
+        };
+        edit.Click += (_, _) => EditQuestion();
+        menu.Items.Add(edit);
+        menu.IsOpen = true;
+    }
+
+    private void AddAgain(ContextMenu menu, string header, string tooltip, Redirect redirect)
+    {
+        var item = new MenuItem { Header = header, ToolTip = tooltip };
+        item.Click += async (_, _) => await AskAgainAsync(redirect);
+        menu.Items.Add(item);
+    }
+
+    private enum Redirect
+    {
+        Deeper,
+        FreshScreen,
+        OnlyText
+    }
+
+    /// <summary>
+    /// The snapshot on screen goes again to the same chat, deeper, with only its text or with a fresh screenshot of its
+    /// work window. The prompt and the clipboard are not read again.
+    /// </summary>
+    private async Task AskAgainAsync(Redirect redirect)
     {
         StopHandsFree();
         // While the user dictates, the words wait for the next message.
@@ -208,10 +250,10 @@ public partial class MainWindow
         }
 
         var (snapshot, route, effort) = shown;
-        var fresh = sender == FreshScreenButton;
-        if (sender == DeeperButton) effort = ResponseEffort.Deep;
-        else if (sender == DirectButton) route = RequestRoute.Direct;
-        // Direct sends no screenshot of its own, so a fresh one goes by Chat.
+        var fresh = redirect == Redirect.FreshScreen;
+        if (redirect == Redirect.Deeper) effort = ResponseEffort.Deep;
+        else if (redirect == Redirect.OnlyText) route = RequestRoute.Direct;
+        // "Only my text" sends no screenshot of its own, so a fresh one goes with Link's chips.
         else route = RequestRoute.Chat;
 
         // After a failure or Stop the prompt still holds this input: once answered, it goes like a sent one.
@@ -230,11 +272,11 @@ public partial class MainWindow
         snapshot with { Id = Guid.NewGuid(), Screen = await CaptureWorkWindowAsync(snapshot.WorkWindow) };
 
     /// <summary>
-    /// ✎ Edit: the question on screen goes back into the prompt to be corrected, e.g. a word the voice misheard.
-    /// Send then asks it again from the same snapshot: its screen, context and window go as they were, and nothing
-    /// is dictated or captured again.
+    /// Edit the question: it goes back into the prompt to be corrected, e.g. a word the voice misheard. Send then asks
+    /// it again from the same snapshot: its screen, context and window go as they were, and nothing is dictated or
+    /// captured again.
     /// </summary>
-    private void Edit_OnClick(object sender, RoutedEventArgs e)
+    private void EditQuestion()
     {
         StopHandsFree();
         if (_sending || _voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing) return;
@@ -273,13 +315,16 @@ public partial class MainWindow
         if (answered) ClearSentPrompt(prompt);
     }
 
-    /// <summary>The answered input leaves the prompt and the context stack; Link's own chips come back.</summary>
+    /// <summary>
+    /// The answered input leaves the prompt and the context stack. Link's own chips come back, and "only my text" was
+    /// for that question only.
+    /// </summary>
     private void ClearSentInput(string prompt)
     {
         ClearSentPrompt(prompt);
         ClearContext(prune: true);
-        ShowProjectStateContext();
-        ShowApplicationContext();
+        _noteLeftOut = false;
+        SetOnlyMyText(false);
     }
 
     private void ClearSentPrompt(string prompt)
@@ -301,14 +346,15 @@ public partial class MainWindow
         var workTarget = _currentApplication.WorkTarget;
         var workWindow = _currentApplication.IsExternalWindow(workTarget) ? workTarget : IntPtr.Zero;
         var named = _context.Any(item => item.Type == ContextItemType.Application);
+        IEnumerable<ContextItem> context = _context.Where(item => item.Type != ContextItemType.Application);
+        if (ProjectNote(project) is { } note) context = context.Prepend(note);
         var snapshot = new InputSnapshot
         {
             ProjectId = project.Id,
             ProjectName = project.Name,
-            CurrentTask = project.CurrentTask,
             Text = prompt.Trim(),
             // The app's chip only says that its name and title go; they travel as the work target.
-            Context = [.. _context.Where(item => item.Type != ContextItemType.Application)],
+            Context = [.. context],
             WorkTarget = named ? _currentApplication.GetContext(workWindow) : null,
             WorkWindow = workWindow
         };
@@ -414,28 +460,9 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>
-    /// The redirects that change something about the attempt on screen: a Deep one is not asked deeper, a Direct one
-    /// not directly, and without a work window there is no screen to take afresh.
-    /// </summary>
-    private void UpdateRedirectButtons()
-    {
-        if (_attemptOnScreen is not { } shown)
-        {
-            RedirectPanel.Visibility = Visibility.Collapsed;
-            return;
-        }
-
-        var (snapshot, route, effort) = shown;
-        DeeperButton.Visibility = effort == ResponseEffort.Deep ? Visibility.Collapsed : Visibility.Visible;
-        DirectButton.Visibility = route == RequestRoute.Direct ? Visibility.Collapsed : Visibility.Visible;
-        FreshScreenButton.Visibility = snapshot.WorkWindow == IntPtr.Zero ? Visibility.Collapsed : Visibility.Visible;
-        FreshScreenButton.ToolTip = $"Ask the same again with a new screenshot of {snapshot.WorkTarget?.ProcessName ?? "its window"}" +
-                                    (route == RequestRoute.Direct ? ", by Chat" : string.Empty);
-        RedirectPanel.Visibility = RedirectPanel.Children.Cast<UIElement>().Any(button => button.Visibility == Visibility.Visible)
-            ? Visibility.Visible
-            : Visibility.Collapsed;
-    }
+    /// <summary>Under an attempt's answer, error or Stop: Ask again ▾ and → Agent task, both from its snapshot.</summary>
+    private void UpdateRedirectButtons() =>
+        RedirectPanel.Visibility = _attemptOnScreen is null ? Visibility.Collapsed : Visibility.Visible;
 
     private string ResponseReceivedStatus() =>
         _chatNotice is null ? "Response received" : $"Response received · {_chatNotice}";
@@ -499,23 +526,29 @@ public partial class MainWindow
         _settings.Current.Route = route;
         _settings.Save();
         UpdateRouteButton();
-        // What Direct does not send is not shown as going along.
-        UpdateTaskChip();
-        ShowProjectStateContext();
+        // What an agent's task does not carry is not shown as going along.
         ShowApplicationContext();
         UpdateSees();
-        UpdateAgentHint();
-        SetStatus($"Route: {RouteText.Text} — applies to the next message");
+        SetStatus($"Send goes to {DestinationName} now");
     }
 
     private void UpdateRouteButton()
     {
-        var option = RouteOptions.First(option => option.Route == _settings.Current.Route);
-        // Agent shows who works and how the card starts: the access Settings chose, which a task's card can change.
+        var agent = _settings.Current.Route == RequestRoute.Agent;
+        // The agent's name and how its card starts: the access Settings chose, which a task's card can change.
         var access = _settings.Current.Agent.DefaultAccess == AgentAccessChoice.Edit ? "edit" : "auto";
-        RouteText.Text = option.Route == RequestRoute.Agent ? $"{ShortName(ProjectProvider)} · {access}" : option.Label;
-        RouteButton.ToolTip = $"Route: {option.Description}";
+        RouteText.Text = agent ? $"To {ShortName(ProjectProvider)} task · {access}" : "To ChatGPT";
+        RouteButton.ToolTip = agent
+            ? $"Send opens a task card for {_agents.Provider(ProjectProvider).Name}; nothing runs before Run. Click to change"
+            : "Send asks ChatGPT, with the chips you see. Click to change";
+        SendHintText.Text = agent ? "opens the task card" : "sends to ChatGPT";
+        UpdateSendButton();
     }
+
+    /// <summary>Who the next message goes to, in the words of the status line.</summary>
+    private string DestinationName => _settings.Current.Route == RequestRoute.Agent
+        ? $"a task card for {_agents.Provider(ProjectProvider).Name}"
+        : "ChatGPT";
 
     private void Effort_OnClick(object sender, RoutedEventArgs e) =>
         ShowOptions(EffortButton, EffortOptions, _settings.Current.ResponseEffort, SetEffort);
@@ -632,7 +665,6 @@ public partial class MainWindow
             {
                 ProjectId = project.Id,
                 ProjectName = project.Name,
-                CurrentTask = project.CurrentTask,
                 Text = SummaryPrompt
             };
             // Fast: a summary needs no long thinking, and a long chat writes slowly as it is.
@@ -747,7 +779,10 @@ public partial class MainWindow
         var stop = _sending || speaking;
         SendIcon.Data = stop ? StopIconGeometry : (Geometry)FindResource("SendIconGeometry");
         SendIcon.Fill = stop ? SendIcon.Stroke : Brushes.Transparent;
-        SendButton.ToolTip = speaking ? "Stop reading aloud (Esc)" : _sending ? "Stop request (Esc)" : "Send to linked chat";
+        SendButton.ToolTip = speaking ? "Stop reading aloud (Esc)"
+            : _sending ? "Stop request (Esc)"
+            : _settings.Current.Route == RequestRoute.Agent ? $"Open the task card for {_agents.Provider(ProjectProvider).Name} (Enter)"
+            : "Send to ChatGPT (Enter)";
     }
 
     private void OnChatProgress(ChatProgress progress)
@@ -974,6 +1009,7 @@ public partial class MainWindow
             var start = index;
             if (lines[index].TrimStart().StartsWith("```", StringComparison.Ordinal))
             {
+                var language = lines[index].TrimStart()[3..].Trim();
                 index++;
                 var codeLines = new List<string>();
                 while (index < lines.Length && !lines[index].TrimStart().StartsWith("```", StringComparison.Ordinal))
@@ -981,6 +1017,14 @@ public partial class MainWindow
                     codeLines.Add(lines[index++]);
                 }
                 if (index < lines.Length) index++;
+
+                // A task ChatGPT wrote for the agent: a card with Give to agent, once the block is complete.
+                if (language.Equals("link-task", StringComparison.OrdinalIgnoreCase) && index > start + 1 &&
+                    lines[index - 1].TrimStart().StartsWith("```", StringComparison.Ordinal))
+                {
+                    AddResponseBlock(lines, start, index, () => CreateTaskBlock(string.Join('\n', codeLines).Trim()));
+                    continue;
+                }
 
                 AddResponseBlock(lines, start, index, () => new Paragraph(new Run(string.Join('\n', codeLines)))
                 {
@@ -1105,6 +1149,39 @@ public partial class MainWindow
         }
 
         _responseBlocks.RemoveRange(from, _responseBlocks.Count - from);
+    }
+
+    /// <summary>A link-task block of an answer: the brief ChatGPT wrote for the agent, and the button that takes it there.</summary>
+    private Block CreateTaskBlock(string brief)
+    {
+        var section = new Section
+        {
+            Margin = new Thickness(0, 3, 0, 10),
+            Padding = new Thickness(9, 7, 9, 7),
+            Background = (Brush)FindResource("ResponseCodeBrush"),
+            BorderBrush = (Brush)FindResource("AccentBorderBrush"),
+            BorderThickness = new Thickness(1)
+        };
+        section.Blocks.Add(new Paragraph(new Bold(new Run("Task for the agent")))
+        {
+            Margin = new Thickness(0, 0, 0, 4),
+            FontSize = 11.5,
+            Foreground = (Brush)FindResource("AccentBrush")
+        });
+        section.Blocks.Add(new Paragraph(new Run(brief)) { Margin = new Thickness(0), FontSize = 12.5 });
+        var give = new Button
+        {
+            Content = "Give to agent",
+            Height = 24,
+            Padding = new Thickness(10, 0, 10, 0),
+            Margin = new Thickness(0, 6, 0, 0),
+            FontSize = 11.5,
+            HorizontalAlignment = HorizontalAlignment.Left,
+            ToolTip = "A task card with this brief: you check it, nothing runs before Run"
+        };
+        give.Click += (_, _) => GiveToAgent(brief);
+        section.Blocks.Add(new BlockUIContainer(give));
+        return section;
     }
 
     private System.Windows.Documents.List CreateList(IEnumerable<string> lines, bool numbered)

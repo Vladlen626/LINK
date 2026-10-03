@@ -1,6 +1,7 @@
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Input;
+using System.Windows.Media;
 using System.Windows.Interop;
 using System.Windows.Shell;
 using Link.Desktop.Models;
@@ -35,11 +36,32 @@ public partial class SidePanelWindow : Window
     /// <summary>The user dragged the outer edge to this width, in device-independent pixels.</summary>
     public event Action<double>? WidthChosen;
 
-    public void SetContent(string title, FrameworkElement content)
+    /// <summary>A tab was clicked.</summary>
+    public event Action<PanelTab>? TabChosen;
+
+    /// <summary>Shows a tab's content; the other tab stays one click away.</summary>
+    public void ShowTab(PanelTab tab, string projectName, FrameworkElement content)
     {
-        TitleText.Text = title;
+        ProjectTabText.Text = projectName;
+        foreach (var (button, text, chosen) in new[] { (ProjectTabButton, ProjectTabText, tab == PanelTab.Project), (TaskTabButton, TaskTabText, tab == PanelTab.Task) })
+        {
+            button.Background = chosen ? (Brush)FindResource("ActiveContextBrush") : Brushes.Transparent;
+            text.Foreground = (Brush)FindResource(chosen ? "TextBrush" : "MutedBrush");
+        }
+
         Body.Content = content;
     }
+
+    /// <summary>The task tab's dot: how the agent's task stands (working, needs you, done); null hides it.</summary>
+    public void ShowTaskDot(Brush? dot)
+    {
+        TaskTabDot.Fill = dot;
+        TaskTabDot.Visibility = dot is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private void ProjectTab_OnClick(object sender, RoutedEventArgs e) => TabChosen?.Invoke(PanelTab.Project);
+
+    private void TaskTab_OnClick(object sender, RoutedEventArgs e) => TabChosen?.Invoke(PanelTab.Task);
 
     /// <summary>
     /// Puts the panel beside the card on the card's monitor. It keeps its side while it fits there and otherwise goes
@@ -75,4 +97,10 @@ public partial class SidePanelWindow : Window
     }
 
     private void Close_OnClick(object sender, RoutedEventArgs e) => CloseRequested?.Invoke();
+}
+
+public enum PanelTab
+{
+    Project,
+    Task
 }

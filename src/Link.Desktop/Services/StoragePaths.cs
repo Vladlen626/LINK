@@ -35,6 +35,9 @@ public sealed class StoragePaths
     /// <summary>Copies of workspaces without git, made before an agent changed them; created when first needed.</summary>
     public string Backups => Path.Combine(Root, "Backups");
 
+    /// <summary>The agents' subscription windows as their CLIs last reported them.</summary>
+    public string AgentLimitsFile => Path.Combine(Root, "agent-limits.json");
+
     /// <summary>The Gemini API key for voice replies, encrypted for this Windows user.</summary>
     public string GeminiKeyFile => Path.Combine(Root, "gemini-key.bin");
 }

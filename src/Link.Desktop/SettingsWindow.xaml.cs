@@ -99,6 +99,10 @@ public partial class SettingsWindow : Window
         ShowChoices(CodexModelCombo, codex.Models, current.Agent.CodexModel, "Default — Codex's config");
         ShowChoices(ClaudeEffortCombo, claude.Efforts, current.Agent.ClaudeEffort, "Default — Claude Code's own");
         ShowChoices(CodexEffortCombo, codex.Efforts, current.Agent.CodexEffort, "Default — Codex's config");
+        ShowLevel(ClaudeLightModelCombo, ClaudeLightEffortCombo, claude, current.Agent.ClaudeLight, "Claude Code's own");
+        ShowLevel(ClaudeDeepModelCombo, ClaudeDeepEffortCombo, claude, current.Agent.ClaudeDeep, "Claude Code's own");
+        ShowLevel(CodexLightModelCombo, CodexLightEffortCombo, codex, current.Agent.CodexLight, "Codex's config");
+        ShowLevel(CodexDeepModelCombo, CodexDeepEffortCombo, codex, current.Agent.CodexDeep, "Codex's config");
         Closing += (_, _) => _agentChecks.Cancel();
         Loaded += (_, _) => _ = CheckAgentsAsync();
     }
@@ -117,6 +121,13 @@ public partial class SettingsWindow : Window
     }
 
     private string? Chosen(ComboBox combo) => combo.SelectedIndex > 0 ? _choices[combo][combo.SelectedIndex - 1].Value : null;
+
+    /// <summary>A level's model and effort combos; "Default" leaves either to the agent's own settings.</summary>
+    private void ShowLevel(ComboBox model, ComboBox effort, IAgentProvider agent, AgentLevelChoice level, string own)
+    {
+        ShowChoices(model, agent.Models, level.Model, $"Default — {own}");
+        ShowChoices(effort, agent.Efforts, level.Effort, "Default");
+    }
 
     /// <summary>
     /// Runs each agent's CLI for its version and sign-in, off the UI thread; the files chosen here are tried before
@@ -587,6 +598,10 @@ public partial class SettingsWindow : Window
         current.Agent.CodexModel = Chosen(CodexModelCombo);
         current.Agent.SetEffort(AgentProviderKind.ClaudeCode, Chosen(ClaudeEffortCombo));
         current.Agent.SetEffort(AgentProviderKind.Codex, Chosen(CodexEffortCombo));
+        current.Agent.ClaudeLight = new AgentLevelChoice { Model = Chosen(ClaudeLightModelCombo), Effort = Chosen(ClaudeLightEffortCombo) };
+        current.Agent.ClaudeDeep = new AgentLevelChoice { Model = Chosen(ClaudeDeepModelCombo), Effort = Chosen(ClaudeDeepEffortCombo) };
+        current.Agent.CodexLight = new AgentLevelChoice { Model = Chosen(CodexLightModelCombo), Effort = Chosen(CodexLightEffortCombo) };
+        current.Agent.CodexDeep = new AgentLevelChoice { Model = Chosen(CodexDeepModelCombo), Effort = Chosen(CodexDeepEffortCombo) };
         current.Agent.Normalize();
 
         try

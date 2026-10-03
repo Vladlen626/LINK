@@ -25,12 +25,9 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
     {
         get
         {
-            var home = Environment.GetEnvironmentVariable("CODEX_HOME") is { Length: > 0 } codexHome
-                ? codexHome
-                : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
             try
             {
-                using var cache = JsonDocument.Parse(File.ReadAllText(Path.Combine(home, "models_cache.json")));
+                using var cache = JsonDocument.Parse(File.ReadAllText(Path.Combine(CodexHome, "models_cache.json")));
                 return cache.RootElement.GetProperty("models").EnumerateArray()
                     .Where(model => Text(model, "visibility") == "list" && Text(model, "slug") is { Length: > 0 })
                     .Select(model => new AgentChoice(Text(model, "slug")!, Text(model, "display_name") ?? Text(model, "slug")!))
@@ -51,6 +48,52 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
 
     // Codex reads .agents/skills from its folder up to the repository's root.
     protected override bool FindsSkills => true;
+
+    private static string CodexHome => Environment.GetEnvironmentVariable("CODEX_HOME") is { Length: > 0 } home
+        ? home
+        : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
+
+    /// <summary>Codex's exec events carry no rate limits; its own log of the session does, so they are read from there.</summary>
+    protected override IReadOnlyList<AgentEvent> AfterRun(AgentResult result) =>
+        result.SessionId is { } session && SessionLimits(Path.Combine(CodexHome, "sessions"), session) is { Count: > 0 } limits
+            ? [new AgentEvent(AgentEventKind.Limit, "Usage reported") { Limits = limits }]
+            : [];
+
+    /// <summary>
+    /// The 5-hour and weekly windows Codex last wrote into its log of a session (<c>rollout-…-&lt;session&gt;.jsonl</c>,
+    /// <c>rate_limits</c> of a token count). Only those lines are looked at; nothing else of the session is read.
+    /// </summary>
+    internal static IReadOnlyList<AgentLimit> SessionLimits(string sessionsFolder, string session)
+    {
+        try
+        {
+            var file = Directory.Exists(sessionsFolder)
+                ? Directory.EnumerateFiles(sessionsFolder, $"rollout-*{session}.jsonl", SearchOption.AllDirectories).FirstOrDefault()
+                : null;
+            var last = file is null ? null : File.ReadLines(file).LastOrDefault(line => line.Contains("\"rate_limits\"") && line.Contains("\"codex\""));
+            if (last is null) return [];
+            using var document = JsonDocument.Parse(last);
+            if (!document.RootElement.TryGetProperty("payload", out var payload) || !payload.TryGetProperty("rate_limits", out var limits)) return [];
+            var now = DateTimeOffset.Now;
+            return new[] { "primary", "secondary" }
+                .Select(name => limits.TryGetProperty(name, out var window) && window.ValueKind == JsonValueKind.Object ? window : default)
+                .Where(window => window.ValueKind == JsonValueKind.Object)
+                .Select(window =>
+                {
+                    var minutes = window.TryGetProperty("window_minutes", out var length) && length.TryGetInt64(out var value) ? value : 0;
+                    var used = AgentLimits.Percent(window, "used_percent");
+                    var reset = AgentLimits.UnixTime(window, "resets_at") ??
+                                (window.TryGetProperty("resets_in_seconds", out var seconds) && seconds.TryGetInt64(out var left) ? now.AddSeconds(left) : null);
+                    var name = minutes switch { 300 => "5 h", 10080 => "week", > 0 => $"{minutes / 60} h", _ => "window" };
+                    return new AgentLimit(AgentProviderKind.Codex, name, used, reset, used >= 100, now);
+                })
+                .ToArray();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return [];
+        }
+    }
 
     /// <summary>
     /// What a task in a workspace does without. The Codex desktop app's plugins (with their skills and computer
@@ -220,6 +263,21 @@ public sealed partial class CodexEventParser : AgentEventParser
             case "thread.started":
                 SessionId = Text(root, "thread_id");
                 events.Add(new AgentEvent(AgentEventKind.Status, "Session started"));
+                break;
+            // The agent's own plan, whole each time it changes: the Task tab shows it as a list.
+            case "item.started" or "item.updated" or "item.completed" when root.TryGetProperty("item", out var list) &&
+                                                                           Text(list, "type") == "todo_list" &&
+                                                                           list.TryGetProperty("items", out var items) &&
+                                                                           items.ValueKind == JsonValueKind.Array:
+                var plan = items.EnumerateArray()
+                    .Select(item => new AgentPlanItem(Text(item, "text"),
+                        item.TryGetProperty("completed", out var completed) && completed.ValueKind == JsonValueKind.True, false))
+                    .Where(item => item.Text.Length > 0)
+                    .ToArray();
+                // The first step not done is the one under way.
+                var active = Array.FindIndex(plan, item => !item.Done);
+                if (active >= 0) plan[active] = plan[active] with { Active = true };
+                events.Add(new AgentEvent(AgentEventKind.Plan, $"Plan: {plan.Count(item => item.Done)} of {plan.Length} done") { Plan = plan });
                 break;
             case "item.started" when root.TryGetProperty("item", out var item) && Text(item, "type") == "command_execution":
                 var command = Unwrap(Text(item, "command"));

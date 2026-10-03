@@ -30,26 +30,18 @@
 
     <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
         <StackPanel Margin="0,0,4,0">
-            <TextBlock Style="{StaticResource SectionLabelStyle}" Text="CURRENT TASK" />
-            <Border Style="{StaticResource FieldStyle}">
-                <Grid>
-                    <TextBox x:Name="TaskBox" Style="{StaticResource FieldTextStyle}" MaxLines="3"
-                             TextChanged="TaskBox_OnTextChanged" LostKeyboardFocus="Field_OnLostKeyboardFocus" />
-                    <TextBlock x:Name="TaskPlaceholder" Style="{StaticResource PlaceholderStyle}" Text="What are you working on?" />
-                </Grid>
-            </Border>
-
-            <Grid Margin="0,14,0,0">
-                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="PROJECT STATE" />
-                <TextBlock x:Name="StateDateText" HorizontalAlignment="Right" Style="{StaticResource SecondaryTextStyle}" FontSize="11" />
+            <!-- One note: its first line is what you work on now, the rest what the project stands on. -->
+            <Grid>
+                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="PROJECT NOTE" />
+                <TextBlock x:Name="NoteDateText" HorizontalAlignment="Right" Style="{StaticResource SecondaryTextStyle}" FontSize="11" />
             </Grid>
             <Border Style="{StaticResource FieldStyle}">
                 <Grid>
-                    <TextBox x:Name="StateBox" Style="{StaticResource FieldTextStyle}" MinHeight="66" MaxHeight="170"
+                    <TextBox x:Name="NoteBox" Style="{StaticResource FieldTextStyle}" MinHeight="78" MaxHeight="200"
                              AcceptsReturn="True" VerticalScrollBarVisibility="Auto"
-                             TextChanged="StateBox_OnTextChanged" LostKeyboardFocus="Field_OnLostKeyboardFocus" />
-                    <TextBlock x:Name="StatePlaceholder" Style="{StaticResource PlaceholderStyle}"
-                               Text="Goal, decisions, key facts, links to chats. It goes with your messages as a chip you can remove." />
+                             TextChanged="NoteBox_OnTextChanged" LostKeyboardFocus="Field_OnLostKeyboardFocus" />
+                    <TextBlock x:Name="NotePlaceholder" Style="{StaticResource PlaceholderStyle}"
+                               Text="First line: what you work on now. Then the goal, decisions, key facts. It goes with your questions and tasks; × in the card leaves it out of one." />
                 </Grid>
             </Border>
 
@@ -124,49 +116,33 @@
                 </Border>
             </StackPanel>
 
-            <!-- The project's last agent sessions: one opens with its last result, and a reply takes it up again. -->
-            <TextBlock x:Name="AgentSessionsLabel" Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="AGENT SESSIONS"
-                       Visibility="Collapsed" />
-            <ItemsControl x:Name="AgentSessionsList" Margin="-8,3,0,0">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Button Style="{StaticResource GhostButtonStyle}" Margin="0,0,0,2" Padding="8,5" HorizontalContentAlignment="Stretch"
-                                Click="AgentSession_OnClick" ToolTip="Open the session: its last result, and a reply goes on with it">
-                            <StackPanel>
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Goal}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
-                                               Text="{Binding Time}" />
-                                </Grid>
-                                <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="11.5" LineHeight="16" LineStackingStrategy="BlockLineHeight"
-                                           Foreground="{StaticResource MutedBrush}" Text="{Binding Details}" TextTrimming="CharacterEllipsis"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
-                        </Button>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
-
+            <!-- One history: the chat's answers and the agent's tasks, newest first. -->
             <TextBlock Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="HISTORY" />
             <TextBlock x:Name="HistoryEmptyText" Margin="0,5,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                       Text="The last ten answers of this project appear here." />
+                       Text="The chat's answers and the agent's tasks of this project appear here." />
             <ItemsControl x:Name="HistoryList" Margin="-8,3,0,0">
                 <ItemsControl.ItemTemplate>
                     <DataTemplate>
                         <Button Style="{StaticResource GhostButtonStyle}" Margin="0,0,0,2" Padding="8,5" HorizontalContentAlignment="Stretch"
-                                Click="HistoryItem_OnClick" ToolTip="Show this answer in Link">
-                            <StackPanel>
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Question}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
-                                               Text="{Binding Time}" />
-                                </Grid>
-                                <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="11.5" LineHeight="16" LineStackingStrategy="BlockLineHeight"
-                                           Foreground="{StaticResource MutedBrush}" Text="{Binding Preview}" TextTrimming="CharacterEllipsis"
-                                           TextWrapping="Wrap" />
-                            </StackPanel>
+                                Click="HistoryItem_OnClick" ToolTip="{Binding Hint}">
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                <Viewbox Width="13" Height="13" Margin="0,2,8,0" VerticalAlignment="Top">
+                                    <Path Data="{Binding Icon}" Fill="Transparent" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.9"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                                </Viewbox>
+                                <StackPanel Grid.Column="1">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                        <TextBlock Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
+                                                   Text="{Binding Time}" />
+                                    </Grid>
+                                    <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="11.5" LineHeight="16" LineStackingStrategy="BlockLineHeight"
+                                               Foreground="{StaticResource MutedBrush}" Text="{Binding Preview}" TextTrimming="CharacterEllipsis"
+                                               TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Grid>
                         </Button>
                     </DataTemplate>
                 </ItemsControl.ItemTemplate>

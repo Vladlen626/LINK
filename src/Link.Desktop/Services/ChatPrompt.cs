@@ -85,11 +85,6 @@ internal static class ChatPrompt
         {
             contextLines.Add($"Window: {request.CurrentApplication.WindowTitle.Trim()}");
         }
-
-        if (!string.IsNullOrWhiteSpace(request.CurrentTask))
-        {
-            contextLines.Add($"Current task: {request.CurrentTask.Trim()}");
-        }
     }
 
     private static IReadOnlyList<ChatPageAttachment> LoadImageAttachments(IEnumerable<ContextItem> context)

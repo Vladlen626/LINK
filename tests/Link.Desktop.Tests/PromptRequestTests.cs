@@ -33,7 +33,6 @@ internal static class PromptRequestTests
         {
             ProjectId = Guid.NewGuid(),
             ProjectName = "Nori",
-            CurrentTask = "Fix Land",
             Text = " Why is it dark? ",
             Context = [state, clipboard, region],
             WorkTarget = new CurrentApplicationContext { ProcessName = "blender", WindowTitle = "Nori.blend" },
@@ -45,7 +44,6 @@ internal static class PromptRequestTests
         Program.Equal("a request is for the snapshot's project", chat.ProjectId, snapshot.ProjectId);
         Program.Equal("a request names the project", chat.ProjectName, "Nori");
         Program.Equal("a request goes by its route", chat.Route, RequestRoute.Chat);
-        Program.Equal("a request carries the project's task", chat.CurrentTask, "Fix Land");
         Program.Equal("a request carries the prompt without edge spaces", chat.Text, "Why is it dark?");
         Program.Equal("a request has the attempt's depth", chat.Effort, ResponseEffort.Deep);
         Program.Equal("a request names the work target", chat.CurrentApplication?.WindowTitle, "Nori.blend");
@@ -66,8 +64,6 @@ internal static class PromptRequestTests
 
             Window: Nori.blend
 
-            Current task: Fix Land
-
             Project state:
             Land is lit by one sun
 
@@ -85,7 +81,6 @@ internal static class PromptRequestTests
         Program.Equal("Direct keeps the depth for the chat's mode", direct.Effort, ResponseEffort.Deep);
         Program.Equal("Direct sends only the attached context", Labels(direct), "Clipboard, Region");
         Program.Equal("Direct names no work target", direct.CurrentApplication is null, true);
-        Program.Equal("Direct carries no task", direct.CurrentTask, string.Empty);
         Program.Equal(
             "Direct is the text and the attached text alone",
             ChatPrompt.Format(direct),
@@ -104,7 +99,6 @@ internal static class PromptRequestTests
             ProjectId = snapshot.ProjectId,
             ProjectName = "Nori",
             Route = RequestRoute.Direct,
-            CurrentTask = "Fix Land",
             Text = "Why?",
             Effort = ResponseEffort.Fast,
             Conversation = true,

@@ -1,3 +1,5 @@
+using System.Text.Json.Serialization;
+
 namespace Link.Desktop.Models;
 
 public sealed class LinkProject
@@ -5,9 +7,15 @@ public sealed class LinkProject
     public Guid Id { get; init; } = Guid.NewGuid();
     public required string Name { get; set; }
     public required string DataFolder { get; init; }
-    public string CurrentTask { get; set; } = string.Empty;
 
-    /// <summary>What the project stands on now, in a few confirmed lines; null until the user writes it.</summary>
+    /// <summary>Read from older projects only: the current task is the first line of the project note now.</summary>
+    [JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    public string? CurrentTask { get; set; }
+
+    /// <summary>
+    /// The project note: its first line is what the user works on now, the rest what the project stands on (goal,
+    /// decisions, facts). It goes with questions and tasks as a chip; null until the user writes it.
+    /// </summary>
     public ProjectState? State { get; set; }
 
     /// <summary>The folder the project's work lives in, chosen by the user; null until chosen.</summary>
@@ -40,6 +48,18 @@ public sealed class LinkProject
     /// </summary>
     public void Normalize()
     {
+        // The task and the state of older projects become one note, the task its first line.
+        if (!string.IsNullOrWhiteSpace(CurrentTask))
+        {
+            var task = CurrentTask.Trim();
+            State = new ProjectState
+            {
+                Text = State is { } state ? $"{task}\n{state.Text}" : task,
+                UpdatedAt = State?.UpdatedAt ?? DateTimeOffset.Now
+            };
+        }
+
+        CurrentTask = null;
         CheckCommand = string.IsNullOrWhiteSpace(CheckCommand) ? null : CheckCommand.Trim();
         var changing = AgentReadTools.Where(AgentPermissions.ChangesThings).ToArray();
         if (changing.Length == 0) return;
@@ -50,7 +70,7 @@ public sealed class LinkProject
     public override string ToString() => Name;
 }
 
-/// <summary>A project's state: the task, decisions, key facts and links to chats, and when it was last confirmed.</summary>
+/// <summary>The project note: what the user works on now (its first line), decisions and key facts, and when it was written.</summary>
 public sealed class ProjectState
 {
     public required string Text { get; init; }

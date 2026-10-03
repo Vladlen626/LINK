@@ -54,10 +54,11 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
   состояние, следующий шаг, вопросы). Дальше, если понадобится: варианты Full / Tiny и правила проекта.
 - **Decision memory** — нет: решения отдельно от summaries (active/deprecated), отдельно open questions.
 - **Commands** — нет: command palette, quicklinks, script commands (PowerShell/Python/EXE), локальные действия без AI.
-- **Agent** — сделано (2026-09-30): маршрут Agent через Claude Code или Codex CLI, карточка подтверждения, Activity
-  со Stop, решения (Allow and retry, Retry with edits, Run the plan), откат, `↻ Agent` / `↻ To chat`. Харнесс — всегда:
-  правила агента в каждой новой сессии, цифры задачи, карта проекта, skills («Save as skill», список в панели),
-  проверка после Do, метки петель, «Start over with a note».
+- **Agent** — сделано (2026-09-30, задача как единица — 2026-10-03): Claude Code или Codex CLI, карточка с брифом,
+  вкладка Task — одна задача с историей, планом агента, What Link gave, usage и окнами лимитов; Correct / After this,
+  Stop, Hand off ▾ (другой агент с брифом, другой уровень в той же сессии, возврат первого), Start over, Escalate,
+  Finish; уровни Light / Standard / Deep; итог чипом в следующий вопрос, Discuss in chat с diff. Харнесс — всегда:
+  правила агента в каждой новой сессии, цифры задачи, карта, skills, проверка после Do, метки петель.
 
 ## Стек
 
@@ -184,7 +185,7 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   `codex exec` не принимают слов посреди прогона (потоковый ввод Claude ставит их в очередь до конца хода), поэтому
   слова во время работы — это Stop и сразу продолжение той же сессии с ними («The user stopped you to say this»):
   одинаково для обоих, сделанное остаётся, откат покрывает всё.
-- Передача задачи и консоль (2026-10-03, запрос пользователя: «если у одного лимиты кончатся», «хочу видеть, что Link
+- Передача задачи и консоль (2026-10-03; передача с тех пор — Hand off ▾ с брифом v2, см. «Модели и передача»; «хочу видеть, что Link
   передаёт агенту»). Ни один CLI не продолжает сессию другого, поэтому **Continue with …** начинает новую сессию
   другого агента в той же папке с тем же доступом: задача, как кончил первый, его 40 последних шагов Activity
   (хранятся и в записи сессии — передача работает после перезапуска) и изменённые файлы; предыдущий прогон остаётся
@@ -206,6 +207,34 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
 - Claude Code приложения Claude (2026-10-03): его `claude.exe` теперь лежит в `claude-code\<версия>\<хеш>\`; Link ищет и
   там, и в npm-пакете (`@anthropic-ai\claude-code\bin\claude.exe`), до обёртки `claude.cmd`: через cmd.exe правило вроде
   `Bash(a && b > c)` не передать, и задача не стартовала («Could not start»).
+- Карточка и панель (2026-10-03, план, этап 2). Адресатов два — ChatGPT и агент проекта (`To ChatGPT ▾`, подсказка у
+  Enter); Direct из выбора убран — всё, что добавляет Link, это видимые чипы с `×` на один вопрос, а `Only my text`
+  отправляет без них (внутри это прежний `RequestRoute.Direct`; сохранённый `Route: Direct` грузится как Chat).
+  «Текущая задача» и «Состояние проекта» — одна заметка (`ProjectState`, первая строка — фокус; `Normalize()`
+  переносит старую задачу первой строкой); в запросе — один чип вместо строки «Current task» (схема запроса 6). Под
+  ответом — `Ask again ▾` и `→ Agent task`; подсказка `↳ Agent?` по глаголам убрана. Панель — вкладки Project | Task,
+  одна история (ответы и задачи); пилюля агента в заголовке карточки.
+- Задача агента (2026-10-03, этап 3). Единица — задача, не сессия CLI: `AgentTaskRecord` в
+  `Projects\<id>\agent-tasks.json` (20 последних) — бриф, прогоны с токенами (у Codex — разница с прошлым итогом его
+  сессии), лента (бриф, слова пользователя, прогоны, проверки, передачи, модель, лимиты), план агента (TodoWrite
+  Claude Code, `todo_list` Codex), файлы, последняя проверка, шаги. `agent-sessions.json` прежнего Link читается
+  задачами из одного прогона. Слова во время работы: `Enter` — поправка (Stop и та же сессия), `Tab` — после этого
+  прогона. Окна лимитов: Claude Code — `rate_limit_event` (5 ч, неделя, `utilization`, `resetsAt`), Codex — строки
+  `rate_limits` журнала своей сессии (только они); последнее известное — `agent-limits.json`; $ по ценам API — только
+  подсказка. У 90 % окна — тихое предложение остановиться и передать; на лимите — передача или «Continue at» (та же
+  сессия сама после сброса, пока Link запущен). Сам Link не передаёт и не понижает уровень.
+- Chat ↔ Agent (2026-10-03, этап 4). `→ Agent task` берёт в бриф выделенное в ответе, иначе блок `link-task`, иначе
+  весь ответ, и вопрос; ChatGPT по инструкциям проекта завершает договорённость блоком `link-task` — он рисуется
+  карточкой с `Give to agent`. Итог задачи после каждого прогона — чип `Task result` в следующий вопрос; `Discuss in
+  chat` добавляет diff (до 30 КБ, иначе `--numstat`).
+- Модели и передача (2026-10-03, этап 5). Уровни Light / Standard / Deep у каждого агента (модель и effort в Settings;
+  Standard — прежний выбор пользователя, Light у Claude — Sonnet 5.5 medium, Deep — Opus 5.5 extra high, у Codex —
+  effort low и extra high на модели конфига). Plan first — на Deep, план выполняется в той же сессии на уровне
+  карточки; Escalate — та же сессия на Deep; карта, skill и заметка Start over — на Light. Передача — бриф из записи
+  задачи (`HandOffBrief`: задача, слова пользователя, план, файлы с `--numstat`, проверка, последние слова, шаги;
+  бюджет 6000 знаков, старые шаги уходят первыми) на карточке до отправки; возврат — `--resume` сессии первого агента
+  со сводкой (`ReturnBrief`). Поправка без остановки (этап 6: hook Claude Code, app-server Codex) отложена: протоколы
+  сверяются только живыми прогонами.
 - Fast / Normal / Deep: provider-neutral подсказка в запросе плюс переключение режима ChatGPT с проверкой; Normal
   возвращает режим, который был до LINK.
 - ChatGPT — только встроенная страница WebView2 (2026-09-26). Расширение и loopback HTTP-мост удалены, когда
@@ -286,8 +315,9 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    `-Encoding UTF8`, убрано то, что CLI делают сами. После правки не замерено: смотреть строки `[Agent]` в `link.log`
    (вызовы и токены на задачу).
 6. **План «компаньон и рабочее место агента»** (03.10, решения пользователя — в плане, §3):
-   [docs/WORKSPACE_PLAN.md](docs/WORKSPACE_PLAN.md), этапы: 1 экран → 2 карточка → 3 задача → 4 чат ↔ агент →
-   5 модели и передача → 6 поправки без остановки (по желанию).
+   [docs/WORKSPACE_PLAN.md](docs/WORKSPACE_PLAN.md). Этапы 1–5 сделаны 03.10 разом (по просьбе пользователя) и ждут
+   проверки пользователем; вживую не сверены поля `rate_limit_event` Claude Code, `todo_list` Codex и смена модели при
+   resume — разбор по схемам из бинарника и журналов. Этап 6 (поправки без остановки) — когда будут живые прогоны.
 7. **Позже, по желанию:** живой прогон Claude Code через Link и тот же разбор токенов по его журналам; память
    проекта (решения отдельно от summaries), context router, command palette и локальные команды.
 
@@ -302,11 +332,12 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
 - Встроенную страницу можно гонять без данных пользователя: `ChatPageWindow` и `EmbeddedChatIntegration` берут пути
   профиля и состояния снаружи. На ChatGPT без входа companion беседы `/uc/<id>` не объявляет — для живого прогона
   без аккаунта это правится только в собранном скрипте прогона, не в `content.js`.
-- Живая проверка: UI Automation запущенного Link (AutomationId `PromptBox`, `SendButton`, `ResponseStateText`,
-  `StatusText`, `CheckChatButton`, `RouteButton`, `EffortButton`, `HideButton`, `ExpandButton`, `ResponseDocument`,
-  `DeeperButton`, `DirectButton`, `FreshScreenButton`; в окне панели —
-  `TaskBox`, `StateBox`, `OpenChatButton`, `NewChatButton`, `ChatConnectionText`; скрытый оверлей показывает hotkey
-  ShowHide из `settings.json`). Разметку страницы ChatGPT можно снять диагностикой Check chat в `link.log` через временную версию
+- Живая проверка: UI Automation запущенного Link (AutomationId `PromptBox`, `SendButton`, `SendHintText`,
+  `ResponseStateText`, `StatusText`, `CheckChatButton`, `RouteButton`, `EffortButton`, `OnlyMyTextButton`,
+  `SeesButton`, `SeesTitle`, `HideButton`, `ExpandButton`, `AgentPill`, `ResponseDocument`, `SawText`, `AskAgainButton`,
+  `ToAgentButton`; в окне панели — `ProjectTabButton`, `TaskTabButton`, `NoteBox`, `OpenChatButton`, `NewChatButton`,
+  `ChatConnectionText`, `GoalText`, `ReplyBox`; скрытый оверлей показывает hotkey ShowHide из `settings.json`).
+  Тестовая копия для таких проверок — свой корень данных, свой mutex, необычные hotkeys и без страницы ChatGPT. Разметку страницы ChatGPT можно снять диагностикой Check chat в `link.log` через временную версию
   companion. Сообщения в чат пользователя — только с его разрешения. Claude in Chrome в Opera GX не работает.
 - Проверки, зависящие от десктопа или браузера пользователя, — не дольше ~10 минут; дальше дать точные шаги и
   попросить результат или лог.

@@ -136,7 +136,7 @@ internal static class AgentTests
         var before = new WorkspaceBefore(origin.Workspace, false, new Dictionary<string, string>(), null, DateTime.UtcNow);
         var looped = new AgentRun(last, before, new AgentResult { SessionId = "s1", Loops = ["repeated error"] }, []);
 
-        var fresh = (await agents.StartOverAsync(looped, origin, CancellationToken.None))!.Value;
+        var fresh = (await agents.StartOverAsync(looped, origin, (null, null), CancellationToken.None))!.Value;
         var ask = agent.Tasks.Single();
         Program.Equal("start over: the note is asked in the same session, read only, with no tools or images",
             (ask.ResumeSessionId, ask.Access, ask.AllowedTools.Count, ask.Images.Count), ("s1", AgentAccess.Analyze, 0, 0));
@@ -148,10 +148,10 @@ internal static class AgentTests
             (AgentAccess.Do, @"C:\Work\Sample", "Read,Bash(dotnet test)", "dotnet test"));
 
         var stopping = new AgentCoordinator([new ScriptedProvider((_, _) => new AgentResult { Stopped = true })], agents.Changes, _ => { });
-        Program.Equal("start over: Stop while the note is asked starts nothing", (await stopping.StartOverAsync(looped, origin, CancellationToken.None)).HasValue, false);
+        Program.Equal("start over: Stop while the note is asked starts nothing", (await stopping.StartOverAsync(looped, origin, (null, null), CancellationToken.None)).HasValue, false);
         var unasked = new ScriptedProvider((_, _) => new AgentResult());
         var sessionless = await new AgentCoordinator([unasked], agents.Changes, _ => { })
-            .StartOverAsync(looped with { Result = new AgentResult() }, origin, CancellationToken.None);
+            .StartOverAsync(looped with { Result = new AgentResult() }, origin, (null, null), CancellationToken.None);
         Program.Equal("start over: without a session to ask, the task starts over without a note",
             (unasked.Tasks.Count, sessionless?.Task.Prompt, sessionless?.Note), (0, "Fix the rounding", string.Empty));
     }
@@ -762,7 +762,10 @@ internal static class AgentTests
         Program.Equal("console: a new task starts it again for every reader", console.After(end) is { Text: "", Whole: true }, true);
     }
 
-    /// <summary>The other agent takes the task over in a new session of its own, told the task, how the first one ended, its steps and files.</summary>
+    /// <summary>
+    /// The other agent takes the task over in a new session of its own, with a brief made from the task's record: the
+    /// task, the user's words, the plan, the files, the check, how the first one ended and its last steps, in budget.
+    /// </summary>
     private static void HandOff()
     {
         var first = new AgentTask
@@ -775,15 +778,68 @@ internal static class AgentTests
             ResumeSessionId = "s1",
             CheckCommand = "dotnet test"
         };
-        var task = AgentCoordinator.HandOffTask(first, AgentProviderKind.Codex, "Claude Code", "Make the landing animation",
-            "You've hit your limit · resets 7pm", ["Edit: anim.py", "Said: half done"], ["tools/anim.py"], "keep the pose");
+        var record = new AgentTaskRecord
+        {
+            Goal = "Make the landing animation",
+            Brief = "Make the landing animation",
+            Workspace = @"C:\Work",
+            ChangedFiles = ["tools/anim.py"],
+            Plan = [new AgentPlanItem("Find the clip", true, false), new AgentPlanItem("Blend it", false, true)],
+            Steps = ["Edit: anim.py", "Said: half done"],
+            LastWords = "You've hit your limit · resets 7pm",
+            LastCheck = "dotnet test: failed (exit 1)"
+        };
+        record.Add(AgentEntryKind.You, "keep the pose");
+        var brief = AgentCoordinator.HandOffBrief(record, "Claude Code", numstat: null);
+        Program.Equal("hand-over brief: the task, the user's words, the plan, the files, the check, how it ended, its steps",
+            brief.StartsWith("Make the landing animation\n\nYou take this task over from Claude Code", StringComparison.Ordinal) &&
+            brief.Contains("What the user said on the way, oldest first:\n- keep the pose") &&
+            brief.Contains("- [x] Find the clip\n- [ ] Blend it") && brief.Contains("Files changed so far:\n- tools/anim.py") &&
+            brief.Contains("The project's check as it last ran:\ndotnet test: failed") &&
+            brief.Contains("How Claude Code ended:\nYou've hit your limit") && brief.Contains("- Edit: anim.py\n- Said: half done"), true);
+        record.Steps = [.. Enumerable.Range(1, 200).Select(index => $"Read: file{index}.cs " + new string('x', 80))];
+        var trimmed = AgentCoordinator.HandOffBrief(record, "Claude Code", numstat: null);
+        Program.Equal("hand-over brief: a long task keeps to its budget by its oldest steps, the user's words stay",
+            trimmed.Length <= AgentCoordinator.BriefBudget && trimmed.Contains("keep the pose") && !trimmed.Contains("file1.cs"), true);
+        var task = AgentCoordinator.HandOffTask(first, AgentProviderKind.Codex, brief, []);
         Program.Equal("hand-over: a new session of the other agent, in the same folder with the same access and check",
-            (task.Provider, task.ResumeSessionId, task.Workspace, task.Access, task.AutoApprove, task.CheckCommand),
-            (AgentProviderKind.Codex, (string?)null, @"C:\Work", AgentAccess.Do, true, "dotnet test"));
-        Program.Equal("hand-over: the task, how the first agent ended, its steps, its files and the user's note",
-            task.Prompt.StartsWith("Make the landing animation\n\nYou take this task over from Claude Code", StringComparison.Ordinal) &&
-            task.Prompt.Contains("How Claude Code ended:\nYou've hit your limit") && task.Prompt.Contains("- Edit: anim.py\n- Said: half done") &&
-            task.Prompt.Contains("Files it changed:\n- tools/anim.py") && task.Prompt.EndsWith("The user adds: keep the pose", StringComparison.Ordinal), true);
+            (task.Provider, task.ResumeSessionId, task.Workspace, task.Access, task.AutoApprove, task.CheckCommand, task.Prompt),
+            (AgentProviderKind.Codex, (string?)null, @"C:\Work", AgentAccess.Do, true, "dotnet test", brief));
+        Program.Equal("return: the first agent is told what the other did",
+            AgentCoordinator.ReturnBrief(record, "Codex", numstat: null).StartsWith("While you were away, Codex worked on this task", StringComparison.Ordinal),
+            true);
+
+        // The agents' own plans and usage windows, as their CLIs write them.
+        var claude = new ClaudeEventParser();
+        var plan = claude.Read("""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"TodoWrite","input":{"todos":[{"content":"Find the cause","status":"completed","activeForm":"Finding"},{"content":"Fix it","status":"in_progress","activeForm":"Fixing"}]}}]}}""");
+        Program.Equal("Claude's TodoWrite is the agent's plan, not a step",
+            plan.Single().Kind == AgentEventKind.Plan && plan.Single().Plan.Count == 2 && plan.Single().Plan[0].Done && plan.Single().Plan[1].Active, true);
+        var limits = claude.Read("""{"type":"rate_limit_event","rate_limit_info":{"status":"allowed_warning","rateLimitType":"five_hour","utilization":0.92,"resetsAt":4102444800,"unifiedWindows":{"five_hour":{"utilization":0.92,"resetsAt":4102444800},"seven_day":{"utilization":0.31,"resetsAt":4102444800}}},"session_id":"s1"}""");
+        Program.Equal("Claude's rate_limit_event gives its windows with the share used",
+            limits.Single().Limits.Select(limit => $"{limit.Window} {limit.UsedPercent:0}").Aggregate((a, b) => a + ", " + b), "5 h 92, week 31");
+        var codex = new CodexEventParser();
+        var codexPlan = codex.Read("""{"type":"item.updated","item":{"id":"i1","type":"todo_list","items":[{"text":"Read the map","completed":true},{"text":"Edit the camera","completed":false}]}}""");
+        Program.Equal("Codex's todo list is the agent's plan, the first open step under way",
+            codexPlan.Single().Plan.Select(item => item.Active).SequenceEqual([false, true]), true);
+        var folder = Path.Combine(Path.GetTempPath(), "link-limits-" + Guid.NewGuid().ToString("N"));
+        Directory.CreateDirectory(Path.Combine(folder, "2026", "10", "03"));
+        File.WriteAllLines(Path.Combine(folder, "2026", "10", "03", "rollout-2026-10-03T16-12-39-abc.jsonl"),
+        [
+            """{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":12.0,"window_minutes":300,"resets_at":4102444800},"secondary":{"used_percent":100.0,"window_minutes":10080,"resets_at":4102444800}}}}"""
+        ]);
+        var windows = CodexProvider.SessionLimits(folder, "abc");
+        Directory.Delete(folder, recursive: true);
+        Program.Equal("Codex's session log gives its 5-hour and weekly windows, a full one reached",
+            windows.Select(limit => $"{limit.Window} {limit.UsedPercent:0} {limit.Reached}").Aggregate((a, b) => a + ", " + b), "5 h 12 False, week 100 True");
+
+        var store = new AgentLimits(Path.Combine(Path.GetTempPath(), "link-limits-" + Guid.NewGuid().ToString("N") + ".json"));
+        store.Update(windows);
+        Program.Equal("limits: a full window means the agent is near its limit and waits for the reset",
+            (store.IsNear(AgentProviderKind.Codex), store.ReachedUntil(AgentProviderKind.Codex) is not null, store.IsNear(AgentProviderKind.ClaudeCode)),
+            (true, true, false));
+        Program.Equal("an earlier Link's session becomes a task of one run",
+            AgentTaskRecord.FromSession(new AgentSessionRecord { SessionId = "s9", Workspace = @"C:\Work", Goal = "Fix it", Summary = "Done." }) is
+                { Goal: "Fix it", LastWords: "Done.", Runs: [{ SessionId: "s9" }] }, true);
     }
 
     private static async Task FailureAsync()

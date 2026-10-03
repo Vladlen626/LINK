@@ -107,6 +107,7 @@ public abstract class CliAgentProvider : IAgentProvider
             Loops = loops.Kinds.ToArray(),
             Log = process.Log
         };
+        foreach (var agentEvent in await Task.Run(() => AfterRun(result), CancellationToken.None)) progress.Report(agentEvent);
         // Never the task's text: it can hold anything the user wrote.
         var outcome = result.Stopped ? "stopped" : result.Succeeded ? "done" : $"failed (exit {result.ExitCode})";
         var first = firstEvent is { } elapsed ? Seconds(elapsed) : "none";
@@ -150,6 +151,9 @@ public abstract class CliAgentProvider : IAgentProvider
 
     /// <summary>Whether the CLI finds the workspace's skills (<see cref="ProjectSkills"/>) by itself.</summary>
     protected virtual bool FindsSkills => false;
+
+    /// <summary>What the provider learns after a run from outside its events, such as Codex's rate limits.</summary>
+    protected virtual IReadOnlyList<AgentEvent> AfterRun(AgentResult result) => [];
 
     /// <summary>What the CLI gets on stdin: a new session starts with the agent's rules, a resumed one has them.</summary>
     public string StandardInput(AgentTask task) =>

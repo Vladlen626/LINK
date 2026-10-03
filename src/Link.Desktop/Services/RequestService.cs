@@ -27,7 +27,6 @@ public sealed class RequestService
             ProjectId = snapshot.ProjectId,
             ProjectName = snapshot.ProjectName,
             Route = route,
-            CurrentTask = direct ? string.Empty : snapshot.CurrentTask,
             Text = snapshot.Text.Trim(),
             Effort = effort,
             Conversation = conversation && !direct,

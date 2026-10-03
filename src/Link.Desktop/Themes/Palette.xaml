@@ -15,6 +15,8 @@
     <Geometry x:Key="FlagIconGeometry">M5,21 L5,4 M5,4 L17,4 L14.5,8 L17,12 L5,12</Geometry>
     <Geometry x:Key="BookmarkIconGeometry">M7,3 L17,3 L17,21 L12,16.5 L7,21 Z</Geometry>
     <Geometry x:Key="AppWindowIconGeometry">M3,5 L21,5 L21,19 L3,19 Z M3,9 L21,9</Geometry>
+    <Geometry x:Key="ChatIconGeometry">M4,5 L20,5 L20,16 L11,16 L7,20 L7,16 L4,16 Z</Geometry>
+    <Geometry x:Key="AgentIconGeometry">M4,7 L9,12 L4,17 M12,17 L20,17</Geometry>
 
     <CornerRadius x:Key="ShellRadius">8</CornerRadius>
     <CornerRadius x:Key="SurfaceRadius">6</CornerRadius>
