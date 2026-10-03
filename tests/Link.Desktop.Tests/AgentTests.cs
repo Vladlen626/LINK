@@ -26,7 +26,9 @@ internal static class AgentTests
         Stats();
         Loops();
         Arguments();
+        HandOff();
         await StreamAsync();
+        await ConsoleAsync();
         await LoopRunAsync();
         await FailureAsync();
         await StopAsync();
@@ -107,8 +109,8 @@ internal static class AgentTests
 
         var settings = new AgentSettings { ClaudeModel = " opus ", CodexEffort = " ", DefaultAccess = (AgentAccessChoice)9 };
         settings.Normalize();
-        Program.Equal("agent settings: trimmed, blank is the CLI's own, an unknown access is read only",
-            (settings.ClaudeModel, settings.CodexEffort, settings.DefaultAccess, settings.Clone().ClaudeModel), ("opus", (string?)null, AgentAccessChoice.ReadOnly, "opus"));
+        Program.Equal("agent settings: trimmed, blank is the CLI's own, an unknown access is auto",
+            (settings.ClaudeModel, settings.CodexEffort, settings.DefaultAccess, settings.Clone().ClaudeModel), ("opus", (string?)null, AgentAccessChoice.Auto, "opus"));
     }
 
     /// <summary>Start over with a note: the looping session is asked read only, and a new session gets the original task and the note.</summary>
@@ -455,6 +457,9 @@ internal static class AgentTests
         Program.Equal("Claude: a refusal asks the user",
             denied.Events.Count(e => e.Kind == AgentEventKind.NeedsInput), 1);
         Program.Equal("Claude: a run with refusals still completes", denied.Parser.Failed, false);
+
+        var mcp = new ClaudeEventParser().Read("""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"mcp__ue-mcp__tools","input":{"action":"call","category":"level","method":"place_actor","args":{"actorClass":"PointLight"}}}]}}""");
+        Program.Equal("Claude: an MCP call shows its server, its tool and what it asks", mcp.Single().Text, "ue-mcp: tools call level place_actor");
     }
 
     private static void CodexFixtures()
@@ -489,6 +494,9 @@ internal static class AgentTests
         refused.ReadError("2026-09-30T05:14:25Z ERROR codex_core::tools::router: error=patch rejected: writing is blocked by read-only sandbox; rejected by user approval settings");
         Program.Equal("Codex: a write the read-only sandbox blocked offers Do",
             string.Join(";", refused.Denials), "workspace-write");
+
+        var mcp = new CodexEventParser().Read("""{"type":"item.completed","item":{"id":"i1","type":"mcp_tool_call","server":"unreal-mcp","tool":"call_tool","arguments":{"toolset":"ActorTools","tool":"SpawnActor","arguments":{"label":"Lamp"}},"status":"completed"}}""");
+        Program.Equal("Codex: an MCP call shows its server, its tool and what it asks", mcp.Single().Text, "unreal-mcp: call_tool ActorTools SpawnActor");
     }
 
     /// <summary>A task's numbers from its events: the Do fixtures follow the recorded format with searches, a failed build and two edits.</summary>
@@ -638,6 +646,31 @@ internal static class AgentTests
         Program.Equal("Codex auto sends what would leave the sandbox to its automatic review, only with edits",
             (string.Join(' ', codex.Arguments(analyze with { Access = AgentAccess.Do, AutoApprove = true })).Contains("-c approval_policy=on-request -c approvals_reviewer=auto_review"),
                 string.Join(' ', codex.Arguments(analyze with { AutoApprove = true })).Contains("approval")), (true, false));
+
+        var game = TempFolder();
+        try
+        {
+            File.WriteAllText(Path.Combine(game, ".mcp.json"), """
+                {"mcpServers": {
+                  "unreal-mcp": {"type": "http", "url": "http://127.0.0.1:8000/mcp"},
+                  "ue-mcp": {"command": "npx", "args": ["-y", "ue-mcp@1.3.9", "C:/Games/Nori/Nori.uproject"], "env": {"UE_MCP_FEEDBACK_MODE": "defer"}, "timeout": 600000},
+                  "events": {"type": "sse", "url": "http://127.0.0.1:9000/sse"},
+                  "it's": {"command": "named"},
+                  "quoted": {"command": "x", "args": ["it's"]}
+                }}
+                """);
+            var mcp = string.Join(' ', codex.Arguments(analyze with { Provider = AgentProviderKind.Codex, Workspace = game, ResumeSessionId = "t1" }));
+            Program.Equal("Codex gets the workspace's MCP servers from .mcp.json, on resume too, but not SSE or what TOML cannot take",
+                mcp.Contains("-c mcp_servers.unreal-mcp.url='http://127.0.0.1:8000/mcp'") &&
+                mcp.Contains("-c mcp_servers.ue-mcp.command='npx' -c mcp_servers.ue-mcp.args=['-y', 'ue-mcp@1.3.9', 'C:/Games/Nori/Nori.uproject'] " +
+                             "-c mcp_servers.ue-mcp.env.UE_MCP_FEEDBACK_MODE='defer' -c mcp_servers.ue-mcp.tool_timeout_sec=600") &&
+                !mcp.Contains("mcp_servers.events") && !mcp.Contains("named") && !mcp.Contains("mcp_servers.quoted"), true);
+        }
+        finally
+        {
+            DeleteFolder(game);
+        }
+
         Rules(claude, codex);
         Program.Equal("cmd.exe quoting leaves a plain flag alone and quotes a path with spaces",
             AgentProcess.QuoteForCmd("--json") + " " + AgentProcess.QuoteForCmd(@"C:\My Work"), "--json \"C:\\My Work\"");
@@ -708,6 +741,49 @@ internal static class AgentTests
         Program.Equal("fake CLI: the run's numbers are in the result", (result.Stats.Turns, result.Stats.ToolCalls, result.Stats.Searches), (1, 1, 1));
         Program.Equal("the [Agent] line has the numbers and not the task",
             log.Count == 1 && log[0].Contains("turns 1, tools 1, searches 1") && !log[0].Contains("fake task"), true);
+    }
+
+    /// <summary>The console holds what Link sent each run and every line back; a new task clears it; a long line is cut.</summary>
+    private static async Task ConsoleAsync()
+    {
+        var console = new AgentConsole();
+        await new FakeProvider("stream", new AgentSettings { ClaudePath = Environment.ProcessPath }, _ => { }, console)
+            .RunAsync(Task(), new SyncProgress(_ => { }), CancellationToken.None);
+        var (text, end, _) = console.After(0);
+        Program.Equal("console: the command and the whole stdin first, then every line the CLI wrote",
+            text.Contains("Fake · new session") && text.Contains($"{FakeFlag} stream") &&
+            text.IndexOf("── stdin ──", StringComparison.Ordinal) < text.IndexOf("fake task", StringComparison.Ordinal) &&
+            text.IndexOf("── output ──", StringComparison.Ordinal) < text.IndexOf("fake-session", StringComparison.Ordinal), true);
+        Program.Equal("console: a reader that has caught up gets nothing again", console.After(end).Text, string.Empty);
+        console.Line(new string('x', 5000), error: true);
+        Program.Equal("console: stderr is marked and a very long line is cut",
+            console.After(end).Text is var line && line.StartsWith("! xxx", StringComparison.Ordinal) && line.Contains("… (+1000 characters)"), true);
+        console.Clear();
+        Program.Equal("console: a new task starts it again for every reader", console.After(end) is { Text: "", Whole: true }, true);
+    }
+
+    /// <summary>The other agent takes the task over in a new session of its own, told the task, how the first one ended, its steps and files.</summary>
+    private static void HandOff()
+    {
+        var first = new AgentTask
+        {
+            Provider = AgentProviderKind.ClaudeCode,
+            Workspace = @"C:\Work",
+            Prompt = "These tools are allowed now: Bash(x). Continue the task.",
+            Access = AgentAccess.Do,
+            AutoApprove = true,
+            ResumeSessionId = "s1",
+            CheckCommand = "dotnet test"
+        };
+        var task = AgentCoordinator.HandOffTask(first, AgentProviderKind.Codex, "Claude Code", "Make the landing animation",
+            "You've hit your limit · resets 7pm", ["Edit: anim.py", "Said: half done"], ["tools/anim.py"], "keep the pose");
+        Program.Equal("hand-over: a new session of the other agent, in the same folder with the same access and check",
+            (task.Provider, task.ResumeSessionId, task.Workspace, task.Access, task.AutoApprove, task.CheckCommand),
+            (AgentProviderKind.Codex, (string?)null, @"C:\Work", AgentAccess.Do, true, "dotnet test"));
+        Program.Equal("hand-over: the task, how the first agent ended, its steps, its files and the user's note",
+            task.Prompt.StartsWith("Make the landing animation\n\nYou take this task over from Claude Code", StringComparison.Ordinal) &&
+            task.Prompt.Contains("How Claude Code ended:\nYou've hit your limit") && task.Prompt.Contains("- Edit: anim.py\n- Said: half done") &&
+            task.Prompt.Contains("Files it changed:\n- tools/anim.py") && task.Prompt.EndsWith("The user adds: keep the pose", StringComparison.Ordinal), true);
     }
 
     private static async Task FailureAsync()
@@ -782,7 +858,8 @@ internal static class AgentTests
     }
 
     /// <summary>Claude Code's parser on a fake CLI: this program, which plays a scenario instead of running tests.</summary>
-    private sealed class FakeProvider(string scenario, AgentSettings settings, Action<string> log) : CliAgentProvider(() => settings, log)
+    private sealed class FakeProvider(string scenario, AgentSettings settings, Action<string> log, AgentConsole? console = null)
+        : CliAgentProvider(() => settings, log, console)
     {
         public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
         public override string Name => "Fake";

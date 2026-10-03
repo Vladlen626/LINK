@@ -482,12 +482,7 @@ public partial class MainWindow
     {
         var option = RouteOptions.First(option => option.Route == _settings.Current.Route);
         // Agent shows who works and how the card starts: the access Settings chose, which a task's card can change.
-        var access = _settings.Current.Agent.DefaultAccess switch
-        {
-            AgentAccessChoice.Auto => "auto",
-            AgentAccessChoice.Edit => "edit",
-            _ => "read"
-        };
+        var access = _settings.Current.Agent.DefaultAccess == AgentAccessChoice.Edit ? "edit" : "auto";
         RouteText.Text = option.Route == RequestRoute.Agent ? $"{ShortName(ProjectProvider)} · {access}" : option.Label;
         RouteButton.ToolTip = $"Route: {option.Description}";
     }

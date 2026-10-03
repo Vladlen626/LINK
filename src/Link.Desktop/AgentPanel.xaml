@@ -40,7 +40,6 @@
                     <ComboBox x:Name="ProviderCombo" Grid.Column="1" SelectionChanged="Card_OnChanged" />
                     <TextBlock Grid.Row="1" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Access" />
                     <ComboBox x:Name="AccessCombo" Grid.Row="1" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Card_OnChanged">
-                        <ComboBoxItem Content="Read only — changes nothing" />
                         <ComboBoxItem Content="Edit — changes files, asks for commands" />
                         <ComboBoxItem Content="Auto — edits and runs commands, asks nothing"
                                       ToolTip="The agent's own review stops risky actions: Claude Code's auto mode, Codex's automatic review" />
@@ -79,11 +78,14 @@
             </Grid.RowDefinitions>
             <StackPanel>
                 <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <TextBlock x:Name="HeaderText" VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold"
                                Foreground="{StaticResource TextBrush}" TextTrimming="CharacterEllipsis" />
-                    <Button x:Name="StopButton" Grid.Column="1" Style="{StaticResource ChipButtonStyle}" Height="26" Click="Stop_OnClick"
-                            Content="■ Stop" ToolTip="Stop the agent now; what it changed so far stays and is listed" />
+                    <Button x:Name="ConsoleButton" Grid.Column="1" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0"
+                            Click="Console_OnClick" Content="Console"
+                            ToolTip="What Link gave the agent's CLI (command, folder, the whole text) and every line it writes back, live" />
+                    <Button x:Name="StopButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0"
+                            Click="Stop_OnClick" Content="■ Stop" ToolTip="Stop the agent now; what it changed so far stays and is listed" />
                 </Grid>
                 <TextBlock x:Name="WhereText" Margin="0,3,0,0" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
                 <TextBlock x:Name="CurrentStepText" Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource AccentBrush}"
@@ -144,9 +146,6 @@
                     <!-- What the task cost: turns, tool calls, searches, failed calls, tokens. -->
                     <TextBlock x:Name="StatsText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
                                TextWrapping="Wrap" Visibility="Collapsed" />
-
-                    <TextBox x:Name="LogText" Margin="0,10,0,0" Style="{StaticResource BareTextBoxStyle}" FontFamily="Consolas" FontSize="10.5"
-                             IsReadOnly="True" TextWrapping="Wrap" MaxHeight="260" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" />
                 </StackPanel>
             </ScrollViewer>
 
@@ -172,8 +171,8 @@
                 <Button x:Name="SaveSkillButton" Style="{StaticResource SmallChipStyle}" Click="SaveSkill_OnClick" Content="Save as skill"
                         ToolTip="The agent describes what it just did as a skill; Link writes it to .agents/skills in the workspace"
                         Visibility="Collapsed" />
-                <Button x:Name="LogButton" Style="{StaticResource SmallChipStyle}" Click="Log_OnClick" Content="Log"
-                        ToolTip="Show what the agent's CLI wrote (stdout and stderr)" Visibility="Collapsed" />
+                <Button x:Name="HandOffButton" Style="{StaticResource SmallChipStyle}" Click="HandOff_OnClick" Visibility="Collapsed"
+                        ToolTip="The other agent takes the task over in a new session of its own: the goal, how this one ended, its last steps and changed files go along, and your reply as a note. For when one runs out of its limit" />
                 <Button x:Name="NewTaskButton" Style="{StaticResource SmallChipStyle}" Click="Close_OnClick" Content="Done"
                         ToolTip="Back to the project panel" Visibility="Collapsed" />
             </WrapPanel>

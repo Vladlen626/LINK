@@ -9,7 +9,8 @@ namespace Link.Desktop.Services;
 /// <c>workspace-write</c>; <c>danger-full-access</c> is never used. Codex has no plan mode, so a plan is asked for in
 /// words and the sandbox keeps it from changing anything.
 /// </summary>
-public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> log) : CliAgentProvider(settings, log)
+public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
+    : CliAgentProvider(settings, log, console)
 {
     public override AgentProviderKind Kind => AgentProviderKind.Codex;
     public override string Name => "Codex";
@@ -79,6 +80,7 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
 
         // The same on resume: a session keeps its tools, model and cached start. A bare value is read as a string.
         foreach (var feature in FeaturesOff) arguments.AddRange(["-c", $"features.{feature}=false"]);
+        foreach (var setting in McpServers(task.Workspace)) arguments.AddRange(["-c", setting]);
         if (task.Model is { } model) arguments.AddRange(["-c", $"model={model}"]);
         if (task.Effort is { } effort) arguments.AddRange(["-c", $"model_reasoning_effort={effort}"]);
         // Auto: what would leave the sandbox (the network, a file outside the workspace) goes to Codex's automatic
@@ -91,6 +93,76 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
         // The task comes on stdin.
         arguments.Add("-");
         return arguments;
+    }
+
+    /// <summary>
+    /// The workspace's MCP servers as Codex settings. Their one source is the <c>.mcp.json</c> Claude Code reads by
+    /// itself: Codex reads a project's own config only in a trusted project, and its user config would start a game
+    /// editor's server in every folder. Codex has no SSE; <c>timeout</c> is Claude Code's tool timeout in ms, and
+    /// Codex's own 60 s would cut a long editor call short. A name or value TOML cannot take as it is leaves the server out.
+    /// </summary>
+    internal static IReadOnlyList<string> McpServers(string workspace)
+    {
+        var file = Path.Combine(workspace, ".mcp.json");
+        if (!File.Exists(file)) return [];
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(file));
+            return document.RootElement.TryGetProperty("mcpServers", out var servers) && servers.ValueKind == JsonValueKind.Object
+                ? servers.EnumerateObject().SelectMany(server => McpServer(server.Name, server.Value)).ToArray()
+                : [];
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return [];
+        }
+    }
+
+    private static IEnumerable<string> McpServer(string name, JsonElement server)
+    {
+        if (server.ValueKind != JsonValueKind.Object || Property(server, "type") == "sse" || !IsBareKey(name)) return [];
+        var settings = new List<string>();
+        var values = new List<string>();
+        if (Property(server, "url") is { } url)
+        {
+            settings.Add("url=" + Literal(url));
+            values.Add(url);
+        }
+        else if (Property(server, "command") is { } command)
+        {
+            var args = server.TryGetProperty("args", out var list) && list.ValueKind == JsonValueKind.Array
+                ? list.EnumerateArray().Select(arg => arg.ToString()).ToArray()
+                : [];
+            var env = server.TryGetProperty("env", out var variables) && variables.ValueKind == JsonValueKind.Object
+                ? variables.EnumerateObject().Select(variable => (variable.Name, Value: variable.Value.ToString())).ToArray()
+                : [];
+            if (env.Any(variable => !IsBareKey(variable.Name))) return [];
+            settings.Add("command=" + Literal(command));
+            settings.Add($"args=[{string.Join(", ", args.Select(Literal))}]");
+            settings.AddRange(env.Select(variable => $"env.{variable.Name}={Literal(variable.Value)}"));
+            values.AddRange([command, .. args, .. env.Select(variable => variable.Value)]);
+        }
+        else
+        {
+            return [];
+        }
+
+        if (server.TryGetProperty("timeout", out var timeout) && timeout.TryGetInt64(out var milliseconds) && milliseconds > 0)
+        {
+            settings.Add($"tool_timeout_sec={(milliseconds + 999) / 1000}");
+        }
+
+        // A TOML literal string holds anything but a quote mark and control characters.
+        return values.Any(value => value.Any(c => c == '\'' || char.IsControl(c)))
+            ? []
+            : settings.Select(setting => $"mcp_servers.{name}.{setting}");
+
+        static string? Property(JsonElement element, string key) =>
+            element.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+
+        static bool IsBareKey(string key) => key.Length > 0 && key.All(c => char.IsAsciiLetterOrDigit(c) || c is '_' or '-');
+
+        static string Literal(string value) => $"'{value}'";
     }
 
     public override string Input(AgentTask task) =>
@@ -211,7 +283,9 @@ public sealed partial class CodexEventParser : AgentEventParser
                 break;
             case "mcp_tool_call":
                 var tool = $"{Text(item, "server")}: {Text(item, "tool")}";
-                Called("mcp", tool, tool + (item.TryGetProperty("arguments", out var arguments) ? " " + arguments.GetRawText() : string.Empty), false, events);
+                var arguments = item.TryGetProperty("arguments", out var given) ? given : default;
+                Called("mcp", McpCall(Text(item, "server"), Text(item, "tool"), arguments),
+                    arguments.ValueKind == JsonValueKind.Undefined ? tool : tool + " " + arguments.GetRawText(), false, events);
                 if (failed) ToolFailed("mcp", item.TryGetProperty("error", out var error) ? Text(error, "message") : string.Empty, events);
                 break;
             case "web_search":

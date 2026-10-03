@@ -17,9 +17,20 @@ public partial class MainWindow
         @"\b(исправь|почини|сделай|добавь|удали|переименуй|перенеси|экспортируй|запусти|создай|собери|обнови|напиши тест|" +
         @"fix|make|add|remove|delete|rename|move|export|run|create|build|update|refactor|implement)\b",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // A run that ends on one of these ran out of its limit: the other agent can take the task over.
+    private static readonly Regex LimitReached = new(
+        @"\b(usage|rate|session|weekly|daily|5-hour|five-hour) limit\b|hit your (usage )?limit|limit reached|out of (credits|usage)|quota",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly TimeSpan ActivityFlush = TimeSpan.FromMilliseconds(100);
+    // So many of the task's last steps go to an agent that takes it over, and into the session's record.
+    private const int StepsHandedOn = 40;
     private readonly AgentCoordinator _agents;
     private readonly List<AgentEvent> _pendingAgentEvents = [];
+    // The task's steps in Activity's words, oldest first: what an agent that takes the task over is told was done.
+    private readonly List<string> _taskSteps = [];
+    // What the other agent would take over: the task as it ran or was opened, and how it ended.
+    private (AgentTask Task, string LastWords)? _handOff;
+    private AgentConsoleWindow? _agentConsoleWindow;
     private AgentPanel? _agentPanel;
     private bool _panelShowsAgent;
     private InputSnapshot? _agentSnapshot;
@@ -196,8 +207,61 @@ public partial class MainWindow
         panel.RestartRequested += RequestRestart;
         panel.SaveSkillRequested += () => _ = SaveSkillAsync();
         panel.ContinueRequested += ContinueAgent;
+        panel.HandOffRequested += HandOffAgent;
+        panel.ConsoleRequested += ShowAgentConsole;
         panel.OpenFileRequested += ShowFile;
         return panel;
+    }
+
+    /// <summary>Console: what Link gave the agent's CLI and every line it writes back, in a window of its own.</summary>
+    private void ShowAgentConsole()
+    {
+        if (_agentConsoleWindow is null)
+        {
+            _agentConsoleWindow = new AgentConsoleWindow(_agents.Console);
+            _agentConsoleWindow.Closed += (_, _) => _agentConsoleWindow = null;
+        }
+
+        _agentConsoleWindow.Show();
+        if (_agentConsoleWindow.WindowState == WindowState.Minimized) _agentConsoleWindow.WindowState = WindowState.Normal;
+        _agentConsoleWindow.Activate();
+    }
+
+    private static AgentProviderKind Other(AgentProviderKind provider) =>
+        provider == AgentProviderKind.ClaudeCode ? AgentProviderKind.Codex : AgentProviderKind.ClaudeCode;
+
+    /// <summary>
+    /// The other agent takes the task over, such as when this one has run out of its limit: a new session of its own in
+    /// the same folder, with the same access, told the task, how this one ended, its last steps and changed files, and the
+    /// user's note. Undo covers both, Start over starts the hand-over again, and the console shows what was handed on.
+    /// </summary>
+    private void HandOffAgent(string note)
+    {
+        if (AgentRunning || _handOff is not { } handOff) return;
+        var from = handOff.Task;
+        var to = Other(from.Provider);
+        // The task as the card made it, with its context and images; an earlier session keeps only its goal.
+        var origin = _earlierSession is null ? _agentOrigin : null;
+        var run = _earlierSession is null ? _lastRun : null;
+        var agent = _settings.Current.Agent;
+        var task = AgentCoordinator.HandOffTask(
+            from,
+            to,
+            _agents.Provider(from.Provider).Name,
+            origin?.Prompt ?? from.Prompt,
+            handOff.LastWords,
+            _taskSteps.TakeLast(StepsHandedOn).ToArray(),
+            run?.Changes.Select(change => Relative(change.Path)).ToArray() ?? [],
+            note) with
+        {
+            Images = origin?.Images ?? [],
+            Model = agent.ModelFor(to),
+            Effort = agent.EffortFor(to)
+        };
+        // A session taken up again gets a copy before edits where there is no git, as the card makes by default.
+        if (_earlierSession is not null) _backupBeforeDo = true;
+        _agentOrigin = task;
+        _ = StartAgentAsync(task, run);
     }
 
     /// <summary>Back to the project panel; a running agent goes on and Expand or the hint brings Activity back.</summary>
@@ -288,7 +352,8 @@ public partial class MainWindow
                 AutoApprove = task.AutoApprove,
                 Model = task.Model,
                 Effort = task.Effort,
-                Summary = summary.Length <= 4000 ? summary : summary[..4000] + "…"
+                Summary = summary.Length <= 4000 ? summary : summary[..4000] + "…",
+                Steps = _taskSteps.TakeLast(StepsHandedOn).ToArray()
             }, task.ResumeSessionId);
             if (project == _projects.ActiveProject) _projectPanel?.ShowAgentSessions(sessions.Select(ToSessionRow));
         }
@@ -329,12 +394,16 @@ public partial class MainWindow
             CheckCommand = project.CheckCommand,
             ResumeSessionId = session.SessionId
         };
+        _taskSteps.Clear();
+        _taskSteps.AddRange(session.Steps);
+        _handOff = (_earlierSession, session.Summary);
         ShowAgentPanel();
         _agentPanel!.ShowEarlierSession(
             $"{_agents.Provider(session.Provider).Name} · {SessionAccess(session)} · {session.Goal}",
             $"{project.Name} · {session.Workspace}",
             session.Summary,
             $"Earlier session · {ShortTime(session.UpdatedAt)}");
+        _agentPanel.ShowHandOff($"Continue with {_agents.Provider(Other(session.Provider)).Name}");
         SetStatus("Write a reply to take the session up again");
     }
 
@@ -355,9 +424,18 @@ public partial class MainWindow
     {
         var provider = _agents.Provider(task.Provider);
         var project = _projects.ActiveProject;
+        // A new task starts clean; a run that goes on with the last one, or a session taken up again, keeps its past.
+        if (previous is null)
+        {
+            _agents.Console.Clear();
+            _lastRun = null;
+        }
+
+        if (previous is null && task.ResumeSessionId is null) _taskSteps.Clear();
         _runningTask = task;
         _decision = null;
         _earlierSession = null;
+        _handOff = null;
         ShowAgentPanel();
         _agentPanel!.ShowActivity(AgentHeader(task), $"{project.Name} · {task.Workspace}");
         var cancellation = new CancellationTokenSource();
@@ -389,8 +467,9 @@ public partial class MainWindow
         {
             FlushAgentEvents();
             _agentPanel.ShowResult(exception.Message, "Could not start");
-            // No session began: a reply here would go to an older run.
+            // No session began: a reply here would go to an older run. The other agent can still take the task.
             _agentPanel.ShowReply(false);
+            OfferHandOff(task, exception.Message);
             _cues.Play(SoundCue.Error);
             SetError(exception.Message);
         }
@@ -477,6 +556,33 @@ public partial class MainWindow
             fresh.Note.Length > 0 ? "Note from the last attempt:\n" + fresh.Note : "No note came back: the new session starts with the task alone.");
     }
 
+    /// <summary>"Continue with" the other agent, after a task of the user's (a map or a skill is Link's own answer).</summary>
+    private void OfferHandOff(AgentTask task, string lastWords)
+    {
+        var offered = _agentOrigin is not null && task.AnswerFile is null && !task.AnswerIsSkill;
+        _handOff = offered ? (task, lastWords) : null;
+        _agentPanel?.ShowHandOff(offered ? $"Continue with {_agents.Provider(Other(task.Provider)).Name}" : null);
+    }
+
+    /// <summary>The task's steps in Activity's words, for an agent that takes it over; the last ones are what counts.</summary>
+    private void RememberSteps(IEnumerable<AgentEvent> events)
+    {
+        foreach (var agentEvent in events)
+        {
+            var step = agentEvent.Kind switch
+            {
+                AgentEventKind.Tool => agentEvent.Text,
+                AgentEventKind.Output => "Said: " + ToPreviewText(agentEvent.Text),
+                AgentEventKind.NeedsInput => "Refused: " + agentEvent.Text,
+                AgentEventKind.Error => "Error: " + agentEvent.Text,
+                _ => null
+            };
+            if (step is not null) _taskSteps.Add(step.Length <= 300 ? step : step[..300] + "…");
+        }
+
+        if (_taskSteps.Count > StepsHandedOn * 2) _taskSteps.RemoveRange(0, _taskSteps.Count - StepsHandedOn);
+    }
+
     private DispatcherTimer CreateActivityTimer()
     {
         var timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = ActivityFlush };
@@ -493,6 +599,7 @@ public partial class MainWindow
         var events = _pendingAgentEvents.ToArray();
         _pendingAgentEvents.Clear();
         _agentPanel.AddSteps(events);
+        RememberSteps(events);
         if (_agentOrigin is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Loop)) _agentPanel.ShowRestart(true);
         // Changed files are listed as they come; the full list, from git or the copy, replaces them at the end.
         if (_runningTask is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Artifact))
@@ -534,7 +641,7 @@ public partial class MainWindow
         var text = checkFailed ? CheckReport(task, run.Check!) + (answer.Length > 0 ? "\n\n" + answer : string.Empty) : answer;
         _agentPanel.ShowResult(text, ending);
         _agentPanel.ShowStats(StatsLine(result.Stats));
-        _agentPanel.ShowLog(result.Log);
+        OfferHandOff(task, text);
         ShowUndoOffer(run);
         // After a failure, or a Stop in a loop; a Stop without a loop was the user's own choice, and a task done in the
         // end got past its loop.
@@ -569,7 +676,9 @@ public partial class MainWindow
             NotifyIfAway(project, checkFailed ? "The check fails after the agent" : "Agent failed", ToPreviewText(summary));
         }
 
-        SetStatus($"{provider.Name}: {ending.ToLowerInvariant()} · {run.Changes.Count} files changed");
+        SetStatus(!result.Succeeded && !stopped && _handOff is not null && LimitReached.IsMatch(result.Summary)
+            ? $"{provider.Name} ran out of its limit · Continue with {_agents.Provider(Other(task.Provider)).Name} takes the task over"
+            : $"{provider.Name}: {ending.ToLowerInvariant()} · {run.Changes.Count} files changed");
     }
 
     /// <summary>

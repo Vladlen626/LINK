@@ -84,13 +84,15 @@ public partial class App : System.Windows.Application
         var cues = new SoundCues(speaker, _settings.Current, () => voice.Phase == VoicePhase.Speaking);
         // The agents' CLIs start only for a task or a check in Settings, never with Link.
         var settings = _settings;
+        var console = new AgentConsole();
         _agents = new AgentCoordinator(
             [
-                new ClaudeCodeProvider(() => settings.Current.Agent, Log),
-                new CodexProvider(() => settings.Current.Agent, Log)
+                new ClaudeCodeProvider(() => settings.Current.Agent, Log, console),
+                new CodexProvider(() => settings.Current.Agent, Log, console)
             ],
             new AgentChanges(paths.Backups),
-            Log);
+            Log,
+            console);
 
         _mainWindow = new MainWindow(
             _settings,

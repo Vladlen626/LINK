@@ -9,7 +9,8 @@ namespace Link.Desktop.Services;
 /// in <c>acceptEdits</c>, or in <c>auto</c> on Auto, where Claude Code's own check stops risky actions; a plan runs in
 /// <c>plan</c>. <c>bypassPermissions</c> is never used.
 /// </summary>
-public sealed class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log) : CliAgentProvider(settings, log)
+public sealed class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
+    : CliAgentProvider(settings, log, console)
 {
     public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
     public override string Name => "Claude Code";
@@ -130,7 +131,10 @@ public sealed class ClaudeEventParser : AgentEventParser
                 var arguments = input.ValueKind == JsonValueKind.Object
                     ? string.Join(", ", input.EnumerateObject().Where(field => field.Name != "description").Select(field => $"{field.Name}={field.Value.GetRawText()}"))
                     : string.Empty;
-                Called(name, target.Length > 0 ? $"{name}: {target}" : name, arguments, search, events);
+                // An MCP tool is named mcp__<server>__<tool>.
+                var mcp = name.StartsWith("mcp__", StringComparison.Ordinal) ? name[5..].Split("__", 2) : [];
+                var row = mcp.Length == 2 ? McpCall(mcp[0], mcp[1], input) : target.Length > 0 ? $"{name}: {target}" : name;
+                Called(name, row, arguments, search, events);
                 var id = Text(block, "id");
                 _pendingTools[id] = name;
                 if (EditTools.Contains(name) && Text(input, "file_path") is { Length: > 0 } edited) _pendingEdits[id] = edited;

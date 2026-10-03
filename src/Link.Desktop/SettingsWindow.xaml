@@ -168,7 +168,6 @@
                             <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Task access" />
                             <ComboBox x:Name="DefaultAccessCombo" Grid.Row="1" Grid.Column="1" Width="190" HorizontalAlignment="Left"
                                       ToolTip="What the task card starts with; each task can change it">
-                                <ComboBoxItem Content="Read only" />
                                 <ComboBoxItem Content="Edit" />
                                 <ComboBoxItem Content="Auto — asks nothing" />
                             </ComboBox>

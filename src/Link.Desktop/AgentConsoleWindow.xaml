@@ -1,0 +1,34 @@
+<Window x:Class="Link.Desktop.AgentConsoleWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Agent console · Link" Width="980" Height="640" MinWidth="560" MinHeight="320"
+        WindowStartupLocation="CenterScreen" Style="{StaticResource LinkWindowStyle}">
+    <Grid>
+        <Border Style="{StaticResource DialogTintStyle}" />
+        <Grid Margin="18,14,18,16">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+
+            <StackPanel>
+                <TextBlock FontSize="16" FontWeight="SemiBold" Text="Agent console" />
+                <TextBlock Margin="0,4,0,10" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                           Text="What Link gave the agent's CLI on each run of the task (the command, the folder and the whole text on stdin) and every line the CLI writes back, as it comes. Lines from stderr start with !" />
+            </StackPanel>
+
+            <Border Grid.Row="1" Padding="8,6" Style="{StaticResource GlassCardStyle}">
+                <TextBox x:Name="OutputBox" Style="{StaticResource BareTextBoxStyle}" FontFamily="Cascadia Mono, Consolas" FontSize="11.5"
+                         IsReadOnly="True" IsReadOnlyCaretVisible="True" TextWrapping="Wrap"
+                         VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
+            </Border>
+
+            <Grid Grid.Row="2" Margin="0,10,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <CheckBox x:Name="WrapBox" VerticalAlignment="Center" IsChecked="True" Content="Wrap long lines"
+                          Checked="Wrap_OnChanged" Unchecked="Wrap_OnChanged" />
+                <TextBlock x:Name="SizeText" Grid.Column="1" Margin="14,0,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}"
+                           Text="Nothing yet: it fills when a task starts" />
+                <Button Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Click="Copy_OnClick" Content="Copy all"
+                        ToolTip="Copy everything the console shows" />
+            </Grid>
+        </Grid>
+    </Grid>
+</Window>

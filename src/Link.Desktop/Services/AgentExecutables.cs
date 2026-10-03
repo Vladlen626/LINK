@@ -44,6 +44,9 @@ public static class AgentExecutables
             {
                 foreach (var bundled in Newest(root, "claude.exe")) yield return bundled;
             }
+
+            // npm's claude.cmd only starts this exe; through cmd.exe a rule such as Bash(a && b > c) cannot pass.
+            yield return Path.Combine(roaming, "npm", "node_modules", "@anthropic-ai", "claude-code", "bin", "claude.exe");
         }
         else
         {
@@ -62,7 +65,9 @@ public static class AgentExecutables
             .Select(folder => (Folder: folder, Version: Version.TryParse(Path.GetFileName(folder), out var version) ? version : null))
             .Where(entry => entry.Version is not null)
             .OrderByDescending(entry => entry.Version)
-            .Select(entry => Path.Combine(entry.Folder, fileName));
+            // The exe lies in the version's folder or, as the app keeps it now, in a folder of its own under it.
+            .SelectMany(entry => Directory.GetDirectories(entry.Folder).Prepend(entry.Folder))
+            .Select(folder => Path.Combine(folder, fileName));
     }
 
     private static string? SafeCombine(string folder, string fileName)

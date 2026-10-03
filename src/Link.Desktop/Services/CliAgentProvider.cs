@@ -14,11 +14,13 @@ public abstract class CliAgentProvider : IAgentProvider
 {
     private readonly Func<AgentSettings> _settings;
     private readonly Action<string> _log;
+    private readonly AgentConsole? _console;
 
-    protected CliAgentProvider(Func<AgentSettings> settings, Action<string> log)
+    protected CliAgentProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
     {
         _settings = settings;
         _log = log;
+        _console = console;
     }
 
     public abstract AgentProviderKind Kind { get; }
@@ -51,6 +53,8 @@ public abstract class CliAgentProvider : IAgentProvider
         {
             EnvironmentVariables = EnvironmentVariables(task)
         };
+        _console?.Sent($"{Name} · {(task.ResumeSessionId is { } session ? "resume " + session : "new session")}",
+            command.Executable, command.Arguments, command.WorkingDirectory, command.EnvironmentVariables, command.Input);
         AgentProcessResult process;
         try
         {
@@ -70,10 +74,12 @@ public abstract class CliAgentProvider : IAgentProvider
                 command,
                 line =>
                 {
+                    _console?.Line(line);
                     lock (turn) Report(parser.Read(line));
                 },
                 line =>
                 {
+                    _console?.Line(line, error: true);
                     lock (turn) Report(parser.ReadError(line));
                 },
                 cancellationToken);
@@ -81,6 +87,7 @@ public abstract class CliAgentProvider : IAgentProvider
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _log($"[Agent] {Name}: could not start ({exception.Message})");
+            _console?.Line($"Link could not start it: {exception.Message}", error: true);
             throw;
         }
 
@@ -336,6 +343,20 @@ public abstract partial class AgentEventParser
     {
         var line = text.Trim().Split('\n', 2)[0].Trim();
         return line.Length <= length ? line : line[..(length - 1)] + "…";
+    }
+
+    /// <summary>
+    /// An MCP call for the step row: its server, its tool and the short words it was given. A server that works through
+    /// one tool (ue-mcp's tools, Unreal MCP's call_tool) then shows what each call does: "ue-mcp: tools call level place_actor".
+    /// </summary>
+    protected static string McpCall(string server, string tool, JsonElement arguments)
+    {
+        var words = arguments.ValueKind == JsonValueKind.Object
+            ? arguments.EnumerateObject()
+                .Select(field => field.Value.ValueKind == JsonValueKind.String ? field.Value.GetString() : null)
+                .Where(word => word is { Length: > 0 and <= 40 } && !word.Contains('\n'))
+            : [];
+        return string.Join(' ', words.Prepend($"{server}: {tool}"));
     }
 
     // Commands one after another: ; && || and new lines. A pipe is not one: what it feeds belongs to the first program.

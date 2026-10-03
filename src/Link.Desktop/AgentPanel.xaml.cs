@@ -65,6 +65,10 @@ public partial class AgentPanel : UserControl
     /// <summary>The user's reply: the last run's session goes on with it.</summary>
     public event Action<string>? ContinueRequested;
 
+    /// <summary>The other agent takes the task over; the reply box's words, if any, go along as a note.</summary>
+    public event Action<string>? HandOffRequested;
+
+    public event Action? ConsoleRequested;
     public event Action<string>? OpenFileRequested;
     public event Action? Closed;
 
@@ -77,8 +81,7 @@ public partial class AgentPanel : UserControl
         _showingCard = true;
         ProviderCombo.ItemsSource = card.Providers.Select(provider => provider.Name).ToArray();
         ProviderCombo.SelectedIndex = Math.Max(0, card.Providers.ToList().FindIndex(provider => provider.Kind == card.Provider));
-        // Read only unless Settings says otherwise: edits are the user's choice, never assumed.
-        AccessCombo.SelectedIndex = (int)card.Access;
+        AccessCombo.SelectedIndex = card.Access == AgentAccessChoice.Auto ? 1 : 0;
         PlanFirstBox.IsChecked = false;
         BackupBox.IsChecked = true;
         GoalBox.Text = card.Goal;
@@ -117,7 +120,6 @@ public partial class AgentPanel : UserControl
         ResultLabel.Visibility = Visibility.Collapsed;
         ResultText.Visibility = Visibility.Collapsed;
         ShowStats(string.Empty);
-        LogText.Visibility = Visibility.Collapsed;
         UndoButton.Visibility = Visibility.Collapsed;
         SetRunning(true);
         CardView.Visibility = Visibility.Collapsed;
@@ -129,14 +131,22 @@ public partial class AgentPanel : UserControl
     public void SetRunning(bool running)
     {
         StopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
-        foreach (var button in new[] { ToChatButton, LogButton, NewTaskButton }) button.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
+        foreach (var button in new[] { ToChatButton, NewTaskButton }) button.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         // While the agent works, words for it stop the step it is on and the session goes on with them.
         ReplyPlaceholder.Text = running ? "Tell the agent: it stops and goes on with your words" : "Reply to the agent: answer it or ask for more";
         ContinueButton.Content = running ? "Send" : "Continue";
         if (!running) return;
         UndoButton.Visibility = Visibility.Collapsed;
         SaveSkillButton.Visibility = Visibility.Collapsed;
+        HandOffButton.Visibility = Visibility.Collapsed;
         ReplyPanel.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>The other agent's offer to take the task over, such as "Continue with Codex"; null hides it.</summary>
+    public void ShowHandOff(string? label)
+    {
+        HandOffButton.Content = label;
+        HandOffButton.Visibility = label is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>The reply box, offered after a run whose session can go on.</summary>
@@ -191,9 +201,8 @@ public partial class AgentPanel : UserControl
     {
         ShowActivity(header, where);
         ShowResult(summary, ending);
-        // No run of this Link stands behind it: nothing to take to the chat or to read in the log.
+        // No run of this Link stands behind it: nothing to take to the chat.
         ToChatButton.Visibility = Visibility.Collapsed;
-        LogButton.Visibility = Visibility.Collapsed;
         ShowReply(true);
         ReplyBox.Focus();
     }
@@ -204,8 +213,6 @@ public partial class AgentPanel : UserControl
         StatsText.Text = text;
         StatsText.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
-
-    public void ShowLog(string log) => LogText.Text = log;
 
     /// <summary>A choice for the user in Activity; <paramref name="canRemember"/> offers "always for this project".</summary>
     public void ShowDecision(string text, string button, bool canRemember)
@@ -244,10 +251,8 @@ public partial class AgentPanel : UserControl
     private AgentProviderKind SelectedProvider =>
         _card is { } card && ProviderCombo.SelectedIndex >= 0 ? card.Providers[ProviderCombo.SelectedIndex].Kind : AgentProviderKind.ClaudeCode;
 
-    // The items follow AgentAccessChoice: read only, edit, auto.
-    private AgentAccess SelectedAccess => AccessCombo.SelectedIndex >= (int)AgentAccessChoice.Edit ? AgentAccess.Do : AgentAccess.Analyze;
-
-    private bool SelectedAuto => AccessCombo.SelectedIndex == (int)AgentAccessChoice.Auto;
+    // The items follow AgentAccessChoice: edit, auto.
+    private bool SelectedAuto => AccessCombo.SelectedIndex == 1;
 
     // The first item is the agent's own setting.
     private string? SelectedEffort =>
@@ -264,13 +269,12 @@ public partial class AgentPanel : UserControl
     {
         if (_card is not { } card) return;
         if (_effortsFor != SelectedProvider) ShowEfforts(card);
-        var edits = SelectedAccess == AgentAccess.Do;
-        BackupBox.Visibility = edits && !card.WorkspaceHasGit ? Visibility.Visible : Visibility.Collapsed;
+        BackupBox.Visibility = !card.WorkspaceHasGit ? Visibility.Visible : Visibility.Collapsed;
         CheckText.Text = $"After the edits Link runs the check itself, and the agent is told so: {card.CheckCommand}. " +
                          $"While it fails, the agent gets its output, {AgentCoordinator.CheckRetries} times at most.";
-        CheckText.Visibility = edits && card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
+        CheckText.Visibility = card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
         RunButton.IsEnabled = card.Workspace is not null;
-        RunButton.Content = PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : edits ? "Run with edits" : "Run";
+        RunButton.Content = PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits";
     }
 
     private void Run_OnClick(object sender, RoutedEventArgs e)
@@ -285,7 +289,7 @@ public partial class AgentPanel : UserControl
         RunRequested?.Invoke(new AgentPlan(
             SelectedProvider,
             workspace,
-            SelectedAccess,
+            AgentAccess.Do,
             PlanFirstBox.IsChecked == true,
             BackupBox.Visibility == Visibility.Visible && BackupBox.IsChecked == true,
             GoalBox.Text.Trim())
@@ -337,9 +341,14 @@ public partial class AgentPanel : UserControl
     private void RestartNotNow_OnClick(object sender, RoutedEventArgs e) => ShowRestart(false);
     private void SaveSkill_OnClick(object sender, RoutedEventArgs e) => SaveSkillRequested?.Invoke();
     private void Close_OnClick(object sender, RoutedEventArgs e) => Closed?.Invoke();
+    private void Console_OnClick(object sender, RoutedEventArgs e) => ConsoleRequested?.Invoke();
 
-    private void Log_OnClick(object sender, RoutedEventArgs e) =>
-        LogText.Visibility = LogText.Visibility == Visibility.Visible ? Visibility.Collapsed : Visibility.Visible;
+    private void HandOff_OnClick(object sender, RoutedEventArgs e)
+    {
+        var note = ReplyBox.Text.Trim();
+        ReplyBox.Clear();
+        HandOffRequested?.Invoke(note);
+    }
 
     private void OpenFile_OnClick(object sender, RoutedEventArgs e)
     {

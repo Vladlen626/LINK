@@ -47,11 +47,12 @@ public sealed class AgentCoordinator
     private readonly AgentChanges _changes;
     private readonly Action<string> _log;
 
-    public AgentCoordinator(IEnumerable<IAgentProvider> providers, AgentChanges changes, Action<string> log)
+    public AgentCoordinator(IEnumerable<IAgentProvider> providers, AgentChanges changes, Action<string> log, AgentConsole? console = null)
     {
         _providers = providers.ToDictionary(provider => provider.Kind);
         _changes = changes;
         _log = log;
+        Console = console ?? new AgentConsole();
     }
 
     public IAgentProvider Provider(AgentProviderKind kind) => _providers[kind];
@@ -59,6 +60,9 @@ public sealed class AgentCoordinator
     public IEnumerable<IAgentProvider> Providers => _providers.Values;
 
     public AgentChanges Changes => _changes;
+
+    /// <summary>What the providers sent their CLIs and what these wrote back, for the Console window.</summary>
+    public AgentConsole Console { get; }
 
     /// <summary>
     /// The task the card describes: the goal first, then what Link knows of the project (task and state) and the
@@ -109,6 +113,39 @@ public sealed class AgentCoordinator
         run.Result.SessionId is { } session && reply.Trim() is { Length: > 0 } text
             ? run.Task with { ResumeSessionId = session, Prompt = text, Images = [] }
             : null;
+
+    /// <summary>
+    /// The other agent takes the task over, such as when the first one has run out of its limit. Neither CLI can resume
+    /// the other's session, so a new one starts in the same folder with the same access and check, told the task, how the
+    /// first agent ended, its last steps as Activity showed them and the files it changed, and the user's note.
+    /// </summary>
+    public static AgentTask HandOffTask(
+        AgentTask first,
+        AgentProviderKind to,
+        string firstName,
+        string task,
+        string lastWords,
+        IReadOnlyList<string> steps,
+        IReadOnlyList<string> changedFiles,
+        string note)
+    {
+        var prompt = new StringBuilder(task.Trim())
+            .Append($"\n\nYou take this task over from {firstName}, which worked on it in this workspace and stopped before it was done. ")
+            .Append("Its changes are in the workspace, finished or not: look at them before you go on, and do not redo what is done.");
+        if (lastWords.Trim() is { Length: > 0 } words) prompt.Append($"\n\nHow {firstName} ended:\n").Append(words);
+        if (steps.Count > 0) prompt.Append("\n\nIts last steps, oldest first:\n").AppendJoin('\n', steps.Select(step => "- " + step));
+        if (changedFiles.Count > 0) prompt.Append("\n\nFiles it changed:\n").AppendJoin('\n', changedFiles.Select(file => "- " + file));
+        if (note.Trim() is { Length: > 0 } added) prompt.Append("\n\nThe user adds: ").Append(added);
+        return first with
+        {
+            Provider = to,
+            ResumeSessionId = null,
+            Prompt = prompt.ToString(),
+            PlanOnly = false,
+            AnswerFile = null,
+            AnswerIsSkill = false
+        };
+    }
 
     /// <summary>
     /// Runs a task and returns it with what it changed. <paramref name="previous"/>: the run this one continues, whose

@@ -90,7 +90,7 @@ public partial class SettingsWindow : Window
         VersionText.Text = $"Version {GetInformationalVersion()}";
         DefaultAgentCombo.ItemsSource = _agents.Select(agent => agent.Name).ToArray();
         DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_agents, agent => agent.Kind == current.Agent.DefaultProvider));
-        DefaultAccessCombo.SelectedIndex = (int)current.Agent.DefaultAccess;
+        DefaultAccessCombo.SelectedIndex = current.Agent.DefaultAccess == AgentAccessChoice.Auto ? 1 : 0;
         var claude = _agents.First(agent => agent.Kind == AgentProviderKind.ClaudeCode);
         var codex = _agents.First(agent => agent.Kind == AgentProviderKind.Codex);
         ShowChoices(ClaudeModelCombo, claude.Models, current.Agent.ClaudeModel, "Default — Claude Code's own");
@@ -577,7 +577,7 @@ public partial class SettingsWindow : Window
         current.Agent.DefaultProvider = DefaultAgentCombo.SelectedIndex >= 0 ? _agents[DefaultAgentCombo.SelectedIndex].Kind : current.Agent.DefaultProvider;
         current.Agent.ClaudePath = _agentPaths.ClaudePath;
         current.Agent.CodexPath = _agentPaths.CodexPath;
-        current.Agent.DefaultAccess = (AgentAccessChoice)Math.Max(0, DefaultAccessCombo.SelectedIndex);
+        current.Agent.DefaultAccess = DefaultAccessCombo.SelectedIndex == 0 ? AgentAccessChoice.Edit : AgentAccessChoice.Auto;
         current.Agent.ClaudeModel = Chosen(ClaudeModelCombo);
         current.Agent.CodexModel = Chosen(CodexModelCombo);
         current.Agent.SetEffort(AgentProviderKind.ClaudeCode, Chosen(ClaudeEffortCombo));

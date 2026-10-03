@@ -35,23 +35,26 @@ public sealed class AgentSessionRecord
     /// <summary>The last run's result, or how it ended.</summary>
     public string Summary { get; init; } = string.Empty;
 
+    /// <summary>The task's last steps as Activity showed them: for the other agent, should it take the task over later.</summary>
+    public IReadOnlyList<string> Steps { get; init; } = [];
+
     public DateTimeOffset UpdatedAt { get; init; } = DateTimeOffset.Now;
 }
 
 /// <summary>A model or effort level as the agent's CLI takes it, and as the user reads it.</summary>
 public sealed record AgentChoice(string Value, string Label);
 
-/// <summary>What the task card offers first; Settings chooses it.</summary>
+/// <summary>
+/// What the task card offers first; Settings chooses it. The user's tasks always change things: read only is Link's
+/// own, for the answers it writes (a map, a skill). The numbers stay those of older settings.
+/// </summary>
 public enum AgentAccessChoice
 {
-    /// <summary>Changes nothing.</summary>
-    ReadOnly,
-
     /// <summary>Changes files in the workspace; any other command needs the user's yes.</summary>
-    Edit,
+    Edit = 1,
 
     /// <summary>Changes files and runs commands without asking; the agent's own review stops risky ones.</summary>
-    Auto
+    Auto = 2
 }
 
 /// <summary>Claude Code's tool rules as Link sorts them: what only looks and what changes things.</summary>
@@ -250,8 +253,8 @@ public sealed class AgentSettings
 {
     public AgentProviderKind DefaultProvider { get; set; } = AgentProviderKind.ClaudeCode;
 
-    /// <summary>The access the task card starts with; read only unless the user chooses otherwise.</summary>
-    public AgentAccessChoice DefaultAccess { get; set; } = AgentAccessChoice.ReadOnly;
+    /// <summary>The access the task card starts with; the read only of older settings becomes Auto.</summary>
+    public AgentAccessChoice DefaultAccess { get; set; } = AgentAccessChoice.Auto;
 
     /// <summary>A chosen claude.exe; null finds it in PATH and the usual install places.</summary>
     public string? ClaudePath { get; set; }
@@ -274,7 +277,7 @@ public sealed class AgentSettings
     public void Normalize()
     {
         if (!Enum.IsDefined(DefaultProvider)) DefaultProvider = AgentProviderKind.ClaudeCode;
-        if (!Enum.IsDefined(DefaultAccess)) DefaultAccess = AgentAccessChoice.ReadOnly;
+        if (!Enum.IsDefined(DefaultAccess)) DefaultAccess = AgentAccessChoice.Auto;
         ClaudePath = Trimmed(ClaudePath);
         CodexPath = Trimmed(CodexPath);
         ClaudeModel = Trimmed(ClaudeModel);
