@@ -242,7 +242,8 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   времени файлов: 0,2 с вместо 3,5 с на проекте игры), показывает P4 diff, не делает backup-копию и откатывает только
   файлы, чистые до задачи (`revert` + возврат к `#have`). Агенту — `harness/perforce.md` (`p4 edit/add/delete/move`,
   без submit/revert/sync), Claude — эти команды в allowedTools, Codex с правками — `sandbox_workspace_write.
-  network_access`. Файлы задачи после прогона — в её pending changelist «Link: <задача>» (`--field Files=` при
+  network_access`. Файлы задачи после прогона — в её pending changelist (описания в P4V по-английски, 2026-10-04: агент
+  заканчивает ответ строкой `Changelist: …` на английском, Link ставит её описанием и обновляет на следующих прогонах) (`--field Files=` при
   создании, `reopen` открытых, `reconcile -c` изменённых без открытия); номер в записи задачи; пустой после отката
   удаляется. Недоступный сервер/ticket останавливает задачу вместо тихого fallback.
 - Модели и передача (2026-10-03, этап 5; 2026-10-04). Карточка предлагает собственные модели и effort агента (Codex —

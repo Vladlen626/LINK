@@ -291,15 +291,17 @@ public sealed partial class AgentChanges
 
     /// <summary>
     /// In Perforce: the files the agent changed, those that were clean before the task, go into the task's pending
-    /// changelist, made the first time with <paramref name="description"/>, so P4V shows the task's work together and
-    /// the user submits it there. A file the agent changed without opening it is opened there too. Returns the
-    /// changelist; null when Perforce made none.
+    /// changelist, so P4V shows the task's work together and the user submits it there. A file the agent changed
+    /// without opening it is opened there too. The changelist is made the first time with
+    /// <paramref name="description"/>, and an existing one takes a description the agent gave anew
+    /// (<paramref name="described"/>). Returns the changelist; null when Perforce made none.
     /// </summary>
     public async Task<int?> KeepInChangelistAsync(WorkspaceBefore before, IEnumerable<AgentChange> changes, string description,
-        int? changelist, CancellationToken cancellationToken)
+        bool described, int? changelist, CancellationToken cancellationToken)
     {
         var files = changes.Where(change => change.Undoable).Select(change => P4File(change.Path)).ToArray();
         if (!before.IsPerforce || files.Length == 0) return changelist;
+        if (changelist is { } existing && described) await DescribeChangelistAsync(before.Workspace, existing, description, cancellationToken);
         var number = changelist ?? await NewChangelistAsync(before.Workspace, description, cancellationToken);
         if (number is not { } change) return null;
         var target = change.ToString(System.Globalization.CultureInfo.InvariantCulture);
@@ -317,6 +319,31 @@ public sealed partial class AgentChanges
     {
         // Perforce refuses to delete a changelist that holds files, which is what is wanted here.
         await P4Async(workspace, ["change", "-d", changelist.ToString(System.Globalization.CultureInfo.InvariantCulture)], cancellationToken);
+    }
+
+    /// <summary>
+    /// The description of the task's changelist as the agent ends its answer: a last line <c>Changelist: …</c> in
+    /// English, as its Perforce rules ask; the answer without that line, and the description, null when there is none.
+    /// </summary>
+    public static (string Text, string? Description) SplitChangelistLine(string answer)
+    {
+        var match = ChangelistLine().Matches(answer).LastOrDefault();
+        if (match is null) return (answer, null);
+        var description = match.Groups[1].Value.Replace("`", string.Empty, StringComparison.Ordinal).Trim();
+        if (description.Length > ChangelistDescriptionLimit) description = description[..ChangelistDescriptionLimit];
+        var text = (answer[..match.Index] + answer[(match.Index + match.Length)..]).Trim();
+        return (text, description.Length > 0 ? description : null);
+    }
+
+    // P4V shows the first line; a description longer than a sentence or two was not meant for it.
+    private const int ChangelistDescriptionLimit = 300;
+
+    /// <summary>A pending changelist takes a new description; its files stay.</summary>
+    private static async Task DescribeChangelistAsync(string workspace, int changelist, string description, CancellationToken cancellationToken)
+    {
+        var number = changelist.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        var form = await P4Async(workspace, ["--field", $"Description={description}", "change", "-o", number], cancellationToken);
+        if (form is { ExitCode: 0 }) await P4Async(workspace, ["change", "-i"], cancellationToken, form.Output);
     }
 
     private static async Task<int?> NewChangelistAsync(string workspace, string description, CancellationToken cancellationToken)
@@ -345,6 +372,11 @@ public sealed partial class AgentChanges
 
     [System.Text.RegularExpressions.GeneratedRegex(@"Change (\d+) created")]
     private static partial System.Text.RegularExpressions.Regex ChangeCreated();
+
+    // "Changelist: Nori lands into the run blend", maybe in bold or a list item, alone on its line.
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[ \t>*_-]*Changelist[*_]*:[*_]*[ \t]*(.+?)[ \t*_]*\r?$",
+        System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
+    private static partial System.Text.RegularExpressions.Regex ChangelistLine();
 
     internal static IReadOnlyList<(string Path, string Code)> ParseP4Status(params string[] outputs)
     {

@@ -455,6 +455,11 @@ internal static class AgentTests
             string.Join(',', status), "Old.ini:D,Hero.uasset:M,Notes.txt:??");
         Program.Equal("p4: a Perforce workspace is versioned",
             new WorkspaceBefore(root, false, new Dictionary<string, string>(), null, DateTime.UtcNow, true).IsVersioned, true);
+        var described = AgentChanges.SplitChangelistLine("Сделал переход из приземления в бег.\n\n**Changelist:** Nori blends from landing into the run, no foot sliding\n");
+        Program.Equal("p4: the agent's English line becomes the changelist's description and leaves the answer",
+            described, ("Сделал переход из приземления в бег.", (string?)"Nori blends from landing into the run, no foot sliding"));
+        Program.Equal("p4: an answer without the line keeps itself and has no description",
+            AgentChanges.SplitChangelistLine("Done."), ("Done.", (string?)null));
 
         // In a workspace with a .p4config: the agent may open files with p4 only with edits, Codex reaches the server.
         var workspace = TempFolder();

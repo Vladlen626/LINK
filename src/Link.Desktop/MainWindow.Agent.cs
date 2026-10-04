@@ -1223,7 +1223,10 @@ public partial class MainWindow
     private async Task KeepInChangelistAsync(AgentRun run)
     {
         if (_task is not { } record || !IsUserWork(run.Task) || !run.Before.IsPerforce || run.Changes.Count == 0) return;
-        var changelist = await _agents.Changes.KeepInChangelistAsync(run.Before, run.Changes, $"Link: {record.Goal}",
+        // P4V's descriptions are in English whatever the task's language: the agent's own line, else a plain one.
+        var english = AgentChanges.SplitChangelistLine(run.Result.Summary).Description;
+        var changelist = await _agents.Changes.KeepInChangelistAsync(run.Before, run.Changes,
+            english ?? $"Link: changes of an agent task ({Plural(run.Changes.Count, "file")})", english is not null,
             record.Changelist, CancellationToken.None);
         if (changelist is null)
         {
@@ -1250,7 +1253,9 @@ public partial class MainWindow
             : $"Done in {elapsed}";
         // An answer Link wrote to a file is shown as written.
         var answer = task.AnswerFile is null && !task.AnswerIsSkill ? result.Summary : AgentCoordinator.Unfenced(result.Summary);
-        var (said, question) = AgentQuestion.Split(answer);
+        var (answerText, question) = AgentQuestion.Split(answer);
+        // The changelist's line is for P4V; the thread shows the answer without it.
+        var said = AgentChanges.SplitChangelistLine(answerText).Text;
         // A question is asked by a run that ended well; one cut short asks nothing.
         _question = !stopped && result.Succeeded && !checkFailed ? question : null;
         var text = checkFailed ? CheckReport(task, run.Check!) + (said.Length > 0 ? "\n\n" + said : string.Empty) : said;
@@ -1593,7 +1598,7 @@ public partial class MainWindow
         var turn = new ThreadTurn(who, outcome, OutcomeBrush(outcome));
         if (run is null) return turn;
         turn.AddSteps(run.Steps.Select(StepRow));
-        turn.Said = AgentQuestion.Split(run.Words).Text;
+        turn.Said = AgentChanges.SplitChangelistLine(AgentQuestion.Split(run.Words).Text).Text;
         turn.Files = run.Files.Select(file => new AgentChangeRow(file, Path.Combine(record.Workspace, file))).ToArray();
         var tokens = run.InputTokens is { } input
             ? $" · {Tokens(input)} in ({Tokens(run.CachedTokens ?? 0)} cached), {Tokens(run.OutputTokens ?? 0)} out"
