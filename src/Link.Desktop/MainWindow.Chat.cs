@@ -25,12 +25,6 @@ public partial class MainWindow
         "Summarize this conversation so that the work can continue in a new chat: the goal, key decisions and facts, " +
         "the current state, the next step and open questions. At most 120 words, only the summary, no preamble. " +
         "Write it in the language of this conversation.";
-    // Where Send sends. What goes along is the chips, each removable; "Only my text" leaves all of Link's out.
-    private static readonly (RequestRoute Route, string Label, string Description)[] RouteOptions =
-    [
-        (RequestRoute.Chat, "ChatGPT", "ChatGPT — an answer here, with the chips you see"),
-        (RequestRoute.Agent, "Agent task", "The project's agent — the open task goes on with your words; with none open, a card for a new one first")
-    ];
     private static readonly (ResponseEffort Effort, string Label, string Description)[] EffortOptions =
     [
         (ResponseEffort.Fast, "Fast", "Fast — short answer, no long thinking"),
@@ -518,8 +512,30 @@ public partial class MainWindow
         menu.IsOpen = true;
     }
 
-    private void Route_OnClick(object sender, RoutedEventArgs e) =>
-        ShowOptions(RouteButton, RouteOptions, _settings.Current.Route, SetRoute);
+    /// <summary>
+    /// Where Send sends: ChatGPT in the chat named, or the project's agent. What goes along is the chips; other chats
+    /// are in the panel's Chats (Ctrl+K).
+    /// </summary>
+    private void Route_OnClick(object sender, RoutedEventArgs e)
+    {
+        var open = TaskTakesWords ? _task : null;
+        ShowOptions(RouteButton,
+        [
+            (RequestRoute.Chat, "ChatGPT", $"ChatGPT — the chat {ChatName(_projects.ActiveProject.LinkedConversation)}, with the chips you see"),
+            (RequestRoute.Agent, "Agent", open is not null
+                ? $"Agent — the task «{Shorten(open.Goal, 40)}» goes on with your words"
+                : "Agent — a card for a new task first; nothing runs before Run")
+        ], _settings.Current.Route, SetRoute);
+    }
+
+    /// <summary>Ctrl+K: the project's chats in the panel, where one opens and goes on, or a new one starts.</summary>
+    private void ShowAllChats()
+    {
+        SetPanelOpen(true);
+        ShowPanelTab(PanelTab.Chats);
+        _shownChat = null;
+        _chatsPanel?.ShowListView();
+    }
 
     private void SetRoute(RequestRoute route)
     {
@@ -541,16 +557,21 @@ public partial class MainWindow
         var agent = _settings.Current.Route == RequestRoute.Agent;
         var open = agent && TaskTakesWords ? _task : null;
         var provider = _runningTask?.Provider ?? open?.LastRun?.Provider ?? ProjectProvider;
-        RouteText.Text = !agent ? "To ChatGPT"
-            : open is not null ? $"To {ShortName(provider)} · {Shorten(open.Goal, 24)}"
+        var chat = _projects.ActiveProject.LinkedConversation;
+        RouteText.Text = !agent ? $"ChatGPT · {Shorten(ChatName(chat), 30)}"
+            : open is not null ? $"{ShortName(provider)} · {Shorten(open.Goal, 30)}"
             : $"New {ShortName(ProjectProvider)} task";
-        var chat = _projects.ActiveProject.LinkedConversation is { IsNew: false } link ? $" · the chat {link.Title}" : string.Empty;
-        RouteButton.ToolTip = !agent
-            ? $"Send asks ChatGPT{chat}, with the chips you see. Click to change"
+        RouteButton.ToolTip = (!agent
+                ? $"Send asks ChatGPT in {(chat is { IsNew: false } ? "the chat " + chat.Title : "a new chat")}, with the chips you see."
+                : open is not null
+                    ? $"Send gives your words and chips to the task «{open.Goal}»: {(AgentRunning ? "a correction while the agent works" : "it goes on in the same session")}. Ctrl+Enter opens a card for a new task instead."
+                    : $"Send opens a task card for {_agents.Provider(ProjectProvider).Name}; nothing runs before Run.") +
+            "\nClick: ChatGPT or the agent · Ctrl+K: the chats";
+        PromptPlaceholder.Text = !agent
+            ? chat is { IsNew: false } ? $"Ask in «{Shorten(chat.Title, 40)}»…" : "Ask in a new chat…"
             : open is not null
-                ? $"Send gives your words and chips to the task «{open.Goal}»: {(AgentRunning ? "a correction while the agent works" : "it goes on in the same session")}. " +
-                  "Ctrl+Enter opens a card for a new task instead. Click to change"
-                : $"Send opens a task card for {_agents.Provider(ProjectProvider).Name}; nothing runs before Run. Click to change";
+                ? AgentRunning ? $"Correct {ShortName(provider)}: it stops the step and goes on with your words…" : $"Your words for {ShortName(provider)}: the task goes on…"
+                : $"A new task for {ShortName(ProjectProvider)}: Enter shows its card first…";
         SendHintText.Text = !agent ? "sends to ChatGPT"
             : open is null ? "opens a task card"
             : AgentRunning ? "corrects the agent"
@@ -558,8 +579,12 @@ public partial class MainWindow
         UpdateSendButton();
     }
 
+    /// <summary>A chat as the user knows it: its title, or what the next message does without one.</summary>
+    private static string ChatName(ChatConversationLink? chat) => chat is { IsNew: false } ? chat.Title : "new chat";
+
     /// <summary>Who the next message goes to, in the words of the status line.</summary>
-    private string DestinationName => _settings.Current.Route != RequestRoute.Agent ? "ChatGPT"
+    private string DestinationName => _settings.Current.Route != RequestRoute.Agent
+        ? _projects.ActiveProject.LinkedConversation is { IsNew: false } chat ? $"ChatGPT, the chat {chat.Title}" : "ChatGPT, a new chat"
         : TaskTakesWords && _task is { } open ? $"the task «{Shorten(open.Goal, 40)}»"
         : $"a task card for {_agents.Provider(ProjectProvider).Name}";
 
@@ -588,6 +613,10 @@ public partial class MainWindow
         return geometry;
     }
 
+    /// <summary>
+    /// A chat of those Link's ChatGPT page knows, picked in a dialog (the project menu, ChatGPT's chats… in the panel):
+    /// Link talks there from now on. The dialog also starts a new chat or shows the page.
+    /// </summary>
     private void LinkConversation()
     {
         if (_sending) return;
@@ -602,25 +631,35 @@ public partial class MainWindow
 
         if (dialog.NewChatRequested)
         {
+            if (_settings.Current.Route == RequestRoute.Agent) SetRoute(RequestRoute.Chat);
             _ = StartNewChatAsync(dialog.WithSummary);
             return;
         }
 
         if (!linked || dialog.SelectedConversation is not { } conversation) return;
+        SwitchChat(conversation.ConversationId, conversation.Title, conversation.Url);
+        if (_settings.Current.Route == RequestRoute.Agent) SetRoute(RequestRoute.Chat);
+    }
 
-        _projects.ActiveProject.LinkedConversation = new ChatConversationLink
+    /// <summary>Link talks in this chat from now on, as clicking a chat in ChatGPT does; its last answer comes back on screen.</summary>
+    private void SwitchChat(string conversationId, string title, string url)
+    {
+        var project = _projects.ActiveProject;
+        if (_sending || project.LinkedConversation?.ConversationId == conversationId) return;
+        project.LinkedConversation = new ChatConversationLink
         {
             TransportId = _chat.TransportId,
-            ConversationId = conversation.ConversationId,
-            Title = conversation.Title,
-            Url = conversation.Url
+            ConversationId = conversationId,
+            Title = title,
+            Url = url
         };
-        _projects.ActiveProject.RememberChat(_projects.ActiveProject.LinkedConversation);
+        project.RememberChat(project.LinkedConversation);
         _projects.Save();
         UpdateConnectionState();
+        ShowProjectResponse(project);
         RefreshChats();
-        ShowProjectResponse(_projects.ActiveProject);
-        SetStatus($"Linked to {conversation.Title}");
+        UpdateRouteButton();
+        SetStatus($"Your next message goes to the chat {title}");
     }
 
     /// <summary>
@@ -759,6 +798,8 @@ public partial class MainWindow
         });
         ChatStatusDot.Fill = dot;
         ProjectMenuButton.ToolTip = $"{text}\nSwitch project";
+        // The chat Link talks in may have changed or been named: the destination says it.
+        UpdateRouteButton();
         _chatsPanel?.ShowConnection(text, dot, conversation is { IsNew: false });
 
         if (state == _connectionState) return;
@@ -854,7 +895,7 @@ public partial class MainWindow
             ChatProgressState.Waiting => "Waiting for response",
             ChatProgressState.Receiving => "Receiving",
             ChatProgressState.Reconnecting => "Reconnecting",
-            ChatProgressState.Completed => "Assistant",
+            ChatProgressState.Completed => AnswerSource(),
             ChatProgressState.Cancelled => "Cancelled",
             ChatProgressState.Error => "Error",
             _ => "Assistant"
@@ -910,9 +951,12 @@ public partial class MainWindow
     {
         // What went with that answer is not known any more.
         ShowSaw(null);
-        // An answer belongs to the conversation it came from: after relinking the project it is not shown.
-        if (project.LastResponse is not { } response ||
-            response.ConversationId != project.LinkedConversation?.ConversationId)
+        // An answer belongs to the chat it came from: another chat shows its own last answer, a new one none.
+        var chat = project.LinkedConversation is { IsNew: false } link ? link.ConversationId : null;
+        var text = project.LastResponse is { } response && response.ConversationId == chat ? response.Text
+            : chat is not null ? _projects.ReadHistory(project).FirstOrDefault(exchange => exchange.ConversationId == chat)?.Answer
+            : null;
+        if (text is null)
         {
             _attemptOnScreen = null;
             _responseText = string.Empty;
@@ -921,7 +965,7 @@ public partial class MainWindow
             return;
         }
 
-        ShowResponse(ChatProgressState.Completed, response.Text);
+        ShowResponse(ChatProgressState.Completed, text);
     }
 
     private void CopyResponse_OnClick(object sender, RoutedEventArgs e)

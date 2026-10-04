@@ -46,12 +46,9 @@
         <Grid x:Name="ListView">
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
             <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                 <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionLabelStyle}" Text="CHATS" />
-                <Button x:Name="LinkChatButton" Grid.Column="1" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="0,0,6,0"
-                        Click="LinkChat_OnClick" Content="ChatGPT's chats…"
-                        ToolTip="Pick one of the chats Link's ChatGPT page knows, to talk on there" />
-                <Button x:Name="NewChatButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" Click="NewChat_OnClick"
+                <Button x:Name="NewChatButton" Grid.Column="1" Style="{StaticResource ChipButtonStyle}" Height="26" Click="NewChat_OnClick"
                         ToolTip="Your next message starts a new chat, in the same ChatGPT project as the current one">
                     <StackPanel Orientation="Horizontal">
                         <Path Width="9" Height="9" Margin="0,0,5,0" VerticalAlignment="Center" Stretch="Uniform" Data="{StaticResource PlusIconGeometry}"

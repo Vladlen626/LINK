@@ -122,7 +122,6 @@ public partial class MainWindow
         _chatsPanel = new ChatsPanel();
         _chatsPanel.ChatSelected += OnChatSelected;
         _chatsPanel.NewChatRequested += withSummary => _ = StartNewChatAsync(withSummary);
-        _chatsPanel.LinkChatRequested += LinkConversation;
         _chatsPanel.OpenChatRequested += () => OpenChat(_projects.ActiveProject.LinkedConversation);
         _chatsPanel.AnswerShown += ShowExchange;
 
@@ -196,17 +195,8 @@ public partial class MainWindow
         if (row.ConversationId is { } id && id != project.LinkedConversation?.ConversationId && !_sending &&
             project.Chats.FirstOrDefault(chat => chat.ConversationId == id) is { } chat)
         {
-            project.LinkedConversation = new ChatConversationLink
-            {
-                TransportId = _chat.TransportId,
-                ConversationId = chat.ConversationId,
-                Title = chat.Title,
-                Url = chat.Url
-            };
-            _projects.Save();
-            UpdateConnectionState();
-            ShowProjectResponse(project);
-            SetStatus($"Your next message goes to the chat {chat.Title}");
+            SwitchChat(chat.ConversationId, chat.Title, chat.Url);
+            if (_settings.Current.Route == RequestRoute.Agent) SetRoute(RequestRoute.Chat);
             _shownChat = row with { IsCurrent = true };
             RefreshChats();
             return;
@@ -243,9 +233,17 @@ public partial class MainWindow
     {
         if (_sending) return;
         ShowResponse(ChatProgressState.Completed, exchange.Answer);
+        // The answer may be another chat's than the one Link talks in: its own name goes over it.
+        ResponseStateText.Text = _projects.ActiveProject.Chats.FirstOrDefault(chat => chat.ConversationId == exchange.ConversationId) is { } from
+            ? $"ChatGPT · {from.Title}"
+            : "ChatGPT · an earlier answer";
         ShowAndActivate();
         SetStatus($"From the chat: {exchange.Question}");
     }
+
+    /// <summary>Whose answer the card shows: the chat Link talks in.</summary>
+    private string AnswerSource() =>
+        _projects.ActiveProject.LinkedConversation is { IsNew: false } chat ? $"ChatGPT · {chat.Title}" : "ChatGPT";
 
     private void PlacePanel()
     {

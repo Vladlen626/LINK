@@ -50,6 +50,10 @@ public partial class MainWindow
     private AgentTask? _runningTask;
     // The run under way in the thread: its steps arrive as the CLI writes them.
     private ThreadTurn? _liveTurn;
+    // Link's own answer (the map), apart from the open task: the Tasks tab shows it on its own, with Stop.
+    private OwnRun? _own;
+    // Whether the Tasks tab shows Link's own answer rather than a task or the list.
+    private bool _ownShown;
     // The task as the card or the Map button started it: what Start over starts again.
     private AgentTask? _agentOrigin;
     // A task opened from the list: the next words take up its last session again.
@@ -152,7 +156,8 @@ public partial class MainWindow
 
     /// <summary>
     /// The workspace's Map button: the agent looks through the folder read only and Link writes its answer to
-    /// docs/map.md, the one change, shown and undone like any other. Link's own answer, on the Light level.
+    /// docs/map.md, the one change, shown and undone like any other. Link's own answer, on Quick: a run of its own
+    /// in the Tasks tab, which leaves the open task as it is.
     /// </summary>
     private async Task WriteProjectMapAsync()
     {
@@ -182,7 +187,7 @@ public partial class MainWindow
         }
 
         var (model, effort) = OwnAnswerLevel(ProjectProvider);
-        _agentOrigin = new AgentTask
+        var map = new AgentTask
         {
             Provider = ProjectProvider,
             Workspace = workspace,
@@ -193,7 +198,7 @@ public partial class MainWindow
             Effort = effort
         };
         ShowAgentPanel();
-        await StartAgentAsync(_agentOrigin, null);
+        await StartAgentAsync(map, null);
     }
 
     /// <summary>
@@ -340,7 +345,8 @@ public partial class MainWindow
         panel.BackRequested += ShowTaskList;
         panel.NewTaskRequested += () => _ = OpenNewTaskCardAsync();
         panel.TaskSelected += OpenAgentTask;
-        panel.ShowList(TaskRows(), AllLimitRows());
+        panel.OwnRunRequested += ShowOwnRun;
+        panel.ShowList(TaskRows(), AllLimitRows(), null);
         return panel;
     }
 
@@ -349,7 +355,8 @@ public partial class MainWindow
     {
         _cardRun = null;
         _agentPanel?.HideCard();
-        if (_shownTask is not null) ShowTask();
+        if (_ownShown) ShowOwnRun();
+        else if (_shownTask is not null) ShowTask();
         else ShowTaskList();
     }
 
@@ -357,11 +364,22 @@ public partial class MainWindow
     private void ShowTaskList()
     {
         _shownTask = null;
+        _ownShown = false;
         RefreshTaskList();
         _agentPanel?.ShowListView();
     }
 
-    private void RefreshTaskList() => _agentPanel?.ShowList(TaskRows(), AllLimitRows());
+    private void RefreshTaskList() => _agentPanel?.ShowList(TaskRows(), AllLimitRows(), OwnRow());
+
+    /// <summary>Link's own run at the top of the list while it works, and after it until the next one: one click shows it.</summary>
+    private TaskRow? OwnRow()
+    {
+        if (_own is not { } own) return null;
+        var running = AgentRunning && _runningTask == own.Task;
+        var status = running ? "working" : own.Status;
+        return new TaskRow($"Link writes {OwnWhat(own.Task)}", "Link's own answer, apart from the tasks",
+            string.Empty, $"{AgentName(own.Task.Provider)} · {status}", (Brush)FindResource(running ? "BusyOrbBrush" : own.Dot), null);
+    }
 
     /// <summary>The project's tasks, newest first; the open one leads while it is open, saved yet or not.</summary>
     private IReadOnlyList<TaskRow> TaskRows()
@@ -376,7 +394,9 @@ public partial class MainWindow
 
         return tasks.Select(record =>
         {
-            var (status, brush) = Standing(record, live: AgentRunning && record.Id == _task?.Id && _runningTask is { } running && IsUserWork(running));
+            // The list is drawn now and then: its running row says so, the time is in the pill and the task.
+            var live = AgentRunning && record.Id == _task?.Id && _runningTask is { } running && IsUserWork(running);
+            var (status, brush) = live ? ("working", (Brush)FindResource("BusyOrbBrush")) : Standing(record, live: false);
             var who = record.LastRun is { } last ? AgentName(last.Provider) + " · " : string.Empty;
             return new TaskRow(record.Goal, ToPreviewText(record.LastWords), ShortTime(record.UpdatedAt), who + status, brush, record);
         }).ToArray();
@@ -589,6 +609,7 @@ public partial class MainWindow
     private void ShowTaskInPanel()
     {
         ShowAgentPanel();
+        _ownShown = false;
         _shownTask = _task;
         ShowTask();
     }
@@ -600,43 +621,52 @@ public partial class MainWindow
     private async Task StartAgentAsync(AgentTask task, AgentRun? previous, string? note = null)
     {
         var provider = _agents.Provider(task.Provider);
-        var project = _projects.ActiveProject;
-        // A new task starts clean; a run that goes on with the last one, or a task taken up again, keeps its past.
-        if (previous is null && _task?.Runs.Count is null or 0) _agents.Console.Clear();
-        if (previous is null && task.ResumeSessionId is null && _task?.Runs.Count is null or 0) _taskSteps.Clear();
+        // Link's own answer (the map) runs apart: the open task keeps its session, its last run and its question.
+        var own = !IsUserWork(task) || _task is null;
+        if (!own)
+        {
+            // A new task starts clean; a run that goes on with the last one, or a task taken up again, keeps its past.
+            if (previous is null && _task?.Runs.Count is null or 0) _agents.Console.Clear();
+            if (previous is null && task.ResumeSessionId is null && _task?.Runs.Count is null or 0) _taskSteps.Clear();
+            _decision = null;
+            _question = null;
+            _earlierSession = null;
+            _continueAt?.Stop();
+            _task!.Status = AgentTaskStatus.Running;
+        }
+
         _runningTask = task;
-        _decision = null;
-        _question = null;
-        _earlierSession = null;
         _limitOffered = false;
-        _continueAt?.Stop();
         _runSteps.Clear();
         _runningFiles.Clear();
-        if (_task is not null && IsUserWork(task)) _task.Status = AgentTaskStatus.Running;
         _liveTurn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort)}", "Starting…",
             (Brush)FindResource("AccentBrush")) { StepsOpen = true };
+        if (own) _own = new OwnRun(task, _liveTurn);
         var cancellation = new CancellationTokenSource();
         _agentCancellation = cancellation;
         _agentClock = Stopwatch.StartNew();
         _pendingAgentEvents.Clear();
         if (note is not null) _pendingAgentEvents.Add(new AgentEvent(AgentEventKind.Output, note));
         _agentPanel ??= CreateAgentPanel();
-        _agentPanel.ResetCards();
-        if (_task is not null && IsUserWork(task))
+        if (own)
         {
-            _shownTask = _task;
-            ShowTask();
+            ShowOwnRun();
         }
         else
         {
-            ShowOwnRun(task, project);
+            _agentPanel.ResetCards();
+            _ownShown = false;
+            _shownTask = _task;
+            ShowTask();
         }
 
         _activityTimer ??= CreateActivityTimer();
         _activityTimer.Start();
         _cues.Play(SoundCue.Sent);
         SayAgent($"{ShortName(task.Provider)} начал работу.", $"{ShortName(task.Provider)} started.");
-        AgentStatus($"{provider.Name} is working · its thread is in the Tasks tab");
+        AgentStatus(own
+            ? $"{provider.Name} writes {OwnWhat(task)} · Stop is in the Tasks tab"
+            : $"{provider.Name} is working · its thread is in the Tasks tab");
         UpdateAgentPill();
         UpdateRouteButton();
         RefreshTaskList();
@@ -666,6 +696,16 @@ public partial class MainWindow
             _runningTask = null;
             cancellation.Dispose();
             ReportState();
+        }
+
+        if (own && _own is { } done)
+        {
+            if (ended is not null) ShowOwnResult(done, ended);
+            else if (failure is not null) ShowOwnFailure(done, failure);
+            _liveTurn = null;
+            UpdateAgentPill();
+            RefreshTaskList();
+            return;
         }
 
         if (ended is not null) ShowAgentRun(ended);
@@ -710,30 +750,92 @@ public partial class MainWindow
     private static bool IsUserWork(AgentTask task) => task.AnswerFile is null;
 
     /// <summary>Link's own answer, such as the map: a thread of its one run, outside the tasks.</summary>
-    private void ShowOwnRun(AgentTask task, LinkProject project)
+    private void ShowOwnRun()
     {
+        if (_agentPanel is not { } panel || _own is not { } own) return;
         _shownTask = null;
-        var panel = _agentPanel!;
-        panel.ShowTaskView(task.AnswerFile is { } file ? $"Link writes {file.Replace('\\', '/')}" : Shorten(task.Prompt.Split('\n')[0], 200),
-            $"{project.Name} · {task.Workspace}");
-        panel.SetStatus("working", (Brush)FindResource("BusyOrbBrush"));
-        panel.SetHeader(AgentHeader(task));
+        _ownShown = true;
+        var task = own.Task;
+        var running = AgentRunning && _runningTask == task;
+        panel.ShowTaskView($"Link writes {OwnWhat(task)}", $"{_projects.ActiveProject.Name} · {task.Workspace}");
+        panel.SetStatus(running ? "working" : own.Status, (Brush)FindResource(running ? "BusyOrbBrush" : own.Dot));
+        panel.SetHeader(running ? AgentHeader(task) : $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort)} · read only");
         panel.ShowPlan([]);
-        panel.ShowThread(_liveTurn is null ? [] : [_liveTurn]);
+        panel.ShowThread([own.Turn]);
         panel.ShowBrief(string.Empty);
         panel.ShowUsage(string.Empty, string.Empty);
         panel.ShowTaskLimits(LimitRows(task.Provider));
+        panel.ResetCards();
         panel.ShowQuestion(null);
-        panel.ShowMenus([], [ConsoleAction()]);
+        panel.ShowMenus([], OwnActions(own));
         panel.ShowFinish(false);
-        panel.SetRunning(true);
+        panel.SetRunning(running);
         // Link's own answer takes no words.
-        panel.ShowReply(false);
+        panel.ShowReply(false, running ? null : "Link's own answer: the file is written. ‹ goes back to the tasks.");
+    }
+
+    /// <summary>What Link's own run writes, as the user reads it: "docs/map.md".</summary>
+    private static string OwnWhat(AgentTask task) =>
+        task.AnswerFile is { } file ? file.Replace('\\', '/') : Shorten(task.Prompt.Split('\n')[0], 80);
+
+    /// <summary>The ⋯ menu of Link's own run: undo what it wrote, and the console.</summary>
+    private IReadOnlyList<PanelAction> OwnActions(OwnRun own) =>
+        own.Run is { } run && UndoAction(run) is { } undo ? [undo, ConsoleAction()] : [ConsoleAction()];
+
+    /// <summary>Link's own run ended: its answer in its turn, its file listed; the open task stays as it was.</summary>
+    private void ShowOwnResult(OwnRun own, AgentRun run)
+    {
+        own.Run = run;
+        var result = run.Result;
+        var elapsed = $"{(int)_agentClock.Elapsed.TotalMinutes}:{_agentClock.Elapsed.Seconds:00}";
+        var ending = result.Stopped ? $"Stopped after {elapsed}" : !result.Succeeded ? $"Failed after {elapsed}" : $"Done in {elapsed}";
+        own.Status = result.Stopped ? "stopped" : !result.Succeeded ? "failed" : "done";
+        own.Dot = result.Stopped ? "IdleOrbBrush" : !result.Succeeded ? "ErrorOrbBrush" : "SuccessOrbBrush";
+        var turn = own.Turn;
+        turn.Current = string.Empty;
+        turn.Outcome = ending;
+        turn.OutcomeBrush = OutcomeBrush(ending);
+        turn.Said = AgentCoordinator.Unfenced(result.Summary);
+        turn.Files = run.Changes.Select(ToChangeRow).ToArray();
+        turn.Stats = StatsLine(result.Stats);
+        turn.StepsOpen = false;
+        if (_ownShown) ShowOwnRun();
+        _projectPanel?.ShowProject(_projects.ActiveProject);
+        var name = ShortName(run.Task.Provider);
+        if (result.Stopped) return;
+        _cues.Play(result.Succeeded ? SoundCue.Done : SoundCue.Error);
+        if (result.Succeeded) SayAgent($"{name} закончил работу.", $"{name} finished.");
+        else SayAgent($"{name}: не получилось.", $"{name} failed.");
+        AgentStatus($"{AgentName(run.Task.Provider)}: {ending.ToLowerInvariant()} · {OwnWhat(run.Task)}");
+    }
+
+    private void ShowOwnFailure(OwnRun own, Exception exception)
+    {
+        own.Status = "could not start";
+        own.Dot = "ErrorOrbBrush";
+        own.Turn.Current = string.Empty;
+        own.Turn.Outcome = "could not start";
+        own.Turn.OutcomeBrush = (Brush)FindResource("ErrorBrush");
+        own.Turn.Said = exception.Message;
+        if (_ownShown) ShowOwnRun();
+        _cues.Play(SoundCue.Error);
+        if (!_sending) SetError(exception.Message);
+    }
+
+    /// <summary>Link's own run (a map): its task, its turn in the thread, and once over, the run and how it ended.</summary>
+    private sealed class OwnRun(AgentTask task, ThreadTurn turn)
+    {
+        public AgentTask Task { get; } = task;
+        public ThreadTurn Turn { get; } = turn;
+        public AgentRun? Run { get; set; }
+        public string Status { get; set; } = "working";
+        public string Dot { get; set; } = "BusyOrbBrush";
     }
 
     /// <summary>Start over with a note; a running agent is stopped first, and its note is asked once it has ended.</summary>
     private void RequestRestart()
     {
+        if (_runningTask is { } running && !IsUserWork(running)) return;
         if (!AgentRunning)
         {
             _ = RestartWithNoteAsync();
@@ -944,15 +1046,17 @@ public partial class MainWindow
     private void FlushAgentEvents()
     {
         if (_agentPanel is null) return;
-        var shown = _shownTask is null || _task is not null && _shownTask.Id == _task.Id;
+        // The task's own run, or Link's own answer beside it; only what the tab shows is drawn there.
+        var userWork = _runningTask is { } working && IsUserWork(working) && _task is not null;
+        var shown = userWork ? !_ownShown && _shownTask is not null && _shownTask.Id == _task!.Id : _ownShown;
         if (_runningTask is { } task)
         {
             var elapsed = _agentClock.Elapsed;
             if (_liveTurn is not null) _liveTurn.Outcome = $"working · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
             if (shown) _agentPanel.SetHeader(AgentHeader(task));
-            if (shown && _task is { } record && IsUserWork(task))
+            if (shown && userWork)
             {
-                var (status, dot) = Standing(record, live: true);
+                var (status, dot) = Standing(_task!, live: true);
                 _agentPanel.SetStatus(status, dot);
             }
 
@@ -962,7 +1066,8 @@ public partial class MainWindow
         if (_pendingAgentEvents.Count == 0) return;
         var events = _pendingAgentEvents.ToArray();
         _pendingAgentEvents.Clear();
-        RememberSteps(events);
+        // Link's own answer is no step of the task: an agent that takes the task over is not told of it.
+        if (userWork) RememberSteps(events);
         var steps = events.Select(StepText).OfType<string>().Select(step => Shorten(step, 1200)).ToArray();
         _runSteps.AddRange(steps.Select(step => Shorten(step, 300)));
         if (_liveTurn is { } turn)
@@ -976,8 +1081,8 @@ public partial class MainWindow
 
         if (events.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Plan) is { } plan)
         {
-            if (_task is not null) _task.Plan = [.. plan.Plan];
-            if (shown) _agentPanel.ShowPlan(plan.Plan);
+            if (userWork) _task!.Plan = [.. plan.Plan];
+            if (shown && userWork) _agentPanel.ShowPlan(plan.Plan);
         }
 
         if (events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Limit))
@@ -986,8 +1091,8 @@ public partial class MainWindow
             if (shown && _runningTask is { } reporting) _agentPanel.ShowTaskLimits(LimitRows(reporting.Provider));
         }
 
-        if (_runningTask is { } running && !_limitOffered && _limits.IsNear(running.Provider)) OfferLimitAhead(running.Provider);
-        if (shown && _agentOrigin is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Loop))
+        if (userWork && _runningTask is { } running && !_limitOffered && _limits.IsNear(running.Provider)) OfferLimitAhead(running.Provider);
+        if (shown && userWork && _agentOrigin is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Loop))
         {
             _agentPanel.ShowRestart(true, escalate: _runningTask is { } looping && !IsStrongest(looping));
         }
@@ -1325,7 +1430,7 @@ public partial class MainWindow
     /// <summary>The open task in the Tasks tab, unless another task is shown there to be read.</summary>
     private void ShowTask()
     {
-        if (_agentPanel is null || _task is not { } record) return;
+        if (_agentPanel is null || _task is not { } record || _ownShown) return;
         if (_shownTask is not null && _shownTask.Id != record.Id) return;
         _shownTask = record;
         ShowRecord(record, readOnly: false);
@@ -1338,6 +1443,7 @@ public partial class MainWindow
     private void ShowRecord(AgentTaskRecord record, bool readOnly)
     {
         var panel = _agentPanel!;
+        _ownShown = false;
         var live = !readOnly && AgentRunning && _runningTask is { } running && IsUserWork(running);
         panel.ShowTaskView(record.Goal, WhereLine(record));
         var (status, dot) = Standing(record, live);
@@ -1365,6 +1471,8 @@ public partial class MainWindow
         panel.ShowMenus(HandOffActions(record), MoreActions());
         panel.ShowFinish(true);
         if (live) panel.ShowReply(true);
+        // One agent at a time: Link's own answer, such as the map, goes first.
+        else if (AgentRunning && _runningTask is { } busy) panel.ShowReply(false, $"{AgentName(busy.Provider)} writes {OwnWhat(busy)}: your words can go once it ends.");
         else if (ResumableTask() is not null) panel.ShowReply(true);
         else panel.ShowReply(false, "This task has no session to go on with: hand it to an agent, or start it anew from its card.");
         UpdateAgentPill();
@@ -1521,22 +1629,30 @@ public partial class MainWindow
         var provider = _runningTask?.Provider ?? _task?.LastRun?.Provider ?? ProjectProvider;
         var name = ShortName(provider);
         var elapsed = _agentClock.Elapsed;
+        var what = _runningTask is { } running && !IsUserWork(running) ? "map " : string.Empty;
         var (words, dot) = AgentRunning
-            ? ($"· {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}", (Brush)FindResource("BusyOrbBrush"))
+            ? ($"· {what}{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}", (Brush)FindResource("BusyOrbBrush"))
             : Standing(_task!, live: false);
         var text = $"{name} {words}";
         AgentPillText.Text = text;
         AgentPillDot.Fill = dot;
-        AgentPill.ToolTip = $"{_task?.Goal ?? "Agent"}\n{text}" +
+        var subject = _runningTask is { } busy && !IsUserWork(busy) ? $"Link writes {OwnWhat(busy)}" : _task?.Goal ?? "Agent";
+        AgentPill.ToolTip = $"{subject}\n{text}" +
                             (_limits.Describe(provider) is { Length: > 0 } limits ? $"\nUsage: {limits}" : string.Empty) +
-                            "\nClick to open the task";
+                            "\nClick to see it in the Tasks tab";
         AgentPill.Visibility = Visibility.Visible;
         _panel?.ShowTaskDot(dot);
     }
 
     private void AgentPill_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_task is not null) ShowTaskInPanel();
+        // What works now: Link's own answer, else the open task.
+        if (_runningTask is { } running && !IsUserWork(running) || _task is null && _own is not null)
+        {
+            ShowAgentPanel();
+            ShowOwnRun();
+        }
+        else if (_task is not null) ShowTaskInPanel();
         else ShowAgentPanel();
     }
 
@@ -1672,18 +1788,19 @@ public partial class MainWindow
         if (run.Before.IsVersioned && undoable > 0)
         {
             return new PanelAction($"Undo agent changes ({undoable})",
-                "Put back the files the agent changed that had no changes of yours before the task", () => _ = UndoAgentChangesAsync());
+                "Put back the files the agent changed that had no changes of yours before the task", () => _ = UndoAgentChangesAsync(run));
         }
 
         return run.Before.Backup is not null && run.Changes.Count > 0
             ? new PanelAction("Restore the copy", $"Put the workspace back as it was before the task, from {run.Before.Backup}",
-                () => _ = UndoAgentChangesAsync())
+                () => _ = UndoAgentChangesAsync(run))
             : null;
     }
 
-    private async Task UndoAgentChangesAsync()
+    /// <summary>Undo of a run: the task's last one, or Link's own answer (the map), which leaves the task as it is.</summary>
+    private async Task UndoAgentChangesAsync(AgentRun run)
     {
-        if (_lastRun is not { } run || AgentRunning) return;
+        if (AgentRunning) return;
         var versioned = run.Before.IsVersioned;
         var files = versioned ? run.Changes.Where(change => change.Undoable).ToArray() : run.Changes.ToArray();
         var kept = run.Changes.Count - files.Length;
@@ -1701,6 +1818,16 @@ public partial class MainWindow
             if (versioned) await _agents.Changes.UndoAsync(run.Before, files, CancellationToken.None);
             else await _agents.Changes.RestoreAsync(run.Before, files, CancellationToken.None);
             var left = await _agents.Changes.CompareAsync(run.Before, CancellationToken.None);
+            if (_own is { } own && own.Run == run)
+            {
+                own.Run = run with { Changes = left };
+                own.Turn.Files = left.Select(ToChangeRow).ToArray();
+                if (_ownShown) ShowOwnRun();
+                _projectPanel?.ShowProject(_projects.ActiveProject);
+                AgentStatus(left.Count == 0 ? "Link's own answer was undone" : $"Undone; {left.Count} files still differ");
+                return;
+            }
+
             _lastRun = run with { Changes = left };
             // The task's changelist goes with its last file; Perforce keeps one that still holds files.
             if (run.Before.IsPerforce && _task?.Changelist is { } changelist && left.All(change => !change.Undoable))

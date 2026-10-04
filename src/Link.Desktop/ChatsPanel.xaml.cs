@@ -23,9 +23,6 @@ public partial class ChatsPanel : UserControl
     /// <summary>A new chat was asked for; true: with a summary of the current one.</summary>
     public event Action<bool>? NewChatRequested;
 
-    /// <summary>A chat of those Link's ChatGPT page knows is to be chosen.</summary>
-    public event Action? LinkChatRequested;
-
     /// <summary>Link's ChatGPT page is to be shown, at the current chat.</summary>
     public event Action? OpenChatRequested;
 
@@ -73,7 +70,6 @@ public partial class ChatsPanel : UserControl
     public void SetBusy(bool busy)
     {
         NewChatButton.IsEnabled = !busy;
-        LinkChatButton.IsEnabled = !busy;
         ChatList.IsEnabled = !busy;
     }
 
@@ -94,7 +90,6 @@ public partial class ChatsPanel : UserControl
         menu.IsOpen = true;
     }
 
-    private void LinkChat_OnClick(object sender, RoutedEventArgs e) => LinkChatRequested?.Invoke();
     private void OpenChat_OnClick(object sender, RoutedEventArgs e) => OpenChatRequested?.Invoke();
     private void OpenThread_OnClick(object sender, RoutedEventArgs e) => OpenChatRequested?.Invoke();
     private void Back_OnClick(object sender, RoutedEventArgs e) => ShowListView();

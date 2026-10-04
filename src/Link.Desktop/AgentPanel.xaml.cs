@@ -94,11 +94,17 @@ public partial class AgentPanel : UserControl
     public event Action? NewTaskRequested;
     public event Action<AgentTaskRecord>? TaskSelected;
 
-    /// <summary>The list of the project's tasks with the agents' usage; the view shows when nothing else is open.</summary>
-    public void ShowList(IReadOnlyList<TaskRow> tasks, IReadOnlyList<LimitRow> limits)
+    /// <summary>Link's own run (the map) of the list's first row is to be shown.</summary>
+    public event Action? OwnRunRequested;
+
+    /// <summary>
+    /// The list of the project's tasks with the agents' usage, Link's own run (<paramref name="own"/>) first while there
+    /// is one; the view shows when nothing else is open.
+    /// </summary>
+    public void ShowList(IReadOnlyList<TaskRow> tasks, IReadOnlyList<LimitRow> limits, TaskRow? own)
     {
-        TaskList.ItemsSource = tasks;
-        TasksEmptyText.Visibility = tasks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        TaskList.ItemsSource = own is null ? tasks : tasks.Prepend(own).ToArray();
+        TasksEmptyText.Visibility = tasks.Count == 0 && own is null ? Visibility.Visible : Visibility.Collapsed;
         LimitsList.ItemsSource = limits;
     }
 
@@ -586,7 +592,9 @@ public partial class AgentPanel : UserControl
 
     private void TaskRow_OnClick(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: TaskRow row }) TaskSelected?.Invoke(row.Record);
+        if (sender is not FrameworkElement { DataContext: TaskRow row }) return;
+        if (row.Record is { } record) TaskSelected?.Invoke(record);
+        else OwnRunRequested?.Invoke();
     }
 
     private void NewTask_OnClick(object sender, RoutedEventArgs e) => NewTaskRequested?.Invoke();

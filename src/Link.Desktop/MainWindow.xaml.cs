@@ -536,6 +536,14 @@ public partial class MainWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
+        // Ctrl+K, as in the chat apps: the chats, to open another or start a new one.
+        if (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)
+        {
+            e.Handled = true;
+            ShowAllChats();
+            return;
+        }
+
         if (e.Key != Key.Escape) return;
         // Like the Stop orb: silence Link first, then stop the request; with nothing going on Esc hides Link, which
         // goes on listening in conversation.

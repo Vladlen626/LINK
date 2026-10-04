@@ -449,9 +449,13 @@ public sealed partial class CodexEventParser : AgentEventParser
         output.Contains("Access is denied", StringComparison.OrdinalIgnoreCase) ||
         output.Contains("read-only", StringComparison.OrdinalIgnoreCase);
 
-    /// <summary>Codex runs each command through PowerShell; the row shows the command itself.</summary>
-    private static string Unwrap(string command) =>
-        ShellCommand().Match(command) is { Success: true } match ? match.Groups[1].Value.Replace("\\\"", "\"") : command;
+    /// <summary>
+    /// Codex runs each command through PowerShell, as <c>powershell.exe -Command "…"</c> or, lately, as
+    /// <c>"…\powershell.exe" '…'</c>; the row shows the command itself.
+    /// </summary>
+    internal static string Unwrap(string command) => ShellCommand().Match(command) is not { Success: true } match ? command
+        : match.Groups["double"].Success ? match.Groups["double"].Value.Replace("\\\"", "\"")
+        : match.Groups["single"].Value.Replace("''", "'");
 
     /// <summary>A failure often carries the API's JSON; its inner message is what the user can act on.</summary>
     private static string Message(string text)
@@ -471,6 +475,8 @@ public sealed partial class CodexEventParser : AgentEventParser
         return text.Length > 0 ? text : "Codex failed.";
     }
 
-    [GeneratedRegex("""powershell\.exe"?\s+-Command\s+"(.*)"\s*$""", RegexOptions.IgnoreCase | RegexOptions.Singleline)]
+    // The shell, its switches (-NoProfile, -Command…), then the command in double or single quotes.
+    [GeneratedRegex("""(?:powershell|pwsh)(?:\.exe)?"?(?:\s+-\w+)*\s+(?:"(?<double>.*)"|'(?<single>.*)')\s*$""",
+        RegexOptions.IgnoreCase | RegexOptions.Singleline)]
     private static partial Regex ShellCommand();
 }

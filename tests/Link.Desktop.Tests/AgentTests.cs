@@ -603,6 +603,11 @@ internal static class AgentTests
         Program.Equal("Codex: the thread id is the session", read.Parser.SessionId, "01a0f0b4-da92-79a3-92ed-1ae382b67719");
         Program.Equal("Codex: a command shows itself, not its PowerShell wrapper",
             read.Events.First(e => e.Kind == AgentEventKind.Tool).Text.StartsWith("git status --short;"), true);
+        Program.Equal("Codex: the newer wrapper, a quoted path and the command in single quotes, shows the command too",
+            (CodexEventParser.Unwrap(@"""C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"" 'p4 set P4CONFIG=.p4config'"),
+                CodexEventParser.Unwrap(@"""C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"" -NoProfile -Command 'Get-Content ''a b.txt'''"),
+                CodexEventParser.Unwrap("dotnet build")),
+            ("p4 set P4CONFIG=.p4config", "Get-Content 'a b.txt'", "dotnet build"));
         Program.Equal("Codex: the last message is the summary", read.Parser.Summary.Contains("81 lines"), true);
         Program.Equal("Codex: a turn completes", read.Events[^1].Kind, AgentEventKind.Completed);
         Program.Equal("Codex: reading changes nothing", read.Parser.ChangedFiles.Count, 0);

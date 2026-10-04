@@ -130,8 +130,8 @@ public sealed record AgentChangeRow(string Label, string Path);
 /// <summary>A choice the panel offers in a menu or on a card; the window does the work behind it.</summary>
 public sealed record PanelAction(string Label, string Hint, Action Run);
 
-/// <summary>A task in the Tasks list: its goal, how it stands and its last words.</summary>
-public sealed record TaskRow(string Title, string Preview, string Time, string Status, Brush StatusBrush, AgentTaskRecord Record);
+/// <summary>A task in the Tasks list: its goal, how it stands and its last words; no record: Link's own run (the map).</summary>
+public sealed record TaskRow(string Title, string Preview, string Time, string Status, Brush StatusBrush, AgentTaskRecord? Record);
 
 /// <summary>
 /// A chat in the Chats list. <see cref="ConversationId"/> is null for the answers an earlier Link kept without their
