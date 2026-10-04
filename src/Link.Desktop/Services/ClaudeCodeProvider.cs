@@ -9,7 +9,7 @@ namespace Link.Desktop.Services;
 /// in <c>acceptEdits</c>, or in <c>auto</c> on Auto, where Claude Code's own check stops risky actions; a plan runs in
 /// <c>plan</c>. <c>bypassPermissions</c> is never used.
 /// </summary>
-public sealed class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
+public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
     : CliAgentProvider(settings, log, console)
 {
     public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
@@ -66,6 +66,62 @@ public sealed class ClaudeCodeProvider(Func<AgentSettings> settings, Action<stri
             : task.Prompt + "\n\nImages attached to this task (open them with Read):\n" + string.Join('\n', task.Images);
 
     public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser();
+
+    /// <summary>
+    /// Claude Code's own <c>/usage</c>, which print mode runs without the model: its lines "Current session: 23% used ·
+    /// resets Oct 4, 3pm (Europe/Moscow)" give the windows. Run in the temp folder, so that no project is touched.
+    /// </summary>
+    public override async Task<IReadOnlyList<AgentLimit>> ReadLimitsAsync(CancellationToken cancellationToken)
+    {
+        if (FindExecutable() is not { } executable) return [];
+        var output = new System.Text.StringBuilder();
+        using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        wait.CancelAfter(UsageWait);
+        await AgentProcess.RunAsync(new AgentCommand(executable, ["-p", "/usage"], Path.GetTempPath(), string.Empty),
+            line => output.AppendLine(line), null, wait.Token);
+        return UsageLimits(output.ToString(), DateTimeOffset.Now);
+    }
+
+    /// <summary>The windows of <c>/usage</c>'s text: the session as "5 h", the week, and a week of one model.</summary>
+    internal static IReadOnlyList<AgentLimit> UsageLimits(string text, DateTimeOffset now) => UsageLine().Matches(text).Select(match =>
+    {
+        var scope = match.Groups["scope"].Value;
+        var window = match.Groups["session"].Success ? "5 h"
+            : scope.Equals("all models", StringComparison.OrdinalIgnoreCase) ? "week"
+            : $"week, {scope.Replace(" only", string.Empty, StringComparison.OrdinalIgnoreCase)}";
+        var used = double.Parse(match.Groups["used"].Value, System.Globalization.CultureInfo.InvariantCulture);
+        return new AgentLimit(AgentProviderKind.ClaudeCode, window, used, ResetTime(match.Groups["when"].Value, now), used >= 100, now);
+    }).ToArray();
+
+    /// <summary>
+    /// A reset as /usage writes it, in this computer's time: "Oct 4, 3pm", "Oct 4, 3:30pm", "Jan 2, 2027, 3pm"; null
+    /// when it does not read.
+    /// </summary>
+    internal static DateTimeOffset? ResetTime(string text, DateTimeOffset now)
+    {
+        // en-US writes am and pm in lower case here; the parser takes them in upper.
+        var words = System.Text.RegularExpressions.Regex.Replace(text.Trim(), "(am|pm)$", match => match.Value.ToUpperInvariant());
+        string[] formats = ["MMM d, htt", "MMM d, h:mmtt", "MMM d, yyyy, htt", "MMM d, yyyy, h:mmtt"];
+        if (!DateTime.TryParseExact(words, formats, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AllowWhiteSpaces, out var local))
+        {
+            return null;
+        }
+
+        // Without a year it is this one; a date that has passed by more than a day is next year's.
+        if (!words.Contains(local.Year.ToString(System.Globalization.CultureInfo.InvariantCulture), StringComparison.Ordinal) &&
+            local < now.LocalDateTime.AddDays(-1))
+        {
+            local = local.AddYears(1);
+        }
+
+        return new DateTimeOffset(local, TimeZoneInfo.Local.GetUtcOffset(local));
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(
+        @"^\s*Current (?:(?<session>session)|week \((?<scope>[^)]+)\)):\s*(?<used>\d+(?:\.\d+)?)% used(?:\s*·\s*resets\s+(?<when>[^(\r\n]+?))?(?:\s*\([^)\r\n]*\))?\s*$",
+        System.Text.RegularExpressions.RegexOptions.Multiline)]
+    private static partial System.Text.RegularExpressions.Regex UsageLine();
 
     protected override bool IsSignedIn(string answer)
     {

@@ -972,6 +972,28 @@ internal static class AgentTests
         Program.Equal("Codex's session log gives its 5-hour and weekly windows, a full one reached",
             windows.Select(limit => $"{limit.Window} {limit.UsedPercent:0} {limit.Reached}").Aggregate((a, b) => a + ", " + b), "5 h 12 False, week 100 True");
 
+        // Usage asked anew: Claude Code's /usage text and Codex's app-server answer.
+        var now = new DateTimeOffset(2026, 10, 4, 12, 0, 0, TimeZoneInfo.Local.GetUtcOffset(new DateTime(2026, 10, 4, 12, 0, 0)));
+        var claudeUsage = ClaudeCodeProvider.UsageLimits("""
+            Total cost:            $0.0000
+            Current session: 23% used · resets Oct 4, 3pm (Europe/Moscow)
+            Current week (all models): 45% used · resets Oct 9, 10:30am (Europe/Moscow)
+            Current week (Sonnet only): 4% used
+            """, now);
+        Program.Equal("usage: Claude's /usage lines become the 5-hour and weekly windows, a model's week apart",
+            string.Join(", ", claudeUsage.Select(limit => $"{limit.Window} {limit.UsedPercent:0} {limit.ResetsAt?.LocalDateTime:MM-dd HH:mm}")),
+            "5 h 23 10-04 15:00, week 45 10-09 10:30, week, Sonnet 4 ");
+        Program.Equal("usage: a reset in another year names it, one without a year that has passed is next year's",
+            (ClaudeCodeProvider.ResetTime("Jan 2, 2027, 3pm", now)?.LocalDateTime, ClaudeCodeProvider.ResetTime("Jan 2, 9am", now)?.LocalDateTime.Year,
+                ClaudeCodeProvider.ResetTime("soon", now)),
+            ((DateTime?)new DateTime(2027, 1, 2, 15, 0, 0), (int?)2027, (DateTimeOffset?)null));
+        var codexUsage = CodexProvider.AccountLimits(
+            """{"id":2,"result":{"rateLimits":{"limitId":"codex","primary":{"usedPercent":1,"windowDurationMins":300,"resetsAt":4102444800},"secondary":{"usedPercent":31,"windowDurationMins":10080,"resetsAt":4102444800},"rateLimitReachedType":null}}}""",
+            now);
+        Program.Equal("usage: Codex's app-server gives percents, so 1 is one percent, not all",
+            string.Join(", ", codexUsage.Select(limit => $"{limit.Window} {limit.UsedPercent:0} {limit.Reached}")), "5 h 1 False, week 31 False");
+        Program.Equal("usage: an error answer gives no windows", CodexProvider.AccountLimits("""{"id":2,"error":{"code":-32603}}""", now).Count, 0);
+
         var store = new AgentLimits(Path.Combine(Path.GetTempPath(), "link-limits-" + Guid.NewGuid().ToString("N") + ".json"));
         store.Update(windows);
         Program.Equal("limits: a full window means the agent is near its limit and waits for the reset",
@@ -1065,6 +1087,8 @@ internal static class AgentTests
         public override IReadOnlyList<string> Arguments(AgentTask task) => [FakeFlag, scenario];
         public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser();
         protected override bool IsSignedIn(string answer) => true;
+        public override Task<IReadOnlyList<AgentLimit>> ReadLimitsAsync(CancellationToken cancellationToken) =>
+            System.Threading.Tasks.Task.FromResult<IReadOnlyList<AgentLimit>>([]);
     }
 
     /// <summary>An agent whose runs do what the check says, for what Link does around a run; it keeps the tasks it got.</summary>
@@ -1077,6 +1101,9 @@ internal static class AgentTests
         public IReadOnlyList<AgentChoice> Models => [];
         public IReadOnlyList<AgentChoice> EffortsOf(string? model) => [];
         public (string? Model, string? Effort) OwnSetup => (null, null);
+
+        public Task<IReadOnlyList<AgentLimit>> ReadLimitsAsync(CancellationToken cancellationToken) =>
+            System.Threading.Tasks.Task.FromResult<IReadOnlyList<AgentLimit>>([]);
 
         public static ScriptedProvider Answering(string answer, bool succeeded = true) =>
             new((_, _) => new AgentResult { SessionId = "answer", Summary = answer, Succeeded = succeeded });

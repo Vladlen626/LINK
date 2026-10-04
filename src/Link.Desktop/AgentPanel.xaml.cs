@@ -97,6 +97,9 @@ public partial class AgentPanel : UserControl
     /// <summary>Link's own run (the map) of the list's first row is to be shown.</summary>
     public event Action? OwnRunRequested;
 
+    /// <summary>An agent's usage was clicked: it is to be asked for its windows now.</summary>
+    public event Action<AgentProviderKind>? LimitRefreshRequested;
+
     /// <summary>
     /// The list of the project's tasks with the agents' usage, Link's own run (<paramref name="own"/>) first while there
     /// is one; the view shows when nothing else is open.
@@ -258,6 +261,14 @@ public partial class AgentPanel : UserControl
 
     /// <summary>The usage windows of the agent on the task, under its buttons.</summary>
     public void ShowTaskLimits(IReadOnlyList<LimitRow> limits) => TaskLimitsList.ItemsSource = limits;
+
+    /// <summary>An agent's windows anew on an open card, as they are once asked again.</summary>
+    public void ShowCardLimits(AgentProviderKind provider, IReadOnlyList<LimitRow> limits)
+    {
+        if (_card is not { } card) return;
+        _card = card with { Providers = card.Providers.Select(agent => agent.Kind == provider ? agent with { Limits = limits } : agent).ToArray() };
+        if (SelectedAgent?.Kind == provider) CardLimitsList.ItemsSource = limits;
+    }
 
     /// <summary>The agent's question with its options; null hides it.</summary>
     public void ShowQuestion(AgentQuestion? question)
@@ -598,6 +609,11 @@ public partial class AgentPanel : UserControl
     }
 
     private void NewTask_OnClick(object sender, RoutedEventArgs e) => NewTaskRequested?.Invoke();
+
+    private void LimitRow_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: LimitRow row }) LimitRefreshRequested?.Invoke(row.Provider);
+    }
     private void Back_OnClick(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
 
     private void CancelCard_OnClick(object sender, RoutedEventArgs e)

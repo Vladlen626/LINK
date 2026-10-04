@@ -143,5 +143,5 @@ public sealed record ChatRow(string Title, string Preview, string Time, string? 
     public Visibility CurrentVisibility => IsCurrent ? Visibility.Visible : Visibility.Collapsed;
 }
 
-/// <summary>A usage window as a bar: "Claude · 5 h", how much of it is used, and when it resets.</summary>
-public sealed record LimitRow(string Label, double Percent, string Text, Brush Brush, string Hint);
+/// <summary>A usage window as a bar: "Claude · 5 h", how much of it is used, and when it resets; a click asks its agent anew.</summary>
+public sealed record LimitRow(string Label, double Percent, string Text, Brush Brush, string Hint, AgentProviderKind Provider);

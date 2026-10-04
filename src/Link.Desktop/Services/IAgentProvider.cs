@@ -36,4 +36,10 @@ public interface IAgentProvider
     /// result then says it was stopped. Throws when the CLI is not found or cannot start.
     /// </summary>
     Task<AgentResult> RunAsync(AgentTask task, IProgress<AgentEvent> progress, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// The subscription's usage windows as they stand now, asked of the CLI without a model run (Claude Code's /usage,
+    /// Codex's app-server); none when it cannot tell, such as without a subscription. Runs the CLI: off the UI path.
+    /// </summary>
+    Task<IReadOnlyList<AgentLimit>> ReadLimitsAsync(CancellationToken cancellationToken);
 }

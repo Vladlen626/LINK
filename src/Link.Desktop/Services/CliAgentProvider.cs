@@ -32,6 +32,11 @@ public abstract class CliAgentProvider : IAgentProvider
 
     public virtual (string? Model, string? Effort) OwnSetup => (null, null);
 
+    public abstract Task<IReadOnlyList<AgentLimit>> ReadLimitsAsync(CancellationToken cancellationToken);
+
+    /// <summary>How long Link waits for a CLI to tell its usage: it asks the provider over the network.</summary>
+    protected static readonly TimeSpan UsageWait = TimeSpan.FromSeconds(30);
+
     public string? FindExecutable() => AgentExecutables.Find(Kind, _settings().PathFor(Kind));
 
     public async Task<AgentProviderStatus> CheckAsync(string? chosenPath, CancellationToken cancellationToken)

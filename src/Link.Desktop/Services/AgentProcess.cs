@@ -97,7 +97,7 @@ public static class AgentProcess
         return new AgentProcessResult(process.ExitCode, stopped, log.ToString());
     }
 
-    private static ProcessStartInfo StartInfo(AgentCommand command)
+    internal static ProcessStartInfo StartInfo(AgentCommand command)
     {
         var info = new ProcessStartInfo
         {
@@ -180,6 +180,71 @@ public static class AgentProcess
         public override string ToString()
         {
             lock (_lock) return _text.ToString();
+        }
+    }
+}
+
+/// <summary>
+/// A CLI talked to line by line while its stdin stays open, such as Codex's app-server: a request goes in, its answer
+/// is read from stdout. The process lives in a job; disposing ends it with its children.
+/// </summary>
+public sealed class AgentTalk : IDisposable
+{
+    private readonly Process _process;
+    private readonly ProcessJob _job = new();
+    private readonly System.Threading.Channels.Channel<string> _lines = System.Threading.Channels.Channel.CreateUnbounded<string>();
+
+    private AgentTalk(AgentCommand command)
+    {
+        _process = new Process { StartInfo = AgentProcess.StartInfo(command) };
+        _process.Start();
+        _job.Add(_process);
+        _ = PumpAsync();
+        // stderr is read and dropped, so that a chatty CLI never stalls on a full pipe.
+        _ = _process.StandardError.ReadToEndAsync();
+    }
+
+    public static AgentTalk Start(AgentCommand command) => new(command);
+
+    public async Task SendAsync(string line)
+    {
+        await _process.StandardInput.WriteLineAsync(line);
+        await _process.StandardInput.FlushAsync();
+    }
+
+    /// <summary>The first line from now on that <paramref name="wanted"/> takes; null when the CLI ended without one.</summary>
+    public async Task<string?> AnswerAsync(Func<string, bool> wanted, CancellationToken cancellationToken)
+    {
+        while (await _lines.Reader.WaitToReadAsync(cancellationToken))
+        {
+            while (_lines.Reader.TryRead(out var line))
+            {
+                if (wanted(line)) return line;
+            }
+        }
+
+        return null;
+    }
+
+    public void Dispose()
+    {
+        _job.Dispose();
+        _process.Dispose();
+    }
+
+    private async Task PumpAsync()
+    {
+        try
+        {
+            while (await _process.StandardOutput.ReadLineAsync() is { } line) _lines.Writer.TryWrite(line);
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException or InvalidOperationException)
+        {
+            // Ended while read.
+        }
+        finally
+        {
+            _lines.Writer.TryComplete();
         }
     }
 }

@@ -54,6 +54,10 @@ public partial class MainWindow
     private OwnRun? _own;
     // Whether the Tasks tab shows Link's own answer rather than a task or the list.
     private bool _ownShown;
+    // The agent whose usage the shown task or run lists under its buttons.
+    private AgentProviderKind? _limitsProvider;
+    // Agents whose usage is being asked for now.
+    private readonly HashSet<AgentProviderKind> _askingLimits = [];
     // The task as the card or the Map button started it: what Start over starts again.
     private AgentTask? _agentOrigin;
     // A task opened from the list: the next words take up its last session again.
@@ -297,19 +301,76 @@ public partial class MainWindow
     private bool IsStrongest(AgentTask task) =>
         (task.Model, task.Effort) == _settings.Current.Agent.Level(task.Provider, AgentLevel.Deep);
 
-    /// <summary>An agent's usage windows as bars: how much is used and when each resets; none until its CLI told.</summary>
-    private IReadOnlyList<LimitRow> LimitRows(AgentProviderKind provider) => _limits.For(provider).Select(limit =>
+    /// <summary>
+    /// An agent's usage windows as bars: how much is used and when each resets. Each asks the agent anew when clicked;
+    /// an agent that has told nothing yet gets one row that offers it.
+    /// </summary>
+    private IReadOnlyList<LimitRow> LimitRows(AgentProviderKind provider)
     {
-        var percent = Math.Clamp(limit.UsedPercent ?? (limit.Reached ? 100 : 0), 0, 100);
-        var brush = (Brush)FindResource(limit.Reached || percent >= AgentLimits.NearPercent ? "ErrorBrush" : percent >= 70 ? "AccentBrush" : "SuccessBrush");
-        var resets = limit.ResetsAt is { } at ? $" · {AgentLimits.Time(at)}" : string.Empty;
-        var used = limit.UsedPercent is not null ? $"{percent:0}%" : limit.Reached ? "reached" : "—";
-        var hint = $"{AgentName(provider)}, the {limit.Window} window: " +
-                   (limit.UsedPercent is not null ? $"{percent:0}% used" : limit.Reached ? "the limit is reached" : "no number yet") +
-                   (limit.ResetsAt is { } reset ? $", resets {AgentLimits.Time(reset)}" : string.Empty) +
-                   $" (as of {AgentLimits.Time(limit.SeenAt)})";
-        return new LimitRow($"{ShortName(provider)} · {limit.Window}", percent, used + resets, brush, hint);
-    }).ToArray();
+        var asking = _askingLimits.Contains(provider);
+        var again = $"\nClick to ask {AgentName(provider)} now: it reads the account's usage and spends no tokens";
+        var known = _limits.For(provider);
+        if (known.Count == 0)
+        {
+            return [new LimitRow($"{ShortName(provider)} · usage", 0, asking ? "asking…" : "click to ask", (Brush)FindResource("MutedBrush"),
+                $"{AgentName(provider)} has told Link no usage yet.{again}", provider)];
+        }
+
+        return known.Select(limit =>
+        {
+            var percent = Math.Clamp(limit.UsedPercent ?? (limit.Reached ? 100 : 0), 0, 100);
+            var brush = (Brush)FindResource(limit.Reached || percent >= AgentLimits.NearPercent ? "ErrorBrush" : percent >= 70 ? "AccentBrush" : "SuccessBrush");
+            var resets = limit.ResetsAt is { } at ? $" · {AgentLimits.Time(at)}" : string.Empty;
+            var used = limit.UsedPercent is not null ? $"{percent:0}%" : limit.Reached ? "reached" : "—";
+            var hint = $"{AgentName(provider)}, the {limit.Window} window: " +
+                       (limit.UsedPercent is not null ? $"{percent:0}% used" : limit.Reached ? "the limit is reached" : "no number yet") +
+                       (limit.ResetsAt is { } reset ? $", resets {AgentLimits.Time(reset)}" : string.Empty) +
+                       $" (as of {AgentLimits.Time(limit.SeenAt)}).{again}";
+            return new LimitRow($"{ShortName(provider)} · {limit.Window}", percent, asking ? "asking…" : used + resets, brush, hint, provider);
+        }).ToArray();
+    }
+
+    /// <summary>
+    /// A click on an agent's usage: its CLI is asked for the account's windows now, without a model run (Claude Code's
+    /// /usage, Codex's app-server), and every bar shows the answer.
+    /// </summary>
+    private async Task RefreshLimitsAsync(AgentProviderKind provider)
+    {
+        if (!_askingLimits.Add(provider)) return;
+        ShowLimitRows();
+        var agent = _agents.Provider(provider);
+        try
+        {
+            var limits = await Task.Run(() => agent.ReadLimitsAsync(CancellationToken.None));
+            if (limits.Count > 0) _limits.Update(limits);
+            AgentStatus(limits.Count > 0
+                ? $"{agent.Name}: {_limits.Describe(provider)}"
+                : $"{agent.Name} told no usage: it may be signed out, or work without a subscription");
+        }
+        catch (OperationCanceledException)
+        {
+            AgentStatus($"{agent.Name} did not tell its usage in time; try again later");
+        }
+        catch (Exception exception) when (exception is IOException or InvalidOperationException or System.ComponentModel.Win32Exception)
+        {
+            AgentStatus($"Could not ask {agent.Name} for its usage: {exception.Message}");
+        }
+        finally
+        {
+            _askingLimits.Remove(provider);
+            ShowLimitRows();
+            UpdateAgentPill();
+        }
+    }
+
+    /// <summary>The bars wherever they are: the list, the task shown and an open card.</summary>
+    private void ShowLimitRows()
+    {
+        RefreshTaskList();
+        if (_agentPanel is null) return;
+        if (_limitsProvider is { } shown) _agentPanel.ShowTaskLimits(LimitRows(shown));
+        foreach (var agent in _agents.Providers) _agentPanel.ShowCardLimits(agent.Kind, LimitRows(agent.Kind));
+    }
 
     private IReadOnlyList<LimitRow> AllLimitRows() => _agents.Providers.SelectMany(agent => LimitRows(agent.Kind)).ToArray();
 
@@ -346,6 +407,7 @@ public partial class MainWindow
         panel.NewTaskRequested += () => _ = OpenNewTaskCardAsync();
         panel.TaskSelected += OpenAgentTask;
         panel.OwnRunRequested += ShowOwnRun;
+        panel.LimitRefreshRequested += provider => _ = RefreshLimitsAsync(provider);
         panel.ShowList(TaskRows(), AllLimitRows(), null);
         return panel;
     }
@@ -764,6 +826,7 @@ public partial class MainWindow
         panel.ShowThread([own.Turn]);
         panel.ShowBrief(string.Empty);
         panel.ShowUsage(string.Empty, string.Empty);
+        _limitsProvider = task.Provider;
         panel.ShowTaskLimits(LimitRows(task.Provider));
         panel.ResetCards();
         panel.ShowQuestion(null);
@@ -1455,6 +1518,7 @@ public partial class MainWindow
         var (usage, hint) = UsageText(record);
         panel.ShowUsage(usage, hint);
         var provider = (live ? _runningTask?.Provider : null) ?? record.LastRun?.Provider ?? ProjectProvider;
+        _limitsProvider = provider;
         panel.ShowTaskLimits(LimitRows(provider));
         panel.SetRunning(live);
         panel.SetReplyTarget(AgentName(provider));

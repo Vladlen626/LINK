@@ -26,19 +26,22 @@
             <Setter Property="Padding" Value="0" />
         </Style>
 
-        <!-- A usage window: who and which, the bar, how much and when it resets. -->
+        <!-- A usage window: who and which, the bar, how much and when it resets. A click asks the agent anew. -->
         <DataTemplate x:Key="LimitRowTemplate" DataType="{x:Type local:LimitRow}">
-            <Grid Margin="0,4,0,0" Background="Transparent" ToolTip="{Binding Hint}">
-                <Grid.ColumnDefinitions>
-                    <ColumnDefinition Width="92" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
-                </Grid.ColumnDefinitions>
-                <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Label}"
-                           TextTrimming="CharacterEllipsis" />
-                <ProgressBar Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource UsageBarStyle}"
-                             Value="{Binding Percent, Mode=OneWay}" Foreground="{Binding Brush}" />
-                <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="11"
-                           Foreground="{StaticResource MutedBrush}" Text="{Binding Text}" />
-            </Grid>
+            <Button Margin="-6,2,-6,0" Padding="6,2" HorizontalContentAlignment="Stretch" Style="{StaticResource GhostButtonStyle}"
+                    Click="LimitRow_OnClick" ToolTip="{Binding Hint}">
+                <Grid>
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="92" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Label}"
+                               TextTrimming="CharacterEllipsis" />
+                    <ProgressBar Grid.Column="1" VerticalAlignment="Center" Style="{StaticResource UsageBarStyle}"
+                                 Value="{Binding Percent, Mode=OneWay}" Foreground="{Binding Brush}" />
+                    <TextBlock Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="11"
+                               Foreground="{StaticResource MutedBrush}" Text="{Binding Text}" />
+                </Grid>
+            </Button>
         </DataTemplate>
 
         <!-- The thread of a task: the user's words on the right, each run of an agent on the left, notes between. -->

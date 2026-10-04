@@ -131,6 +131,69 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
         ? home
         : Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".codex");
 
+    /// <summary>
+    /// Codex's app-server, asked for the account's windows (<c>account/rateLimits/read</c>): a live read that spends no
+    /// usage. The handshake comes first (initialize, then initialized), as its protocol asks.
+    /// </summary>
+    public override async Task<IReadOnlyList<AgentLimit>> ReadLimitsAsync(CancellationToken cancellationToken)
+    {
+        if (FindExecutable() is not { } executable) return [];
+        using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        wait.CancelAfter(UsageWait);
+        using var talk = AgentTalk.Start(new AgentCommand(executable, ["app-server"], Path.GetTempPath(), string.Empty));
+        await talk.SendAsync("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"clientInfo":{"name":"link","title":"Link","version":"1.0"}}}""");
+        if (await talk.AnswerAsync(line => IsAnswer(line, 1), wait.Token) is null) return [];
+        await talk.SendAsync("""{"jsonrpc":"2.0","method":"initialized","params":{}}""");
+        await talk.SendAsync("""{"jsonrpc":"2.0","id":2,"method":"account/rateLimits/read","params":null}""");
+        return await talk.AnswerAsync(line => IsAnswer(line, 2), wait.Token) is { } answer ? AccountLimits(answer, DateTimeOffset.Now) : [];
+    }
+
+    private static bool IsAnswer(string line, int id)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(line);
+            return document.RootElement.ValueKind == JsonValueKind.Object &&
+                   document.RootElement.TryGetProperty("id", out var value) && value.ValueKind == JsonValueKind.Number && value.GetInt32() == id;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>The windows of the app-server's answer: primary is the 5 hours, secondary the week, each by its length.</summary>
+    internal static IReadOnlyList<AgentLimit> AccountLimits(string answer, DateTimeOffset now)
+    {
+        try
+        {
+            using var document = JsonDocument.Parse(answer);
+            if (!document.RootElement.TryGetProperty("result", out var result) || !result.TryGetProperty("rateLimits", out var limits) ||
+                limits.ValueKind != JsonValueKind.Object)
+            {
+                return [];
+            }
+
+            return new[] { "primary", "secondary" }
+                .Select(name => limits.TryGetProperty(name, out var window) && window.ValueKind == JsonValueKind.Object ? window : default)
+                .Where(window => window.ValueKind == JsonValueKind.Object && window.TryGetProperty("usedPercent", out _))
+                .Select(window =>
+                {
+                    var minutes = window.TryGetProperty("windowDurationMins", out var length) && length.TryGetInt64(out var value) ? value : 0;
+                    var used = window.GetProperty("usedPercent").GetDouble();
+                    return new AgentLimit(AgentProviderKind.Codex, WindowOf(minutes), used, AgentLimits.UnixTime(window, "resetsAt"), used >= 100, now);
+                })
+                .ToArray();
+        }
+        catch (Exception exception) when (exception is JsonException or InvalidOperationException or FormatException)
+        {
+            return [];
+        }
+    }
+
+    /// <summary>A window's name by its length: "5 h", "week".</summary>
+    private static string WindowOf(long minutes) => minutes switch { 300 => "5 h", 10080 => "week", > 0 => $"{minutes / 60} h", _ => "window" };
+
     /// <summary>Codex's exec events carry no rate limits; its own log of the session does, so they are read from there.</summary>
     protected override IReadOnlyList<AgentEvent> AfterRun(AgentResult result) =>
         result.SessionId is { } session && SessionLimits(Path.Combine(CodexHome, "sessions"), session) is { Count: > 0 } limits
@@ -159,11 +222,11 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
                 .Select(window =>
                 {
                     var minutes = window.TryGetProperty("window_minutes", out var length) && length.TryGetInt64(out var value) ? value : 0;
-                    var used = AgentLimits.Percent(window, "used_percent");
+                    // Codex writes percents (31.0), never shares: 1.0 is one percent, not all of it.
+                    double? used = window.TryGetProperty("used_percent", out var percent) && percent.TryGetDouble(out var number) ? number : null;
                     var reset = AgentLimits.UnixTime(window, "resets_at") ??
                                 (window.TryGetProperty("resets_in_seconds", out var seconds) && seconds.TryGetInt64(out var left) ? now.AddSeconds(left) : null);
-                    var name = minutes switch { 300 => "5 h", 10080 => "week", > 0 => $"{minutes / 60} h", _ => "window" };
-                    return new AgentLimit(AgentProviderKind.Codex, name, used, reset, used >= 100, now);
+                    return new AgentLimit(AgentProviderKind.Codex, WindowOf(minutes), used, reset, used >= 100, now);
                 })
                 .ToArray();
         }

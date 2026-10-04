@@ -227,7 +227,11 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   задачами из одного прогона. Слова во время работы: `Enter` — поправка (Stop и та же сессия), `Tab` — после этого
   прогона. Окна лимитов: Claude Code — `rate_limit_event` (5 ч, неделя, `utilization`, `resetsAt`), Codex — строки
   `rate_limits` журнала своей сессии (только они); последнее известное — `agent-limits.json`; $ по ценам API — только
-  подсказка. У 90 % окна — тихое предложение остановиться и передать; на лимите — передача или «Continue at» (та же
+  подсказка. 2026-10-04: клик по полоске окна (или «click to ask», пока чисел нет) спрашивает CLI заново без модели:
+  Claude — `claude -p /usage` (команда помечена `supportsNonInteractive`, Link разбирает её строки «Current session: N%
+  used · resets Oct 4, 3pm»), Codex — `codex app-server`: `initialize`, `initialized`, `account/rateLimits/read`
+  (primary/secondary: `usedPercent`, `windowDurationMins`, `resetsAt` в секундах). Проценты Codex — всегда проценты
+  (1.0 — один процент, не всё окно). У 90 % окна — тихое предложение остановиться и передать; на лимите — передача или «Continue at» (та же
   сессия сама после сброса, пока Link запущен). Сам Link не передаёт и не понижает уровень.
 - Chat ↔ Agent (2026-10-03, этап 4). `→ Agent task` берёт в бриф выделенное в ответе, иначе блок `link-task`, иначе
   весь ответ, и вопрос; ChatGPT по инструкциям проекта завершает договорённость блоком `link-task` — он рисуется
