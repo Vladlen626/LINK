@@ -21,6 +21,7 @@ The same harness Link gives its agents, for work on this repo.
 - Skills: `.agents/skills/<name>/SKILL.md`, one source for Claude and Codex; read the one that fits before the work.
   `rebuild-link` — build, test and restart the user's Link, never while an agent works in it; `preview-svg` — look at
   the README's drawings; `agent-token-review` — where an agent's tokens and turns went, from the session logs.
+  `drive-link` — give the user's Link a command through UI Automation (hand a task to Claude Code), only when asked.
 - Repeated work without a skill: once it has worked out, add one there (a short SKILL.md and its script).
 - The environment, as met here (Windows 11, Git Bash and Windows PowerShell 5.1, Russian locale):
   - PowerShell 5.1 reads BOM-less UTF-8 as ANSI: scripts it runs stay ASCII (other characters from char codes),
