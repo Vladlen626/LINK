@@ -685,4 +685,22 @@
             </Setter.Value>
         </Setter>
     </Style>
+    <!-- A usage window as a thin bar: the track, and the part used in the colour of how near the limit it is. -->
+    <Style x:Key="UsageBarStyle" TargetType="ProgressBar">
+        <Setter Property="Height" Value="5" />
+        <Setter Property="Minimum" Value="0" />
+        <Setter Property="Maximum" Value="100" />
+        <Setter Property="Background" Value="{StaticResource HairlineBrush}" />
+        <Setter Property="Foreground" Value="{StaticResource SuccessBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="ProgressBar">
+                    <Grid SnapsToDevicePixels="True">
+                        <Border x:Name="PART_Track" Background="{TemplateBinding Background}" CornerRadius="2.5" />
+                        <Border x:Name="PART_Indicator" HorizontalAlignment="Left" Background="{TemplateBinding Foreground}" CornerRadius="2.5" />
+                    </Grid>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
 </ResourceDictionary>

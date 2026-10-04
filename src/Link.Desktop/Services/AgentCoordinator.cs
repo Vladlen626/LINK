@@ -12,7 +12,7 @@ public sealed record AgentPlan(
     bool BackupBeforeDo,
     string Goal)
 {
-    /// <summary>The agent's model from Settings; null: the CLI's own.</summary>
+    /// <summary>The model chosen on the card, one of the agent's own; null: the CLI's own.</summary>
     public string? Model { get; init; }
 
     /// <summary>The effort chosen on the card; null: the CLI's own.</summary>
@@ -20,9 +20,6 @@ public sealed record AgentPlan(
 
     /// <summary>Auto on the card: with edits, nothing is asked (see <see cref="AgentTask.AutoApprove"/>).</summary>
     public bool AutoApprove { get; init; }
-
-    /// <summary>The level chosen on the card, which gave the model and effort.</summary>
-    public AgentLevel Level { get; init; } = AgentLevel.Standard;
 }
 
 /// <summary>
@@ -74,23 +71,9 @@ public sealed class AgentCoordinator
     /// </summary>
     public static AgentTask BuildTask(AgentPlan plan, InputSnapshot snapshot, LinkProject project)
     {
-        var prompt = new StringBuilder(plan.Goal.Trim());
-        var images = new List<string>();
-        foreach (var item in snapshot.Context.Append(snapshot.Screen).OfType<ContextItem>())
-        {
-            if (item.FilePath is { } file && File.Exists(file))
-            {
-                if (item.Type == ContextItemType.Screenshot || item.MimeType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true) images.Add(file);
-                else prompt.Append("\n\nAttached file (").Append(item.Label).Append("): ").Append(file);
-            }
-            else if (item.Text is { Length: > 0 } text)
-            {
-                prompt.Append("\n\n").Append(item.Label).Append(":\n").Append(text);
-            }
-        }
-
+        var (words, images) = Words(snapshot with { Text = plan.Goal }, newTask: true);
+        var prompt = new StringBuilder(words);
         if (plan.Access == AgentAccess.Do && project.CheckCommand is { } check) prompt.Append("\n\n").Append(CheckNote(check));
-        var tools = plan.Access == AgentAccess.Do ? project.AgentReadTools.Concat(project.AgentDoTools) : project.AgentReadTools;
         return new AgentTask
         {
             Provider = plan.Provider,
@@ -99,12 +82,60 @@ public sealed class AgentCoordinator
             Access = plan.Access,
             PlanOnly = plan.PlanFirst,
             Images = images,
-            AllowedTools = tools.Distinct(StringComparer.Ordinal).ToArray(),
+            AllowedTools = Tools(project, plan.Workspace, plan.Access),
             CheckCommand = project.CheckCommand,
             AutoApprove = plan.AutoApprove && plan.Access == AgentAccess.Do,
             Model = plan.Model,
             Effort = plan.Effort
         };
+    }
+
+    /// <summary>
+    /// A snapshot as words for the agent: its text first, then its text context and its files by path; its screenshots
+    /// and pictures go apart, as images. The project note and a task's result go with a new task only: a session that
+    /// goes on has the note, and its own result is for the chat.
+    /// </summary>
+    public static (string Words, IReadOnlyList<string> Images) Words(InputSnapshot snapshot, bool newTask)
+    {
+        var words = new StringBuilder(snapshot.Text.Trim());
+        var images = new List<string>();
+        foreach (var item in snapshot.Context.Append(snapshot.Screen).OfType<ContextItem>())
+        {
+            if (!newTask && item.Type is ContextItemType.AgentResult or ContextItemType.ProjectState) continue;
+            if (item.FilePath is { } file && File.Exists(file))
+            {
+                if (item.Type == ContextItemType.Screenshot || item.MimeType?.StartsWith("image/", StringComparison.OrdinalIgnoreCase) == true) images.Add(file);
+                else words.Append("\n\nAttached file (").Append(item.Label).Append("): ").Append(file);
+            }
+            else if (item.Text is { Length: > 0 } text)
+            {
+                words.Append("\n\n").Append(item.Label).Append(":\n").Append(text);
+            }
+        }
+
+        return (words.ToString(), images);
+    }
+
+    /// <summary>
+    /// The tool rules Claude Code may use without asking: the project's read list, its Do list with edits, and in a
+    /// Perforce workspace the p4 commands its rules ask for.
+    /// </summary>
+    public static IReadOnlyList<string> Tools(LinkProject project, string workspace, AgentAccess access) =>
+        (access == AgentAccess.Do ? project.AgentReadTools.Concat(project.AgentDoTools) : project.AgentReadTools)
+        .Concat(PerforceTools(workspace, access))
+        .Distinct(StringComparer.Ordinal)
+        .ToArray();
+
+    /// <summary>
+    /// In a Perforce workspace: the p4 commands that only look, always, and those that open files for the agent's own
+    /// edits, with edits. Submitting, reverting and syncing stay the user's. Codex is let through its sandbox instead.
+    /// </summary>
+    public static IReadOnlyList<string> PerforceTools(string workspace, AgentAccess access)
+    {
+        if (!AgentChanges.IsPerforce(workspace)) return [];
+        string[] looking = ["opened", "diff", "fstat", "filelog", "where", "have", "info", "changes", "describe", "status"];
+        string[] opening = ["edit", "add", "delete", "move"];
+        return (access == AgentAccess.Do ? looking.Concat(opening) : looking).Select(command => $"Bash(p4 {command}:*)").ToArray();
     }
 
     /// <summary>
@@ -134,7 +165,7 @@ public sealed class AgentCoordinator
         {
             var brief = new StringBuilder(record.Brief.Trim())
                 .Append($"\n\nYou take this task over from {firstName}, which worked on it in this workspace and stopped before it was done. ")
-                .Append("Its changes are in the workspace, finished or not: look at them first (git diff, where there is git), and do not redo what is done.");
+                .Append("Its changes are in the workspace, finished or not: look at them first (git diff or p4 diff, as the workspace has), and do not redo what is done.");
             if (said.Length > 0) brief.Append("\n\nWhat the user said on the way, oldest first:\n").AppendJoin('\n', said);
             if (plan.Length > 0) brief.Append($"\n\n{firstName}'s plan as it last stood:\n").AppendJoin('\n', plan);
             if (files.Length > 0) brief.Append("\n\nFiles changed so far").Append(numstat is null ? ":\n" : " (lines added, removed, file):\n").Append(files);

@@ -53,6 +53,9 @@ public sealed class AgentTaskRecord
     /// <summary>The project's check as it last ran: command, outcome and the end of its output.</summary>
     public string? LastCheck { get; set; }
 
+    /// <summary>In Perforce: the pending changelist Link keeps the task's files in, as P4V shows it; null elsewhere.</summary>
+    public int? Changelist { get; set; }
+
     [JsonIgnore]
     public AgentRunRecord? LastRun => Runs.Count == 0 ? null : Runs[^1];
 
@@ -121,6 +124,15 @@ public sealed record AgentRunRecord
     public long? CachedTokens { get; init; }
     public long? OutputTokens { get; init; }
     public decimal? CostUsd { get; init; }
+
+    /// <summary>The run's steps in Activity's words, the last of them: what the task's thread folds under the run.</summary>
+    public List<string> Steps { get; init; } = [];
+
+    /// <summary>The files the run changed, relative to the workspace.</summary>
+    public List<string> Files { get; init; } = [];
+
+    /// <summary>The agent's answer at the end of the run, as the thread shows it.</summary>
+    public string Words { get; init; } = string.Empty;
 }
 
 /// <summary>A line of a task's history.</summary>
@@ -151,7 +163,10 @@ public enum AgentEntryKind
     /// <summary>The agent's last words of a run.</summary>
     Said,
 
-    Finished
+    Finished,
+
+    /// <summary>The agent could not start: no run, no session.</summary>
+    NoStart
 }
 
 /// <summary>A step of the agent's own plan (Claude Code's todo list, Codex's plan).</summary>
@@ -217,7 +232,11 @@ public sealed class AgentSessionRecord
 }
 
 /// <summary>A model or effort level as the agent's CLI takes it, and as the user reads it.</summary>
-public sealed record AgentChoice(string Value, string Label);
+public sealed record AgentChoice(string Value, string Label)
+{
+    // A list shows its label, in the box of a ComboBox too.
+    public override string ToString() => Label;
+}
 
 /// <summary>
 /// What the task card offers first; Settings chooses it. The user's tasks always change things: read only is Link's

@@ -20,6 +20,15 @@ dialog: a question or a request for permission ends it, and the user's answer co
 - Stuck twice on the same thing: stop, say what you see and offer two ways on.
 - Temporary files of checks (frames, logs, browser profiles) go to the system's temp folder, not the project.
 
+## A question for the user
+- A choice only the user can make (taste, scope, something risky or irreversible) that the task, the code and a
+  sensible default cannot settle: end your answer with one block, and Link shows it as a choice with buttons:
+  ```link-ask
+  {"question": "Which jump should stay?", "options": [{"label": "Keep the double jump", "description": "Less code to change"}, {"label": "Only one jump", "description": "As in the design doc"}]}
+  ```
+  Two to four options, the one you recommend first; `"multiSelect": true` when several fit together. The user may
+  answer in their own words instead. Nothing after the block.
+
 ## Project and environment
 - `docs/map.md`, if present, is the project's map: what is where, how to build and check. Read it first.
 - Project skills are `.agents/skills/<name>/SKILL.md`: repeated work that a skill describes, do by it. A skill or a

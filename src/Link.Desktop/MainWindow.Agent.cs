@@ -10,9 +10,11 @@ using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
-// Agent: a CLI agent (Claude Code or Codex) works on one task of the user's in the project's workspace. A card comes
-// first; then the Task tab shows the task as one history: who works, its plan, steps, changes, result, what Link gave
-// and what it spent, with Stop, corrections, decisions, hand-overs, levels and undo.
+// Agent: a CLI agent (Claude Code or Codex) works on one task of the user's in the project's workspace. The Tasks tab
+// lists the project's tasks, a card comes before a new one, and a task shows as one thread, as in the agents' own apps:
+// the user's words, each run with its steps folded, its answer and files, notes of hand-overs, models and limits, the
+// agent's question as a choice. Stop, corrections, decisions, models, hand-overs and undo work on the open task. The
+// agent stays out of the chat's way: no status line of its own steps, and of the voice only "started" and "finished".
 public partial class MainWindow
 {
     // A run that ends on one of these ran out of its limit: the other agent can take the task over.
@@ -22,6 +24,8 @@ public partial class MainWindow
     private static readonly TimeSpan ActivityFlush = TimeSpan.FromMilliseconds(100);
     // So many of the task's last steps are kept with it, for an agent that takes it over.
     private const int StepsHandedOn = 40;
+    // So many of a run's steps stay with the run in the task's record, for its thread.
+    private const int StepsKeptPerRun = 60;
     // How much diff goes with "Discuss in chat"; a bigger one goes as numbers of lines.
     private const int DiffForChat = 30_000;
     private readonly AgentCoordinator _agents;
@@ -29,25 +33,34 @@ public partial class MainWindow
     private readonly List<AgentEvent> _pendingAgentEvents = [];
     // The task's steps in Activity's words, oldest first: what an agent that takes the task over is told was done.
     private readonly List<string> _taskSteps = [];
+    // The running run's own steps, kept with it in the task's record.
+    private readonly List<string> _runSteps = [];
     private AgentConsoleWindow? _agentConsoleWindow;
     private AgentPanel? _agentPanel;
     // What Run on the card does: start a task, or hand the open one over with the brief on the card.
     private Func<AgentPlan, Task>? _cardRun;
     private InputSnapshot? _agentSnapshot;
-    // The open task: its record holds everything the Task tab shows; null when there is none.
+    // The open task: its record holds everything its thread shows; null when there is none.
     private AgentTaskRecord? _task;
+    // The task the Tasks tab shows: the open one, or another from the list, only to be read while an agent works.
+    private AgentTaskRecord? _shownTask;
     // The project the open task belongs to: the user may switch projects while it runs.
     private LinkProject? _taskProject;
     private AgentRun? _lastRun;
     private AgentTask? _runningTask;
+    // The run under way in the thread: its steps arrive as the CLI writes them.
+    private ThreadTurn? _liveTurn;
     // The task as the card or the Map button started it: what Start over starts again.
     private AgentTask? _agentOrigin;
-    // A task opened from the history: the next reply takes up its last session again.
+    // A task opened from the list: the next words take up its last session again.
     private AgentTask? _earlierSession;
-    // The level a plan is carried out on, after Plan first ran on Deep.
-    private AgentLevel _planLevel = AgentLevel.Standard;
-    // Words the user gave while the agent worked: a correction now, or words for after the run.
+    // The model and effort a plan is carried out on, after Plan first ran on the strongest.
+    private (string? Model, string? Effort) _planSetup;
+    // The agent's question at the end of its last run: a choice until it is answered.
+    private AgentQuestion? _question;
+    // Words the user gave while the agent worked: a correction now (with its images), or words for after the run.
     private string? _steerWith;
+    private IReadOnlyList<string> _steerImages = [];
     private string? _queued;
     private bool _restartWhenStopped;
     private AgentProviderKind? _handOffWhenStopped;
@@ -59,10 +72,9 @@ public partial class MainWindow
     private Action? _decision;
     private bool _rememberAllowance;
     private bool _limitOffered;
-    private string _lastStep = string.Empty;
-    // The More menu's choices after the last run: undo and save as skill come and go with it.
+    // The ⋯ menu's choices after the last run: undo and save as skill come and go with it.
     private IReadOnlyList<PanelAction> _afterRun = [];
-    // Files the running agent reported changed, listed until git or the copy tells the whole list.
+    // Files the running agent reported changed, listed until git, Perforce or the copy tells the whole list.
     private readonly HashSet<string> _runningFiles = new(StringComparer.OrdinalIgnoreCase);
 
     private bool AgentRunning => _agentCancellation is not null;
@@ -77,25 +89,63 @@ public partial class MainWindow
 
     private string AgentName(AgentProviderKind provider) => _agents.Provider(provider).Name;
 
-    /// <summary>Enter on the Agent route or Ctrl+Enter: the input goes to the card, not anywhere yet.</summary>
-    private async Task OpenAgentCardFromPromptAsync()
+    /// <summary>Whether the open task takes the next words: it is this project's, and its agent works on it or its session can go on.</summary>
+    private bool TaskTakesWords => _task is { Status: not AgentTaskStatus.Finished } &&
+                                   (_taskProject ?? _projects.ActiveProject).Id == _projects.ActiveProject.Id &&
+                                   (AgentRunning
+                                       ? _runningTask is { } running && IsUserWork(running) && !_restartWhenStopped
+                                       : ResumableTask() is not null);
+
+    /// <summary>
+    /// The input to the agent. On the Agent route Enter gives it to the open task as the next words of its thread: a
+    /// correction while the agent works, a reply after it; the chips go along, the screen and pictures as images.
+    /// Ctrl+Enter, or no open task, opens the card of a new one: nothing runs before Run there.
+    /// </summary>
+    private async Task SendToAgentAsync(bool newTask)
     {
-        if (AgentRunning)
+        RemoveMissingContextFiles();
+        var takesWords = !newTask && TaskTakesWords;
+        if (string.IsNullOrWhiteSpace(PromptBox.Text))
         {
-            SetStatus("An agent is already working: Stop it or wait for it first");
-            ShowAgentPanel();
+            SetError(takesWords ? "Write what the agent should hear." : "Write what the agent should do.");
             return;
         }
 
-        RemoveMissingContextFiles();
-        if (string.IsNullOrWhiteSpace(PromptBox.Text))
+        if (!takesWords && AgentRunning)
         {
-            SetError("Write what the agent should do.");
+            SetStatus("An agent is working: a new task waits until it ends. Enter on the Agent route gives it your words");
+            ShowAgentPanel();
             return;
         }
 
         var project = _projects.ActiveProject;
         var snapshot = await TakeSnapshotAsync(project, PromptBox.Text, RequestRoute.Agent, AutoFrameOn);
+        // The images stay on disk while the agent may still read them.
+        _attempts.Keep(snapshot);
+        if (!takesWords)
+        {
+            OpenAgentCard(snapshot);
+            return;
+        }
+
+        var (words, images) = AgentCoordinator.Words(snapshot, newTask: false);
+        if (PromptBox.Text.Trim() == snapshot.Text) ClearSentInput(PromptBox.Text);
+        // The panel follows when it is open; closed, the pill shows the agent at work.
+        if (_settings.Current.SidePanel.IsOpen) ShowTaskInPanel();
+        ContinueAgent(words, images);
+    }
+
+    /// <summary>New task in the Tasks tab: a card with what is in Link's input and chips, maybe nothing yet.</summary>
+    private async Task OpenNewTaskCardAsync()
+    {
+        if (AgentRunning)
+        {
+            SetStatus("An agent is working: a new task waits until it ends");
+            return;
+        }
+
+        RemoveMissingContextFiles();
+        var snapshot = await TakeSnapshotAsync(_projects.ActiveProject, PromptBox.Text, RequestRoute.Agent, AutoFrameOn);
         _attempts.Keep(snapshot);
         OpenAgentCard(snapshot);
     }
@@ -137,11 +187,12 @@ public partial class MainWindow
             Provider = ProjectProvider,
             Workspace = workspace,
             Prompt = prompt,
-            AllowedTools = project.AgentReadTools,
+            AllowedTools = AgentCoordinator.Tools(project, workspace, AgentAccess.Analyze),
             AnswerFile = ProjectMap.RelativePath,
             Model = model,
             Effort = effort
         };
+        ShowAgentPanel();
         await StartAgentAsync(_agentOrigin, null);
     }
 
@@ -185,58 +236,85 @@ public partial class MainWindow
     private void OpenAgentCard(InputSnapshot snapshot, string? brief = null)
     {
         _agentSnapshot = snapshot;
-        var attachments = snapshot.Context.Append(snapshot.Screen).OfType<ContextItem>().Select(item => item.Label).ToArray();
-        var card = CardModel(brief ?? snapshot.Text, attachments.Length == 0 ? string.Empty : "Goes along: " + string.Join(", ", attachments),
-            ProjectProvider);
+        var (_, images) = AgentCoordinator.Words(snapshot, newTask: true);
+        var others = snapshot.Context.Append(snapshot.Screen).OfType<ContextItem>()
+            .Where(item => item.FilePath is null || !images.Contains(item.FilePath))
+            .Select(item => item.Label)
+            .ToArray();
+        var card = CardModel(brief ?? snapshot.Text, others.Length == 0 ? string.Empty : "Goes along: " + string.Join(", ", others),
+            images, ProjectProvider);
         _cardRun = RunAgentAsync;
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
-        SetStatus("Check the card and press Run: nothing runs before that");
+        AgentStatus("Check the card and press Run: nothing runs before that");
     }
 
-    private AgentCardModel CardModel(string goal, string attachments, AgentProviderKind provider)
+    /// <summary>The card's agents, each with its own models and efforts, Settings' choice first, and its usage.</summary>
+    private AgentCardModel CardModel(string goal, string attachments, IReadOnlyList<string> images, AgentProviderKind provider)
     {
         var project = _projects.ActiveProject;
+        var settings = _settings.Current.Agent;
+        var workspace = project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null;
         return new AgentCardModel(
-            _agents.Providers.Select(agent => (agent.Kind, agent.Name, LevelLabels(agent), LimitsLine(agent.Kind))).ToArray(),
+            _agents.Providers.Select(agent =>
+            {
+                var (model, effort) = settings.Level(agent.Kind, AgentLevel.Standard);
+                var own = agent.OwnSetup;
+                return new AgentCardProvider(
+                    agent.Kind,
+                    agent.Name,
+                    agent.Models,
+                    agent.EffortsOf,
+                    own.Model is { } ownModel ? $"Its own: {ModelName(agent, ownModel)}" : $"{agent.Name}'s own model",
+                    own.Effort is { } ownEffort ? $"Its own: {EffortName(agent, ownEffort)}" : "Its own effort",
+                    model,
+                    effort,
+                    LimitRows(agent.Kind));
+            }).ToArray(),
             provider,
             project.Name,
-            project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null,
-            project.WorkspaceRoot is { } folder && HasGit(folder),
+            workspace,
+            workspace is not null && (AgentChanges.IsGit(workspace) || AgentChanges.IsPerforce(workspace)),
             attachments,
+            images,
             goal,
             project.CheckCommand,
-            _settings.Current.Agent.DefaultAccess);
+            settings.DefaultAccess);
     }
 
-    /// <summary>"Light · Sonnet 5.5 · Medium" and so on for an agent's three levels.</summary>
-    private IReadOnlyList<string> LevelLabels(IAgentProvider agent) =>
-        Enum.GetValues<AgentLevel>().Select(level => $"{level} · {LevelSetup(agent.Kind, level)}").ToArray();
+    private static string ModelName(IAgentProvider agent, string model) =>
+        agent.Models.FirstOrDefault(choice => choice.Value == model)?.Label ?? model;
 
-    /// <summary>A level's model and effort as the user reads them: "Opus 5.5 · Extra high".</summary>
-    private string LevelSetup(AgentProviderKind provider, AgentLevel level)
+    private static string EffortName(IAgentProvider agent, string effort) =>
+        agent.Efforts.FirstOrDefault(choice => choice.Value == effort)?.Label.Split(" — ")[0] ?? effort;
+
+    /// <summary>Whether a run is on the strongest model and effort Settings has for its agent.</summary>
+    private bool IsStrongest(AgentTask task) =>
+        (task.Model, task.Effort) == _settings.Current.Agent.Level(task.Provider, AgentLevel.Deep);
+
+    /// <summary>An agent's usage windows as bars: how much is used and when each resets; none until its CLI told.</summary>
+    private IReadOnlyList<LimitRow> LimitRows(AgentProviderKind provider) => _limits.For(provider).Select(limit =>
     {
-        var agent = _agents.Provider(provider);
-        var (model, effort) = _settings.Current.Agent.Level(provider, level);
-        var modelName = model is null ? "its own model" : agent.Models.FirstOrDefault(choice => choice.Value == model)?.Label ?? model;
-        var effortName = effort is null ? "its own effort" : agent.Efforts.FirstOrDefault(choice => choice.Value == effort)?.Label.Split(" — ")[0] ?? effort;
-        return $"{modelName} · {effortName}";
-    }
+        var percent = Math.Clamp(limit.UsedPercent ?? (limit.Reached ? 100 : 0), 0, 100);
+        var brush = (Brush)FindResource(limit.Reached || percent >= AgentLimits.NearPercent ? "ErrorBrush" : percent >= 70 ? "AccentBrush" : "SuccessBrush");
+        var resets = limit.ResetsAt is { } at ? $" · {AgentLimits.Time(at)}" : string.Empty;
+        var used = limit.UsedPercent is not null ? $"{percent:0}%" : limit.Reached ? "reached" : "—";
+        var hint = $"{AgentName(provider)}, the {limit.Window} window: " +
+                   (limit.UsedPercent is not null ? $"{percent:0}% used" : limit.Reached ? "the limit is reached" : "no number yet") +
+                   (limit.ResetsAt is { } reset ? $", resets {AgentLimits.Time(reset)}" : string.Empty) +
+                   $" (as of {AgentLimits.Time(limit.SeenAt)})";
+        return new LimitRow($"{ShortName(provider)} · {limit.Window}", percent, used + resets, brush, hint);
+    }).ToArray();
 
-    /// <summary>The level a run's model and effort are; null when they match none, e.g. after Settings changed.</summary>
-    private AgentLevel? LevelOf(AgentTask task) =>
-        Enum.GetValues<AgentLevel>().Cast<AgentLevel?>().FirstOrDefault(level =>
-            _settings.Current.Agent.Level(task.Provider, level!.Value) == (task.Model, task.Effort));
+    private IReadOnlyList<LimitRow> AllLimitRows() => _agents.Providers.SelectMany(agent => LimitRows(agent.Kind)).ToArray();
 
-    private string LimitsLine(AgentProviderKind provider) =>
-        _limits.Describe(provider) is { Length: > 0 } limits ? $"Usage: {limits}" : string.Empty;
-
+    /// <summary>The Tasks tab as it stands: the card, the open task, or the list.</summary>
     private void ShowAgentPanel()
     {
         if (!_settings.Current.SidePanel.IsOpen) SetPanelOpen(true);
         ShowPanel();
         _agentPanel ??= CreateAgentPanel();
-        ShowPanelTab(PanelTab.Task);
+        ShowPanelTab(PanelTab.Tasks);
     }
 
     private AgentPanel CreateAgentPanel()
@@ -254,21 +332,74 @@ public partial class MainWindow
             _decision?.Invoke();
         };
         panel.RestartRequested += RequestRestart;
-        panel.EscalateRequested += () => SwitchLevel(AgentLevel.Deep, escalate: true);
-        panel.ContinueRequested += ContinueAgent;
+        panel.EscalateRequested += Escalate;
+        panel.ContinueRequested += words => ContinueAgent(words);
         panel.QueueRequested += QueueAfterRun;
         panel.FinishRequested += FinishTask;
-        panel.ConsoleRequested += ShowAgentConsole;
         panel.OpenFileRequested += ShowFile;
+        panel.BackRequested += ShowTaskList;
+        panel.NewTaskRequested += () => _ = OpenNewTaskCardAsync();
+        panel.TaskSelected += OpenAgentTask;
+        panel.ShowList(TaskRows(), AllLimitRows());
         return panel;
     }
 
-    /// <summary>Cancel on the card: back to the open task, or to the project when there is none.</summary>
+    /// <summary>Cancel on the card: back to the task it was opened from, or to the list.</summary>
     private void CancelCard()
     {
         _cardRun = null;
-        if (_task is not null) ShowTask();
-        else ShowPanelTab(PanelTab.Project);
+        _agentPanel?.HideCard();
+        if (_shownTask is not null) ShowTask();
+        else ShowTaskList();
+    }
+
+    /// <summary>Back to the project's tasks; an agent at work goes on, its row says so.</summary>
+    private void ShowTaskList()
+    {
+        _shownTask = null;
+        RefreshTaskList();
+        _agentPanel?.ShowListView();
+    }
+
+    private void RefreshTaskList() => _agentPanel?.ShowList(TaskRows(), AllLimitRows());
+
+    /// <summary>The project's tasks, newest first; the open one leads while it is open, saved yet or not.</summary>
+    private IReadOnlyList<TaskRow> TaskRows()
+    {
+        var project = _projects.ActiveProject;
+        var tasks = _projects.ReadAgentTasks(project).ToList();
+        if (_task is { } open && (_taskProject ?? project).Id == project.Id)
+        {
+            tasks.RemoveAll(task => task.Id == open.Id);
+            tasks.Insert(0, open);
+        }
+
+        return tasks.Select(record =>
+        {
+            var (status, brush) = Standing(record, live: AgentRunning && record.Id == _task?.Id && _runningTask is { } running && IsUserWork(running));
+            var who = record.LastRun is { } last ? AgentName(last.Provider) + " · " : string.Empty;
+            return new TaskRow(record.Goal, ToPreviewText(record.LastWords), ShortTime(record.UpdatedAt), who + status, brush, record);
+        }).ToArray();
+    }
+
+    /// <summary>How a task stands, in words and the colour of its dot.</summary>
+    private (string Text, Brush Dot) Standing(AgentTaskRecord record, bool live)
+    {
+        var elapsed = _agentClock.Elapsed;
+        var (text, brush) = live
+            ? ($"working · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}", "BusyOrbBrush")
+            : record.Status switch
+            {
+                AgentTaskStatus.NeedsYou => ("needs you", "ErrorOrbBrush"),
+                AgentTaskStatus.Done => ("done", "SuccessOrbBrush"),
+                AgentTaskStatus.CheckFailed => ("check fails", "ErrorOrbBrush"),
+                AgentTaskStatus.Failed => ("failed", "ErrorOrbBrush"),
+                AgentTaskStatus.Stopped => ("stopped", "IdleOrbBrush"),
+                AgentTaskStatus.Finished => ("finished", "IdleOrbBrush"),
+                // Saved while it ran, and Link closed meanwhile.
+                _ => ("interrupted", "IdleOrbBrush")
+            };
+        return (text, (Brush)FindResource(brush));
     }
 
     /// <summary>Console: what Link gave the agent's CLI and every line it writes back, in a window of its own.</summary>
@@ -285,7 +416,9 @@ public partial class MainWindow
         _agentConsoleWindow.Activate();
     }
 
-    /// <summary>Run on the card: a new task. An open one is finished first; it stays in the history.</summary>
+    private PanelAction ConsoleAction() => new("Console", "What Link gave the agent's CLI and what it wrote back", ShowAgentConsole);
+
+    /// <summary>Run on the card: a new task. An open one is finished first; it stays in the list.</summary>
     private async Task RunAgentAsync(AgentPlan plan)
     {
         if (_agentSnapshot is not { } snapshot || AgentRunning) return;
@@ -295,7 +428,6 @@ public partial class MainWindow
         {
             project.AgentProvider = plan.Provider;
             _projects.Save();
-            UpdateRouteButton();
         }
 
         if (_task is { Status: not AgentTaskStatus.Finished }) FinishTask();
@@ -303,10 +435,9 @@ public partial class MainWindow
         // The input went to the agent: like a sent message, it leaves the prompt.
         if (PromptBox.Text.Trim() == snapshot.Text) ClearSentInput(PromptBox.Text);
         var agent = _settings.Current.Agent;
-        // A plan is made on Deep and carried out on the level chosen, in the same session.
-        _planLevel = plan.Level;
-        var level = plan.PlanFirst && agent.PlanOnDeep ? AgentLevel.Deep : plan.Level;
-        var (model, effort) = agent.Level(plan.Provider, level);
+        // A plan is made on the strongest model and carried out with the card's, in the same session.
+        _planSetup = (plan.Model, plan.Effort);
+        var (model, effort) = plan.PlanFirst && agent.PlanOnDeep ? agent.Level(plan.Provider, AgentLevel.Deep) : _planSetup;
         _agentOrigin = AgentCoordinator.BuildTask(plan with { Model = model, Effort = effort }, snapshot, project);
         _taskProject = project;
         _task = new AgentTaskRecord
@@ -315,41 +446,49 @@ public partial class MainWindow
             Brief = _agentOrigin.Prompt,
             Workspace = plan.Workspace
         };
-        _task.Add(AgentEntryKind.Brief, $"{plan.Goal.Split('\n')[0].Trim()} · {AgentName(plan.Provider)}, {level}{(plan.PlanFirst ? ", plan first" : string.Empty)}");
+        _task.Add(AgentEntryKind.Brief, plan.Goal.Trim() + ImagesNote(_agentOrigin.Images) + (plan.PlanFirst ? "\n(plan first)" : string.Empty));
         _earlierSession = null;
         _lastRun = null;
+        _shownTask = _task;
         await StartAgentAsync(_agentOrigin, null);
     }
 
+    private static string ImagesNote(IReadOnlyCollection<string> images) =>
+        images.Count == 0 ? string.Empty : $"\n+ {Plural(images.Count, "image")}";
+
     /// <summary>
     /// The user's words. While the agent works they correct it: it stops the step it is on and the same session goes
-    /// on with them. After a run they are a reply in the same session; a task from the history is taken up again in its
-    /// folder, with a copy before edits where there is no git.
+    /// on with them. After a run they are a reply in the same session, maybe the answer to its question; a task from
+    /// the list is taken up again in its folder, with a copy before edits where there is no version control.
     /// </summary>
-    private void ContinueAgent(string reply)
+    private void ContinueAgent(string reply, IReadOnlyList<string>? images = null)
     {
         if (reply.Trim() is not { Length: > 0 } text) return;
+        images ??= [];
         if (AgentRunning)
         {
-            // Link's own step (a note for Start over) takes no words.
-            if (_runningTask is null || _restartWhenStopped) return;
+            // Link's own step (a note for Start over, a map) takes no words.
+            if (_runningTask is not { } running || !IsUserWork(running) || _restartWhenStopped) return;
             _steerWith = text;
-            _task?.Add(AgentEntryKind.You, "(correction) " + text);
+            _steerImages = images;
+            _task?.Add(AgentEntryKind.You, "(correction) " + text + ImagesNote(images));
             _agentCancellation?.Cancel();
-            SetStatus("Stopping the agent to pass your words on…");
+            ShowTask();
+            AgentStatus("Stopping the agent to pass your words on…");
             return;
         }
 
-        _task?.Add(AgentEntryKind.You, text);
+        _question = null;
+        _task?.Add(AgentEntryKind.You, text + ImagesNote(images));
         if (_earlierSession is { } earlier)
         {
             _agentOrigin = earlier with { ResumeSessionId = null };
             _backupBeforeDo = true;
-            _ = StartAgentAsync(earlier with { Prompt = text }, null);
+            _ = StartAgentAsync(earlier with { Prompt = text, Images = images }, null);
             return;
         }
 
-        if (_lastRun is { } run && AgentCoordinator.ContinueTask(run, text) is { } task) _ = StartAgentAsync(task, run);
+        if (_lastRun is { } run && AgentCoordinator.ContinueTask(run, text) is { } task) _ = StartAgentAsync(task with { Images = images }, run);
     }
 
     /// <summary>Tab while the agent works: the words wait for the end of the run, then the same session goes on with them.</summary>
@@ -359,10 +498,10 @@ public partial class MainWindow
         _queued = _queued is null ? words : $"{_queued}\n{words}";
         _task?.Add(AgentEntryKind.You, "(after this run) " + words);
         ShowTask();
-        SetStatus("Your words wait for the end of this run");
+        AgentStatus("Your words wait for the end of this run");
     }
 
-    /// <summary>Finish: the task is closed and kept in the history, where it can be opened and taken up again.</summary>
+    /// <summary>Finish: the task is closed and stays in the list, where it can be opened and taken up again.</summary>
     private void FinishTask()
     {
         if (AgentRunning || _task is not { } task) return;
@@ -378,18 +517,30 @@ public partial class MainWindow
         _lastRun = null;
         _earlierSession = null;
         _agentOrigin = null;
+        _question = null;
+        _decision = null;
         UpdateAgentPill();
-        ShowPanelTab(PanelTab.Project);
-        SetStatus("Task finished: it is in the project's history");
+        UpdateRouteButton();
+        ShowTaskList();
+        AgentStatus("Task finished: it stays in the list of tasks");
     }
 
-    /// <summary>A task from the project's history: its record, and the reply box that takes up its last session.</summary>
+    /// <summary>
+    /// A task from the list. While an agent works on another one, it is shown to be read; otherwise it becomes the
+    /// open task, and the next words take up its last session.
+    /// </summary>
     private void OpenAgentTask(AgentTaskRecord record)
     {
+        if (_task?.Id == record.Id)
+        {
+            ShowTaskInPanel();
+            return;
+        }
+
         if (AgentRunning)
         {
-            SetStatus("An agent is already working: Stop it or wait for it first");
-            ShowAgentPanel();
+            _shownTask = record;
+            ShowRecord(record, readOnly: true);
             return;
         }
 
@@ -404,8 +555,10 @@ public partial class MainWindow
         _taskProject = project;
         _lastRun = null;
         _agentOrigin = null;
+        _decision = null;
         var last = record.LastRun;
-        var tools = last?.Access == AgentAccess.Do ? project.AgentReadTools.Concat(project.AgentDoTools) : project.AgentReadTools;
+        // A question the task ended on is still a question.
+        _question = record.Status == AgentTaskStatus.NeedsYou && last is not null ? AgentQuestion.Split(last.Words).Question : null;
         _earlierSession = last?.SessionId is { } session
             ? new AgentTask
             {
@@ -416,28 +569,33 @@ public partial class MainWindow
                 AutoApprove = last.AutoApprove,
                 Model = last.Model,
                 Effort = last.Effort,
-                AllowedTools = tools.Distinct(StringComparer.Ordinal).ToArray(),
+                AllowedTools = AgentCoordinator.Tools(project, record.Workspace, last.Access),
                 CheckCommand = project.CheckCommand,
                 ResumeSessionId = session
             }
             : null;
         _taskSteps.Clear();
         _taskSteps.AddRange(record.Steps);
+        _afterRun = [ConsoleAction()];
+        _agentPanel?.ResetCards();
+        ShowTaskInPanel();
+        UpdateRouteButton();
+        AgentStatus(_earlierSession is null
+            ? "This task has no session to go on with"
+            : $"Your words go on with the task: in its thread, or with Enter on the Agent route");
+    }
+
+    /// <summary>The open task in the Tasks tab.</summary>
+    private void ShowTaskInPanel()
+    {
         ShowAgentPanel();
-        _agentPanel!.ShowActivity(record.Goal, last is null ? "No run yet" : RunLine(last), $"{project.Name} · {record.Workspace}");
-        _agentPanel.ShowResult(record.LastWords, $"{StatusWords(record.Status)} · {ShortTime(record.UpdatedAt)}");
-        _agentPanel.ShowChanges(record.ChangedFiles.Select(file => new AgentChangeRow(file, Path.Combine(record.Workspace, file))).ToArray());
-        _agentPanel.ShowStats(string.Empty);
-        _agentPanel.ShowReply(_earlierSession is not null);
-        _afterRun = [new PanelAction("Console", "What Link gave the agent's CLI and what it wrote back", ShowAgentConsole)];
+        _shownTask = _task;
         ShowTask();
-        UpdateAgentPill();
-        SetStatus(_earlierSession is null ? "This task has no session to go on with" : "Write a reply to take the task up again");
     }
 
     /// <summary>
-    /// Runs a task, fresh or continuing <paramref name="previous"/>, and shows it in the Task tab; <paramref name="note"/>
-    /// opens the steps, such as the note a new session starts over with.
+    /// Runs a task, fresh or continuing <paramref name="previous"/>, and shows it in its thread; <paramref name="note"/>
+    /// opens its steps, such as the note a new session starts over with.
     /// </summary>
     private async Task StartAgentAsync(AgentTask task, AgentRun? previous, string? note = null)
     {
@@ -448,65 +606,74 @@ public partial class MainWindow
         if (previous is null && task.ResumeSessionId is null && _task?.Runs.Count is null or 0) _taskSteps.Clear();
         _runningTask = task;
         _decision = null;
+        _question = null;
         _earlierSession = null;
         _limitOffered = false;
         _continueAt?.Stop();
+        _runSteps.Clear();
+        _runningFiles.Clear();
         if (_task is not null && IsUserWork(task)) _task.Status = AgentTaskStatus.Running;
-        ShowAgentPanel();
-        _agentPanel!.ShowActivity(_task?.Goal ?? Shorten(task.Prompt.Split('\n')[0], 200), AgentHeader(task), $"{project.Name} · {task.Workspace}");
-        _agentPanel.SetReplyTarget(provider.Name);
-        if (_task is not null) ShowTask();
+        _liveTurn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort)}", "Starting…",
+            (Brush)FindResource("AccentBrush")) { StepsOpen = true };
         var cancellation = new CancellationTokenSource();
         _agentCancellation = cancellation;
         _agentClock = Stopwatch.StartNew();
         _pendingAgentEvents.Clear();
         if (note is not null) _pendingAgentEvents.Add(new AgentEvent(AgentEventKind.Output, note));
+        _agentPanel ??= CreateAgentPanel();
+        _agentPanel.ResetCards();
+        if (_task is not null && IsUserWork(task))
+        {
+            _shownTask = _task;
+            ShowTask();
+        }
+        else
+        {
+            ShowOwnRun(task, project);
+        }
+
         _activityTimer ??= CreateActivityTimer();
         _activityTimer.Start();
         _cues.Play(SoundCue.Sent);
-        SayAgent($"{provider.Name} started.");
-        SetStatus($"{provider.Name} is working · Stop is in the Task tab");
+        SayAgent($"{ShortName(task.Provider)} начал работу.", $"{ShortName(task.Provider)} started.");
+        AgentStatus($"{provider.Name} is working · its thread is in the Tasks tab");
         UpdateAgentPill();
+        UpdateRouteButton();
+        RefreshTaskList();
         var progress = new Progress<AgentEvent>(_pendingAgentEvents.Add);
         AgentRun? ended = null;
+        Exception? failure = null;
         try
         {
             var run = await _agents.RunAsync(task, _backupBeforeDo, previous, progress, cancellation.Token, ReplaceSkill);
-            if (run.Before is { IsGit: false, Backup: null } && _backupBeforeDo && task.Access == AgentAccess.Do && previous is null)
+            if (run.Before is { IsVersioned: false, Backup: null } && _backupBeforeDo && task.Access == AgentAccess.Do && previous is null)
             {
                 _pendingAgentEvents.Add(new AgentEvent(AgentEventKind.Error, "No copy was made: the workspace is over 2 GB."));
             }
 
-            FlushAgentEvents();
-            ShowAgentRun(run);
+            await KeepInChangelistAsync(run);
             ended = run;
         }
         catch (Exception exception)
         {
-            FlushAgentEvents();
-            _agentPanel.ShowResult(exception.Message, "Could not start");
-            // No session began: a reply here would go to an older run. The other agent can still take the task.
-            _agentPanel.ShowReply(false);
-            if (_task is not null)
-            {
-                _task.Status = AgentTaskStatus.Failed;
-                _task.Add(AgentEntryKind.Run, $"{provider.Name} could not start: {exception.Message}");
-                SaveTask(_task);
-            }
-
-            ShowTask();
-            _cues.Play(SoundCue.Error);
-            SetError(exception.Message);
+            failure = exception;
         }
         finally
         {
+            FlushAgentEvents();
             _activityTimer.Stop();
             _agentCancellation = null;
             _runningTask = null;
             cancellation.Dispose();
             ReportState();
-            UpdateAgentPill();
         }
+
+        if (ended is not null) ShowAgentRun(ended);
+        else if (failure is not null) ShowAgentFailure(provider, task, failure);
+        _liveTurn = null;
+        UpdateAgentPill();
+        UpdateRouteButton();
+        RefreshTaskList();
 
         if (_restartWhenStopped)
         {
@@ -521,9 +688,11 @@ public partial class MainWindow
         else if (_steerWith is { } words)
         {
             _steerWith = null;
+            var images = _steerImages;
+            _steerImages = [];
             if (ended is not null && AgentCoordinator.ContinueTask(ended, AgentCoordinator.Interrupted(words)) is { } next)
             {
-                await StartAgentAsync(next, ended);
+                await StartAgentAsync(next with { Images = images }, ended);
             }
             else
             {
@@ -539,6 +708,28 @@ public partial class MainWindow
 
     /// <summary>The user's work, as opposed to Link's own answer written to a file, such as the map.</summary>
     private static bool IsUserWork(AgentTask task) => task.AnswerFile is null;
+
+    /// <summary>Link's own answer, such as the map: a thread of its one run, outside the tasks.</summary>
+    private void ShowOwnRun(AgentTask task, LinkProject project)
+    {
+        _shownTask = null;
+        var panel = _agentPanel!;
+        panel.ShowTaskView(task.AnswerFile is { } file ? $"Link writes {file.Replace('\\', '/')}" : Shorten(task.Prompt.Split('\n')[0], 200),
+            $"{project.Name} · {task.Workspace}");
+        panel.SetStatus("working", (Brush)FindResource("BusyOrbBrush"));
+        panel.SetHeader(AgentHeader(task));
+        panel.ShowPlan([]);
+        panel.ShowThread(_liveTurn is null ? [] : [_liveTurn]);
+        panel.ShowBrief(string.Empty);
+        panel.ShowUsage(string.Empty, string.Empty);
+        panel.ShowTaskLimits(LimitRows(task.Provider));
+        panel.ShowQuestion(null);
+        panel.ShowMenus([], [ConsoleAction()]);
+        panel.ShowFinish(false);
+        panel.SetRunning(true);
+        // Link's own answer takes no words.
+        panel.ShowReply(false);
+    }
 
     /// <summary>Start over with a note; a running agent is stopped first, and its note is asked once it has ended.</summary>
     private void RequestRestart()
@@ -564,8 +755,8 @@ public partial class MainWindow
         var provider = _agents.Provider(run.Task.Provider);
         var cancellation = new CancellationTokenSource();
         _agentCancellation = cancellation;
-        _agentPanel?.ShowStep($"Asking {provider.Name} what it tried, for a new session…", running: true);
-        SetStatus($"{provider.Name} writes a note for a new session · Stop is in the Task tab");
+        _agentPanel?.ShowStep($"asking {provider.Name} for a note…", running: true);
+        AgentStatus($"{provider.Name} writes a note for a new session · Stop is in the Tasks tab");
         (AgentTask Task, string Note)? next;
         try
         {
@@ -573,7 +764,7 @@ public partial class MainWindow
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
-            _agentPanel?.ShowStep("Could not ask for a note", running: false);
+            _agentPanel?.ShowStep("no note", running: false);
             SetError(exception.Message);
             return;
         }
@@ -586,8 +777,9 @@ public partial class MainWindow
 
         if (next is not { } fresh)
         {
-            _agentPanel?.ShowStep("Start over stopped", running: false);
-            SetStatus("Start over stopped: the last run stays as it was");
+            _agentPanel?.ShowStep("start over stopped", running: false);
+            ShowTask();
+            AgentStatus("Start over stopped: the last run stays as it was");
             return;
         }
 
@@ -597,20 +789,25 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The same session goes on with another level's model and effort: cheaper for routine work, Deep for a problem the
-    /// task's level did not solve (Escalate). One cache miss: the model reads the session anew.
+    /// The same session goes on with another model and effort: cheaper for routine work, the strongest for a problem
+    /// the task's model did not solve (Escalate). One cache miss: the model reads the session anew.
     /// </summary>
-    private void SwitchLevel(AgentLevel level, bool escalate = false)
+    private void SwitchSetup((string? Model, string? Effort) setup, bool escalate)
     {
         if (AgentRunning || ResumableTask() is not { } resume) return;
-        var (model, effort) = _settings.Current.Agent.Level(resume.Task.Provider, level);
         var prompt = escalate
             ? "The work is not done yet. Think it through again from what you know, find the cause and finish the task."
             : "Go on with the task.";
         _task?.Add(AgentEntryKind.Model,
-            $"{AgentName(resume.Task.Provider)} · {level}: {LevelSetup(resume.Task.Provider, level)}{(escalate ? ", escalated" : string.Empty)}");
+            $"{AgentName(resume.Task.Provider)} · {SetupWords(resume.Task.Provider, setup.Model, setup.Effort)}{(escalate ? ", escalated" : string.Empty)}");
         if (resume.Previous is null) _backupBeforeDo = true;
-        _ = StartAgentAsync(resume.Task with { Model = model, Effort = effort, Prompt = prompt, Images = [] }, resume.Previous);
+        _ = StartAgentAsync(resume.Task with { Model = setup.Model, Effort = setup.Effort, Prompt = prompt, Images = [] }, resume.Previous);
+    }
+
+    private void Escalate()
+    {
+        if (ResumableTask() is not { } resume) return;
+        SwitchSetup(_settings.Current.Agent.Level(resume.Task.Provider, AgentLevel.Deep), escalate: true);
     }
 
     /// <summary>The task's last session as a run to continue, and the run it continues; null when there is none.</summary>
@@ -621,15 +818,16 @@ public partial class MainWindow
 
     /// <summary>
     /// Hand off: the other agent takes the task over in a new session of its own. The brief is made from the task's
-    /// record and shown on the card first, where it can be changed, with the level and access of the new run.
+    /// record and shown on the card first, where it can be changed, with the model and access of the new run.
     /// </summary>
     private async Task ShowHandOffCardAsync(AgentProviderKind to)
     {
-        if (AgentRunning || _task is not { } record || ResumableTask() is not { } from && _agentOrigin is null) return;
+        if (AgentRunning || _task is not { } record || ResumableTask() is null && _agentOrigin is null) return;
         var fromProvider = record.LastRun?.Provider ?? Other(to);
         var numstat = _lastRun is { } run ? await _agents.Changes.DiffAsync(run.Before, run.Changes, stat: true, 4000, CancellationToken.None) : null;
         var brief = AgentCoordinator.HandOffBrief(record, AgentName(fromProvider), numstat);
-        var card = CardModel(brief, string.Empty, to) with
+        // The images the task began with go along; a task from the list has kept none.
+        var card = CardModel(brief, string.Empty, _agentOrigin?.Images ?? [], to) with
         {
             Title = $"HAND OFF TO {AgentName(to).ToUpperInvariant()} · NEW SESSION",
             RunLabel = $"Hand off to {AgentName(to)}",
@@ -638,7 +836,7 @@ public partial class MainWindow
         _cardRun = plan => HandOffAsync(plan, fromProvider);
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
-        SetStatus($"The brief for {AgentName(to)} is on the card: change it if you like, then Hand off");
+        AgentStatus($"The brief for {AgentName(to)} is on the card: change it if you like, then Hand off");
     }
 
     private async Task HandOffAsync(AgentPlan plan, AgentProviderKind fromProvider)
@@ -647,17 +845,17 @@ public partial class MainWindow
         _cardRun = null;
         var template = ResumableTask()?.Task ?? _agentOrigin;
         if (template is null) return;
-        var (model, effort) = _settings.Current.Agent.Level(plan.Provider, plan.Level);
-        // The images the task began with go along; a task from the history has kept none.
         var images = _agentOrigin?.Images ?? [];
         var task = AgentCoordinator.HandOffTask(template, plan.Provider, plan.Goal, images) with
         {
-            Model = model,
-            Effort = effort,
+            Model = plan.Model,
+            Effort = plan.Effort,
             Access = AgentAccess.Do,
-            AutoApprove = plan.AutoApprove
+            AutoApprove = plan.AutoApprove,
+            AllowedTools = AgentCoordinator.Tools(_taskProject ?? _projects.ActiveProject, template.Workspace, AgentAccess.Do)
         };
-        record.Add(AgentEntryKind.HandOff, $"{AgentName(fromProvider)} → {AgentName(plan.Provider)}, {plan.Level}, a new session");
+        record.Add(AgentEntryKind.HandOff,
+            $"{AgentName(fromProvider)} → {AgentName(plan.Provider)} · {SetupWords(plan.Provider, plan.Model, plan.Effort)}, a new session");
         record.Brief += $"\n\n── Handed over to {AgentName(plan.Provider)} ──\n{plan.Goal}";
         // Start over begins the new agent's brief again.
         _agentOrigin = task;
@@ -677,7 +875,6 @@ public partial class MainWindow
         if (back?.SessionId is not { } session || template is null) return;
         var numstat = _lastRun is { } run ? await _agents.Changes.DiffAsync(run.Before, run.Changes, stat: true, 4000, CancellationToken.None) : null;
         var prompt = AgentCoordinator.ReturnBrief(record, AgentName(Other(provider)), numstat);
-        var (model, effort) = (back.Model, back.Effort);
         record.Add(AgentEntryKind.HandOff, $"Back to {AgentName(provider)}, its own session");
         record.Brief += $"\n\n── Back to {AgentName(provider)} ──\n{prompt}";
         if (_lastRun is null) _backupBeforeDo = true;
@@ -686,8 +883,8 @@ public partial class MainWindow
             Provider = provider,
             ResumeSessionId = session,
             Prompt = prompt,
-            Model = model,
-            Effort = effort,
+            Model = back.Model,
+            Effort = back.Effort,
             Images = [],
             PlanOnly = false,
             AnswerFile = null,
@@ -714,6 +911,25 @@ public partial class MainWindow
         if (_taskSteps.Count > StepsHandedOn * 2) _taskSteps.RemoveRange(0, _taskSteps.Count - StepsHandedOn);
     }
 
+    /// <summary>A step as the thread shows it; null for what has a place of its own (the answer, files, plan, usage).</summary>
+    private static string? StepText(AgentEvent agentEvent) => agentEvent.Kind switch
+    {
+        AgentEventKind.Completed or AgentEventKind.Artifact or AgentEventKind.ToolFailed or AgentEventKind.Plan or AgentEventKind.Limit => null,
+        AgentEventKind.Tool => "▸ " + agentEvent.Text,
+        AgentEventKind.Output => agentEvent.Text,
+        AgentEventKind.NeedsInput => "⚠ " + agentEvent.Text,
+        AgentEventKind.Loop => "⟳ " + agentEvent.Text,
+        AgentEventKind.Error => "✗ " + agentEvent.Text,
+        _ => "· " + agentEvent.Text
+    };
+
+    /// <summary>A step's row in the colour of its kind, by the mark it starts with.</summary>
+    private AgentStepRow StepRow(string text) => new(text, (Brush)FindResource(
+        text.StartsWith('✗') ? "ErrorBrush"
+        : text.StartsWith('⚠') || text.StartsWith('⟳') ? "AccentBrush"
+        : text.StartsWith('▸') || text.StartsWith('·') ? "MutedBrush"
+        : "TextBrush"));
+
     private DispatcherTimer CreateActivityTimer()
     {
         var timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = ActivityFlush };
@@ -721,48 +937,69 @@ public partial class MainWindow
         return timer;
     }
 
-    /// <summary>Events arrive as fast as the CLI writes them; the tab takes them in batches, ten times a second at most.</summary>
+    /// <summary>
+    /// Events arrive as fast as the CLI writes them; the thread takes them in batches, ten times a second at most. A
+    /// task shown only to be read is not touched.
+    /// </summary>
     private void FlushAgentEvents()
     {
         if (_agentPanel is null) return;
+        var shown = _shownTask is null || _task is not null && _shownTask.Id == _task.Id;
         if (_runningTask is { } task)
         {
-            _agentPanel.SetHeader(AgentHeader(task));
+            var elapsed = _agentClock.Elapsed;
+            if (_liveTurn is not null) _liveTurn.Outcome = $"working · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
+            if (shown) _agentPanel.SetHeader(AgentHeader(task));
+            if (shown && _task is { } record && IsUserWork(task))
+            {
+                var (status, dot) = Standing(record, live: true);
+                _agentPanel.SetStatus(status, dot);
+            }
+
             UpdateAgentPill();
         }
 
         if (_pendingAgentEvents.Count == 0) return;
         var events = _pendingAgentEvents.ToArray();
         _pendingAgentEvents.Clear();
-        _agentPanel.AddSteps(events);
         RememberSteps(events);
+        var steps = events.Select(StepText).OfType<string>().Select(step => Shorten(step, 1200)).ToArray();
+        _runSteps.AddRange(steps.Select(step => Shorten(step, 300)));
+        if (_liveTurn is { } turn)
+        {
+            turn.AddSteps(steps.Select(StepRow));
+            if (events.LastOrDefault(agentEvent => agentEvent.Kind is AgentEventKind.Tool or AgentEventKind.Status) is { } current)
+            {
+                turn.Current = current.Text;
+            }
+        }
+
         if (events.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Plan) is { } plan)
         {
             if (_task is not null) _task.Plan = [.. plan.Plan];
-            _agentPanel.ShowPlan(plan.Plan);
+            if (shown) _agentPanel.ShowPlan(plan.Plan);
         }
 
-        foreach (var usage in events.Where(agentEvent => agentEvent.Kind == AgentEventKind.Limit)) _limits.Update(usage.Limits);
-        if (_runningTask is { } running && !_limitOffered && _limits.IsNear(running.Provider)) OfferLimitAhead(running.Provider);
-        if (_agentOrigin is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Loop))
+        if (events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Limit))
         {
-            _agentPanel.ShowRestart(true, escalate: _runningTask is { } looping && LevelOf(looping) != AgentLevel.Deep);
+            foreach (var usage in events.Where(agentEvent => agentEvent.Kind == AgentEventKind.Limit)) _limits.Update(usage.Limits);
+            if (shown && _runningTask is { } reporting) _agentPanel.ShowTaskLimits(LimitRows(reporting.Provider));
         }
 
-        // Changed files are listed as they come; the full list, from git or the copy, replaces them at the end.
-        if (_runningTask is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Artifact))
+        if (_runningTask is { } running && !_limitOffered && _limits.IsNear(running.Provider)) OfferLimitAhead(running.Provider);
+        if (shown && _agentOrigin is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Loop))
+        {
+            _agentPanel.ShowRestart(true, escalate: _runningTask is { } looping && !IsStrongest(looping));
+        }
+
+        // Changed files are listed as they come; the full list, from version control or the copy, replaces them at the end.
+        if (_liveTurn is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Artifact))
         {
             _runningFiles.UnionWith(events.Where(agentEvent => agentEvent.Kind == AgentEventKind.Artifact).Select(agentEvent => agentEvent.Text));
-            _agentPanel.ShowChanges(_runningFiles.Select(path => new AgentChangeRow(Relative(path), path)).ToArray());
+            _liveTurn.Files = _runningFiles.Select(path => new AgentChangeRow(Relative(path), path)).ToArray();
         }
 
-        // The status line says who does what; the time is in the agent's pill.
-        if (_runningTask is { } current && !_sending && _voice.Phase == VoicePhase.Idle &&
-            events.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Tool) is { } step && step.Text != _lastStep)
-        {
-            _lastStep = step.Text;
-            SetStatus($"{AgentName(current.Provider)} is working · {step.Text}");
-        }
+        if (shown) _agentPanel.FollowThread();
     }
 
     /// <summary>The agent is near its usage limit while it works: the ways on are offered, nothing is done by itself.</summary>
@@ -781,7 +1018,7 @@ public partial class MainWindow
             new PanelAction("Go on", "The agent works on; when the limit stops it, the same choices come again", () => { })
         ]);
         _task?.Add(AgentEntryKind.Limit, $"{AgentName(provider)} near its limit: {_limits.Describe(provider)}");
-        SetStatus($"{AgentName(provider)} is near its usage limit · the Task tab offers a way on");
+        AgentStatus($"{AgentName(provider)} is near its usage limit · the Tasks tab offers a way on");
     }
 
     private string AgentHeader(AgentTask task)
@@ -791,32 +1028,50 @@ public partial class MainWindow
             : task.AnswerIsSkill ? "read only, SKILL.md"
             : task.Access == AgentAccess.Do ? task.AutoApprove ? "auto" : "edits"
             : "read only";
-        var level = LevelOf(task) is { } known ? $"{known} · " : string.Empty;
         var elapsed = _agentClock.Elapsed;
-        return $"{_agents.Provider(task.Provider).Name} · {level}{SetupWords(task.Provider, task.Model, task.Effort)} · {access} · " +
+        return $"{_agents.Provider(task.Provider).Name} · {SetupWords(task.Provider, task.Model, task.Effort)} · {access} · " +
                $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
     }
 
-    /// <summary>A run's model and effort as the user reads them.</summary>
+    /// <summary>A run's model and effort as the user reads them, "Opus 5.5 · Extra high"; the CLI's own as its config names it.</summary>
     private string SetupWords(AgentProviderKind provider, string? model, string? effort)
     {
         var agent = _agents.Provider(provider);
-        var modelName = model is null ? "own model" : agent.Models.FirstOrDefault(choice => choice.Value == model)?.Label ?? model;
-        return effort is null ? modelName : $"{modelName} · {agent.Efforts.FirstOrDefault(choice => choice.Value == effort)?.Label.Split(" — ")[0] ?? effort}";
+        var own = agent.OwnSetup;
+        var modelName = (model ?? own.Model) is { } chosen ? ModelName(agent, chosen) : "its own model";
+        return (effort ?? own.Effort) is { } level ? $"{modelName} · {EffortName(agent, level)}" : modelName;
     }
 
     private string RunLine(AgentRunRecord run) =>
         $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort)} · " +
         $"{(run.Access != AgentAccess.Do ? "read only" : run.AutoApprove ? "auto" : "edits")}";
 
+    /// <summary>Where the task works: the project, the folder and, in Perforce, its changelist.</summary>
+    private string WhereLine(AgentTaskRecord record) =>
+        $"{(_taskProject ?? _projects.ActiveProject).Name} · {record.Workspace}" +
+        (record.Changelist is { } changelist ? $" · P4 changelist {changelist}" : string.Empty);
+
+    /// <summary>In Perforce the task's files wait in a pending changelist of its own, which P4V shows; its number stays with the task.</summary>
+    private async Task KeepInChangelistAsync(AgentRun run)
+    {
+        if (_task is not { } record || !IsUserWork(run.Task) || !run.Before.IsPerforce || run.Changes.Count == 0) return;
+        var changelist = await _agents.Changes.KeepInChangelistAsync(run.Before, run.Changes, $"Link: {record.Goal}",
+            record.Changelist, CancellationToken.None);
+        if (changelist is null)
+        {
+            DiagnosticsReported?.Invoke("Perforce made no changelist for the task's files: they stay where the agent opened them");
+            return;
+        }
+
+        record.Changelist = changelist;
+    }
+
     private void ShowAgentRun(AgentRun run)
     {
         _lastRun = run;
-        _runningFiles.Clear();
         var (task, result) = (run.Task, run.Result);
         var provider = _agents.Provider(task.Provider);
         var project = _projects.ActiveProject;
-        _agentPanel!.ShowChanges(run.Changes.Select(ToChangeRow).ToArray());
         var elapsed = $"{(int)_agentClock.Elapsed.TotalMinutes}:{_agentClock.Elapsed.Seconds:00}";
         var stopped = result.Stopped || run.Check is { Outcome: AgentCheckOutcome.Stopped };
         // A red check is not "done", whatever the agent's own summary says.
@@ -827,18 +1082,15 @@ public partial class MainWindow
             : $"Done in {elapsed}";
         // An answer Link wrote to a file is shown as written.
         var answer = task.AnswerFile is null && !task.AnswerIsSkill ? result.Summary : AgentCoordinator.Unfenced(result.Summary);
-        var text = checkFailed ? CheckReport(task, run.Check!) + (answer.Length > 0 ? "\n\n" + answer : string.Empty) : answer;
-        _agentPanel.ShowResult(text, ending);
-        _agentPanel.ShowStats(StatsLine(result.Stats));
-        _agentPanel.SetReplyTarget(provider.Name);
+        var (said, question) = AgentQuestion.Split(answer);
+        // A question is asked by a run that ended well; one cut short asks nothing.
+        _question = !stopped && result.Succeeded && !checkFailed ? question : null;
+        var text = checkFailed ? CheckReport(task, run.Check!) + (said.Length > 0 ? "\n\n" + said : string.Empty) : said;
         var limitReached = !result.Succeeded && !stopped &&
                            (LimitReached.IsMatch(result.Summary) || _limits.ReachedUntil(task.Provider) is not null);
         // After a failure, or a Stop in a loop; a Stop without a loop was the user's own choice, and a task done in the
         // end got past its loop. A limit has its own card.
         var failed = !stopped && !limitReached && (!result.Succeeded || checkFailed);
-        _agentPanel.ShowRestart(_agentOrigin is not null && (failed || (stopped && result.Loops.Count > 0)),
-            escalate: LevelOf(task) != AgentLevel.Deep);
-        _agentPanel.ShowReply(result.SessionId is not null);
         var undo = UndoAction(run);
         var saveSkill = result.Succeeded && !stopped && !checkFailed && !task.PlanOnly && task.AnswerFile is null &&
                         !task.AnswerIsSkill && result.SessionId is not null;
@@ -851,48 +1103,112 @@ public partial class MainWindow
                 ? new PanelAction("Save as skill", "The agent describes what it just did as a skill; Link writes it to .agents/skills in the workspace",
                     () => _ = SaveSkillAsync())
                 : null,
-            new PanelAction("Console", "What Link gave the agent's CLI and what it wrote back", ShowAgentConsole)
+            ConsoleAction()
         }.OfType<PanelAction>().ToArray();
 
+        if (_liveTurn is { } turn)
+        {
+            turn.Current = string.Empty;
+            turn.Outcome = ending;
+            turn.OutcomeBrush = OutcomeBrush(ending);
+            turn.Said = text;
+            turn.Files = run.Changes.Select(ToChangeRow).ToArray();
+            turn.Stats = StatsLine(result.Stats);
+            turn.StepsOpen = false;
+        }
+
         var decision = OfferDecision(run);
-        RecordRun(run, ending, text, decision, stopped, checkFailed);
-        ShowTask();
+        var needsYou = decision || _question is not null;
+        RecordRun(run, ending, text, checkFailed ? text : answer, needsYou, stopped, checkFailed);
+        if (_task is not null && IsUserWork(task))
+        {
+            ShowTask();
+        }
+        else if (_agentPanel is not null)
+        {
+            _agentPanel.SetRunning(false);
+            _agentPanel.ShowReply(false);
+            _agentPanel.SetStatus(ending.ToLowerInvariant(), OutcomeBrush(ending));
+        }
+
+        _agentPanel?.ShowRestart(_agentOrigin is not null && (failed || (stopped && result.Loops.Count > 0)), escalate: !IsStrongest(task));
         if (limitReached) OfferLimitReached(task.Provider);
         if (_task is not null && IsUserWork(task) && !task.AnswerIsSkill) ShowResultInChat(run, diff: null);
 
         var summary = text.Length > 0 ? text : ending;
-        if (decision)
+        var name = ShortName(task.Provider);
+        if (_question is { } asked)
         {
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
             _cues.Play(SoundCue.NeedsDecision);
-            SayAgent($"{provider.Name} needs your decision.");
+            SayAgent($"{name} спрашивает.", $"{name} asks you.");
+            NotifyIfAway(project, $"{provider.Name} asks", asked.Question);
+        }
+        else if (decision)
+        {
+            if (!IsVisible) _unseen = LinkState.NeedsDecision;
+            _cues.Play(SoundCue.NeedsDecision);
+            SayAgent($"{name} ждёт решения.", $"{name} needs your decision.");
             NotifyIfAway(project, "Agent needs a decision", ToPreviewText(summary));
         }
         else if (result.Succeeded && !stopped && !checkFailed)
         {
             if (!IsVisible) _unseen = LinkState.Done;
             _cues.Play(SoundCue.Done);
-            SayAgent(SpokenSummary(result.Summary, run.Changes.Count));
+            SayAgent($"{name} закончил работу.", $"{name} finished.");
             NotifyIfAway(project, "Agent finished", ToPreviewText(summary));
         }
         else if (!stopped)
         {
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
             _cues.Play(SoundCue.Error);
-            SayAgent(checkFailed ? $"{provider.Name} finished, but the check fails." : $"{provider.Name} failed.");
+            SayAgent(checkFailed ? $"{name} закончил, но проверка не прошла." : $"{name}: не получилось.",
+                checkFailed ? $"{name} finished, but the check fails." : $"{name} failed.");
             NotifyIfAway(project, checkFailed ? "The check fails after the agent" : "Agent failed", ToPreviewText(summary));
         }
 
-        SetStatus(limitReached
-            ? $"{provider.Name} ran out of its limit · the Task tab offers a way on"
-            : $"{provider.Name}: {ending.ToLowerInvariant()} · {run.Changes.Count} files changed");
+        AgentStatus(limitReached
+            ? $"{provider.Name} ran out of its limit · the Tasks tab offers a way on"
+            : _question is not null ? $"{provider.Name} asks: the choice is in the Tasks tab"
+            : $"{provider.Name}: {ending.ToLowerInvariant()} · {Plural(run.Changes.Count, "file")} changed");
     }
+
+    /// <summary>The agent could not start: why, in its thread; another agent can still take the task.</summary>
+    private void ShowAgentFailure(IAgentProvider provider, AgentTask task, Exception exception)
+    {
+        if (_task is not null && IsUserWork(task))
+        {
+            _task.Status = AgentTaskStatus.Failed;
+            _task.Add(AgentEntryKind.NoStart, $"{provider.Name} could not start: {exception.Message}");
+            SaveTask(_task);
+            ShowTask();
+        }
+        else if (_liveTurn is { } turn && _agentPanel is not null)
+        {
+            turn.Current = string.Empty;
+            turn.Outcome = "could not start";
+            turn.OutcomeBrush = (Brush)FindResource("ErrorBrush");
+            turn.Said = exception.Message;
+            _agentPanel.SetRunning(false);
+        }
+
+        // No session began: words here would go to an older run.
+        _agentPanel?.ShowReply(false, $"{provider.Name} could not start: try again, or hand the task to the other agent.");
+        _cues.Play(SoundCue.Error);
+        if (!_sending) SetError(exception.Message);
+    }
+
+    private Brush OutcomeBrush(string outcome) => (Brush)FindResource(
+        outcome.StartsWith("Done", StringComparison.OrdinalIgnoreCase) ? "SuccessBrush"
+        : outcome.StartsWith("Stopped", StringComparison.OrdinalIgnoreCase) || outcome.StartsWith("an earlier", StringComparison.Ordinal) ? "MutedBrush"
+        : outcome.StartsWith("working", StringComparison.OrdinalIgnoreCase) || outcome.StartsWith("Starting", StringComparison.Ordinal) ? "AccentBrush"
+        : "ErrorBrush");
 
     /// <summary>
     /// The run joins the task's record: its own tokens (a Codex session reports its total, so the runs before in that
-    /// session are taken off), its line in the history, the check, the agent's last words, the files and the steps.
+    /// session are taken off), its steps, files and answer for the thread, the check, and how the task stands.
     /// </summary>
-    private void RecordRun(AgentRun run, string ending, string text, bool decision, bool stopped, bool checkFailed)
+    private void RecordRun(AgentRun run, string ending, string text, string answer, bool needsYou, bool stopped, bool checkFailed)
     {
         if (_task is not { } record || !IsUserWork(run.Task)) return;
         var (task, result) = (run.Task, run.Result);
@@ -900,6 +1216,7 @@ public partial class MainWindow
         var earlier = stats.SessionTokens
             ? record.Runs.Where(previous => previous.SessionId == result.SessionId).ToArray()
             : [];
+        var files = run.Changes.Select(change => Relative(change.Path)).ToList();
         record.Runs.Add(new AgentRunRecord
         {
             Provider = task.Provider,
@@ -914,7 +1231,10 @@ public partial class MainWindow
             InputTokens = Less(stats.InputTokens, earlier.Sum(previous => previous.InputTokens ?? 0)),
             CachedTokens = Less(stats.CachedTokens, earlier.Sum(previous => previous.CachedTokens ?? 0)),
             OutputTokens = Less(stats.OutputTokens, earlier.Sum(previous => previous.OutputTokens ?? 0)),
-            CostUsd = stats.CostUsd
+            CostUsd = stats.CostUsd,
+            Steps = [.. _runSteps.TakeLast(StepsKeptPerRun)],
+            Files = files,
+            Words = Shorten(answer, 12_000)
         });
         record.Add(AgentEntryKind.Run,
             $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort)}: {ending.ToLowerInvariant()}, {Plural(run.Changes.Count, "file")} changed");
@@ -926,9 +1246,9 @@ public partial class MainWindow
 
         if (text.Trim().Length > 0) record.Add(AgentEntryKind.Said, ToPreviewText(text));
         record.LastWords = text;
-        record.ChangedFiles = run.Changes.Select(change => Relative(change.Path)).ToList();
+        record.ChangedFiles = files;
         record.Steps = [.. _taskSteps.TakeLast(StepsHandedOn)];
-        record.Status = decision ? AgentTaskStatus.NeedsYou
+        record.Status = needsYou ? AgentTaskStatus.NeedsYou
             : stopped ? AgentTaskStatus.Stopped
             : !result.Succeeded ? AgentTaskStatus.Failed
             : checkFailed ? AgentTaskStatus.CheckFailed
@@ -943,7 +1263,7 @@ public partial class MainWindow
         try
         {
             _projects.SaveAgentTask(_taskProject ?? _projects.ActiveProject, record);
-            ShowProjectHistory();
+            RefreshTaskList();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -976,7 +1296,11 @@ public partial class MainWindow
         _agentPanel?.ShowLimit(until is { } time
             ? $"{AgentName(provider)} hit its usage limit; it resets {AgentLimits.Time(time)}."
             : $"{AgentName(provider)} hit its usage limit.", actions);
-        if (_task is not null) SaveTask(_task);
+        if (_task is not null)
+        {
+            SaveTask(_task);
+            ShowTask();
+        }
     }
 
     /// <summary>The session goes on by itself a minute after the limit resets; Finish, Hand off or a new run cancels it.</summary>
@@ -995,37 +1319,131 @@ public partial class MainWindow
         _continueAt.Start();
         _task?.Add(AgentEntryKind.You, $"Continue at {AgentLimits.Time(reset.AddMinutes(1))}");
         ShowTask();
-        SetStatus($"The task goes on by itself at {AgentLimits.Time(reset.AddMinutes(1))} while Link runs");
+        AgentStatus($"The task goes on by itself at {AgentLimits.Time(reset.AddMinutes(1))} while Link runs");
     }
 
-    /// <summary>Everything the Task tab shows of the open task: plan, history, what Link gave, usage, menus.</summary>
+    /// <summary>The open task in the Tasks tab, unless another task is shown there to be read.</summary>
     private void ShowTask()
     {
         if (_agentPanel is null || _task is not { } record) return;
-        _agentPanel.ShowPlan(record.Plan);
-        _agentPanel.ShowHistory(record.Entries.Select(entry => $"{AgentLimits.Time(entry.At)}  {EntryPrefix(entry.Kind)}{entry.Text}").ToArray());
-        _agentPanel.ShowBrief(record.Brief);
-        _agentPanel.ShowUsage(UsageText(record));
-        _agentPanel.ShowMenus(HandOffActions(record), _afterRun);
-        _agentPanel.ShowTaskButtons(startOver: _lastRun is not null && _agentOrigin is not null, finish: true);
+        if (_shownTask is not null && _shownTask.Id != record.Id) return;
+        _shownTask = record;
+        ShowRecord(record, readOnly: false);
+    }
+
+    /// <summary>
+    /// A task in the Tasks tab: its goal and standing, the line of who works on what, its plan, thread and usage. The
+    /// open task offers its menus and the box for the next words; another, read while an agent works, only shows.
+    /// </summary>
+    private void ShowRecord(AgentTaskRecord record, bool readOnly)
+    {
+        var panel = _agentPanel!;
+        var live = !readOnly && AgentRunning && _runningTask is { } running && IsUserWork(running);
+        panel.ShowTaskView(record.Goal, WhereLine(record));
+        var (status, dot) = Standing(record, live);
+        panel.SetStatus(status, dot);
+        panel.SetHeader(live ? AgentHeader(_runningTask!) : record.LastRun is { } last ? RunLine(last) : "No run yet");
+        panel.ShowPlan(record.Plan);
+        panel.ShowThread(BuildThread(record, live));
+        panel.ShowBrief(record.Brief);
+        var (usage, hint) = UsageText(record);
+        panel.ShowUsage(usage, hint);
+        var provider = (live ? _runningTask?.Provider : null) ?? record.LastRun?.Provider ?? ProjectProvider;
+        panel.ShowTaskLimits(LimitRows(provider));
+        panel.SetRunning(live);
+        panel.SetReplyTarget(AgentName(provider));
+        if (readOnly)
+        {
+            panel.ResetCards();
+            panel.ShowMenus([], []);
+            panel.ShowFinish(false);
+            panel.ShowReply(false, $"{AgentName(_runningTask?.Provider ?? provider)} works on another task: open this one again once it ends to go on with it.");
+            return;
+        }
+
+        panel.ShowQuestion(_question);
+        panel.ShowMenus(HandOffActions(record), MoreActions());
+        panel.ShowFinish(true);
+        if (live) panel.ShowReply(true);
+        else if (ResumableTask() is not null) panel.ShowReply(true);
+        else panel.ShowReply(false, "This task has no session to go on with: hand it to an agent, or start it anew from its card.");
         UpdateAgentPill();
+    }
+
+    /// <summary>
+    /// The task as a thread, oldest first: the user's words, each run with its steps, answer, files and numbers, notes
+    /// of hand-overs, models and limits between; the run under way last.
+    /// </summary>
+    private IReadOnlyList<object> BuildThread(AgentTaskRecord record, bool live)
+    {
+        var items = new List<object>();
+        var runs = 0;
+        ThreadTurn? turn = null;
+        foreach (var entry in record.Entries)
+        {
+            var time = AgentLimits.Time(entry.At);
+            switch (entry.Kind)
+            {
+                case AgentEntryKind.Brief or AgentEntryKind.You:
+                    items.Add(new ThreadUser(entry.Text, time));
+                    turn = null;
+                    break;
+                case AgentEntryKind.Run:
+                    turn = TurnOf(record, runs < record.Runs.Count ? record.Runs[runs] : null, entry.Text);
+                    runs++;
+                    items.Add(turn);
+                    break;
+                case AgentEntryKind.Said when turn is not null:
+                    // An earlier Link kept only these lines of the answer.
+                    if (turn.Said.Length == 0) turn.Said = entry.Text;
+                    break;
+                case AgentEntryKind.Check when turn is not null:
+                    turn.Stats = turn.Stats.Length == 0 ? entry.Text : $"{entry.Text}\n{turn.Stats}";
+                    break;
+                default:
+                    items.Add(new ThreadNote(EntryPrefix(entry.Kind) + entry.Text, time));
+                    break;
+            }
+        }
+
+        if (live && _liveTurn is not null) items.Add(_liveTurn);
+        return items;
+    }
+
+    /// <summary>A recorded run as a turn of the thread; an earlier Link's run has only its line.</summary>
+    private ThreadTurn TurnOf(AgentTaskRecord record, AgentRunRecord? run, string line)
+    {
+        // "Claude Code · Opus 5.5: done in 3:12, 2 files changed".
+        var colon = line.IndexOf(": ", StringComparison.Ordinal);
+        var who = run is not null ? $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort)}"
+            : colon > 0 ? line[..colon] : line;
+        var outcome = run?.Outcome ?? (colon > 0 ? line[(colon + 2)..] : string.Empty);
+        var turn = new ThreadTurn(who, outcome, OutcomeBrush(outcome));
+        if (run is null) return turn;
+        turn.AddSteps(run.Steps.Select(StepRow));
+        turn.Said = AgentQuestion.Split(run.Words).Text;
+        turn.Files = run.Files.Select(file => new AgentChangeRow(file, Path.Combine(record.Workspace, file))).ToArray();
+        var tokens = run.InputTokens is { } input
+            ? $" · {Tokens(input)} in ({Tokens(run.CachedTokens ?? 0)} cached), {Tokens(run.OutputTokens ?? 0)} out"
+            : string.Empty;
+        turn.Stats = $"{(int)run.Duration.TotalMinutes}:{run.Duration.Seconds:00}{tokens}";
+        return turn;
     }
 
     private static string EntryPrefix(AgentEntryKind kind) => kind switch
     {
-        AgentEntryKind.Brief => "Task: ",
-        AgentEntryKind.You => "You: ",
         AgentEntryKind.Check => "Check: ",
         AgentEntryKind.HandOff => "Hand-over: ",
         AgentEntryKind.Model => "Model: ",
         AgentEntryKind.Limit => "Limit: ",
         AgentEntryKind.Said => "Said: ",
+        AgentEntryKind.Run => "Run: ",
         _ => string.Empty
     };
 
     /// <summary>
-    /// Hand off ▾: the other agent in a new session (with a brief to look at first), another level of the same agent in
-    /// the same session, or the first agent back in its own session.
+    /// Hand off ▾: the other agent in a new session (with a brief to look at first), another model of Settings for the
+    /// same agent in the same session, or the first agent back in its own session.
     /// </summary>
     private IReadOnlyList<PanelAction> HandOffActions(AgentTaskRecord record)
     {
@@ -1037,12 +1455,15 @@ public partial class MainWindow
             new($"{AgentName(other)} · new session", $"{AgentName(other)} takes the task over with a brief of it; you see and can change the brief first",
                 () => _ = ShowHandOffCardAsync(other))
         };
-        var level = LevelOf(resume.Task);
-        foreach (var each in Enum.GetValues<AgentLevel>().Where(each => each != level))
+        // Settings' three choices, each once, other than the one the session is on.
+        var seen = new HashSet<(string?, string?)> { (resume.Task.Model, resume.Task.Effort) };
+        foreach (var level in Enum.GetValues<AgentLevel>())
         {
-            actions.Add(new PanelAction($"{AgentName(current)} · {each} · same session",
-                $"The same session goes on with {LevelSetup(current, each)}: it keeps what it knows, the model reads it anew once",
-                () => SwitchLevel(each)));
+            var setup = _settings.Current.Agent.Level(current, level);
+            if (!seen.Add(setup)) continue;
+            actions.Add(new PanelAction($"{AgentName(current)} · {SetupWords(current, setup.Model, setup.Effort)} · same session",
+                "The same session goes on with this model: it keeps what it knows, the model reads it anew once",
+                () => SwitchSetup(setup, escalate: false)));
         }
 
         if (record.Runs.Any(run => run.Provider == other && run.SessionId is not null))
@@ -1055,8 +1476,22 @@ public partial class MainWindow
         return actions;
     }
 
-    /// <summary>The task's tokens by agent, and each agent's usage windows as last reported; the money is a hint only.</summary>
-    private string UsageText(AgentTaskRecord record)
+    /// <summary>The ⋯ menu: what the last run allows (chat, undo, a skill), starting over, and the console.</summary>
+    private IReadOnlyList<PanelAction> MoreActions()
+    {
+        var actions = _afterRun.Where(action => action.Label != "Console").ToList();
+        if (_lastRun is not null && _agentOrigin is not null)
+        {
+            actions.Add(new PanelAction("Start over with a note", "A new session of the same agent takes the task with a note of what was tried",
+                RequestRestart));
+        }
+
+        actions.Add(ConsoleAction());
+        return actions;
+    }
+
+    /// <summary>The task's tokens by agent; the money is a hint only, as the usage windows are what runs out.</summary>
+    private (string Text, string Hint) UsageText(AgentTaskRecord record)
     {
         var lines = record.Runs.GroupBy(run => run.Provider).Select(runs =>
         {
@@ -1065,18 +1500,15 @@ public partial class MainWindow
             var output = runs.Sum(run => run.OutputTokens ?? 0);
             var tokens = input > 0 ? $", {Tokens(input)} tokens in ({Tokens(cached)} cached), {Tokens(output)} out" : string.Empty;
             return $"This task, {AgentName(runs.Key)}: {Plural(runs.Count(), "run")}{tokens}";
-        }).ToList();
-        lines.AddRange(_agents.Providers.Select(agent => (agent.Name, Limits: _limits.Describe(agent.Kind)))
-            .Where(agent => agent.Limits.Length > 0)
-            .Select(agent => $"{agent.Name}: {agent.Limits}"));
+        });
         var cost = record.Runs.Sum(run => run.CostUsd ?? 0);
-        _agentPanel?.SetUsageHint(cost > 0
-            ? $"≈ {cost.ToString("$0.00", CultureInfo.InvariantCulture)} at API prices (Claude Code reports it). On a subscription it is no bill: the windows above are what runs out."
-            : "The windows are what runs out on a subscription: the 5-hour one and the week.");
-        return string.Join('\n', lines);
+        var hint = cost > 0
+            ? $"≈ {cost.ToString("$0.00", CultureInfo.InvariantCulture)} at API prices (Claude Code reports it). On a subscription it is no bill: the windows below are what runs out."
+            : "On a subscription the usage windows below are what runs out: the 5-hour one and the week.";
+        return (string.Join('\n', lines), hint);
     }
 
-    /// <summary>The agent's pill in the card's header and the Task tab's dot: who works and how the task stands.</summary>
+    /// <summary>The agent's pill in the card's header and the Tasks tab's dot: who works and how the task stands.</summary>
     private void UpdateAgentPill()
     {
         if (_task is not { } task && !AgentRunning)
@@ -1089,18 +1521,10 @@ public partial class MainWindow
         var provider = _runningTask?.Provider ?? _task?.LastRun?.Provider ?? ProjectProvider;
         var name = ShortName(provider);
         var elapsed = _agentClock.Elapsed;
-        var (text, brush) = AgentRunning
-            ? ($"{name} · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}", "BusyOrbBrush")
-            : _task!.Status switch
-            {
-                AgentTaskStatus.NeedsYou => ($"{name} needs you", "ErrorOrbBrush"),
-                AgentTaskStatus.Done => ($"{name} done", "SuccessOrbBrush"),
-                AgentTaskStatus.CheckFailed => ($"{name}: check fails", "ErrorOrbBrush"),
-                AgentTaskStatus.Failed => ($"{name} failed", "ErrorOrbBrush"),
-                AgentTaskStatus.Stopped => ($"{name} stopped", "IdleOrbBrush"),
-                _ => (name, "IdleOrbBrush")
-            };
-        var dot = (Brush)FindResource(brush);
+        var (words, dot) = AgentRunning
+            ? ($"· {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}", (Brush)FindResource("BusyOrbBrush"))
+            : Standing(_task!, live: false);
+        var text = $"{name} {words}";
         AgentPillText.Text = text;
         AgentPillDot.Fill = dot;
         AgentPill.ToolTip = $"{_task?.Goal ?? "Agent"}\n{text}" +
@@ -1112,8 +1536,8 @@ public partial class MainWindow
 
     private void AgentPill_OnClick(object sender, RoutedEventArgs e)
     {
-        ShowAgentPanel();
-        ShowTask();
+        if (_task is not null) ShowTaskInPanel();
+        else ShowAgentPanel();
     }
 
     private static string StatusWords(AgentTaskStatus status) => status switch
@@ -1154,13 +1578,14 @@ public partial class MainWindow
             _decision = () =>
             {
                 if (_rememberAllowance) RememberAllowance(AgentAccess.Do, rules);
-                // A copy of a workspace without git is made before the edits, as the card does by default.
+                // A copy of a workspace without version control is made before the edits, as the card does by default.
                 _backupBeforeDo = true;
                 _ = StartAgentAsync(task with
                 {
                     ResumeSessionId = session,
                     Access = AgentAccess.Do,
-                    AllowedTools = task.AllowedTools.Concat(rules).Distinct(StringComparer.Ordinal).ToArray(),
+                    AllowedTools = task.AllowedTools.Concat(rules).Concat(AgentCoordinator.PerforceTools(task.Workspace, AgentAccess.Do))
+                        .Distinct(StringComparer.Ordinal).ToArray(),
                     Prompt = "You may change files in the workspace now. Carry out the task." +
                              (task.CheckCommand is { } check ? " " + AgentCoordinator.CheckNote(check) : string.Empty),
                     Images = []
@@ -1197,11 +1622,11 @@ public partial class MainWindow
         if (task.PlanOnly && result.Succeeded)
         {
             var edits = task.Access == AgentAccess.Do;
-            // The plan was made on Deep; it is carried out on the level the card chose, in the same session.
-            var (model, effort) = _settings.Current.Agent.PlanOnDeep ? _settings.Current.Agent.Level(task.Provider, _planLevel) : (task.Model, task.Effort);
+            // The plan was made on the strongest model; it is carried out with the card's, in the same session.
+            var (model, effort) = _settings.Current.Agent.PlanOnDeep ? _planSetup : (task.Model, task.Effort);
             _agentPanel.ShowDecision(
                 (edits ? "The plan is above. Carry it out with edits in the workspace?" : "The plan is above. Carry it out, read only?") +
-                ((model, effort) != (task.Model, task.Effort) ? $" It runs on {_planLevel}: {LevelSetup(task.Provider, _planLevel)}." : string.Empty),
+                ((model, effort) != (task.Model, task.Effort) ? $" It runs on {SetupWords(task.Provider, model, effort)}." : string.Empty),
                 "Run the plan",
                 canRemember: false);
             // The plan read only; the copy before edits is made now.
@@ -1240,11 +1665,11 @@ public partial class MainWindow
         _projects.Save();
     }
 
-    /// <summary>Undo the agent's changes (git) or restore the copy (no git), when there is something to undo.</summary>
+    /// <summary>Undo the agent's changes (Git, Perforce) or restore the copy (no version control), when there is something to undo.</summary>
     private PanelAction? UndoAction(AgentRun run)
     {
         var undoable = run.Changes.Count(change => change.Undoable);
-        if (run.Before.IsGit && undoable > 0)
+        if (run.Before.IsVersioned && undoable > 0)
         {
             return new PanelAction($"Undo agent changes ({undoable})",
                 "Put back the files the agent changed that had no changes of yours before the task", () => _ = UndoAgentChangesAsync());
@@ -1259,11 +1684,11 @@ public partial class MainWindow
     private async Task UndoAgentChangesAsync()
     {
         if (_lastRun is not { } run || AgentRunning) return;
-        var git = run.Before.IsGit;
-        var files = git ? run.Changes.Where(change => change.Undoable).ToArray() : run.Changes.ToArray();
+        var versioned = run.Before.IsVersioned;
+        var files = versioned ? run.Changes.Where(change => change.Undoable).ToArray() : run.Changes.ToArray();
         var kept = run.Changes.Count - files.Length;
-        var question = git
-            ? $"Undo the agent's changes in {files.Length} files? New files are deleted, changed ones come back from the last commit." +
+        var question = versioned
+            ? $"Undo the agent's changes in {files.Length} files? New files are deleted, changed ones come back from version control." +
               (kept > 0 ? $" {kept} files you had changed before the task stay as they are." : string.Empty)
             : $"Put {files.Length} files back from the copy made before the task? Files the agent added are deleted.";
         if (MessageBox.Show(this, question, "Link · undo agent changes", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
@@ -1273,11 +1698,17 @@ public partial class MainWindow
 
         try
         {
-            if (git) await _agents.Changes.UndoAsync(run.Before, files, CancellationToken.None);
+            if (versioned) await _agents.Changes.UndoAsync(run.Before, files, CancellationToken.None);
             else await _agents.Changes.RestoreAsync(run.Before, files, CancellationToken.None);
             var left = await _agents.Changes.CompareAsync(run.Before, CancellationToken.None);
             _lastRun = run with { Changes = left };
-            _agentPanel?.ShowChanges(left.Select(ToChangeRow).ToArray());
+            // The task's changelist goes with its last file; Perforce keeps one that still holds files.
+            if (run.Before.IsPerforce && _task?.Changelist is { } changelist && left.All(change => !change.Undoable))
+            {
+                await AgentChanges.DropChangelistIfEmptyAsync(run.Before.Workspace, changelist, CancellationToken.None);
+                _task.Changelist = null;
+            }
+
             _afterRun = _afterRun.Where(action => !action.Label.StartsWith("Undo", StringComparison.Ordinal) && action.Label != "Restore the copy")
                 .Prepend(UndoAction(_lastRun)).OfType<PanelAction>().ToArray();
             if (_task is not null)
@@ -1288,7 +1719,7 @@ public partial class MainWindow
                 ShowTask();
             }
 
-            SetStatus(left.Count == 0 ? "The agent's changes were undone" : $"Undone; {left.Count} files still differ");
+            AgentStatus(left.Count == 0 ? "The agent's changes were undone" : $"Undone; {left.Count} files still differ");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -1308,7 +1739,7 @@ public partial class MainWindow
             .Append(record.LastRun is { } last ? $" ({AgentName(last.Provider)}, {last.Outcome.ToLowerInvariant()})" : string.Empty)
             .Append(files.Length > 0 ? "\n\nChanged files:\n" + string.Join('\n', files) : "\n\nNo files changed.");
         if (record.LastCheck is { } check) text.Append("\n\nCheck:\n").Append(check);
-        if (run.Result.Summary.Trim() is { Length: > 0 } words) text.Append("\n\nThe agent's last words:\n").Append(Shorten(words, 1500));
+        if (AgentQuestion.Split(run.Result.Summary).Text.Trim() is { Length: > 0 } words) text.Append("\n\nThe agent's last words:\n").Append(Shorten(words, 1500));
         if (diff is not null) text.Append("\n\nThe diff:\n```diff\n").Append(diff).Append("\n```");
         foreach (var old in _context.Where(item => item.Type == ContextItemType.AgentResult).ToArray()) _context.Remove(old);
         AddContext(new ContextItem
@@ -1325,7 +1756,7 @@ public partial class MainWindow
         if (_lastRun is not { } run) return;
         var diff = await _agents.Changes.DiffAsync(run.Before, run.Changes, stat: false, DiffForChat, CancellationToken.None)
                    ?? await _agents.Changes.DiffAsync(run.Before, run.Changes, stat: true, DiffForChat, CancellationToken.None);
-        ShowResultInChat(run, diff ?? "(no diff: the workspace has no git, or the files are new)");
+        ShowResultInChat(run, diff ?? "(no diff: the workspace has no supported version control, or the files are new)");
         if (_settings.Current.Route == RequestRoute.Agent) SetRoute(RequestRoute.Chat);
         ShowAndActivate();
         PromptBox.Focus();
@@ -1425,7 +1856,7 @@ public partial class MainWindow
     }
 
     private string Relative(string path) =>
-        _projects.ActiveProject.WorkspaceRoot is { } root && path.StartsWith(root, StringComparison.OrdinalIgnoreCase)
+        (_task?.Workspace ?? _projects.ActiveProject.WorkspaceRoot) is { } root && path.StartsWith(root, StringComparison.OrdinalIgnoreCase)
             ? Path.GetRelativePath(root, path)
             : path;
 
@@ -1436,42 +1867,18 @@ public partial class MainWindow
         Process.Start(new ProcessStartInfo("explorer.exe", target) { UseShellExecute = true })?.Dispose();
     }
 
-    private static bool HasGit(string folder)
+    /// <summary>
+    /// What the agent tells the status line, only while it is the chat's to spare: never over a request, its answer or
+    /// its voice. The agent's own state is in its pill and its tab.
+    /// </summary>
+    private void AgentStatus(string text)
     {
-        for (var directory = new DirectoryInfo(folder); directory is not null; directory = directory.Parent)
-        {
-            if (Directory.Exists(Path.Combine(directory.FullName, ".git")) || File.Exists(Path.Combine(directory.FullName, ".git"))) return true;
-        }
-
-        return false;
+        if (!_sending && _voice.Phase == VoicePhase.Idle) SetStatus(text);
     }
 
-    /// <summary>The agent speaks only its start, a needed decision and its result, briefly, when replies are read aloud.</summary>
-    private void SayAgent(string text)
-    {
-        if (!_settings.Current.VoiceReplies || !_voice.CanReadAloud || _voice.Phase != VoicePhase.Idle) return;
-        _ = SayAgentAsync(text);
-    }
-
-    private async Task SayAgentAsync(string text)
-    {
-        try
-        {
-            await _voice.ReadAloudAsync(text);
-        }
-        catch (Exception exception)
-        {
-            DiagnosticsReported?.Invoke($"Agent voice failed: {exception.Message}");
-        }
-    }
-
-    /// <summary>One or two sentences of the result, without code, paths or lists: the rest is on screen.</summary>
-    private static string SpokenSummary(string summary, int changedFiles)
-    {
-        var plain = Regex.Replace(ToPreviewText(summary), @"`[^`]*`|\S*[\\/]\S*", string.Empty);
-        var sentences = Regex.Split(plain, @"(?<=[.!?])\s+").Where(sentence => sentence.Trim().Length > 0).Take(2);
-        var spoken = string.Join(' ', sentences).Trim();
-        if (spoken.Length > 220) spoken = spoken[..220];
-        return spoken.Length > 0 ? spoken : changedFiles > 0 ? $"Done, {changedFiles} files changed." : "Done.";
-    }
+    /// <summary>
+    /// The agent's few words aloud, when replies are read aloud: that it started, finished, failed or asks. Said only
+    /// while the voice is idle and never holding it: sending, push-to-talk and the chat's answers go on as if silent.
+    /// </summary>
+    private void SayAgent(string russian, string english) => _voice.Announce(russian, english);
 }

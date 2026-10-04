@@ -5,7 +5,8 @@ namespace Link.Desktop.Services;
 
 public sealed class ProjectService
 {
-    private const int HistorySize = 10;
+    // The chats in the panel show their questions and answers from here: enough for the threads of a working week.
+    private const int HistorySize = 150;
     private readonly StoragePaths _paths;
     private readonly SettingsService _settings;
     private readonly JsonSerializerOptions _json = new() { WriteIndented = true };
@@ -83,7 +84,7 @@ public sealed class ProjectService
     public IReadOnlyList<ProjectExchange> ReadHistory(LinkProject project) =>
         AtomicJsonFile.Read<List<ProjectExchange>>(HistoryFile(project), _json) ?? [];
 
-    /// <summary>Puts an answer at the top of the project's history, which keeps the last ten; returns the new history.</summary>
+    /// <summary>Puts an answer at the top of the project's history, which keeps the last 150; returns the new history.</summary>
     public IReadOnlyList<ProjectExchange> AddToHistory(LinkProject project, ProjectExchange exchange)
     {
         var history = ReadHistory(project).Prepend(exchange).Take(HistorySize).ToList();

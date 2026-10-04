@@ -437,6 +437,7 @@ public partial class MainWindow : Window
         LoadProject(project);
         // A new project starts with its note and workspace.
         SetPanelOpen(true);
+        ShowPanelTab(PanelTab.Project);
         _projectPanel?.FocusNote();
     }
 
@@ -522,10 +523,10 @@ public partial class MainWindow : Window
         // Enter sends, Shift+Enter keeps the TextBox newline. IME composition arrives as ImeProcessed.
         if (e.Key != Key.Return || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
         e.Handled = true;
-        // Ctrl+Enter: to the agent, through its confirmation card.
+        // Ctrl+Enter: a new task for the agent, through its card.
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
         {
-            if (!_sending && !e.IsRepeat) await OpenAgentCardFromPromptAsync();
+            if (!_sending && !e.IsRepeat) await SendToAgentAsync(newTask: true);
             return;
         }
 

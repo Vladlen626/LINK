@@ -76,6 +76,8 @@ public sealed class VoiceSession
     private long? _answerArrivedAt;
     private bool _answerHeard;
     private CancellationTokenSource? _cue;
+    // Link's own short word (see Announce): it never holds the floor, so it has a token of its own.
+    private CancellationTokenSource? _announcing;
     private string _promptLanguage = "en";
     // Under Auto the live draft needs a language before anything is said: the one spoken last, at first Windows'.
     private VoiceLanguage _spokenLanguage = CultureInfo.CurrentUICulture.TwoLetterISOLanguageName == "ru"
@@ -367,6 +369,40 @@ public sealed class VoiceSession
         SetPhase(VoicePhase.Idle);
     }
 
+    /// <summary>
+    /// A short word of Link's own, such as an agent that started or finished, in the language the user speaks. It is
+    /// said only while the voice is idle and never takes the floor: the phase stays Idle, so Send, push-to-talk and the
+    /// chat's answers work as if it were silent, and any of them silences it.
+    /// </summary>
+    public void Announce(string russian, string english)
+    {
+        if (!(_settings.VoiceReplies || _settings.ConversationMode) || Phase != VoicePhase.Idle || _announcing is not null) return;
+        var announcing = new CancellationTokenSource();
+        _announcing = announcing;
+        _ = AnnounceAsync(DraftLanguage() == VoiceLanguage.Russian ? (russian, "ru") : (english, "en"), announcing);
+    }
+
+    private async Task AnnounceAsync((string Text, string Language) words, CancellationTokenSource announcing)
+    {
+        try
+        {
+            await _textToSpeech.SpeakAsync(words.Text, SpeechOptions.From(_settings, words.Language), announcing.Token);
+        }
+        catch (OperationCanceledException)
+        {
+            // Silenced by whatever came next.
+        }
+        catch (Exception exception)
+        {
+            _log($"[Voice] announcement not said: {exception.Message}");
+        }
+        finally
+        {
+            if (_announcing == announcing) _announcing = null;
+            announcing.Dispose();
+        }
+    }
+
     /// <summary>Esc, Stop or the Send hotkey while Link talks: the rest of the answer stays on screen only.</summary>
     public void StopSpeaking()
     {
@@ -607,6 +643,8 @@ public sealed class VoiceSession
     private void SetPhase(VoicePhase phase)
     {
         if (phase == Phase) return;
+        // An announcement gives way to anything the user or the chat begins.
+        if (phase != VoicePhase.Idle) _announcing?.Cancel();
         var previous = Phase;
         Phase = phase;
         PhaseChanged?.Invoke(previous);

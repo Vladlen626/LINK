@@ -1,7 +1,6 @@
 using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using Link.Desktop.Models;
@@ -11,13 +10,12 @@ using Microsoft.Win32;
 namespace Link.Desktop;
 
 /// <summary>
-/// The Project tab beside Link: the project note, the linked chat, the workspace and one history of answers and tasks.
+/// The Project tab beside Link: the project note and the workspace with its map, skills, check and version control.
 /// It only shows and edits; the card does the work behind each action.
 /// </summary>
 public partial class ProjectPanel : UserControl
 {
     private bool _showing;
-    private bool _canSummarize;
     private string? _workspace;
 
     public ProjectPanel() => InitializeComponent();
@@ -27,13 +25,6 @@ public partial class ProjectPanel : UserControl
 
     /// <summary>The note or the check lost the keyboard: what was typed can be saved.</summary>
     public event Action? EditEnded;
-
-    public event Action? ConversationRequested;
-
-    /// <summary>A new chat was asked for; true: with a summary of the current one.</summary>
-    public event Action<bool>? NewChatRequested;
-
-    public event Action? OpenChatRequested;
 
     /// <summary>A workspace folder was chosen, or null when the user forgot it.</summary>
     public event Action<string?>? WorkspaceChosen;
@@ -46,9 +37,6 @@ public partial class ProjectPanel : UserControl
 
     /// <summary>The check after edits was typed; empty runs none.</summary>
     public event Action<string>? CheckCommandChanged;
-
-    /// <summary>A line of the history: a chat answer to show, or an agent task to open.</summary>
-    public event Action<HistoryRow>? HistorySelected;
 
     public void ShowProject(LinkProject project)
     {
@@ -71,6 +59,10 @@ public partial class ProjectPanel : UserControl
             ? $"{ProjectMap.RelativePath} · {map.LastWriteTime.ToString("d MMM", CultureInfo.InvariantCulture)}"
             : "No map yet";
         MapButton.Content = map is { Exists: true } ? "Update map" : "Write map";
+        VcsText.Text = _workspace is null ? string.Empty
+            : AgentChanges.IsGit(_workspace) ? "Git: undo puts back what an agent changed"
+            : AgentChanges.IsPerforce(_workspace) ? "Perforce: agents open files with p4 edit, and each task's files wait in its own pending changelist in P4V"
+            : "No version control: Link copies the folder before an agent's edits";
         var skills = ProjectSkills.In(_workspace);
         SkillsList.ItemsSource = skills;
         SkillsEmptyText.Visibility = skills.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -78,29 +70,6 @@ public partial class ProjectPanel : UserControl
 
     public void ShowNoteDate(ProjectState? note) =>
         NoteDateText.Text = note is null ? string.Empty : $"updated {note.UpdatedAt.ToString("d MMM yyyy", CultureInfo.InvariantCulture)}";
-
-    /// <param name="canSummarize">The linked chat exists, so it can write a summary for a new one.</param>
-    public void ShowConnection(string text, Brush dot, bool canSummarize)
-    {
-        ChatConnectionText.Text = text;
-        ChatStatusDot.Fill = dot;
-        _canSummarize = canSummarize;
-    }
-
-    public void ShowHistory(IEnumerable<HistoryRow> rows)
-    {
-        var list = rows.ToList();
-        HistoryList.ItemsSource = list;
-        HistoryEmptyText.Visibility = list.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    /// <summary>While a request runs the chat stays as it is and its answer holds the card.</summary>
-    public void SetBusy(bool busy)
-    {
-        ConversationButton.IsEnabled = !busy;
-        NewChatButton.IsEnabled = !busy;
-        HistoryList.IsEnabled = !busy;
-    }
 
     public void FocusNote()
     {
@@ -124,27 +93,6 @@ public partial class ProjectPanel : UserControl
 
     private void Field_OnLostKeyboardFocus(object sender, KeyboardFocusChangedEventArgs e) => EditEnded?.Invoke();
 
-    private void Conversation_OnClick(object sender, RoutedEventArgs e) => ConversationRequested?.Invoke();
-
-    private void NewChat_OnClick(object sender, RoutedEventArgs e)
-    {
-        var menu = new ContextMenu { PlacementTarget = NewChatButton, Placement = PlacementMode.Bottom };
-        var plain = new MenuItem { Header = "New chat" };
-        plain.Click += (_, _) => NewChatRequested?.Invoke(false);
-        var summarized = new MenuItem
-        {
-            Header = "New chat with a summary of this one",
-            IsEnabled = _canSummarize,
-            ToolTip = "The current chat writes a short summary first; it goes with your next message as context"
-        };
-        summarized.Click += (_, _) => NewChatRequested?.Invoke(true);
-        menu.Items.Add(plain);
-        menu.Items.Add(summarized);
-        menu.IsOpen = true;
-    }
-
-    private void OpenChat_OnClick(object sender, RoutedEventArgs e) => OpenChatRequested?.Invoke();
-
     private void ChooseWorkspace_OnClick(object sender, RoutedEventArgs e)
     {
         var dialog = new OpenFolderDialog
@@ -163,23 +111,4 @@ public partial class ProjectPanel : UserControl
     {
         if ((sender as FrameworkElement)?.DataContext is ProjectSkill skill) SkillRequested?.Invoke(skill.FilePath);
     }
-
-    private void HistoryItem_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { DataContext: HistoryRow row }) HistorySelected?.Invoke(row);
-    }
 }
-
-/// <summary>
-/// A line of the panel's history: a chat answer (<see cref="Exchange"/>) or an agent task (<see cref="Task"/>), with
-/// its icon, a glance at it and when it happened.
-/// </summary>
-public sealed record HistoryRow(
-    string Title,
-    string Preview,
-    string Time,
-    string Hint,
-    Geometry Icon,
-    DateTimeOffset At,
-    ProjectExchange? Exchange = null,
-    AgentTaskRecord? Task = null);

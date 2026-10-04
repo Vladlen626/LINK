@@ -28,6 +28,10 @@ public abstract class CliAgentProvider : IAgentProvider
     public abstract IReadOnlyList<AgentChoice> Efforts { get; }
     public abstract IReadOnlyList<AgentChoice> Models { get; }
 
+    public virtual IReadOnlyList<AgentChoice> EffortsOf(string? model) => Efforts;
+
+    public virtual (string? Model, string? Effort) OwnSetup => (null, null);
+
     public string? FindExecutable() => AgentExecutables.Find(Kind, _settings().PathFor(Kind));
 
     public async Task<AgentProviderStatus> CheckAsync(string? chosenPath, CancellationToken cancellationToken)

@@ -1,65 +1,70 @@
-using System.Collections.ObjectModel;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
 /// <summary>
-/// What the task card starts from. <see cref="Providers"/>: each agent with its three levels as the user reads them
-/// (Light, Standard, Deep with their model and effort) and what is known of its usage limits. A hand-over shows its
-/// brief on the same card with <see cref="FixedProvider"/> and its own <see cref="Title"/> and <see cref="RunLabel"/>.
+/// An agent as the card offers it: its own models and, for each, the efforts it takes; the default the card starts
+/// from (Settings' choice, null: the CLI's own, named by <see cref="OwnModel"/> and <see cref="OwnEffort"/>), and its
+/// usage windows.
+/// </summary>
+public sealed record AgentCardProvider(
+    AgentProviderKind Kind,
+    string Name,
+    IReadOnlyList<AgentChoice> Models,
+    Func<string?, IReadOnlyList<AgentChoice>> EffortsOf,
+    string OwnModel,
+    string OwnEffort,
+    string? Model,
+    string? Effort,
+    IReadOnlyList<LimitRow> Limits);
+
+/// <summary>
+/// What the task card starts from. A hand-over shows its brief on the same card with <see cref="FixedProvider"/> and
+/// its own <see cref="Title"/> and <see cref="RunLabel"/>. <see cref="Images"/> are the pictures that go along.
 /// </summary>
 public sealed record AgentCardModel(
-    IReadOnlyList<(AgentProviderKind Kind, string Name, IReadOnlyList<string> Levels, string Limits)> Providers,
+    IReadOnlyList<AgentCardProvider> Providers,
     AgentProviderKind Provider,
     string ProjectName,
     string? Workspace,
-    bool WorkspaceHasGit,
+    bool WorkspaceHasVcs,
     string Attachments,
+    IReadOnlyList<string> Images,
     string Goal,
     string? CheckCommand,
     AgentAccessChoice Access)
 {
-    public string Title { get; init; } = "TASK FOR THE AGENT";
+    public string Title { get; init; } = "NEW TASK";
     public string? RunLabel { get; init; }
     public bool FixedProvider { get; init; }
-    public AgentLevel Level { get; init; } = AgentLevel.Standard;
 }
 
-/// <summary>A row of the task's steps or plan: its text in its colour.</summary>
-public sealed record AgentStepRow(string Text, Brush Brush);
-
-/// <summary>A changed file; the label says how it changed and whether undo can take it back.</summary>
-public sealed record AgentChangeRow(string Label, string Path);
-
-/// <summary>A choice the panel offers in a menu or on a card; the window does the work behind it.</summary>
-public sealed record PanelAction(string Label, string Hint, Action Run);
-
 /// <summary>
-/// The Task tab beside Link: the task card before a run, and the task itself during and after it. It only shows and
-/// asks; the window does the work behind each button.
+/// The Tasks tab beside Link: the project's tasks, the card before a run, and a task as one thread (the user's words,
+/// each run of an agent, notes between) with the box for the next words. It only shows and asks; the window does the
+/// work behind each button.
 /// </summary>
 public partial class AgentPanel : UserControl
 {
-    private const int StepsKept = 300;
-    private readonly ObservableCollection<AgentStepRow> _steps = [];
+    private const double ThumbnailHeight = 54;
     private AgentCardModel? _card;
-    private bool _showingCard;
+    private bool _fillingCard;
     private bool _running;
-    private bool _stepsOpen = true;
+    private bool _hasTask;
+    private bool _planOpen = true;
+    private string _replyTarget = "the agent";
     private IReadOnlyList<PanelAction> _handOff = [];
     private IReadOnlyList<PanelAction> _more = [];
+    private readonly List<CheckBox> _choices = [];
 
-    public AgentPanel()
-    {
-        InitializeComponent();
-        StepsList.ItemsSource = _steps;
-    }
+    public AgentPanel() => InitializeComponent();
 
     public event Action<AgentPlan>? RunRequested;
     public event Action? CardCancelled;
@@ -71,23 +76,43 @@ public partial class AgentPanel : UserControl
     /// <summary>Start over in a clean session with the agent's note on what did not work.</summary>
     public event Action? RestartRequested;
 
-    /// <summary>The same session goes on with the Deep level.</summary>
+    /// <summary>The same session goes on with the strongest model.</summary>
     public event Action? EscalateRequested;
 
-    /// <summary>The user's words: a reply after a run, a correction while the agent works.</summary>
+    /// <summary>The user's words: a reply after a run, a correction while the agent works, or the answer to its question.</summary>
     public event Action<string>? ContinueRequested;
 
     /// <summary>Words for after the run that is going on (Tab): the same session goes on with them once it ends.</summary>
     public event Action<string>? QueueRequested;
 
     public event Action? FinishRequested;
-    public event Action? ConsoleRequested;
     public event Action<string>? OpenFileRequested;
+
+    /// <summary>Back from a task to the list.</summary>
+    public event Action? BackRequested;
+
+    public event Action? NewTaskRequested;
+    public event Action<AgentTaskRecord>? TaskSelected;
+
+    /// <summary>The list of the project's tasks with the agents' usage; the view shows when nothing else is open.</summary>
+    public void ShowList(IReadOnlyList<TaskRow> tasks, IReadOnlyList<LimitRow> limits)
+    {
+        TaskList.ItemsSource = tasks;
+        TasksEmptyText.Visibility = tasks.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        LimitsList.ItemsSource = limits;
+    }
+
+    /// <summary>Back to the list: no task is open in the panel.</summary>
+    public void ShowListView()
+    {
+        _hasTask = false;
+        ShowView(ListView);
+    }
 
     public void ShowCard(AgentCardModel card)
     {
         _card = card;
-        _showingCard = true;
+        _fillingCard = true;
         CardTitleText.Text = card.Title;
         ProviderCombo.ItemsSource = card.Providers.Select(provider => provider.Name).ToArray();
         ProviderCombo.SelectedIndex = Math.Max(0, card.Providers.ToList().FindIndex(provider => provider.Kind == card.Provider));
@@ -102,14 +127,22 @@ public partial class AgentPanel : UserControl
         WorkspaceText.Foreground = (Brush)FindResource(card.Workspace is null ? "ErrorBrush" : "TextBrush");
         AttachmentsText.Text = card.Attachments;
         AttachmentsText.Visibility = card.Attachments.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        ShowImages(card.Images);
         CardWarningText.Visibility = Visibility.Collapsed;
-        ShowLevels(card, card.Level);
-        _showingCard = false;
+        ShowAgentChoices();
+        _fillingCard = false;
         UpdateCard();
         ShowView(CardView);
         Window.GetWindow(this)?.Activate();
         GoalBox.Focus();
         GoalBox.CaretIndex = GoalBox.Text.Length;
+    }
+
+    /// <summary>The card is gone: back to the open task, or to the list.</summary>
+    public void HideCard()
+    {
+        _card = null;
+        ShowView(_hasTask ? TaskView : ListView);
     }
 
     public void ShowCardWarning(string message)
@@ -118,97 +151,77 @@ public partial class AgentPanel : UserControl
         CardWarningText.Visibility = Visibility.Visible;
     }
 
-    /// <summary>No task: how one starts.</summary>
-    public void ShowNoTask() => ShowView(EmptyView);
-
-    /// <summary>A task opens or a run starts: its goal, who works and where; the run's own rows start empty.</summary>
-    public void ShowActivity(string goal, string header, string where)
+    /// <summary>A task opens in the panel: its goal and where it works; its thread comes with <see cref="ShowThread"/>.</summary>
+    public void ShowTaskView(string goal, string where)
     {
-        _steps.Clear();
+        _hasTask = true;
         GoalText.Text = goal;
         GoalText.ToolTip = goal;
-        HeaderText.Text = header;
         WhereText.Text = where;
         WhereText.ToolTip = where;
-        CurrentStepText.Text = "Starting…";
+        if (_card is null) ShowView(TaskView);
+    }
+
+    /// <summary>A new run or another task: the cards of the last one go.</summary>
+    public void ResetCards()
+    {
+        QuestionCard.Visibility = Visibility.Collapsed;
         DecisionCard.Visibility = Visibility.Collapsed;
         RestartCard.Visibility = Visibility.Collapsed;
         LimitCard.Visibility = Visibility.Collapsed;
-        ResultLabel.Visibility = Visibility.Collapsed;
-        ResultText.Visibility = Visibility.Collapsed;
-        ShowStats(string.Empty);
-        SetRunning(true);
-        ShowView(ActivityView);
     }
 
+    /// <summary>The line under the goal: who works, on what model, with what access, and for how long.</summary>
     public void SetHeader(string header) => HeaderText.Text = header;
+
+    /// <summary>How the task stands, in the pill beside its goal.</summary>
+    public void SetStatus(string text, Brush dot)
+    {
+        StatusText.Text = text;
+        StatusDot.Fill = dot;
+    }
 
     public void SetRunning(bool running)
     {
         _running = running;
         StopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
-        HandOffButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
-        StartOverButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
-        FinishButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
-        MoreButton.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
-        // While the agent works its steps are what to watch; afterwards the result is.
-        SetStepsOpen(running);
+        TaskButtons.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         UpdateReplyHint();
-        if (running) ReplyPanel.Visibility = Visibility.Visible;
+        if (running) ShowReply(true);
     }
 
-    /// <summary>The reply box, offered while a session can go on.</summary>
-    public void ShowReply(bool show) => ReplyPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+    /// <summary>The task's thread, oldest first, scrolled to its end: the latest is what counts.</summary>
+    public void ShowThread(IReadOnlyList<object> items)
+    {
+        ThreadList.ItemsSource = items;
+        Dispatcher.BeginInvoke(ThreadScroll.ScrollToEnd, System.Windows.Threading.DispatcherPriority.Background);
+    }
 
-    /// <summary>The choices of the Hand off ▾ and More ▾ menus; an empty list hides the button.</summary>
+    /// <summary>The running turn grew: the thread follows it while the user is at its end.</summary>
+    public void FollowThread()
+    {
+        if (ThreadScroll.VerticalOffset >= ThreadScroll.ScrollableHeight - 24) ThreadScroll.ScrollToEnd();
+    }
+
+    /// <summary>The reply box, offered while a session can go on; <paramref name="note"/> says why it is not, if so.</summary>
+    public void ShowReply(bool show, string? note = null)
+    {
+        ReplyPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        ReplyNoteText.Text = note ?? string.Empty;
+        ReplyNoteText.Visibility = !show && note is not null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>The choices of the Hand off ▾ and ⋯ menus; an empty list hides the button.</summary>
     public void ShowMenus(IReadOnlyList<PanelAction> handOff, IReadOnlyList<PanelAction> more)
     {
         _handOff = handOff;
         _more = more;
-        if (_running) return;
         HandOffButton.Visibility = handOff.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         MoreButton.Visibility = more.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    /// <summary>Whether Start over and Finish are offered: not for Link's own answer, such as a map.</summary>
-    public void ShowTaskButtons(bool startOver, bool finish)
-    {
-        if (_running) return;
-        StartOverButton.Visibility = startOver ? Visibility.Visible : Visibility.Collapsed;
-        FinishButton.Visibility = finish ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    /// <summary>A batch of events at once: the tab redraws at most a few times a second, however fast they come.</summary>
-    public void AddSteps(IEnumerable<AgentEvent> events)
-    {
-        var atEnd = StepsScroll.VerticalOffset >= StepsScroll.ScrollableHeight - 4;
-        foreach (var agentEvent in events)
-        {
-            if (agentEvent.Kind is AgentEventKind.Tool or AgentEventKind.Status) CurrentStepText.Text = agentEvent.Text;
-            // The result has its own place, a change is listed under Changed, failed calls are counted under the result,
-            // and the plan and the usage have their own sections.
-            if (agentEvent.Kind is AgentEventKind.Completed or AgentEventKind.Artifact or AgentEventKind.ToolFailed
-                or AgentEventKind.Plan or AgentEventKind.Limit)
-            {
-                continue;
-            }
-
-            var (prefix, brush) = agentEvent.Kind switch
-            {
-                AgentEventKind.Tool => ("▸ ", "MutedBrush"),
-                AgentEventKind.Output => (string.Empty, "TextBrush"),
-                AgentEventKind.NeedsInput => ("⚠ ", "AccentBrush"),
-                AgentEventKind.Loop => ("⟳ ", "AccentBrush"),
-                AgentEventKind.Error => ("✗ ", "ErrorBrush"),
-                _ => ("· ", "MutedBrush")
-            };
-            _steps.Add(new AgentStepRow(prefix + agentEvent.Text, (Brush)FindResource(brush)));
-        }
-
-        while (_steps.Count > StepsKept) _steps.RemoveAt(0);
-        StepsToggleText.Text = $"STEPS ({_steps.Count}) {(_stepsOpen ? "▾" : "▸")}";
-        if (atEnd && _stepsOpen) StepsScroll.ScrollToEnd();
-    }
+    /// <summary>Whether Finish is offered: not for Link's own answer, such as a map, nor for a task shown only to be read.</summary>
+    public void ShowFinish(bool finish) => FinishButton.Visibility = finish ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>The agent's plan as it last wrote it: done, under way, to do.</summary>
     public void ShowPlan(IReadOnlyList<AgentPlanItem> plan)
@@ -216,15 +229,9 @@ public partial class AgentPanel : UserControl
         PlanList.ItemsSource = plan.Select(item => new AgentStepRow(
             (item.Done ? "✓ " : item.Active ? "▸ " : "○ ") + item.Text,
             (Brush)FindResource(item.Done ? "MutedBrush" : item.Active ? "AccentBrush" : "TextBrush"))).ToArray();
-        PlanLabel.Text = $"AGENT'S PLAN · {plan.Count(item => item.Done)} OF {plan.Count}";
-        PlanLabel.Visibility = plan.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    /// <summary>The task's history, oldest first; empty hides it.</summary>
-    public void ShowHistory(IReadOnlyList<string> lines)
-    {
-        HistoryList.ItemsSource = lines;
-        HistoryLabel.Visibility = lines.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        PlanToggle.Visibility = plan.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        PlanList.Visibility = plan.Count > 0 && _planOpen ? Visibility.Visible : Visibility.Collapsed;
+        PlanLabel.Text = $"AGENT'S PLAN · {plan.Count(item => item.Done)} OF {plan.Count} {(_planOpen ? "▾" : "▸")}";
     }
 
     /// <summary>What Link gave the agent for the task, word for word; empty hides it.</summary>
@@ -235,17 +242,71 @@ public partial class AgentPanel : UserControl
         if (brief.Length == 0) BriefText.Visibility = Visibility.Collapsed;
     }
 
-    /// <summary>The task's tokens by agent and the agents' usage windows; empty hides it.</summary>
-    public void ShowUsage(string usage)
+    /// <summary>The task's tokens by agent, with what the money means on a subscription; empty hides it.</summary>
+    public void ShowUsage(string usage, string hint)
     {
         UsageText.Text = usage;
-        var shown = usage.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        UsageLabel.Visibility = shown;
-        UsageText.Visibility = shown;
+        UsageText.ToolTip = hint;
+        UsageText.Visibility = usage.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    /// <summary>The usage's tooltip: what the money the CLI reports means on a subscription.</summary>
-    public void SetUsageHint(string hint) => UsageText.ToolTip = hint;
+    /// <summary>The usage windows of the agent on the task, under its buttons.</summary>
+    public void ShowTaskLimits(IReadOnlyList<LimitRow> limits) => TaskLimitsList.ItemsSource = limits;
+
+    /// <summary>The agent's question with its options; null hides it.</summary>
+    public void ShowQuestion(AgentQuestion? question)
+    {
+        QuestionCard.Visibility = question is null ? Visibility.Collapsed : Visibility.Visible;
+        OptionsPanel.Children.Clear();
+        _choices.Clear();
+        SendChoicesButton.Visibility = Visibility.Collapsed;
+        if (question is null)
+        {
+            UpdateReplyHint();
+            return;
+        }
+
+        QuestionText.Text = question.Question;
+        foreach (var option in question.Options)
+        {
+            var content = new StackPanel();
+            content.Children.Add(new TextBlock { Text = option.Label, FontSize = 12, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            if (option.Description.Length > 0)
+            {
+                content.Children.Add(new TextBlock
+                {
+                    Text = option.Description,
+                    FontSize = 11.5,
+                    Margin = new Thickness(0, 1, 0, 0),
+                    Foreground = (Brush)FindResource("MutedBrush"),
+                    TextWrapping = TextWrapping.Wrap
+                });
+            }
+
+            if (question.MultiSelect)
+            {
+                var box = new CheckBox { Content = content, Margin = new Thickness(0, 4, 0, 0), Tag = option.Label };
+                _choices.Add(box);
+                OptionsPanel.Children.Add(box);
+                continue;
+            }
+
+            var button = new Button
+            {
+                Style = (Style)FindResource("GhostButtonStyle"),
+                Content = content,
+                Margin = new Thickness(-8, 0, 0, 2),
+                Padding = new Thickness(8, 5, 8, 5),
+                HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                ToolTip = "Answer with this"
+            };
+            button.Click += (_, _) => Answer(option.Label);
+            OptionsPanel.Children.Add(button);
+        }
+
+        SendChoicesButton.Visibility = question.MultiSelect ? Visibility.Visible : Visibility.Collapsed;
+        UpdateReplyHint();
+    }
 
     /// <summary>A usage limit near or reached, with the ways on; null hides it.</summary>
     public void ShowLimit(string? text, IReadOnlyList<PanelAction> actions)
@@ -265,30 +326,6 @@ public partial class AgentPanel : UserControl
         }
     }
 
-    public void ShowChanges(IReadOnlyList<AgentChangeRow> changes)
-    {
-        ChangesList.ItemsSource = changes;
-        ChangesLabel.Text = $"CHANGED ({changes.Count})";
-        ChangesLabel.Visibility = changes.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    public void ShowResult(string text, string currentStep)
-    {
-        CurrentStepText.Text = currentStep;
-        ResultText.Text = text;
-        var shown = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        ResultLabel.Visibility = shown;
-        ResultText.Visibility = shown;
-        SetRunning(false);
-    }
-
-    /// <summary>The run's numbers in one line under its result; empty hides it.</summary>
-    public void ShowStats(string text)
-    {
-        StatsText.Text = text;
-        StatsText.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-    }
-
     /// <summary>A choice for the user; <paramref name="canRemember"/> offers "always for this project".</summary>
     public void ShowDecision(string text, string button, bool canRemember)
     {
@@ -301,7 +338,7 @@ public partial class AgentPanel : UserControl
 
     public void HideDecision() => DecisionCard.Visibility = Visibility.Collapsed;
 
-    /// <summary>Start over, and Escalate when the task is not already on Deep.</summary>
+    /// <summary>Start over, and Escalate when the task is not already on the strongest model.</summary>
     public void ShowRestart(bool show, bool escalate = false)
     {
         RestartCard.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
@@ -311,13 +348,12 @@ public partial class AgentPanel : UserControl
     /// <summary>Link's own step around a run, such as asking for a note; while it runs, Stop shows and the choices hide.</summary>
     public void ShowStep(string step, bool running)
     {
-        CurrentStepText.Text = step;
+        StatusText.Text = step;
         SetRunning(running);
         if (!running) return;
-        DecisionCard.Visibility = Visibility.Collapsed;
-        RestartCard.Visibility = Visibility.Collapsed;
+        ResetCards();
         // Link's own step, such as asking for a note, takes no words for the agent.
-        ReplyPanel.Visibility = Visibility.Collapsed;
+        ShowReply(false);
     }
 
     /// <summary>Who the words in the box go to, and what happens to them.</summary>
@@ -327,14 +363,14 @@ public partial class AgentPanel : UserControl
         UpdateReplyHint();
     }
 
-    private string _replyTarget = "the agent";
-
     private void UpdateReplyHint()
     {
         ReplyPlaceholder.Text = _running
             ? $"Correct {_replyTarget}: Enter stops the step and goes on with your words · Tab: after this run"
-            : $"Reply to {_replyTarget}: the same session goes on with your words";
-        ContinueButton.Content = _running ? "Correct" : "Reply";
+            : QuestionCard.Visibility == Visibility.Visible
+                ? $"Answer {_replyTarget} in your own words"
+                : $"Reply to {_replyTarget}: the same session goes on with your words";
+        ContinueButton.Content = _running ? "Correct" : "Send";
         ContinueButton.ToolTip = _running
             ? "The agent stops the step it is on and goes on with your words in the same session (Enter); Tab keeps them for after this run"
             : "The same session goes on with your words, with the same access and folder (Enter)";
@@ -342,75 +378,132 @@ public partial class AgentPanel : UserControl
 
     private void ShowView(FrameworkElement view)
     {
-        foreach (var each in new FrameworkElement[] { CardView, ActivityView, EmptyView }) each.Visibility = each == view ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var each in new FrameworkElement[] { ListView, CardView, TaskView }) each.Visibility = each == view ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void SetStepsOpen(bool open)
+    /// <summary>Small pictures of the images that go along; a click shows the file.</summary>
+    private void ShowImages(IReadOnlyList<string> images)
     {
-        _stepsOpen = open;
-        StepsList.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        StepsToggleText.Text = $"STEPS ({_steps.Count}) {(open ? "▾" : "▸")}";
+        ImagesPanel.Children.Clear();
+        foreach (var path in images.Where(File.Exists))
+        {
+            try
+            {
+                var picture = new BitmapImage();
+                picture.BeginInit();
+                picture.UriSource = new Uri(path);
+                picture.DecodePixelHeight = (int)(ThumbnailHeight * 2);
+                picture.CacheOption = BitmapCacheOption.OnLoad;
+                picture.EndInit();
+                picture.Freeze();
+                var thumbnail = new Border
+                {
+                    Margin = new Thickness(0, 0, 6, 6),
+                    CornerRadius = new CornerRadius(4),
+                    BorderBrush = (Brush)FindResource("GlassBorderSoftBrush"),
+                    BorderThickness = new Thickness(1),
+                    ClipToBounds = true,
+                    Cursor = Cursors.Hand,
+                    ToolTip = $"Goes to the agent as an image: {path}",
+                    Child = new Image { Source = picture, Height = ThumbnailHeight, Stretch = Stretch.Uniform }
+                };
+                thumbnail.MouseLeftButtonUp += (_, _) => OpenFileRequested?.Invoke(path);
+                ImagesPanel.Children.Add(thumbnail);
+            }
+            catch (Exception exception) when (exception is IOException or NotSupportedException or UriFormatException)
+            {
+                // A picture that does not read still goes; only its preview is missing.
+            }
+        }
+
+        ImagesPanel.Visibility = ImagesPanel.Children.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private AgentProviderKind SelectedProvider =>
-        _card is { } card && ProviderCombo.SelectedIndex >= 0 ? card.Providers[ProviderCombo.SelectedIndex].Kind : AgentProviderKind.ClaudeCode;
+    private AgentCardProvider? SelectedAgent =>
+        _card is { } card && ProviderCombo.SelectedIndex >= 0 ? card.Providers[ProviderCombo.SelectedIndex] : null;
+
+    /// <summary>The selected agent's models and efforts, its default first chosen, and its usage windows.</summary>
+    private void ShowAgentChoices()
+    {
+        if (SelectedAgent is not { } agent) return;
+        var filling = _fillingCard;
+        _fillingCard = true;
+        ModelCombo.ItemsSource = agent.Models.Prepend(new AgentChoice(string.Empty, agent.OwnModel)).ToArray();
+        ModelCombo.SelectedIndex = Math.Max(0, agent.Models.ToList().FindIndex(model => model.Value == agent.Model) + 1);
+        ShowEfforts(agent, agent.Effort);
+        CardLimitsList.ItemsSource = agent.Limits;
+        _fillingCard = filling;
+    }
+
+    /// <summary>The efforts the chosen model takes, keeping <paramref name="effort"/> when it is one of them.</summary>
+    private void ShowEfforts(AgentCardProvider agent, string? effort)
+    {
+        var efforts = agent.EffortsOf(SelectedModel);
+        EffortCombo.ItemsSource = efforts.Prepend(new AgentChoice(string.Empty, agent.OwnEffort)).ToArray();
+        EffortCombo.SelectedIndex = Math.Max(0, efforts.ToList().FindIndex(choice => choice.Value == effort) + 1);
+    }
+
+    // The first item of each list is the CLI's own choice, sent as none.
+    private string? SelectedModel => ModelCombo.SelectedItem is AgentChoice { Value.Length: > 0 } model ? model.Value : null;
+    private string? SelectedEffort => EffortCombo.SelectedItem is AgentChoice { Value.Length: > 0 } effort ? effort.Value : null;
 
     // The items follow AgentAccessChoice: edit, auto.
     private bool SelectedAuto => AccessCombo.SelectedIndex == 1;
 
-    // The items follow AgentLevel: light, standard, deep.
-    private AgentLevel SelectedLevel => LevelCombo.SelectedIndex >= 0 ? (AgentLevel)LevelCombo.SelectedIndex : AgentLevel.Standard;
-
-    private void Card_OnChanged(object sender, RoutedEventArgs e)
+    private void Provider_OnChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (_showingCard || _card is not { } card) return;
-        // Another agent: its levels, keeping the one chosen.
-        if (sender == ProviderCombo) ShowLevels(card, SelectedLevel);
+        if (_fillingCard) return;
+        ShowAgentChoices();
         UpdateCard();
     }
 
-    private void ShowLevels(AgentCardModel card, AgentLevel level)
+    private void Model_OnChanged(object sender, SelectionChangedEventArgs e)
     {
-        var provider = card.Providers.First(agent => agent.Kind == SelectedProvider);
-        LevelCombo.ItemsSource = provider.Levels;
-        LevelCombo.SelectedIndex = (int)level;
-        LimitsText.Text = provider.Limits;
-        LimitsText.Visibility = provider.Limits.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+        if (_fillingCard || SelectedAgent is not { } agent) return;
+        ShowEfforts(agent, SelectedEffort);
+    }
+
+    private void Card_OnChanged(object sender, RoutedEventArgs e)
+    {
+        if (!_fillingCard) UpdateCard();
     }
 
     private void UpdateCard()
     {
         if (_card is not { } card) return;
-        BackupBox.Visibility = !card.WorkspaceHasGit ? Visibility.Visible : Visibility.Collapsed;
+        BackupBox.Visibility = !card.WorkspaceHasVcs ? Visibility.Visible : Visibility.Collapsed;
         CheckText.Text = $"After the edits Link runs the check itself, and the agent is told so: {card.CheckCommand}. " +
                          $"While it fails, the agent gets its output, {AgentCoordinator.CheckRetries} times at most.";
         CheckText.Visibility = card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
-        PlanFirstBox.Content = "Plan first: the agent only reads and proposes, then you run it" +
-                               (card.Providers.Count > 0 ? " (the plan on Deep, the work on the level above)" : string.Empty);
+        PlanFirstBox.Content = "Plan first: read only, then you run the plan";
+        PlanFirstBox.ToolTip = "The agent only reads and proposes a plan, on Settings' Strong model; you run it, on the model above, in the same session";
         RunButton.IsEnabled = card.Workspace is not null;
         RunButton.Content = card.RunLabel ?? (PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
     }
 
     private void Run_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_card?.Workspace is not { } workspace) return;
+        if (_card?.Workspace is not { } workspace || SelectedAgent is not { } agent) return;
         if (string.IsNullOrWhiteSpace(GoalBox.Text))
         {
             ShowCardWarning("Write what the agent should do.");
             return;
         }
 
-        RunRequested?.Invoke(new AgentPlan(
-            SelectedProvider,
+        var plan = new AgentPlan(
+            agent.Kind,
             workspace,
             AgentAccess.Do,
             PlanFirstBox.Visibility == Visibility.Visible && PlanFirstBox.IsChecked == true,
             BackupBox.Visibility == Visibility.Visible && BackupBox.IsChecked == true,
             GoalBox.Text.Trim())
         {
-            Level = SelectedLevel,
+            Model = SelectedModel,
+            Effort = SelectedEffort,
             AutoApprove = SelectedAuto
-        });
+        };
+        _card = null;
+        RunRequested?.Invoke(plan);
     }
 
     private void Continue_OnClick(object sender, RoutedEventArgs e) => SendReply(queue: false);
@@ -443,13 +536,25 @@ public partial class AgentPanel : UserControl
         else ContinueRequested?.Invoke(reply);
     }
 
-    private void HandOff_OnClick(object sender, RoutedEventArgs e) => ShowMenu(HandOffButton, _handOff);
-
-    private void More_OnClick(object sender, RoutedEventArgs e) => ShowMenu(MoreButton, _more);
-
-    private static void ShowMenu(Button anchor, IReadOnlyList<PanelAction> actions)
+    private void Answer(string words)
     {
-        var menu = new ContextMenu { PlacementTarget = anchor, Placement = PlacementMode.Top };
+        QuestionCard.Visibility = Visibility.Collapsed;
+        ContinueRequested?.Invoke(words);
+    }
+
+    private void SendChoices_OnClick(object sender, RoutedEventArgs e)
+    {
+        var chosen = _choices.Where(box => box.IsChecked == true).Select(box => (string)box.Tag).ToArray();
+        if (chosen.Length > 0) Answer(string.Join("; ", chosen));
+    }
+
+    private void HandOff_OnClick(object sender, RoutedEventArgs e) => ShowMenu(HandOffButton, _handOff, PlacementMode.Top);
+
+    private void More_OnClick(object sender, RoutedEventArgs e) => ShowMenu(MoreButton, _more, PlacementMode.Bottom);
+
+    private static void ShowMenu(Button anchor, IReadOnlyList<PanelAction> actions, PlacementMode placement)
+    {
+        var menu = new ContextMenu { PlacementTarget = anchor, Placement = placement };
         foreach (var action in actions)
         {
             var item = new MenuItem { Header = action.Label, ToolTip = action.Hint };
@@ -460,7 +565,12 @@ public partial class AgentPanel : UserControl
         menu.IsOpen = true;
     }
 
-    private void StepsToggle_OnClick(object sender, RoutedEventArgs e) => SetStepsOpen(!_stepsOpen);
+    private void PlanToggle_OnClick(object sender, RoutedEventArgs e)
+    {
+        _planOpen = !_planOpen;
+        PlanList.Visibility = _planOpen ? Visibility.Visible : Visibility.Collapsed;
+        if (PlanLabel.Text.Length > 0) PlanLabel.Text = PlanLabel.Text[..^1] + (_planOpen ? "▾" : "▸");
+    }
 
     private void BriefToggle_OnClick(object sender, RoutedEventArgs e)
     {
@@ -469,14 +579,31 @@ public partial class AgentPanel : UserControl
         BriefToggleText.Text = open ? "WHAT LINK GAVE ▾" : "WHAT LINK GAVE ▸";
     }
 
-    private void CancelCard_OnClick(object sender, RoutedEventArgs e) => CardCancelled?.Invoke();
+    private void TurnSteps_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ThreadTurn turn }) turn.StepsOpen = !turn.StepsOpen;
+    }
+
+    private void TaskRow_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: TaskRow row }) TaskSelected?.Invoke(row.Record);
+    }
+
+    private void NewTask_OnClick(object sender, RoutedEventArgs e) => NewTaskRequested?.Invoke();
+    private void Back_OnClick(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
+
+    private void CancelCard_OnClick(object sender, RoutedEventArgs e)
+    {
+        _card = null;
+        CardCancelled?.Invoke();
+    }
+
     private void Stop_OnClick(object sender, RoutedEventArgs e) => StopRequested?.Invoke();
     private void Decision_OnClick(object sender, RoutedEventArgs e) => DecisionTaken?.Invoke(AlwaysBox.IsChecked == true);
     private void Restart_OnClick(object sender, RoutedEventArgs e) => RestartRequested?.Invoke();
     private void Escalate_OnClick(object sender, RoutedEventArgs e) => EscalateRequested?.Invoke();
     private void RestartNotNow_OnClick(object sender, RoutedEventArgs e) => ShowRestart(false);
     private void Finish_OnClick(object sender, RoutedEventArgs e) => FinishRequested?.Invoke();
-    private void Console_OnClick(object sender, RoutedEventArgs e) => ConsoleRequested?.Invoke();
 
     private void OpenFile_OnClick(object sender, RoutedEventArgs e)
     {

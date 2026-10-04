@@ -27,6 +27,8 @@ public static partial class AgentRules
         }
 
         var input = new StringBuilder(rules);
+        // A Perforce workspace's files are read-only until opened: the agent is told how to open them.
+        if (AgentChanges.IsPerforce(workspace) && ReadHarness(PerforceFile) is { Length: > 0 } perforce) input.Append("\n\n").Append(perforce);
         var skills = listSkills ? ProjectSkills.In(workspace) : [];
         if (skills.Count > 0)
         {
@@ -38,6 +40,21 @@ public static partial class AgentRules
         }
 
         return input.Append("\n\n# Task\n\n").Append(task).ToString();
+    }
+
+    public static string PerforceFile => Path.Combine(AppContext.BaseDirectory, "harness", "perforce.md");
+
+    /// <summary>A harness file without its notes for whoever edits it; empty when it is missing.</summary>
+    private static string ReadHarness(string file)
+    {
+        try
+        {
+            return Comment().Replace(System.IO.File.ReadAllText(file), string.Empty).Trim();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return string.Empty;
+        }
     }
 
     // The note for whoever edits the rules; the agent needs none of it.

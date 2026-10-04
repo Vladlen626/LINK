@@ -21,27 +21,105 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
         [new("low", "Low"), new("medium", "Medium"), new("high", "High"), new("xhigh", "Extra high"), new("max", "Max — the highest")];
 
     /// <summary>The models of the account, as Codex keeps them in its own list (models_cache.json); none when it cannot be read.</summary>
-    public override IReadOnlyList<AgentChoice> Models
+    public override IReadOnlyList<AgentChoice> Models =>
+        CachedModels().Select(model => new AgentChoice(model.Slug, model.Name)).ToArray();
+
+    /// <summary>
+    /// A model's own reasoning levels as Codex lists them, each with what it is for; ultra stays out, as in
+    /// <see cref="Efforts"/>. The usual levels for a model the list does not have.
+    /// </summary>
+    public override IReadOnlyList<AgentChoice> EffortsOf(string? model)
+    {
+        var slug = model ?? OwnSetup.Model;
+        var levels = CachedModels().FirstOrDefault(each => each.Slug == slug)?.Levels ?? [];
+        var known = levels
+            .Select(level => (level, Efforts.FirstOrDefault(effort => effort.Value == level.Effort)))
+            .Where(pair => pair.Item2 is not null)
+            .Select(pair => new AgentChoice(pair.level.Effort,
+                pair.level.Description.Length > 0 ? $"{pair.Item2!.Label.Split(" — ")[0]} — {pair.level.Description}" : pair.Item2!.Label))
+            .ToArray();
+        return known.Length > 0 ? known : Efforts;
+    }
+
+    /// <summary>The model and effort at the top of the user's config.toml, which Codex runs on when Link names none.</summary>
+    public override (string? Model, string? Effort) OwnSetup
     {
         get
         {
+            // Read again only when the file changed: the Task tab asks for it with every redraw.
+            var file = Path.Combine(CodexHome, "config.toml");
+            var stamp = File.GetLastWriteTimeUtc(file);
+            if (_ownSetup.File == file && _ownSetup.Stamp == stamp) return _ownSetup.Setup;
+            (string? Model, string? Effort) setup = (null, null);
             try
             {
-                using var cache = JsonDocument.Parse(File.ReadAllText(Path.Combine(CodexHome, "models_cache.json")));
-                return cache.RootElement.GetProperty("models").EnumerateArray()
-                    .Where(model => Text(model, "visibility") == "list" && Text(model, "slug") is { Length: > 0 })
-                    .Select(model => new AgentChoice(Text(model, "slug")!, Text(model, "display_name") ?? Text(model, "slug")!))
-                    .ToArray();
+                foreach (var line in File.ReadLines(file))
+                {
+                    var trimmed = line.Trim();
+                    // The top level ends where the first table begins.
+                    if (trimmed.StartsWith('[')) break;
+                    setup.Model ??= TomlString(trimmed, "model");
+                    setup.Effort ??= TomlString(trimmed, "model_reasoning_effort");
+                }
             }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException
-                                                  or KeyNotFoundException or InvalidOperationException)
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
             {
-                return [];
+                // No config: Codex's own defaults, which Link cannot name.
             }
 
-            static string? Text(JsonElement element, string name) =>
-                element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+            _ownSetup = (file, stamp, setup);
+            return setup;
         }
+    }
+
+    private static (string? File, DateTime Stamp, (string? Model, string? Effort) Setup) _ownSetup;
+    private static (string? File, DateTime Stamp, IReadOnlyList<CachedModel> Models) _models = (null, default, []);
+
+    private sealed record CachedModel(string Slug, string Name, IReadOnlyList<(string Effort, string Description)> Levels);
+
+    /// <summary>Codex's list of models, read again only when Codex has written it anew.</summary>
+    private static IReadOnlyList<CachedModel> CachedModels()
+    {
+        var file = Path.Combine(CodexHome, "models_cache.json");
+        var stamp = File.GetLastWriteTimeUtc(file);
+        if (_models.File == file && _models.Stamp == stamp) return _models.Models;
+        var models = ReadModels(file);
+        _models = (file, stamp, models);
+        return models;
+    }
+
+    private static IReadOnlyList<CachedModel> ReadModels(string file)
+    {
+        try
+        {
+            using var cache = JsonDocument.Parse(File.ReadAllText(file));
+            return cache.RootElement.GetProperty("models").EnumerateArray()
+                .Where(model => Text(model, "visibility") == "list" && Text(model, "slug") is { Length: > 0 })
+                .Select(model => new CachedModel(
+                    Text(model, "slug")!,
+                    Text(model, "display_name") ?? Text(model, "slug")!,
+                    model.TryGetProperty("supported_reasoning_levels", out var levels) && levels.ValueKind == JsonValueKind.Array
+                        ? levels.EnumerateArray()
+                            .Where(level => Text(level, "effort") is { Length: > 0 })
+                            .Select(level => (Text(level, "effort")!, Text(level, "description") ?? string.Empty))
+                            .ToArray()
+                        : []))
+                .ToArray();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException
+                                              or KeyNotFoundException or InvalidOperationException)
+        {
+            return [];
+        }
+
+        static string? Text(JsonElement element, string name) =>
+            element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
+    }
+
+    private static string? TomlString(string line, string key)
+    {
+        var match = Regex.Match(line, $"^{key}\\s*=\\s*\"([^\"]*)\"");
+        return match.Success ? match.Groups[1].Value : null;
     }
 
     protected override IReadOnlyList<string> SignInCheck => ["login", "status"];
@@ -110,15 +188,18 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
         var sandbox = task.Access == AgentAccess.Do && !task.PlanOnly ? "workspace-write" : "read-only";
         // A project folder need not be a git repository (a Blender project rarely is).
         var arguments = new List<string> { "exec" };
-        if (task.ResumeSessionId is { } session)
+        if (task.ResumeSessionId is { } session) arguments.AddRange(["resume", session]);
+        // exec's --image takes several files: the next option ends them, or the "-" for stdin at the end would be one.
+        foreach (var image in task.Images) arguments.AddRange(["--image", image]);
+        // resume takes no --sandbox or --cd: the sandbox is set through config (an unquoted value is read as a string),
+        // the folder is the working one.
+        arguments.AddRange(task.ResumeSessionId is null
+            ? ["--json", "--skip-git-repo-check", "--sandbox", sandbox, "--cd", task.Workspace]
+            : ["--json", "--skip-git-repo-check", "-c", $"sandbox_mode={sandbox}"]);
+        // Perforce opens files for edit through its server, so p4 in a Perforce workspace needs the network.
+        if (sandbox == "workspace-write" && AgentChanges.IsPerforce(task.Workspace))
         {
-            // resume takes no --sandbox or --cd: the sandbox is set through config (an unquoted value is read as a
-            // string), the folder is the working one.
-            arguments.AddRange(["resume", session, "--json", "--skip-git-repo-check", "-c", $"sandbox_mode={sandbox}"]);
-        }
-        else
-        {
-            arguments.AddRange(["--json", "--skip-git-repo-check", "--sandbox", sandbox, "--cd", task.Workspace]);
+            arguments.AddRange(["-c", "sandbox_workspace_write.network_access=true"]);
         }
 
         // The same on resume: a session keeps its tools, model and cached start. A bare value is read as a string.
@@ -132,7 +213,6 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
         {
             arguments.AddRange(["-c", "approval_policy=on-request", "-c", "approvals_reviewer=auto_review"]);
         }
-        foreach (var image in task.Images) arguments.AddRange(["--image", image]);
         // The task comes on stdin.
         arguments.Add("-");
         return arguments;

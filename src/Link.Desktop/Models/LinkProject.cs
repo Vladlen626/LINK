@@ -42,6 +42,20 @@ public sealed class LinkProject
     public ChatConversationLink? LinkedConversation { get; set; }
     public ProjectResponse? LastResponse { get; set; }
 
+    /// <summary>The ChatGPT chats this project has talked in, the panel's list of chats; the linked one is among them.</summary>
+    public List<ProjectChat> Chats { get; set; } = [];
+
+    /// <summary>Puts a chat the project talks in at the top of its list, or brings its title and time up to date.</summary>
+    public void RememberChat(ChatConversationLink link)
+    {
+        if (link.IsNew) return;
+        Chats.RemoveAll(chat => chat.ConversationId == link.ConversationId);
+        Chats.Insert(0, new ProjectChat { ConversationId = link.ConversationId, Title = link.Title, Url = link.Url });
+        if (Chats.Count > MaxChats) Chats.RemoveRange(MaxChats, Chats.Count - MaxChats);
+    }
+
+    private const int MaxChats = 40;
+
     /// <summary>
     /// Settles what older or hand-edited JSON may leave blank. Rules that change files or run any command, which an
     /// older Link let into the read-only list, move to the Do list: read only stays read only.
@@ -60,6 +74,14 @@ public sealed class LinkProject
         }
 
         CurrentTask = null;
+        // An older project knew only its linked chat: the list of chats starts with it.
+        Chats ??= [];
+        Chats.RemoveAll(chat => string.IsNullOrWhiteSpace(chat.ConversationId));
+        if (LinkedConversation is { IsNew: false } linked && Chats.All(chat => chat.ConversationId != linked.ConversationId))
+        {
+            Chats.Insert(0, new ProjectChat { ConversationId = linked.ConversationId, Title = linked.Title, Url = linked.Url });
+        }
+
         CheckCommand = string.IsNullOrWhiteSpace(CheckCommand) ? null : CheckCommand.Trim();
         var changing = AgentReadTools.Where(AgentPermissions.ChangesThings).ToArray();
         if (changing.Length == 0) return;
@@ -91,4 +113,19 @@ public sealed class ProjectExchange
     public required string Question { get; init; }
     public required string Answer { get; init; }
     public DateTimeOffset AnsweredAt { get; init; } = DateTimeOffset.Now;
+
+    /// <summary>The ChatGPT chat it was asked in; null in the history of an earlier Link.</summary>
+    public string? ConversationId { get; init; }
+
+    /// <summary>What went along besides the words, as the chips named it ("Screen · Unreal Editor"); empty when nothing.</summary>
+    public string Carried { get; init; } = string.Empty;
+}
+
+/// <summary>A ChatGPT chat of the project, as the panel lists it.</summary>
+public sealed class ProjectChat
+{
+    public required string ConversationId { get; init; }
+    public required string Title { get; init; }
+    public required string Url { get; init; }
+    public DateTimeOffset LastUsedAt { get; init; } = DateTimeOffset.Now;
 }

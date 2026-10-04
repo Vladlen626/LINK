@@ -44,8 +44,9 @@ public sealed class ClaudeCodeProvider(Func<AgentSettings> settings, Action<stri
         if (task.Model is { } model) arguments.AddRange(["--model", model]);
         if (task.Effort is { } effort) arguments.AddRange(["--effort", effort]);
         // No subagents: they work out of Activity's sight and outside the task's numbers. Task is the tool's old name.
-        // Read only stays read only whatever the project's rules allow: a denial wins over an allowance.
-        arguments.AddRange(["--disallowedTools", "Agent", "Task"]);
+        // No AskUserQuestion: a run has no dialog, so a question ends the answer as a link-ask block, which the Task
+        // tab shows as a choice. Read only stays read only whatever the project's rules allow: a denial wins.
+        arguments.AddRange(["--disallowedTools", "Agent", "Task", "AskUserQuestion"]);
         if (!edits) arguments.AddRange(AgentPermissions.EditTools);
         if (task.ResumeSessionId is { } session) arguments.AddRange(["--resume", session]);
         // Images live in Link's data, outside the workspace: their folders are opened for reading.

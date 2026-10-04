@@ -39,11 +39,17 @@ public partial class SidePanelWindow : Window
     /// <summary>A tab was clicked.</summary>
     public event Action<PanelTab>? TabChosen;
 
-    /// <summary>Shows a tab's content; the other tab stays one click away.</summary>
+    /// <summary>Shows a tab's content; the others stay one click away. The project's tab bears its name.</summary>
     public void ShowTab(PanelTab tab, string projectName, FrameworkElement content)
     {
         ProjectTabText.Text = projectName;
-        foreach (var (button, text, chosen) in new[] { (ProjectTabButton, ProjectTabText, tab == PanelTab.Project), (TaskTabButton, TaskTabText, tab == PanelTab.Task) })
+        ProjectTabButton.ToolTip = $"The project {projectName}: its note, workspace, map, skills and check";
+        foreach (var (button, text, chosen) in new[]
+                 {
+                     (ChatsTabButton, ChatsTabText, tab == PanelTab.Chats),
+                     (TaskTabButton, TaskTabText, tab == PanelTab.Tasks),
+                     (ProjectTabButton, ProjectTabText, tab == PanelTab.Project)
+                 })
         {
             button.Background = chosen ? (Brush)FindResource("ActiveContextBrush") : Brushes.Transparent;
             text.Foreground = (Brush)FindResource(chosen ? "TextBrush" : "MutedBrush");
@@ -59,9 +65,11 @@ public partial class SidePanelWindow : Window
         TaskTabDot.Visibility = dot is null ? Visibility.Collapsed : Visibility.Visible;
     }
 
-    private void ProjectTab_OnClick(object sender, RoutedEventArgs e) => TabChosen?.Invoke(PanelTab.Project);
+    private void ChatsTab_OnClick(object sender, RoutedEventArgs e) => TabChosen?.Invoke(PanelTab.Chats);
 
-    private void TaskTab_OnClick(object sender, RoutedEventArgs e) => TabChosen?.Invoke(PanelTab.Task);
+    private void TaskTab_OnClick(object sender, RoutedEventArgs e) => TabChosen?.Invoke(PanelTab.Tasks);
+
+    private void ProjectTab_OnClick(object sender, RoutedEventArgs e) => TabChosen?.Invoke(PanelTab.Project);
 
     /// <summary>
     /// Puts the panel beside the card on the card's monitor. It keeps its side while it fits there and otherwise goes
@@ -101,6 +109,7 @@ public partial class SidePanelWindow : Window
 
 public enum PanelTab
 {
-    Project,
-    Task
+    Chats,
+    Tasks,
+    Project
 }

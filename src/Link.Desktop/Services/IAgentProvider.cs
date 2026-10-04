@@ -19,6 +19,12 @@ public interface IAgentProvider
     /// <summary>The models Settings offers beside the CLI's own default; reading them may touch the disk.</summary>
     IReadOnlyList<AgentChoice> Models { get; }
 
+    /// <summary>The effort levels <paramref name="model"/> takes, lowest first, each with what it is for; null: the CLI's own model.</summary>
+    IReadOnlyList<AgentChoice> EffortsOf(string? model);
+
+    /// <summary>The model and effort the CLI runs on when Link leaves them to it, as its own config says; null when unknown.</summary>
+    (string? Model, string? Effort) OwnSetup { get; }
+
     /// <summary>
     /// Whether the CLI is found and signed in, and its version; <paramref name="chosenPath"/> is a file chosen for it,
     /// null finds it. Runs the CLI, so call it off the UI path.

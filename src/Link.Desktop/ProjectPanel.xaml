@@ -45,24 +45,6 @@
                 </Grid>
             </Border>
 
-            <TextBlock Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="CHAT" />
-            <Button x:Name="ConversationButton" Style="{StaticResource GhostButtonStyle}" Height="26" Margin="-8,3,0,0" Padding="8,2"
-                    HorizontalContentAlignment="Left" Click="Conversation_OnClick" ToolTip="Link this project to a ChatGPT conversation">
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                    <Ellipse x:Name="ChatStatusDot" Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center"
-                             Fill="{StaticResource IdleOrbBrush}" />
-                    <TextBlock x:Name="ChatConnectionText" Grid.Column="1" VerticalAlignment="Center" FontSize="12"
-                               Text="No linked conversation" TextTrimming="CharacterEllipsis" />
-                </Grid>
-            </Button>
-            <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
-                <Button x:Name="NewChatButton" Style="{StaticResource ChipButtonStyle}" Height="26" Click="NewChat_OnClick"
-                        Content="New chat" ToolTip="Your next message starts a new chat, in the same ChatGPT project as the current one" />
-                <Button x:Name="OpenChatButton" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0"
-                        Click="OpenChat_OnClick" Content="Open chat" ToolTip="Show the linked ChatGPT chat" />
-            </StackPanel>
-
             <TextBlock Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="WORKSPACE" />
             <Grid Margin="0,4,0,0">
                 <Grid.ColumnDefinitions>
@@ -78,6 +60,8 @@
                         Click="ChooseWorkspace_OnClick" Content="Choose…" ToolTip="The folder this project's work lives in" />
             </Grid>
             <StackPanel x:Name="WorkspaceTools">
+                <!-- How the agents' changes are kept and undone here: Git, Perforce or a copy. -->
+                <TextBlock x:Name="VcsText" Margin="0,4,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11" TextWrapping="Wrap" />
                 <!-- The project map: what is where and how to check, read by agents instead of searching. -->
                 <Grid Margin="0,6,0,0">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
@@ -116,37 +100,6 @@
                 </Border>
             </StackPanel>
 
-            <!-- One history: the chat's answers and the agent's tasks, newest first. -->
-            <TextBlock Margin="0,14,0,0" Style="{StaticResource SectionLabelStyle}" Text="HISTORY" />
-            <TextBlock x:Name="HistoryEmptyText" Margin="0,5,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                       Text="The chat's answers and the agent's tasks of this project appear here." />
-            <ItemsControl x:Name="HistoryList" Margin="-8,3,0,0">
-                <ItemsControl.ItemTemplate>
-                    <DataTemplate>
-                        <Button Style="{StaticResource GhostButtonStyle}" Margin="0,0,0,2" Padding="8,5" HorizontalContentAlignment="Stretch"
-                                Click="HistoryItem_OnClick" ToolTip="{Binding Hint}">
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Viewbox Width="13" Height="13" Margin="0,2,8,0" VerticalAlignment="Top">
-                                    <Path Data="{Binding Icon}" Fill="Transparent" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.9"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                                </Viewbox>
-                                <StackPanel Grid.Column="1">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                        <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                                        <TextBlock Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
-                                                   Text="{Binding Time}" />
-                                    </Grid>
-                                    <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="11.5" LineHeight="16" LineStackingStrategy="BlockLineHeight"
-                                               Foreground="{StaticResource MutedBrush}" Text="{Binding Preview}" TextTrimming="CharacterEllipsis"
-                                               TextWrapping="Wrap" />
-                                </StackPanel>
-                            </Grid>
-                        </Button>
-                    </DataTemplate>
-                </ItemsControl.ItemTemplate>
-            </ItemsControl>
         </StackPanel>
     </ScrollViewer>
 </UserControl>

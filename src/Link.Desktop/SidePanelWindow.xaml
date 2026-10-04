@@ -20,20 +20,24 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <!-- Two tabs, always named: the project, and the agent's task. -->
+                <!-- Three tabs, always named: the chats with ChatGPT, the agents' tasks, and the project itself. -->
                 <Grid Margin="9,0,8,0">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
-                        <Button x:Name="ProjectTabButton" Style="{StaticResource GhostButtonStyle}" Height="28" Padding="9,2"
-                                Click="ProjectTab_OnClick" ToolTip="The project: its note, chat, workspace and history">
-                            <TextBlock x:Name="ProjectTabText" MaxWidth="170" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                        <Button x:Name="ChatsTabButton" Style="{StaticResource GhostButtonStyle}" Height="28" Padding="9,2"
+                                Click="ChatsTab_OnClick" ToolTip="The project's chats with ChatGPT: open one to see it and go on in it">
+                            <TextBlock x:Name="ChatsTabText" FontSize="12.5" FontWeight="SemiBold" Text="Chats" />
                         </Button>
                         <Button x:Name="TaskTabButton" Style="{StaticResource GhostButtonStyle}" Height="28" Margin="2,0,0,0" Padding="9,2"
-                                Click="TaskTab_OnClick" ToolTip="The agent's task: who works, what it did and does, and what Link gave it">
+                                Click="TaskTab_OnClick" ToolTip="The agents' tasks: open one to see its thread and go on with it">
                             <StackPanel Orientation="Horizontal">
                                 <Ellipse x:Name="TaskTabDot" Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center" Visibility="Collapsed" />
-                                <TextBlock x:Name="TaskTabText" FontSize="12.5" FontWeight="SemiBold" Text="Task" />
+                                <TextBlock x:Name="TaskTabText" FontSize="12.5" FontWeight="SemiBold" Text="Tasks" />
                             </StackPanel>
+                        </Button>
+                        <Button x:Name="ProjectTabButton" Style="{StaticResource GhostButtonStyle}" Height="28" Margin="2,0,0,0" Padding="9,2"
+                                Click="ProjectTab_OnClick">
+                            <TextBlock x:Name="ProjectTabText" MaxWidth="120" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                         </Button>
                     </StackPanel>
                     <Button Grid.Column="1" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"

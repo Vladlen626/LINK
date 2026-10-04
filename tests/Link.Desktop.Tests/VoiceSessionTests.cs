@@ -148,6 +148,26 @@ internal static class VoiceSessionTests
         await Program.ThrowsAsync<InvalidOperationException>("silent recording is an error",
             () => rig.Session.FinishListeningAsync());
         Program.Equal("idle after a failed recording", rig.Session.Phase, VoicePhase.Idle);
+        Announcements();
+    }
+
+    /// <summary>An agent's "started" or "finished" is said without taking the floor, and gives way to anything else.</summary>
+    private static void Announcements()
+    {
+        var rig = new Rig();
+        rig.Settings.VoiceLanguage = VoiceLanguage.Russian;
+        rig.Session.Announce("Claude начал работу.", "Claude started.");
+        Program.Equal("announcement: said in the user's language, the voice stays idle",
+            (rig.Speech.Said, rig.Session.Phase, rig.Session.CanStartListening), ("Claude начал работу.", VoicePhase.Idle, true));
+        rig.Session.Announce("Claude закончил работу.", "Claude finished.");
+        Program.Equal("announcement: one at a time", rig.Speech.Said, "Claude начал работу.");
+        rig.Session.BeginRequest("Как дела?");
+        Program.Equal("announcement: a request silences it at once", rig.Speech.Cancelled, true);
+
+        rig = new Rig();
+        rig.Settings.VoiceReplies = false;
+        rig.Session.Announce("Codex закончил работу.", "Codex finished.");
+        Program.Equal("announcement: none with voice replies off", rig.Speech.Said, string.Empty);
     }
 
     /// <summary>The answer is read while it streams: each sentence once it is complete, the rest when it is in.</summary>

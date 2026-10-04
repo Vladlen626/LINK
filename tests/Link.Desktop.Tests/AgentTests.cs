@@ -34,6 +34,13 @@ internal static class AgentTests
         await StopAsync();
         await LeftoversAsync();
         await GitUndoAsync();
+        P4Status();
+        Questions();
+        Images();
+        if (Environment.GetEnvironmentVariable("LINK_TEST_P4_WORKSPACE") is { Length: > 0 } p4Workspace)
+        {
+            await P4WorkspaceAsync(p4Workspace);
+        }
         await CopyRestoreAsync();
         await MapAsync();
         await SkillAsync();
@@ -418,6 +425,134 @@ internal static class AgentTests
         }
     }
 
+    private static void P4Status()
+    {
+        var root = @"C:\Work\BigSteps";
+        var opened = $"""
+            ... depotFile //BigSteps/main/Content/Hero.uasset
+            ... clientFile {root}\Content\Hero.uasset
+            ... action edit
+
+            ... depotFile //BigSteps/main/Config/Old.ini
+            ... clientFile {root}\Config\Old.ini
+            ... action delete
+
+            """;
+        var reconcile = $"""
+            ... depotFile //BigSteps/main/Content/Hero.uasset
+            ... clientFile {root}\Content\Hero.uasset
+            ... action edit
+
+            ... depotFile //BigSteps/main/Notes.txt
+            ... clientFile {root}\Notes.txt
+            ... action add
+
+            """;
+        var status = AgentChanges.ParseP4Status(opened, reconcile)
+            .OrderBy(entry => entry.Path, StringComparer.OrdinalIgnoreCase)
+            .Select(entry => $"{Path.GetFileName(entry.Path)}:{entry.Code}");
+        Program.Equal("p4: opened and reconcile preview become one status",
+            string.Join(',', status), "Old.ini:D,Hero.uasset:M,Notes.txt:??");
+        Program.Equal("p4: a Perforce workspace is versioned",
+            new WorkspaceBefore(root, false, new Dictionary<string, string>(), null, DateTime.UtcNow, true).IsVersioned, true);
+
+        // In a workspace with a .p4config: the agent may open files with p4 only with edits, Codex reaches the server.
+        var workspace = TempFolder();
+        try
+        {
+            File.WriteAllText(Path.Combine(workspace, ".p4config"), "P4CLIENT=test");
+            var nested = Directory.CreateDirectory(Path.Combine(workspace, "Content")).FullName;
+            Program.Equal("p4: a folder below a .p4config is in Perforce, one elsewhere is not",
+                (AgentChanges.IsPerforce(nested), AgentChanges.IsPerforce(Path.GetTempPath())), (true, false));
+            var project = new LinkProject { Name = "Game", DataFolder = workspace, AgentReadTools = ["Read"] };
+            Program.Equal("p4: edits may open files, read only only looks",
+                (AgentCoordinator.Tools(project, nested, AgentAccess.Do).Contains("Bash(p4 edit:*)"),
+                    AgentCoordinator.Tools(project, nested, AgentAccess.Analyze).Contains("Bash(p4 edit:*)"),
+                    AgentCoordinator.Tools(project, nested, AgentAccess.Analyze).Contains("Bash(p4 opened:*)")),
+                (true, false, true));
+            Program.Equal("p4: never submit, revert or sync on the agent's own",
+                AgentCoordinator.Tools(project, nested, AgentAccess.Do).Any(rule => rule.Contains("submit") || rule.Contains("revert") || rule.Contains("sync")),
+                false);
+            var codex = new CodexProvider(() => new AgentSettings(), _ => { });
+            var task = new AgentTask { Provider = AgentProviderKind.Codex, Workspace = nested, Prompt = "Fix", Access = AgentAccess.Do };
+            Program.Equal("p4: Codex with edits may reach the Perforce server, read only stays shut",
+                (string.Join(' ', codex.Arguments(task)).Contains("-c sandbox_workspace_write.network_access=true"),
+                    string.Join(' ', codex.Arguments(task with { Access = AgentAccess.Analyze })).Contains("network_access")),
+                (true, false));
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+    }
+
+    /// <summary>The agent's question as its rules ask it, as Claude's own tool writes it, and what is not one.</summary>
+    private static void Questions()
+    {
+        var (text, question) = AgentQuestion.Split("""
+            Two ways fit.
+
+            ```link-ask
+            {"question": "Which jump stays?", "options": [{"label": "Double jump", "description": "Less to change"}, "Single jump"]}
+            ```
+            """);
+        Program.Equal("question: the block leaves the answer and becomes a choice",
+            (text, question?.Question, string.Join("|", question?.Options.Select(option => $"{option.Label}/{option.Description}") ?? []), question?.MultiSelect),
+            ("Two ways fit.", "Which jump stays?", "Double jump/Less to change|Single jump/", false));
+        var claude = AgentQuestion.Split("""
+            ```link-ask
+            {"questions": [{"question": "Which files?", "header": "Files", "multiSelect": true, "options": [{"label": "Maps"}, {"label": "Blueprints"}]}]}
+            ```
+            """).Question;
+        Program.Equal("question: Claude's own form, several at once", (claude?.Question, claude?.MultiSelect), ("Which files?", true));
+        Program.Equal("question: broken JSON or no block leaves the answer as it is",
+            (AgentQuestion.Split("```link-ask\n{oops\n```").Question, AgentQuestion.Split("Done.").Text), ((AgentQuestion?)null, "Done."));
+    }
+
+    /// <summary>Images reach both agents: Codex's list of them ends before the stdin marker, on resume too.</summary>
+    private static void Images()
+    {
+        var codex = new CodexProvider(() => new AgentSettings(), _ => { });
+        var task = new AgentTask
+        {
+            Provider = AgentProviderKind.Codex,
+            Workspace = @"C:\Work",
+            Prompt = "Look",
+            Images = [@"C:\Shots\a.png", @"C:\Shots\b.png"]
+        };
+        var fresh = string.Join(' ', codex.Arguments(task));
+        Program.Equal("images: Codex gets each image before its options, the prompt still comes on stdin",
+            (fresh.StartsWith(@"exec --image C:\Shots\a.png --image C:\Shots\b.png --json", StringComparison.Ordinal), fresh.EndsWith(" -", StringComparison.Ordinal)),
+            (true, true));
+        Program.Equal("images: a reply with a screenshot reaches a resumed Codex session",
+            string.Join(' ', codex.Arguments(task with { ResumeSessionId = "t1" })).StartsWith(@"exec resume t1 --image C:\Shots\a.png", StringComparison.Ordinal), true);
+        var claude = new ClaudeCodeProvider(() => new AgentSettings(), _ => { });
+        Program.Equal("images: Claude is told where they are and may read their folder",
+            (claude.Input(task with { Provider = AgentProviderKind.ClaudeCode }).Contains(@"C:\Shots\b.png"),
+                string.Join(' ', claude.Arguments(task with { Provider = AgentProviderKind.ClaudeCode })).Contains(@"--add-dir C:\Shots")),
+            (true, true));
+        var snapshot = new InputSnapshot
+        {
+            ProjectId = Guid.NewGuid(),
+            ProjectName = "Game",
+            Text = "It floats again",
+            Context = [new ContextItem { Type = ContextItemType.ProjectState, Label = "Project note", Text = "Jumps" }]
+        };
+        Program.Equal("images: words for a running task leave the note out, a new task takes it",
+            (AgentCoordinator.Words(snapshot, newTask: false).Words, AgentCoordinator.Words(snapshot, newTask: true).Words.Contains("Jumps")),
+            ("It floats again", true));
+    }
+
+    private static async Task P4WorkspaceAsync(string workspace)
+    {
+        var changes = new AgentChanges(Path.Combine(Path.GetTempPath(), "link-p4-integration-backups"));
+        var before = await changes.CaptureAsync(workspace, backup: true, CancellationToken.None);
+        Program.Equal("p4 integration: .p4config workspace is detected without a backup",
+            (before.IsPerforce, before.Backup), (true, (string?)null));
+        Program.Equal("p4 integration: clean workspace has no agent changes",
+            (await changes.CompareAsync(before, CancellationToken.None)).Count, 0);
+    }
+
     private static string TempFolder()
     {
         var folder = Path.Combine(Path.GetTempPath(), "link-agent-" + Guid.NewGuid().ToString("N")[..8]);
@@ -635,7 +770,7 @@ internal static class AgentTests
         Program.Equal("Claude without a model or effort leaves them to its own settings",
             claude.Arguments(analyze).Any(argument => argument is "--model" or "--effort"), false);
         Program.Equal("Claude read only denies the file tools whatever the project allows",
-            string.Join(' ', claude.Arguments(analyze)).Contains("--disallowedTools Agent Task Edit Write NotebookEdit") &&
+            string.Join(' ', claude.Arguments(analyze)).Contains("--disallowedTools Agent Task AskUserQuestion Edit Write NotebookEdit") &&
             !string.Join(' ', claude.Arguments(analyze with { Access = AgentAccess.Do })).Contains("Write"), true);
         Program.Equal("Claude auto runs in its auto mode, only with edits",
             (claude.Arguments(analyze with { Access = AgentAccess.Do, AutoApprove = true }).Contains("auto"),
@@ -935,6 +1070,8 @@ internal static class AgentTests
         public string Name => "Scripted";
         public IReadOnlyList<AgentChoice> Efforts => [];
         public IReadOnlyList<AgentChoice> Models => [];
+        public IReadOnlyList<AgentChoice> EffortsOf(string? model) => [];
+        public (string? Model, string? Effort) OwnSetup => (null, null);
 
         public static ScriptedProvider Answering(string answer, bool succeeded = true) =>
             new((_, _) => new AgentResult { SessionId = "answer", Summary = answer, Succeeded = succeeded });

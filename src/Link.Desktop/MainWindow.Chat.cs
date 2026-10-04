@@ -29,7 +29,7 @@ public partial class MainWindow
     private static readonly (RequestRoute Route, string Label, string Description)[] RouteOptions =
     [
         (RequestRoute.Chat, "ChatGPT", "ChatGPT — an answer here, with the chips you see"),
-        (RequestRoute.Agent, "Agent task", "The project's agent — a task card first; nothing runs before Run")
+        (RequestRoute.Agent, "Agent task", "The project's agent — the open task goes on with your words; with none open, a card for a new one first")
     ];
     private static readonly (ResponseEffort Effort, string Label, string Description)[] EffortOptions =
     [
@@ -138,7 +138,7 @@ public partial class MainWindow
 
         if (_settings.Current.Route == RequestRoute.Agent)
         {
-            await OpenAgentCardFromPromptAsync();
+            await SendToAgentAsync(newTask: false);
             return;
         }
 
@@ -532,23 +532,36 @@ public partial class MainWindow
         SetStatus($"Send goes to {DestinationName} now");
     }
 
+    /// <summary>
+    /// Where Send goes, said where the user looks: ChatGPT's chat; on the Agent route the open task, as its next words
+    /// (a correction while the agent works), or a card for a new task when none is open.
+    /// </summary>
     private void UpdateRouteButton()
     {
         var agent = _settings.Current.Route == RequestRoute.Agent;
-        // The agent's name and how its card starts: the access Settings chose, which a task's card can change.
-        var access = _settings.Current.Agent.DefaultAccess == AgentAccessChoice.Edit ? "edit" : "auto";
-        RouteText.Text = agent ? $"To {ShortName(ProjectProvider)} task · {access}" : "To ChatGPT";
-        RouteButton.ToolTip = agent
-            ? $"Send opens a task card for {_agents.Provider(ProjectProvider).Name}; nothing runs before Run. Click to change"
-            : "Send asks ChatGPT, with the chips you see. Click to change";
-        SendHintText.Text = agent ? "opens the task card" : "sends to ChatGPT";
+        var open = agent && TaskTakesWords ? _task : null;
+        var provider = _runningTask?.Provider ?? open?.LastRun?.Provider ?? ProjectProvider;
+        RouteText.Text = !agent ? "To ChatGPT"
+            : open is not null ? $"To {ShortName(provider)} · {Shorten(open.Goal, 24)}"
+            : $"New {ShortName(ProjectProvider)} task";
+        var chat = _projects.ActiveProject.LinkedConversation is { IsNew: false } link ? $" · the chat {link.Title}" : string.Empty;
+        RouteButton.ToolTip = !agent
+            ? $"Send asks ChatGPT{chat}, with the chips you see. Click to change"
+            : open is not null
+                ? $"Send gives your words and chips to the task «{open.Goal}»: {(AgentRunning ? "a correction while the agent works" : "it goes on in the same session")}. " +
+                  "Ctrl+Enter opens a card for a new task instead. Click to change"
+                : $"Send opens a task card for {_agents.Provider(ProjectProvider).Name}; nothing runs before Run. Click to change";
+        SendHintText.Text = !agent ? "sends to ChatGPT"
+            : open is null ? "opens a task card"
+            : AgentRunning ? "corrects the agent"
+            : "goes on with the task";
         UpdateSendButton();
     }
 
     /// <summary>Who the next message goes to, in the words of the status line.</summary>
-    private string DestinationName => _settings.Current.Route == RequestRoute.Agent
-        ? $"a task card for {_agents.Provider(ProjectProvider).Name}"
-        : "ChatGPT";
+    private string DestinationName => _settings.Current.Route != RequestRoute.Agent ? "ChatGPT"
+        : TaskTakesWords && _task is { } open ? $"the task «{Shorten(open.Goal, 40)}»"
+        : $"a task card for {_agents.Provider(ProjectProvider).Name}";
 
     private void Effort_OnClick(object sender, RoutedEventArgs e) =>
         ShowOptions(EffortButton, EffortOptions, _settings.Current.ResponseEffort, SetEffort);
@@ -602,8 +615,10 @@ public partial class MainWindow
             Title = conversation.Title,
             Url = conversation.Url
         };
+        _projects.ActiveProject.RememberChat(_projects.ActiveProject.LinkedConversation);
         _projects.Save();
         UpdateConnectionState();
+        RefreshChats();
         ShowProjectResponse(_projects.ActiveProject);
         SetStatus($"Linked to {conversation.Title}");
     }
@@ -640,6 +655,7 @@ public partial class MainWindow
         project.LinkedConversation = next;
         _projects.Save();
         UpdateConnectionState();
+        RefreshChats();
         // The previous chat's answer stays on screen only when it is the summary that goes on.
         if (!withSummary) ShowProjectResponse(project);
         SetStatus(withSummary
@@ -705,6 +721,7 @@ public partial class MainWindow
         _projects.ActiveProject.LinkedConversation = null;
         _projects.Save();
         UpdateConnectionState();
+        RefreshChats();
         ShowProjectResponse(_projects.ActiveProject);
         SetStatus("Conversation unlinked");
     }
@@ -742,7 +759,7 @@ public partial class MainWindow
         });
         ChatStatusDot.Fill = dot;
         ProjectMenuButton.ToolTip = $"{text}\nSwitch project";
-        _projectPanel?.ShowConnection(text, dot, conversation is { IsNew: false });
+        _chatsPanel?.ShowConnection(text, dot, conversation is { IsNew: false });
 
         if (state == _connectionState) return;
         _connectionState = state;
@@ -760,7 +777,7 @@ public partial class MainWindow
         UpdateSendButton();
         UpdatePromptReadOnly();
         ProjectMenuButton.IsEnabled = !sending;
-        _projectPanel?.SetBusy(sending);
+        _chatsPanel?.SetBusy(sending);
         ContextActionsPanel.IsEnabled = !sending;
         ContextItemsControl.IsEnabled = !sending;
         SeesRow.IsEnabled = !sending;

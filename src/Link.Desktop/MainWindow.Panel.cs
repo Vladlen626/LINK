@@ -7,13 +7,19 @@ using Link.Desktop.Models;
 
 namespace Link.Desktop;
 
-// The panel beside the card: Expand opens it, it follows the card and hides and shows with it. It holds the
-// project's task, state, chat, workspace and history; the card keeps chips of what goes with a request.
+// The panel beside the card: Expand opens it, it follows the card and hides and shows with it. Three tabs, as in the
+// apps the user knows: the project's chats with ChatGPT, the agents' tasks, and the project itself (its note and
+// workspace). The card keeps chips of what goes with a request.
 public partial class MainWindow
 {
+    // How much of an answer the chat's thread shows; Show in Link has the whole of it.
+    private const int AnswerGlance = 1200;
     private SidePanelWindow? _panel;
+    private ChatsPanel? _chatsPanel;
     private ProjectPanel? _projectPanel;
-    private PanelTab _panelTab = PanelTab.Project;
+    private PanelTab _panelTab = PanelTab.Chats;
+    // The chat whose thread the Chats tab shows; null: its list.
+    private ChatRow? _shownChat;
     // The note's × in the card: the next question goes without it.
     private bool _noteLeftOut;
 
@@ -24,7 +30,7 @@ public partial class MainWindow
     private void NoteChip_OnClick(object sender, RoutedEventArgs e)
     {
         SetPanelOpen(true);
-        ShowProjectTab();
+        ShowPanelTab(PanelTab.Project);
         _projectPanel?.FocusNote();
     }
 
@@ -62,7 +68,7 @@ public partial class MainWindow
     {
         var open = _settings.Current.SidePanel.IsOpen;
         ExpandIcon.Stroke = (Brush)FindResource(open ? "AccentBrush" : "TextBrush");
-        ExpandButton.ToolTip = open ? "Close the panel" : "Open the panel: the project (note, chat, workspace, history) and the agent's task";
+        ExpandButton.ToolTip = open ? "Close the panel" : "Open the panel: the project's chats, the agents' tasks and the project";
     }
 
     private void ShowPanel()
@@ -78,21 +84,17 @@ public partial class MainWindow
         _panel.Show();
     }
 
-    private void ShowProjectTab() => ShowPanelTab(PanelTab.Project);
-
-    /// <summary>One of the panel's two tabs: the project, or the agent's task (its card, the task, or how one starts).</summary>
+    /// <summary>One of the panel's tabs: the chats, the tasks (the list, a card or a task), or the project.</summary>
     private void ShowPanelTab(PanelTab tab)
     {
         _panelTab = tab;
-        if (_panel is null || _projectPanel is null) return;
-        FrameworkElement content = _projectPanel;
-        if (tab == PanelTab.Task)
+        if (_panel is null || _projectPanel is null || _chatsPanel is null) return;
+        FrameworkElement content = tab switch
         {
-            _agentPanel ??= CreateAgentPanel();
-            if (_task is null && !AgentRunning && _cardRun is null) _agentPanel.ShowNoTask();
-            content = _agentPanel;
-        }
-
+            PanelTab.Chats => _chatsPanel,
+            PanelTab.Tasks => _agentPanel ??= CreateAgentPanel(),
+            _ => _projectPanel
+        };
         _panel.ShowTab(tab, _projects.ActiveProject.Name, content);
         UpdateAgentPill();
     }
@@ -115,57 +117,134 @@ public partial class MainWindow
             PlacePanel();
         };
         panel.DpiChanged += (_, _) => PlacePanel();
-        panel.TabChosen += tab =>
-        {
-            if (tab == PanelTab.Task) ShowAgentPanel();
-            else ShowPanelTab(PanelTab.Project);
-        };
+        panel.TabChosen += ShowPanelTab;
+
+        _chatsPanel = new ChatsPanel();
+        _chatsPanel.ChatSelected += OnChatSelected;
+        _chatsPanel.NewChatRequested += withSummary => _ = StartNewChatAsync(withSummary);
+        _chatsPanel.LinkChatRequested += LinkConversation;
+        _chatsPanel.OpenChatRequested += () => OpenChat(_projects.ActiveProject.LinkedConversation);
+        _chatsPanel.AnswerShown += ShowExchange;
 
         _projectPanel = new ProjectPanel();
         _projectPanel.NoteChanged += OnNoteChanged;
         _projectPanel.EditEnded += _projects.Save;
-        _projectPanel.ConversationRequested += LinkConversation;
-        _projectPanel.NewChatRequested += withSummary => _ = StartNewChatAsync(withSummary);
-        _projectPanel.OpenChatRequested += () => OpenChat(_projects.ActiveProject.LinkedConversation);
         _projectPanel.WorkspaceChosen += OnWorkspaceChosen;
         _projectPanel.MapRequested += () => _ = WriteProjectMapAsync();
         _projectPanel.SkillRequested += ShowFile;
-        // Saved with the task and the state, when the field is left.
+        // Saved with the note, when the field is left.
         _projectPanel.CheckCommandChanged += command => _projects.ActiveProject.CheckCommand = command.Length == 0 ? null : command;
-        _projectPanel.HistorySelected += OnHistorySelected;
         return panel;
     }
 
     /// <summary>Shows the active project in the panel, when there is one.</summary>
     private void RefreshProjectPanel()
     {
-        if (_panel is null || _projectPanel is null) return;
+        if (_panel is null || _projectPanel is null || _chatsPanel is null) return;
         _projectPanel.ShowProject(_projects.ActiveProject);
-        ShowProjectHistory();
-        _projectPanel.SetBusy(_sending);
+        _shownChat = null;
+        _chatsPanel.ShowListView();
+        RefreshChats();
+        _chatsPanel.SetBusy(_sending);
+        // Another project's tasks: the list, unless its own task is open.
+        if (_agentPanel is not null && _shownTask is not null && _taskProject?.Id != _projects.ActiveProject.Id) ShowTaskList();
+        else RefreshTaskList();
         ShowPanelTab(_panelTab);
         UpdateConnectionState();
     }
 
-    /// <summary>One history of the project: the chat's answers and the agent's tasks, newest first.</summary>
-    private void ShowProjectHistory()
+    /// <summary>
+    /// The project's chats, the one Link talks in first and marked; a new chat waiting for its first message leads.
+    /// Answers an earlier Link kept without their chat make one more row at the end.
+    /// </summary>
+    private void RefreshChats()
     {
-        if (_projectPanel is null) return;
+        if (_chatsPanel is null) return;
         var project = _projects.ActiveProject;
-        var chat = (Geometry)FindResource("ChatIconGeometry");
-        var agent = (Geometry)FindResource("AgentIconGeometry");
-        var answers = _projects.ReadHistory(project).Select(exchange => new HistoryRow(
-            exchange.Question, ToPreviewText(exchange.Answer), ShortTime(exchange.AnsweredAt), "Show this answer in Link", chat,
-            exchange.AnsweredAt, Exchange: exchange));
-        var tasks = _projects.ReadAgentTasks(project).Select(task => new HistoryRow(
-            task.Goal,
-            $"{StatusWords(task.Status)} · {(task.LastRun is { } run ? AgentName(run.Provider) + " · " : string.Empty)}{ToPreviewText(task.LastWords)}",
-            ShortTime(task.UpdatedAt),
-            "Open the task: its history and result; a reply takes up its last session",
-            agent,
-            task.UpdatedAt,
-            Task: task));
-        _projectPanel.ShowHistory(answers.Concat(tasks).OrderByDescending(row => row.At));
+        var history = _projects.ReadHistory(project);
+        var current = project.LinkedConversation;
+        var rows = new List<ChatRow>();
+        if (current is { IsNew: true }) rows.Add(new ChatRow("New chat", "Your next message starts it", string.Empty, null, IsCurrent: true));
+        foreach (var chat in project.Chats)
+        {
+            var last = history.FirstOrDefault(exchange => exchange.ConversationId == chat.ConversationId);
+            var title = chat.ConversationId == current?.ConversationId ? current.Title : chat.Title;
+            rows.Add(new ChatRow(
+                title,
+                last?.Question ?? "Nothing asked through Link yet",
+                ShortTime(last?.AnsweredAt ?? chat.LastUsedAt),
+                chat.ConversationId,
+                chat.ConversationId == current?.ConversationId));
+        }
+
+        if (history.FirstOrDefault(exchange => exchange.ConversationId is null) is { } earlier)
+        {
+            rows.Add(new ChatRow("Earlier answers", earlier.Question, ShortTime(earlier.AnsweredAt), null, IsCurrent: false, IsEarlier: true));
+        }
+
+        _chatsPanel.ShowChats(rows);
+        if (_shownChat is { } shown) ShowChatThread(rows.FirstOrDefault(row => row.ConversationId == shown.ConversationId && row.IsEarlier == shown.IsEarlier) ?? shown);
+    }
+
+    /// <summary>
+    /// A chat of the list: Link talks in it from now on, as clicking a chat in ChatGPT does, and its thread shows. Not
+    /// while a request runs; the answers kept without their chat only show.
+    /// </summary>
+    private void OnChatSelected(ChatRow row)
+    {
+        var project = _projects.ActiveProject;
+        if (row.ConversationId is { } id && id != project.LinkedConversation?.ConversationId && !_sending &&
+            project.Chats.FirstOrDefault(chat => chat.ConversationId == id) is { } chat)
+        {
+            project.LinkedConversation = new ChatConversationLink
+            {
+                TransportId = _chat.TransportId,
+                ConversationId = chat.ConversationId,
+                Title = chat.Title,
+                Url = chat.Url
+            };
+            _projects.Save();
+            UpdateConnectionState();
+            ShowProjectResponse(project);
+            SetStatus($"Your next message goes to the chat {chat.Title}");
+            _shownChat = row with { IsCurrent = true };
+            RefreshChats();
+            return;
+        }
+
+        ShowChatThread(row);
+    }
+
+    /// <summary>A chat's thread: what was asked through Link and what came back, the newest at the end.</summary>
+    private void ShowChatThread(ChatRow row)
+    {
+        if (_chatsPanel is null) return;
+        _shownChat = row;
+        var exchanges = _projects.ReadHistory(_projects.ActiveProject)
+            .Where(exchange => row.IsEarlier ? exchange.ConversationId is null : row.ConversationId is not null && exchange.ConversationId == row.ConversationId)
+            .Reverse();
+        var items = new List<object>();
+        foreach (var exchange in exchanges)
+        {
+            var time = ShortTime(exchange.AnsweredAt);
+            items.Add(new ThreadUser(exchange.Question, time, exchange.Carried));
+            var answer = ToPreviewText(exchange.Answer);
+            items.Add(new ThreadAnswer(answer.Length <= AnswerGlance ? answer : answer[..AnswerGlance] + "…", time, exchange));
+        }
+
+        var hint = row.IsEarlier ? "Kept before Link knew which chat an answer came from."
+            : row.IsCurrent ? "Your next message in Link goes to this chat."
+            : "Open it from the list to talk in it.";
+        _chatsPanel.ShowThread(row.Title, items, hint, canOpen: row.IsCurrent);
+    }
+
+    /// <summary>An answer from a chat's thread, whole, in the card; its question goes in the status line.</summary>
+    private void ShowExchange(ProjectExchange exchange)
+    {
+        if (_sending) return;
+        ShowResponse(ChatProgressState.Completed, exchange.Answer);
+        ShowAndActivate();
+        SetStatus($"From the chat: {exchange.Question}");
     }
 
     private void PlacePanel()
@@ -208,31 +287,35 @@ public partial class MainWindow
         SetStatus(folder is null ? "Workspace folder forgotten" : $"Workspace: {folder}");
     }
 
-    private void OnHistorySelected(HistoryRow row)
-    {
-        if (row.Task is { } task)
-        {
-            OpenAgentTask(task);
-            return;
-        }
-
-        if (_sending || row.Exchange is not { } exchange) return;
-        ShowResponse(ChatProgressState.Completed, exchange.Answer);
-        SetStatus($"From the history: {exchange.Question}");
-    }
-
-    /// <summary>Keeps a question and its answer in the project's history; the answer is on screen either way.</summary>
+    /// <summary>
+    /// Keeps a question and its answer in the project's history, with the chat it was asked in, and puts that chat at
+    /// the top of the project's chats; the answer is on screen either way.
+    /// </summary>
     private void RememberExchange(LinkProject project, InputSnapshot snapshot, string answer)
     {
         // A request of context alone is remembered by what it carried.
-        var carried = snapshot.Screen is { } screen ? snapshot.Context.Append(screen) : snapshot.Context;
-        var question = snapshot.Text is { Length: > 0 } text
-            ? text
-            : string.Join(", ", carried.Where(item => item.Type != ContextItemType.ProjectState).Select(item => item.Label));
+        var carried = (snapshot.Screen is { } screen ? snapshot.Context.Append(screen) : snapshot.Context)
+            .Where(item => item.Type != ContextItemType.ProjectState)
+            .Select(item => item.Label)
+            .ToArray();
+        var question = snapshot.Text is { Length: > 0 } text ? text : string.Join(", ", carried);
+        var chat = project.LinkedConversation is { IsNew: false } link ? link : null;
         try
         {
-            _projects.AddToHistory(project, new ProjectExchange { Question = question, Answer = answer });
-            if (project == _projects.ActiveProject) ShowProjectHistory();
+            _projects.AddToHistory(project, new ProjectExchange
+            {
+                Question = question,
+                Answer = answer,
+                ConversationId = chat?.ConversationId,
+                Carried = snapshot.Text.Length > 0 ? string.Join(" · ", carried) : string.Empty
+            });
+            if (chat is not null)
+            {
+                project.RememberChat(chat);
+                _projects.Save();
+            }
+
+            if (project == _projects.ActiveProject) RefreshChats();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
