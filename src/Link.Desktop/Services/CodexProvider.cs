@@ -9,7 +9,7 @@ namespace Link.Desktop.Services;
 /// <c>workspace-write</c>; <c>danger-full-access</c> is never used. Codex has no plan mode, so a plan is asked for in
 /// words and the sandbox keeps it from changing anything.
 /// </summary>
-public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
+public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
     : CliAgentProvider(settings, log, console)
 {
     public override AgentProviderKind Kind => AgentProviderKind.Codex;
@@ -267,7 +267,15 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
 
         // The same on resume: a session keeps its tools, model and cached start. A bare value is read as a string.
         foreach (var feature in FeaturesOff) arguments.AddRange(["-c", $"features.{feature}=false"]);
-        foreach (var setting in McpServers(task.Workspace)) arguments.AddRange(["-c", setting]);
+        var servers = McpServers(task.Workspace);
+        foreach (var setting in servers.SelectMany(server => server.Settings)) arguments.AddRange(["-c", setting]);
+        // The workspace is the one source of servers, as --strict-mcp-config makes it for Claude Code: the user's own
+        // (the desktop app's runtime, a DCC bridge for another project) stay off in Link's runs, their config untouched.
+        foreach (var name in UserMcpServers().Except(servers.Select(server => server.Name), StringComparer.Ordinal))
+        {
+            arguments.AddRange(["-c", $"mcp_servers.{name}.enabled=false"]);
+        }
+
         if (task.Model is { } model) arguments.AddRange(["-c", $"model={model}"]);
         if (task.Effort is { } effort) arguments.AddRange(["-c", $"model_reasoning_effort={effort}"]);
         // Auto: what would leave the sandbox (the network, a file outside the workspace) goes to Codex's automatic
@@ -282,20 +290,19 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
     }
 
     /// <summary>
-    /// The workspace's MCP servers as Codex settings. Their one source is the <c>.mcp.json</c> Claude Code reads by
-    /// itself: Codex reads a project's own config only in a trusted project, and its user config would start a game
+    /// The workspace's MCP servers as Codex settings, by server. Their one source is the <c>.mcp.json</c> Claude Code
+    /// gets too: Codex reads a project's own config only in a trusted project, and its user config would start a game
     /// editor's server in every folder. Codex has no SSE; <c>timeout</c> is Claude Code's tool timeout in ms, and
     /// Codex's own 60 s would cut a long editor call short. A name or value TOML cannot take as it is leaves the server out.
     /// </summary>
-    internal static IReadOnlyList<string> McpServers(string workspace)
+    internal static IReadOnlyList<(string Name, IReadOnlyList<string> Settings)> McpServers(string workspace)
     {
-        var file = Path.Combine(workspace, ".mcp.json");
-        if (!File.Exists(file)) return [];
+        if (McpConfigIn(workspace) is not { } file) return [];
         try
         {
             using var document = JsonDocument.Parse(File.ReadAllText(file));
             return document.RootElement.TryGetProperty("mcpServers", out var servers) && servers.ValueKind == JsonValueKind.Object
-                ? servers.EnumerateObject().SelectMany(server => McpServer(server.Name, server.Value)).ToArray()
+                ? servers.EnumerateObject().Select(server => (server.Name, (IReadOnlyList<string>)McpServer(server.Name, server.Value).ToArray())).ToArray()
                 : [];
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
@@ -303,6 +310,26 @@ public sealed class CodexProvider(Func<AgentSettings> settings, Action<string> l
             return [];
         }
     }
+
+    /// <summary>The MCP servers of the user's own Codex config, by their <c>[mcp_servers.name]</c> tables.</summary>
+    internal static IReadOnlyList<string> UserMcpServers()
+    {
+        var file = Path.Combine(CodexHome, "config.toml");
+        try
+        {
+            return File.Exists(file)
+                ? UserServer().Matches(File.ReadAllText(file)).Select(match => match.Groups[1].Value).Distinct(StringComparer.Ordinal).ToArray()
+                : [];
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
+    // A table of a server or one of its parts ([mcp_servers.blender.tools.x]); a quoted name is left on.
+    [GeneratedRegex(@"^\s*\[mcp_servers\.([A-Za-z0-9_-]+)[\].]", RegexOptions.Multiline)]
+    private static partial Regex UserServer();
 
     private static IEnumerable<string> McpServer(string name, JsonElement server)
     {
@@ -424,7 +451,7 @@ public sealed partial class CodexEventParser : AgentEventParser
                 break;
             case "item.started" when root.TryGetProperty("item", out var item) && Text(item, "type") == "command_execution":
                 var command = Unwrap(Text(item, "command"));
-                Called("command", command, command, IsSearchCommand(command), events);
+                Called("command", command, command, IsSearchCommand(command), events, RunsCode(command));
                 break;
             case "item.completed" when root.TryGetProperty("item", out var item):
                 ReadItem(item, events);
@@ -486,7 +513,7 @@ public sealed partial class CodexEventParser : AgentEventParser
                 var tool = $"{Text(item, "server")}: {Text(item, "tool")}";
                 var arguments = item.TryGetProperty("arguments", out var given) ? given : default;
                 Called("mcp", McpCall(Text(item, "server"), Text(item, "tool"), arguments),
-                    arguments.ValueKind == JsonValueKind.Undefined ? tool : tool + " " + arguments.GetRawText(), false, events);
+                    arguments.ValueKind == JsonValueKind.Undefined ? tool : tool + " " + arguments.GetRawText(), false, events, work: true);
                 if (failed) ToolFailed("mcp", item.TryGetProperty("error", out var error) ? Text(error, "message") : string.Empty, events);
                 break;
             case "web_search":

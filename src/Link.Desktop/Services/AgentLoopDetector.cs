@@ -42,6 +42,17 @@ public sealed partial class AgentLoopDetector
         {
             case AgentEventKind.Tool:
                 var key = agentEvent.Detail + "\n" + agentEvent.Arguments;
+                if (agentEvent.IsWork)
+                {
+                    // Work other than an edit (a script, an editor call through MCP) is progress too: in a game editor
+                    // it is the work. Other calls may answer differently now, and the search starts over; this call's
+                    // own count stays, as running it again and again with nothing done between is still a loop.
+                    var count = _calls.GetValueOrDefault(key);
+                    _calls.Clear();
+                    _calls[key] = count;
+                    _searches = 0;
+                }
+
                 var calls = _calls[key] = _calls.GetValueOrDefault(key) + 1;
                 if (agentEvent.IsSearch) _searches++;
                 if (calls == RepeatedCalls) return Loop("repeated call", $"the same call {calls} times: {agentEvent.Text}");

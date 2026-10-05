@@ -364,6 +364,12 @@ public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail
     /// <summary>A tool call that only looks around: it finds, lists or reads files.</summary>
     public bool IsSearch { get; init; }
 
+    /// <summary>
+    /// A tool call that works other than by editing a file: an MCP call or a command that runs code (a script, a build).
+    /// In a game editor the work goes this way.
+    /// </summary>
+    public bool IsWork { get; init; }
+
     /// <summary>A tool call's arguments, as the loop check compares calls; the row shows only their start.</summary>
     public string Arguments { get; init; } = string.Empty;
 

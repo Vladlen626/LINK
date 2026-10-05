@@ -19,6 +19,8 @@ dialog: a question or a request for permission ends it, and the user's answer co
   session.
 - Stuck twice on the same thing: stop, say what you see and offer two ways on.
 - Temporary files of checks (frames, logs, browser profiles) go to the system's temp folder, not the project.
+- An asset the user made by hand (an animation, a model, a texture, a level) is not overwritten under its name: make
+  yours beside it and switch to it, so theirs stays to go back to.
 
 ## A question for the user
 - A choice only the user can make (taste, scope, something risky or irreversible) that the task, the code and a
@@ -37,11 +39,17 @@ dialog: a question or a request for permission ends it, and the user's answer co
   (`Get-Content`, `Set-Content`), or non-Latin text turns to garbage.
 
 ## Get stronger with each task
-- Before your answer, keep what the next agent would need and could not see at once: a fact of the project in
-  `docs/map.md` (create it if missing), a way of doing repeated work with its commands and pitfalls in the skill
-  `.agents/skills/<name>/SKILL.md` (update the one that fits; a new one only for work that will come again, with
-  front matter `name` and a one-line `description` of when to use it).
-  Only what this task proved; short; fix what turned out wrong. Nothing to keep: change nothing. Name what you kept.
+- Keep what the next agent would need and could not see at once, as soon as this task proves it: a run can be cut
+  off before its answer. A fact of the project goes into `docs/map.md` (create it if missing); a way of doing
+  repeated work, with its commands and pitfalls, into the skill `.agents/skills/<name>/SKILL.md` (update the one that
+  fits; a new one only for work that will come again, with front matter `name` and a one-line `description` of when
+  to use it); a helper script that work needs again into the project's tools, named in its skill, not the temp folder.
+- Keep it true and short: what changed is rewritten where it stands, never answered by a note that contradicts the
+  rest; a skill says how it is now, not its history; each thing is said in one place, the others point to it; a
+  skill past ~150 lines is condensed before it grows.
+- Remove what this task proved wrong or replaced: a merged skill, a superseded helper, a check's temporary actor or
+  file. A skill this task did not need stays: it is for other work.
+- Only what this task proved; nothing to keep: change nothing. Name in your answer what you kept, rewrote and removed.
 - In read only, write nothing: name what is worth keeping in your answer.
 
 ## How to answer

@@ -161,6 +161,16 @@ public abstract class CliAgentProvider : IAgentProvider
     /// <summary>Whether the CLI finds the workspace's skills (<see cref="ProjectSkills"/>) by itself.</summary>
     protected virtual bool FindsSkills => false;
 
+    /// <summary>
+    /// The workspace's <c>.mcp.json</c>, the one source of MCP servers for both agents in Link's runs; null when the
+    /// workspace has none.
+    /// </summary>
+    internal static string? McpConfigIn(string workspace)
+    {
+        var file = Path.Combine(workspace, ".mcp.json");
+        return File.Exists(file) ? file : null;
+    }
+
     /// <summary>What the provider learns after a run from outside its events, such as Codex's rate limits.</summary>
     protected virtual IReadOnlyList<AgentEvent> AfterRun(AgentResult result) => [];
 
@@ -211,6 +221,13 @@ public abstract partial class AgentEventParser
     {
         "rg", "grep", "egrep", "fgrep", "findstr", "find", "fd", "ls", "dir", "tree", "cat", "type", "head", "tail", "more",
         "Get-ChildItem", "gci", "Select-String", "sls", "Get-Content", "gc"
+    };
+
+    // Programs that run code, by the same first name: interpreters, builds, package runners and DCC apps run headless.
+    private static readonly HashSet<string> CodeRunners = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "node", "python", "python3", "py", "uv", "uvx", "dotnet", "npm", "npx", "pnpm", "yarn", "bun", "deno", "cargo", "go",
+        "make", "cmake", "msbuild", "gradle", "mvn", "java", "pytest", "blender", "UnrealEditor", "UnrealEditor-Cmd"
     };
 
     private static readonly HashSet<string> FolderChanges = new(StringComparer.OrdinalIgnoreCase) { "cd", "Set-Location", "sl", "pushd", "Push-Location" };
@@ -289,7 +306,7 @@ public abstract partial class AgentEventParser
     /// A tool call, a step of Activity; <paramref name="arguments"/> tell it from another call of the same tool (a long
     /// write is cut), <paramref name="search"/>: it only looks around.
     /// </summary>
-    protected void Called(string name, string text, string arguments, bool search, List<AgentEvent> events)
+    protected void Called(string name, string text, string arguments, bool search, List<AgentEvent> events, bool work = false)
     {
         _toolCalls++;
         if (search)
@@ -301,6 +318,7 @@ public abstract partial class AgentEventParser
         events.Add(new AgentEvent(AgentEventKind.Tool, Short(text), name)
         {
             IsSearch = search,
+            IsWork = work,
             Arguments = arguments.Length <= 2000 ? arguments : arguments[..2000]
         });
     }
@@ -326,20 +344,34 @@ public abstract partial class AgentEventParser
     /// Whether a shell command only looks around: the first program it runs, after any change of folder, finds, lists
     /// or reads files. Codex searches only this way; Claude Code mostly with its own tools.
     /// </summary>
-    internal static bool IsSearchCommand(string command)
+    internal static bool IsSearchCommand(string command) => FirstCommand(command) is { } words &&
+        (ProgramOf(words[0]).Equals("git", StringComparison.OrdinalIgnoreCase)
+            ? words.Length > 1 && words[1] is "grep" or "ls-files"
+            : SearchPrograms.Contains(ProgramOf(words[0])));
+
+    /// <summary>Whether a shell command runs code (a script, a build, a test): work, as an edit is, not a look around.</summary>
+    internal static bool RunsCode(string command) => FirstCommand(command) is { } words && CodeRunners.Contains(ProgramOf(words[0]));
+
+    /// <summary>
+    /// The words of the first command a shell line runs, past changes of folder, variables set for it and a time limit
+    /// (<c>timeout 280 node check.mjs</c>).
+    /// </summary>
+    private static string[]? FirstCommand(string command)
     {
         foreach (var part in CommandSeparators().Split(command))
         {
-            var words = part.Trim().TrimStart('(', '&', '@', '$').Split((char[]?)null, 3, StringSplitOptions.RemoveEmptyEntries);
-            if (words.Length == 0) continue;
-            var program = Path.GetFileNameWithoutExtension(words[0].Trim('"', '\''));
-            if (FolderChanges.Contains(program)) continue;
-            if (program.Equals("git", StringComparison.OrdinalIgnoreCase)) return words.Length > 1 && words[1] is "grep" or "ls-files";
-            return SearchPrograms.Contains(program);
+            var words = part.Trim().TrimStart('(', '&', '@', '$').Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
+                .SkipWhile(word => Assignment().IsMatch(word))
+                .ToArray();
+            if (words.Length > 2 && ProgramOf(words[0]).Equals("timeout", StringComparison.OrdinalIgnoreCase)) words = words[2..];
+            if (words.Length == 0 || FolderChanges.Contains(ProgramOf(words[0]))) continue;
+            return words;
         }
 
-        return false;
+        return null;
     }
+
+    private static string ProgramOf(string word) => Path.GetFileNameWithoutExtension(word.Trim('"', '\''));
 
     protected static long Number(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.TryGetInt64(out var number)
@@ -375,4 +407,8 @@ public abstract partial class AgentEventParser
     // Commands one after another: ; && || and new lines. A pipe is not one: what it feeds belongs to the first program.
     [GeneratedRegex(@"&&|\|\||;|\n")]
     private static partial Regex CommandSeparators();
+
+    // A variable set for the command that follows it: MSYS_NO_PATHCONV=1 node a.mjs.
+    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*=")]
+    private static partial Regex Assignment();
 }

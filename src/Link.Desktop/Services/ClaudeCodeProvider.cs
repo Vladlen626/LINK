@@ -48,6 +48,10 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         // tab shows as a choice. Read only stays read only whatever the project's rules allow: a denial wins.
         arguments.AddRange(["--disallowedTools", "Agent", "Task", "AskUserQuestion"]);
         if (!edits) arguments.AddRange(AgentPermissions.EditTools);
+        // MCP servers come only from the workspace's .mcp.json, as for Codex: otherwise the user's claude.ai
+        // connectors ride along too, such as a docs app in a game task.
+        arguments.Add("--strict-mcp-config");
+        if (McpConfigIn(task.Workspace) is { } servers) arguments.AddRange(["--mcp-config", servers]);
         if (task.ResumeSessionId is { } session) arguments.AddRange(["--resume", session]);
         // Images live in Link's data, outside the workspace: their folders are opened for reading.
         foreach (var folder in task.Images.Select(Path.GetDirectoryName).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
@@ -235,7 +239,8 @@ public sealed class ClaudeEventParser : AgentEventParser
                 // An MCP tool is named mcp__<server>__<tool>.
                 var mcp = name.StartsWith("mcp__", StringComparison.Ordinal) ? name[5..].Split("__", 2) : [];
                 var row = mcp.Length == 2 ? McpCall(mcp[0], mcp[1], input) : target.Length > 0 ? $"{name}: {target}" : name;
-                Called(name, row, arguments, search, events);
+                var work = mcp.Length == 2 || (ShellTools.Contains(name) && RunsCode(command));
+                Called(name, row, arguments, search, events, work);
                 var id = Text(block, "id");
                 _pendingTools[id] = name;
                 if (EditTools.Contains(name) && Text(input, "file_path") is { Length: > 0 } edited) _pendingEdits[id] = edited;

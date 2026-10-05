@@ -242,8 +242,19 @@ public sealed class AgentCoordinator
             : task.AnswerIsSkill ? SkillFile(task.Workspace, result.Summary, replaceSkill, progress)
             : task.AnswerFile;
         var written = answerFile is not null ? await WriteAnswerAsync(task.Workspace, answerFile, result.Summary, progress) : null;
-        // A stopped run is compared too: the user sees what it changed before Stop.
-        var changes = await _changes.CompareAsync(before, CancellationToken.None);
+        IReadOnlyList<AgentChange> changes;
+        try
+        {
+            // A stopped run is compared too: the user sees what it changed before Stop.
+            changes = await _changes.CompareAsync(before, CancellationToken.None);
+        }
+        catch (IOException exception)
+        {
+            // Perforce gone during the run (a ticket expired): the agent's answer stays, its files are not known.
+            progress.Report(new AgentEvent(AgentEventKind.Error, $"{exception.Message} The files this run changed are not listed."));
+            changes = [];
+        }
+
         // Without git and a copy nothing else can be told, but the file Link wrote is known.
         if (written is not null && !changes.Any(change => change.Path.Equals(written.Path, StringComparison.OrdinalIgnoreCase)))
         {

@@ -460,6 +460,10 @@ internal static class AgentTests
             described, ("Сделал переход из приземления в бег.", (string?)"Nori blends from landing into the run, no foot sliding"));
         Program.Equal("p4: an answer without the line keeps itself and has no description",
             AgentChanges.SplitChangelistLine("Done."), ("Done.", (string?)null));
+        Program.Equal("p4: an expired ticket or none is no workspace status, a file not opened is",
+            (AgentChanges.SignedOut("Your session has expired, please login again."),
+                AgentChanges.SignedOut("Perforce password (P4PASSWD) invalid or unset."),
+                AgentChanges.SignedOut("//BigSteps/main/... - file(s) not opened on this client.")), (true, true, false));
 
         // In a workspace with a .p4config: the agent may open files with p4 only with edits, Codex reaches the server.
         var workspace = TempFolder();
@@ -695,6 +699,21 @@ internal static class AgentTests
         {
             Program.Equal($"search command: {command}", AgentEventParser.IsSearchCommand(command), search);
         }
+
+        foreach (var (command, runs) in new[]
+                 {
+                     ("node tools/checks/verify_wall_climb.mjs", true),
+                     ("timeout 280 node tools/checks/verify_wall_climb.mjs 2>&1 | tail -40", true),
+                     ("cd Big_Steps && uv run --no-project tools/blender_mcp.py py tools/blender/shots.py Nori_Jump_Land 1-12", true),
+                     ("MSYS_NO_PATHCONV=1 node tools/ue.mjs compile /Game/Hero", true),
+                     ("dotnet test", true),
+                     ("cat > \"$TEMP/read.mjs\" <<'EOF'", false),
+                     ("git status --short", false),
+                     ("rg -n Stamina", false)
+                 })
+        {
+            Program.Equal($"runs code: {command}", AgentEventParser.RunsCode(command), runs);
+        }
     }
 
     /// <summary>The loop check on runs in the recorded format: each kind of loop is told once, working runs get none.</summary>
@@ -716,6 +735,21 @@ internal static class AgentTests
             "Looks like a loop: 12 searches in a row without a change");
         Program.Equal("loops: a read-only run is not told off for searching",
             LoopsIn(new CodexEventParser(), "codex-loop.jsonl", canChange: false).Any(loop => loop.Detail == "searching"), false);
+
+        // In a game editor the work is scripts and MCP calls, not edits: reading between them is no search loop, and a
+        // check run again after each build is no repeated call. The same check three times with nothing between is.
+        var read = (string file) => new AgentEvent(AgentEventKind.Tool, "Read: " + file, "Read") { IsSearch = true, Arguments = "file_path=" + file };
+        var run = (string script) => new AgentEvent(AgentEventKind.Tool, "Bash: node " + script, "Bash") { IsWork = true, Arguments = "command=node " + script };
+        var editor = new AgentLoopDetector(canChange: true);
+        var editorWork = Enumerable.Range(0, 3)
+            .SelectMany(round => Enumerable.Range(0, 8).Select(index => read($"tools/checks/part{round}{index}.mjs"))
+                .Concat([run("apply_wall_climb.mjs update"), run("verify_wall_climb.mjs"), new AgentEvent(AgentEventKind.Tool, "ue-mcp: tools call blueprint compile", "mcp") { IsWork = true, Arguments = "compile" }]))
+            .Select(editor.Add).OfType<AgentEvent>().ToList();
+        Program.Equal("loops: reads between scripts and MCP calls, and a check after each build, are no loop", editorWork.Count, 0);
+        var same = new AgentLoopDetector(canChange: true);
+        Program.Equal("loops: the same check three times with nothing done between is one",
+            Enumerable.Repeat(run("verify_wall_climb.mjs"), 3).Select(same.Add).OfType<AgentEvent>().Select(loop => loop.Detail).SingleOrDefault(),
+            "repeated call");
     }
 
     private static List<AgentEvent> LoopsIn(AgentEventParser parser, string fixture, bool canChange)
@@ -740,6 +774,23 @@ internal static class AgentTests
     }
 
     private static void Arguments()
+    {
+        // Codex's own config is the user's: an empty home keeps their MCP servers out of the lines compared here.
+        var home = TempFolder();
+        var before = Environment.GetEnvironmentVariable("CODEX_HOME");
+        try
+        {
+            Environment.SetEnvironmentVariable("CODEX_HOME", home);
+            ArgumentLines(home);
+        }
+        finally
+        {
+            Environment.SetEnvironmentVariable("CODEX_HOME", before);
+            DeleteFolder(home);
+        }
+    }
+
+    private static void ArgumentLines(string codexHome)
     {
         var settings = new AgentSettings();
         var claude = new ClaudeCodeProvider(() => settings, _ => { });
@@ -810,6 +861,34 @@ internal static class AgentTests
                 mcp.Contains("-c mcp_servers.ue-mcp.command='npx' -c mcp_servers.ue-mcp.args=['-y', 'ue-mcp@1.3.9', 'C:/Games/Nori/Nori.uproject'] " +
                              "-c mcp_servers.ue-mcp.env.UE_MCP_FEEDBACK_MODE='defer' -c mcp_servers.ue-mcp.tool_timeout_sec=600") &&
                 !mcp.Contains("mcp_servers.events") && !mcp.Contains("named") && !mcp.Contains("mcp_servers.quoted"), true);
+
+            File.WriteAllText(Path.Combine(codexHome, "config.toml"), """
+                model = "gpt-6-sol"
+                [mcp_servers.node_repl]
+                command = 'node_repl.exe'
+                [mcp_servers.node_repl.env]
+                CODEX_HOME = 'C:\Users\me\.codex'
+                [mcp_servers.blender]
+                command = "uv"
+                [mcp_servers.blender.tools.execute_blender_code]
+                approval_mode = "approve"
+                [mcp_servers.ue-mcp]
+                command = "node"
+                [mcp_servers."two words"]
+                command = "x"
+                """);
+            var own = string.Join(' ', codex.Arguments(analyze with { Provider = AgentProviderKind.Codex, Workspace = game }));
+            Program.Equal("Codex: the user's own MCP servers stay off in Link's runs, those of .mcp.json on",
+                own.Contains("-c mcp_servers.node_repl.enabled=false -c mcp_servers.blender.enabled=false") &&
+                !own.Contains("mcp_servers.ue-mcp.enabled") && !own.Contains("two words"), true);
+            Program.Equal("Codex: a workspace without .mcp.json runs with none of the user's servers",
+                string.Join(' ', codex.Arguments(analyze with { Provider = AgentProviderKind.Codex })).Contains("-c mcp_servers.blender.enabled=false"), true);
+
+            var servers = string.Join(' ', claude.Arguments(analyze with { Workspace = game }));
+            Program.Equal("Claude: MCP servers only from the workspace's .mcp.json, none without it",
+                (servers.Contains($"--strict-mcp-config --mcp-config {Path.Combine(game, ".mcp.json")}"),
+                    string.Join(' ', claude.Arguments(analyze)).Contains("--strict-mcp-config") && !claude.Arguments(analyze).Contains("--mcp-config")),
+                (true, true));
         }
         finally
         {

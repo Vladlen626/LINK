@@ -301,7 +301,7 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- After a loop or a failure: start over with a note, or the same session on Deep. -->
+                    <!-- After a failed run or a Stop on a loop: start over with a note, or the same session on Deep. -->
                     <Border x:Name="RestartCard" Style="{StaticResource FieldStyle}" Margin="0,10,0,0" Padding="10,8" Visibility="Collapsed">
                         <StackPanel>
                             <TextBlock Style="{StaticResource RowTextStyle}" Foreground="{StaticResource MutedBrush}"

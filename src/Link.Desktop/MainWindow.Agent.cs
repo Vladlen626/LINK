@@ -1155,10 +1155,6 @@ public partial class MainWindow
         }
 
         if (userWork && _runningTask is { } running && !_limitOffered && _limits.IsNear(running.Provider)) OfferLimitAhead(running.Provider);
-        if (shown && userWork && _agentOrigin is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Loop))
-        {
-            _agentPanel.ShowRestart(true, escalate: _runningTask is { } looping && !IsStrongest(looping));
-        }
 
         // Changed files are listed as they come; the full list, from version control or the copy, replaces them at the end.
         if (_liveTurn is not null && events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Artifact))
@@ -1304,6 +1300,8 @@ public partial class MainWindow
             _agentPanel.SetStatus(ending.ToLowerInvariant(), OutcomeBrush(ending));
         }
 
+        // Start over only once a run has ended: a loop label often comes on good work, so while the agent works it stays
+        // a line of Activity.
         _agentPanel?.ShowRestart(_agentOrigin is not null && (failed || (stopped && result.Loops.Count > 0)), escalate: !IsStrongest(task));
         if (limitReached) OfferLimitReached(task.Provider);
         if (_task is not null && IsUserWork(task) && !task.AnswerIsSkill) ShowResultInChat(run, diff: null);

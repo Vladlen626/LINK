@@ -286,8 +286,15 @@ public sealed partial class AgentChanges
         // what changed without being opened, judged by the files' times first (-m): a full digest pass takes seconds.
         var opened = await P4Async(workspace, ["-ztag", "fstat", "-Ro", "-T", "clientFile,action", "..."], cancellationToken);
         var reconcile = await P4Async(workspace, ["-ztag", "reconcile", "-n", "-e", "-a", "-d", "-m", "..."], cancellationToken);
+        // p4 info answers without a ticket; with an expired one the rest fail, and their empty output would read as
+        // "nothing changed".
+        if (SignedOut(opened?.Error ?? string.Empty) || SignedOut(reconcile?.Error ?? string.Empty)) return null;
         return ParseP4Status(opened?.Output ?? string.Empty, reconcile?.Output ?? string.Empty);
     }
+
+    /// <summary>Whether p4 refused for want of a valid ticket ("Your session has expired, please login again").</summary>
+    internal static bool SignedOut(string error) =>
+        error.Contains("please login", StringComparison.OrdinalIgnoreCase) || error.Contains("P4PASSWD", StringComparison.Ordinal);
 
     /// <summary>
     /// In Perforce: the files the agent changed, those that were clean before the task, go into the task's pending
