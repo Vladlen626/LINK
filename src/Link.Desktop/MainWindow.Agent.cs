@@ -402,6 +402,7 @@ public partial class MainWindow
         panel.ContinueRequested += words => ContinueAgent(words);
         panel.QueueRequested += QueueAfterRun;
         panel.FinishRequested += FinishTask;
+        panel.PlanModeOffRequested += LeavePlanMode;
         panel.OpenFileRequested += ShowFile;
         panel.BackRequested += ShowTaskList;
         panel.NewTaskRequested += () => _ = OpenNewTaskCardAsync();
@@ -581,6 +582,25 @@ public partial class MainWindow
         _task?.Add(AgentEntryKind.You, "(after this run) " + words);
         ShowTask();
         AgentStatus("Your words wait for the end of this run");
+    }
+
+    /// <summary>
+    /// Plan mode off: the session's next words go on with the task's access, on the model a plan is carried out with. In
+    /// plan mode Claude Code refuses whatever changes things, so allowing a tool there does not help.
+    /// </summary>
+    private void LeavePlanMode()
+    {
+        if (AgentRunning || _lastRun is not { Task.PlanOnly: true } run) return;
+        var (model, effort) = _settings.Current.Agent.PlanOnDeep ? _planSetup : (run.Task.Model, run.Task.Effort);
+        _lastRun = run with { Task = run.Task with { PlanOnly = false, Model = model, Effort = effort } };
+        if (_task is { } record)
+        {
+            record.Add(AgentEntryKind.You, "Plan mode off");
+            SaveTask(record);
+        }
+
+        ShowTask();
+        AgentStatus("Plan mode is off: your next words go on with edits in the same session");
     }
 
     /// <summary>Finish: the task is closed and stays in the list, where it can be opened and taken up again.</summary>
@@ -832,6 +852,7 @@ public partial class MainWindow
         panel.ShowQuestion(null);
         panel.ShowMenus([], OwnActions(own));
         panel.ShowFinish(false);
+        panel.ShowPlanMode(false);
         panel.SetRunning(running);
         // Link's own answer takes no words.
         panel.ShowReply(false, running ? null : "Link's own answer: the file is written. ‹ goes back to the tasks.");
@@ -1530,6 +1551,7 @@ public partial class MainWindow
             panel.ResetCards();
             panel.ShowMenus([], []);
             panel.ShowFinish(false);
+            panel.ShowPlanMode(false);
             panel.ShowReply(false, $"{AgentName(_runningTask?.Provider ?? provider)} works on another task: open this one again once it ends to go on with it.");
             return;
         }
@@ -1537,6 +1559,7 @@ public partial class MainWindow
         panel.ShowQuestion(_question);
         panel.ShowMenus(HandOffActions(record), MoreActions());
         panel.ShowFinish(true);
+        panel.ShowPlanMode(!live && !AgentRunning && _lastRun is { Task.PlanOnly: true });
         if (live) panel.ShowReply(true);
         // One agent at a time: Link's own answer, such as the map, goes first.
         else if (AgentRunning && _runningTask is { } busy) panel.ShowReply(false, $"{AgentName(busy.Provider)} writes {OwnWhat(busy)}: your words can go once it ends.");
@@ -1735,8 +1758,8 @@ public partial class MainWindow
     };
 
     /// <summary>
-    /// What only the user can decide after a run: retry with edits what read only did not let the agent do, allow what
-    /// Claude was refused and go on, or carry out a plan. Returns whether a decision is offered.
+    /// What only the user can decide after a run: retry with edits what read only did not let the agent do, carry out a
+    /// plan, or allow what Claude was refused and go on. Returns whether a decision is offered.
     /// </summary>
     private bool OfferDecision(AgentRun run)
     {
@@ -1777,31 +1800,8 @@ public partial class MainWindow
             return true;
         }
 
-        // In read only, only what looks can be allowed.
-        var allowable = result.Denials.Where(rule => !readOnly || !AgentPermissions.ChangesThings(rule)).ToArray();
-        if (claude && allowable.Length > 0)
-        {
-            IReadOnlyList<string> rules = allowable;
-            _agentPanel.ShowDecision(
-                $"Claude Code was not allowed: {string.Join(", ", rules)}. Allow {(rules.Count == 1 ? "it" : "them")} and continue?",
-                "Allow and retry",
-                canRemember: true);
-            _decision = () =>
-            {
-                if (_rememberAllowance) RememberAllowance(task.Access, rules);
-                var allowed = task.AllowedTools.Concat(rules).Distinct(StringComparer.Ordinal).ToArray();
-                _task?.Add(AgentEntryKind.You, $"Allowed {string.Join(", ", rules)}");
-                _ = StartAgentAsync(task with
-                {
-                    ResumeSessionId = session,
-                    AllowedTools = allowed,
-                    Prompt = $"These tools are allowed now: {string.Join(", ", rules)}. Continue the task.",
-                    Images = []
-                }, run);
-            };
-            return true;
-        }
-
+        // A plan's run is refused whatever changes things: that is plan mode, not a missing permission, and allowing a
+        // tool would only repeat the refusal. What the user decides is whether to carry the plan out.
         if (task.PlanOnly && result.Succeeded)
         {
             var edits = task.Access == AgentAccess.Do;
@@ -1825,6 +1825,31 @@ public partial class MainWindow
                     Model = model,
                     Effort = effort
                 }, null);
+            };
+            return true;
+        }
+
+        // In read only, only what looks can be allowed.
+        var allowable = result.Denials.Where(rule => !readOnly || !AgentPermissions.ChangesThings(rule)).ToArray();
+        if (claude && allowable.Length > 0)
+        {
+            IReadOnlyList<string> rules = allowable;
+            _agentPanel.ShowDecision(
+                $"Claude Code was not allowed: {string.Join(", ", rules)}. Allow {(rules.Count == 1 ? "it" : "them")} and continue?",
+                "Allow and retry",
+                canRemember: true);
+            _decision = () =>
+            {
+                if (_rememberAllowance) RememberAllowance(task.Access, rules);
+                var allowed = task.AllowedTools.Concat(rules).Distinct(StringComparer.Ordinal).ToArray();
+                _task?.Add(AgentEntryKind.You, $"Allowed {string.Join(", ", rules)}");
+                _ = StartAgentAsync(task with
+                {
+                    ResumeSessionId = session,
+                    AllowedTools = allowed,
+                    Prompt = $"These tools are allowed now: {string.Join(", ", rules)}. Continue the task.",
+                    Images = []
+                }, run);
             };
             return true;
         }

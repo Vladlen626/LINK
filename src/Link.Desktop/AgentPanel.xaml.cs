@@ -57,6 +57,7 @@ public partial class AgentPanel : UserControl
     private AgentCardModel? _card;
     private bool _fillingCard;
     private bool _running;
+    private bool _planning;
     private bool _hasTask;
     private bool _planOpen = true;
     private string _replyTarget = "the agent";
@@ -86,6 +87,9 @@ public partial class AgentPanel : UserControl
     public event Action<string>? QueueRequested;
 
     public event Action? FinishRequested;
+
+    /// <summary>Plan mode off: the session's next words go on with edits.</summary>
+    public event Action? PlanModeOffRequested;
     public event Action<string>? OpenFileRequested;
 
     /// <summary>Back from a task to the list.</summary>
@@ -231,6 +235,14 @@ public partial class AgentPanel : UserControl
 
     /// <summary>Whether Finish is offered: not for Link's own answer, such as a map, nor for a task shown only to be read.</summary>
     public void ShowFinish(bool finish) => FinishButton.Visibility = finish ? Visibility.Visible : Visibility.Collapsed;
+
+    /// <summary>Whether the task's session goes on in plan mode, where only reading and planning work: its chip turns it off.</summary>
+    public void ShowPlanMode(bool planning)
+    {
+        _planning = planning;
+        PlanModeButton.Visibility = planning ? Visibility.Visible : Visibility.Collapsed;
+        UpdateReplyHint();
+    }
 
     /// <summary>The agent's plan as it last wrote it: done, under way, to do.</summary>
     public void ShowPlan(IReadOnlyList<AgentPlanItem> plan)
@@ -386,7 +398,9 @@ public partial class AgentPanel : UserControl
             ? $"Correct {_replyTarget}: Enter stops the step and goes on with your words · Tab: after this run"
             : QuestionCard.Visibility == Visibility.Visible
                 ? $"Answer {_replyTarget} in your own words"
-                : $"Reply to {_replyTarget}: the same session goes on with your words";
+                : _planning
+                    ? $"Reply to {_replyTarget}: the session stays in plan mode, reading and planning only"
+                    : $"Reply to {_replyTarget}: the same session goes on with your words";
         ContinueButton.Content = _running ? "Correct" : "Send";
         ContinueButton.ToolTip = _running
             ? "The agent stops the step it is on and goes on with your words in the same session (Enter); Tab keeps them for after this run"
@@ -628,6 +642,8 @@ public partial class AgentPanel : UserControl
     private void Escalate_OnClick(object sender, RoutedEventArgs e) => EscalateRequested?.Invoke();
     private void RestartNotNow_OnClick(object sender, RoutedEventArgs e) => ShowRestart(false);
     private void Finish_OnClick(object sender, RoutedEventArgs e) => FinishRequested?.Invoke();
+
+    private void PlanMode_OnClick(object sender, RoutedEventArgs e) => PlanModeOffRequested?.Invoke();
 
     private void OpenFile_OnClick(object sender, RoutedEventArgs e)
     {

@@ -23,6 +23,15 @@ unasked is refused, and Link's agents spend the user's limits.
    `RunButton`. The pill (`AgentPillText`) shows "Claude · 0:10" once it runs; its `[Agent]` line comes to link.log at
    the end.
 
+## Send words to a task's session
+
+```powershell
+& .agents\skills\drive-link\reply.ps1 -Project Bigsteps -Words <words.txt> [-NoSend]
+```
+It waits for 15 s without typing, opens Tasks — the task Link shows there, or else the newest of the list — puts the
+words into `ReplyBox` and invokes `ContinueButton` (Send). It prints the task's goal and whether the `Plan mode ✕`
+chip shows: while it does, the session only plans, so a reply that should do the work comes after a click on it.
+
 ## Pitfalls
 
 - PowerShell 5.1 reads the script as ANSI: it stays ASCII, the words come from the file.

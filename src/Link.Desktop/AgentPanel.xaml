@@ -347,6 +347,9 @@
 
             <StackPanel Grid.Row="3">
                 <WrapPanel x:Name="TaskButtons">
+                    <Button x:Name="PlanModeButton" Style="{StaticResource SmallChipStyle}" Click="PlanMode_OnClick" Content="Plan mode ✕"
+                            Visibility="Collapsed"
+                            ToolTip="The session only reads and plans: edits, editor calls and commands are refused in it, whatever is allowed. Turn it off: your next words go on with edits, in the same session" />
                     <Button x:Name="HandOffButton" Style="{StaticResource SmallChipStyle}" Click="HandOff_OnClick" Content="Hand off ▾"
                             ToolTip="The other agent in a new session with a brief you see first, another model in the same session, or the first agent back" />
                     <Button x:Name="FinishButton" Style="{StaticResource SmallChipStyle}" Click="Finish_OnClick" Content="Finish"
