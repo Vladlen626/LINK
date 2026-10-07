@@ -54,7 +54,7 @@ public sealed partial record AgentQuestion(string Question, IReadOnlyList<AgentO
         _ => null
     };
 
-    private static string? Text(JsonElement element, string name) =>
+    internal static string? Text(JsonElement element, string name) =>
         element.TryGetProperty(name, out var value) && value.ValueKind == JsonValueKind.String ? value.GetString() : null;
 
     [GeneratedRegex(@"```link-ask[^\n]*\n(.*?)```", RegexOptions.Singleline | RegexOptions.IgnoreCase)]

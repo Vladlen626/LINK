@@ -104,6 +104,8 @@
                             </DataTemplate>
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
+                    <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Next}"
+                               TextWrapping="Wrap" Visibility="{Binding NextVisibility}" />
                     <TextBlock Margin="0,4,0,0" FontSize="10.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Stats}"
                                TextWrapping="Wrap" Visibility="{Binding StatsVisibility}" />
                 </StackPanel>
@@ -186,7 +188,7 @@
                               ToolTip="The agent's own models: its default from its settings, or one for this task" />
                     <TextBlock Grid.Row="3" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Effort" />
                     <ComboBox x:Name="EffortCombo" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0"
-                              ToolTip="How long the model thinks: the levels this model takes. Higher spends more of the usage limits" />
+                              ToolTip="How long the model thinks: the levels this model takes. Higher spends more of the usage limits. Auto: Link picks it for each run and says why" />
                     <TextBlock Grid.Row="4" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Access" />
                     <ComboBox x:Name="AccessCombo" Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Card_OnChanged">
                         <ComboBoxItem Content="Edit — changes files, asks for commands" />

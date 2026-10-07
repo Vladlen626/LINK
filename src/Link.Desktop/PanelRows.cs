@@ -32,6 +32,7 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush) :
     private string _current = string.Empty;
     private string _said = string.Empty;
     private IReadOnlyList<AgentChangeRow> _files = [];
+    private string _next = string.Empty;
     private string _stats = string.Empty;
     private bool _stepsOpen;
 
@@ -80,6 +81,15 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush) :
     }
 
     public Visibility FilesVisibility => _files.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>The next step the agent ended with, "Next: wire the jump · medium"; empty when it named none.</summary>
+    public string Next
+    {
+        get => _next;
+        set => Set(ref _next, value, nameof(Next), nameof(NextVisibility));
+    }
+
+    public Visibility NextVisibility => _next.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
 
     /// <summary>The run's numbers and check in a line or two.</summary>
     public string Stats

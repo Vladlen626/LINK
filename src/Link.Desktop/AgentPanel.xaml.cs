@@ -44,6 +44,9 @@ public sealed record AgentCardModel(
     public string Title { get; init; } = "NEW TASK";
     public string? RunLabel { get; init; }
     public bool FixedProvider { get; init; }
+
+    /// <summary>The effort list starts with Auto, Link's pick for each run, and the card starts on it.</summary>
+    public bool AutoEffort { get; init; }
 }
 
 /// <summary>
@@ -54,6 +57,7 @@ public sealed record AgentCardModel(
 public partial class AgentPanel : UserControl
 {
     private const double ThumbnailHeight = 54;
+    private static readonly AgentChoice AutoChoice = new("auto", "Auto — Link picks");
     private AgentCardModel? _card;
     private bool _fillingCard;
     private bool _running;
@@ -461,22 +465,28 @@ public partial class AgentPanel : UserControl
         _fillingCard = true;
         ModelCombo.ItemsSource = agent.Models.Prepend(new AgentChoice(string.Empty, agent.OwnModel)).ToArray();
         ModelCombo.SelectedIndex = Math.Max(0, agent.Models.ToList().FindIndex(model => model.Value == agent.Model) + 1);
-        ShowEfforts(agent, agent.Effort);
+        ShowEfforts(agent, agent.Effort, auto: true);
         CardLimitsList.ItemsSource = agent.Limits;
         _fillingCard = filling;
     }
 
-    /// <summary>The efforts the chosen model takes, keeping <paramref name="effort"/> when it is one of them.</summary>
-    private void ShowEfforts(AgentCardProvider agent, string? effort)
+    /// <summary>
+    /// The efforts the chosen model takes, keeping <paramref name="effort"/> when it is one of them. A card on Auto
+    /// offers Auto first, and <paramref name="auto"/> chooses it.
+    /// </summary>
+    private void ShowEfforts(AgentCardProvider agent, string? effort, bool auto)
     {
         var efforts = agent.EffortsOf(SelectedModel);
-        EffortCombo.ItemsSource = efforts.Prepend(new AgentChoice(string.Empty, agent.OwnEffort)).ToArray();
-        EffortCombo.SelectedIndex = Math.Max(0, efforts.ToList().FindIndex(choice => choice.Value == effort) + 1);
+        var offered = _card?.AutoEffort == true;
+        var choices = efforts.Prepend(new AgentChoice(string.Empty, agent.OwnEffort));
+        EffortCombo.ItemsSource = (offered ? choices.Prepend(AutoChoice) : choices).ToArray();
+        EffortCombo.SelectedIndex = offered && auto ? 0 : (offered ? 1 : 0) + Math.Max(0, efforts.ToList().FindIndex(choice => choice.Value == effort) + 1);
     }
 
-    // The first item of each list is the CLI's own choice, sent as none.
+    // The first item of each list is the CLI's own choice, sent as none; Auto, when offered, is before it.
     private string? SelectedModel => ModelCombo.SelectedItem is AgentChoice { Value.Length: > 0 } model ? model.Value : null;
-    private string? SelectedEffort => EffortCombo.SelectedItem is AgentChoice { Value.Length: > 0 } effort ? effort.Value : null;
+    private bool SelectedAutoEffort => ReferenceEquals(EffortCombo.SelectedItem, AutoChoice);
+    private string? SelectedEffort => EffortCombo.SelectedItem is AgentChoice { Value.Length: > 0 } effort && !SelectedAutoEffort ? effort.Value : null;
 
     // The items follow AgentAccessChoice: edit, auto.
     private bool SelectedAuto => AccessCombo.SelectedIndex == 1;
@@ -491,7 +501,7 @@ public partial class AgentPanel : UserControl
     private void Model_OnChanged(object sender, SelectionChangedEventArgs e)
     {
         if (_fillingCard || SelectedAgent is not { } agent) return;
-        ShowEfforts(agent, SelectedEffort);
+        ShowEfforts(agent, SelectedEffort, SelectedAutoEffort);
     }
 
     private void Card_OnChanged(object sender, RoutedEventArgs e)
@@ -531,6 +541,7 @@ public partial class AgentPanel : UserControl
         {
             Model = SelectedModel,
             Effort = SelectedEffort,
+            AutoEffort = SelectedAutoEffort,
             AutoApprove = SelectedAuto
         };
         _card = null;

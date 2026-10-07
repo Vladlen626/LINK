@@ -52,6 +52,10 @@ internal static class AgentTests
         await StartOverAsync();
         ContinueAndPermissions();
         Choices();
+        NextSteps();
+        AutoEffortPolicy();
+        AutoEffortFailures();
+        AutoEffortSaved();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -840,6 +844,149 @@ internal static class AgentTests
                 string.Join(' ', codex.Arguments(codexTask with { ContextBudget = 400_000, ResumeSessionId = "t1" })).Contains("-c model_auto_compact_token_limit=360000"),
                 string.Join(' ', codex.Arguments(codexTask)).Contains("compact")),
             (true, true, false));
+    }
+
+    /// <summary>The agent's word for its next step, as its rules ask it, and what Link does with the block.</summary>
+    private static void NextSteps()
+    {
+        var (text, next) = AgentNext.Split("""
+            The jump is in.
+
+            ```link-next
+            {"next": "wire the jump to Enhanced Input", "effort": "Medium", "why": "plain wiring by the plan"}
+            ```
+            """);
+        Program.Equal("next: the block leaves the answer and becomes the step, its effort lowercased",
+            (text, next?.Step, next?.Effort, next?.Why, next?.Line),
+            ("The jump is in.", "wire the jump to Enhanced Input", "medium", "plain wiring by the plan", "Next: wire the jump to Enhanced Input · medium"));
+
+        var (_, unknown) = AgentNext.Split("```link-next\n{\"next\": \"tidy up\", \"effort\": \"ultra\"}\n```");
+        Program.Equal("next: an effort the CLIs do not take is dropped, the step stays", (unknown?.Step, unknown?.Effort, unknown?.Why, unknown?.Line), ("tidy up", (string?)null, "", "Next: tidy up"));
+
+        var (unchanged, broken) = AgentNext.Split("Done.\n```link-next\n{oops\n```");
+        Program.Equal("next: broken JSON leaves the answer as it is", (unchanged, broken), ("Done.\n```link-next\n{oops\n```", (AgentNext?)null));
+        Program.Equal("next: no block, a block without a step and another kind of block leave the answer as it is",
+            (AgentNext.Split("Done.").Text, AgentNext.Split("```link-next\n{\"effort\": \"high\"}\n```").Next, AgentNext.Split("```link-ask\n{\"question\": \"Which?\"}\n```").Next),
+            ("Done.", (AgentNext?)null, (AgentNext?)null));
+
+        var (kept, last) = AgentNext.Split("```link-next\n{\"next\": \"first\"}\n```\nMore.\n```link-next\n{\"next\": \"second\", \"effort\": \"high\"}\n```");
+        Program.Equal("next: the last block is the step", (last?.Step, last?.Effort, kept.Contains("first", StringComparison.Ordinal), kept.Contains("second", StringComparison.Ordinal)),
+            ("second", "high", true, false));
+
+        var record = new AgentTaskRecord { Goal = "Jump", Brief = "Jump", Workspace = @"C:\Work", LastWords = "Half done.\n```link-next\n{\"next\": \"wire it\", \"effort\": \"low\"}\n```" };
+        var handOver = AgentCoordinator.HandOffBrief(record, "Claude Code", numstat: null);
+        var back = AgentCoordinator.ReturnBrief(record, "Codex", numstat: null);
+        Program.Equal("next: the hand-over briefs carry the words without the block",
+            (handOver.Contains("Half done.", StringComparison.Ordinal), handOver.Contains("link-next", StringComparison.Ordinal),
+                back.Contains("Half done.", StringComparison.Ordinal), back.Contains("link-next", StringComparison.Ordinal)),
+            (true, false, true, false));
+    }
+
+    /// <summary>Auto effort: each rule of the policy in its order, and the efforts of the CLI it answers with.</summary>
+    private static void AutoEffortPolicy()
+    {
+        string[] all = ["low", "medium", "high", "xhigh", "max"];
+        (string? Effort, string Reason) Choose(EffortPhase phase, string brief = "Add a button", string? last = null, int failures = 0,
+            AgentNext? next = null, string? role = null, string[]? efforts = null) =>
+            AutoEffort.Choose(phase, brief, efforts ?? all, last, failures, next, role);
+
+        Program.Equal("auto: a failed run raises the effort one step above the last",
+            (Choose(EffortPhase.Reply, last: "medium", failures: 1), Choose(EffortPhase.Reply, last: "low", failures: 2).Effort, Choose(EffortPhase.Reply, last: "high", failures: 1).Effort),
+            (("high", "raised after a failed run"), "medium", "xhigh"));
+        Program.Equal("auto: a stem counts only at the start of a word",
+            (Choose(EffortPhase.New, "Add an information panel").Effort, Choose(EffortPhase.New, "An important fix to the menu").Effort,
+                Choose(EffortPhase.New, "Read the stack trace and fix the menu").Effort, Choose(EffortPhase.New, "Import the new FBX").Reason),
+            ("medium", "medium", "medium", "\"import\": a mechanical change"));
+        Program.Equal("auto: the raise never goes above xhigh, and starts from high when the last effort is not known",
+            (Choose(EffortPhase.Reply, last: "xhigh", failures: 1).Effort, Choose(EffortPhase.Reply, last: "max", failures: 1).Effort, Choose(EffortPhase.Steer, failures: 1).Effort),
+            ("xhigh", "xhigh", "high"));
+        Program.Equal("auto: starting over raises it too, with its own reason",
+            Choose(EffortPhase.Restart, last: "low"), ("medium", "raised: starting over after a stuck run"));
+        Program.Equal("auto: a failure beats the agent's word and the phase",
+            Choose(EffortPhase.RunPlan, last: "medium", failures: 1, next: new AgentNext("tidy up", "low", "mechanical")).Effort, "high");
+
+        var asked = new AgentNext("wire the jump", "high", "a new mechanic");
+        Program.Equal("auto: the agent's word is taken, with its reason",
+            Choose(EffortPhase.Reply, last: "low", next: asked), ("high", "the agent asked: a new mechanic"));
+        Program.Equal("auto: the agent's word beats the phase and the brief",
+            (Choose(EffortPhase.RunPlan, next: asked).Effort, Choose(EffortPhase.New, brief: "Rename the field", next: asked).Effort), ("high", "high"));
+        Program.Equal("auto: the agent's word stops at xhigh, and says so without a why",
+            Choose(EffortPhase.Reply, next: new AgentNext("dig", "max", " ")), ("xhigh", "the agent asked"));
+        var longWhy = Choose(EffortPhase.Reply, next: new AgentNext("dig", "low", new string('x', 90))).Reason;
+        Program.Equal("auto: a long why is cut to about sixty characters",
+            (longWhy.Length, longWhy.EndsWith("…", StringComparison.Ordinal)), ("the agent asked: ".Length + 60, true));
+        Program.Equal("auto: a step without an effort is no word at all", Choose(EffortPhase.RunPlan, next: new AgentNext("dig", null, "x")), ("medium", "carrying out the approved plan"));
+
+        Program.Equal("auto: carrying out the plan is medium", Choose(EffortPhase.RunPlan, brief: "Rewrite the system", last: "xhigh"), ("medium", "carrying out the approved plan"));
+        Program.Equal("auto: words after a run keep its effort",
+            (Choose(EffortPhase.Reply, last: "high"), Choose(EffortPhase.Steer, brief: "Rename it", last: "xhigh").Effort), (("high", "same as the last run"), "xhigh"));
+        Program.Equal("auto: words with no last effort go by the brief", Choose(EffortPhase.Reply, brief: "Rename the field").Effort, "low");
+
+        Program.Equal("auto: a hard task is high, with the word that said so",
+            (Choose(EffortPhase.New, brief: "The app crashes on start"), Choose(EffortPhase.New, brief: "Build a save system").Reason, Choose(EffortPhase.HandOff, brief: "Investigate the stutter").Effort),
+            (("high", "\"crash\": an unclear failure"), "\"system\": a design task", "high"));
+        Program.Equal("auto: a mechanical task is low", Choose(EffortPhase.New, brief: "Rename the Player class"), ("low", "\"rename\": a mechanical change"));
+        Program.Equal("auto: the brief is read in any case", Choose(EffortPhase.New, brief: "REFACTOR the input").Effort, "high");
+        Program.Equal("auto: high wins over low", Choose(EffortPhase.New, brief: "Rewrite the docs"), ("high", "\"rewrite\": a design task"));
+        Program.Equal("auto: Russian stems",
+            (Choose(EffortPhase.New, brief: "Переименуй поле"), Choose(EffortPhase.New, brief: "Почему падает игра"), Choose(EffortPhase.New, brief: "Спроектируй систему").Effort,
+                Choose(EffortPhase.New, brief: "Опечатка в описании").Effort, Choose(EffortPhase.New, brief: "Переименуй систему").Effort),
+            (("low", "\"переимен\": a mechanical change"), ("high", "\"почему\": an unclear failure"), "high", "low", "high"));
+        Program.Equal("auto: nothing to go by is medium, or the role's usual effort",
+            (Choose(EffortPhase.New), Choose(EffortPhase.New, role: "High"), Choose(EffortPhase.New, role: "max").Effort, Choose(EffortPhase.New, role: "ultra").Effort),
+            (("medium", "a usual task"), ("high", "the role's usual effort"), "xhigh", "medium"));
+        Program.Equal("auto: the role does not beat the brief", Choose(EffortPhase.New, brief: "Rename it", role: "high").Effort, "low");
+
+        string[] short3 = ["low", "medium", "high"];
+        Program.Equal("auto: an effort the CLI lacks becomes the nearest, the cheaper of two",
+            (Choose(EffortPhase.Reply, next: new AgentNext("dig", "xhigh", "x"), efforts: short3).Effort,
+                Choose(EffortPhase.Reply, next: new AgentNext("dig", "xhigh", "x"), efforts: ["low", "medium", "high", "max"]).Effort,
+                Choose(EffortPhase.Reply, next: new AgentNext("dig", "low", "x"), efforts: ["medium", "high"]).Effort),
+            ("high", "high", "medium"));
+        Program.Equal("auto: a failure on the CLI's top effort stays on it", Choose(EffortPhase.Reply, last: "high", failures: 1, efforts: short3).Effort, "high");
+        Program.Equal("auto: the answer is the CLI's own value", Choose(EffortPhase.Reply, last: "medium", efforts: ["Low", "Medium", "High"]).Effort, "Medium");
+        Program.Equal("auto: a list with values of its own is mapped by the known ones",
+            Choose(EffortPhase.Reply, next: new AgentNext("dig", "high", "x"), efforts: ["minimal", "low", "medium"]).Effort, "medium");
+        Program.Equal("auto: no efforts to choose from leaves the CLI its own",
+            Choose(EffortPhase.New, brief: "Rename it", efforts: []), ((string?)null, "\"rename\": a mechanical change"));
+    }
+
+    /// <summary>The runs that count as failed for Auto: failed, the check failed, or stopped in a loop; a good run clears them.</summary>
+    private static void AutoEffortFailures()
+    {
+        static AgentRunRecord Run(string outcome, bool looped = false) => new() { Outcome = outcome, Looped = looped };
+        Program.Equal("auto failures: none before a first run, none after a good one",
+            (AutoEffort.Failures([]), AutoEffort.Failures([Run("Failed after 1:00"), Run("Done in 2:10")])), (0, 0));
+        Program.Equal("auto failures: a failed run and a failed check each count",
+            (AutoEffort.Failures([Run("Done in 1:00"), Run("Failed after 1:00")]), AutoEffort.Failures([Run("Failed after 1:00"), Run("Check failed after 3:00")])), (1, 2));
+        Program.Equal("auto failures: a run stopped by the user is neither good nor bad",
+            (AutoEffort.Failures([Run("Failed after 1:00"), Run("Stopped after 0:10")]), AutoEffort.Failures([Run("Done in 1:00"), Run("Stopped after 0:10")])), (1, 0));
+        Program.Equal("auto failures: stopped in a loop counts, done after a loop does not",
+            (AutoEffort.Failures([Run("Stopped after 4:00", looped: true)]), AutoEffort.Failures([Run("Done in 5:00", looped: true)])), (1, 0));
+    }
+
+    /// <summary>Auto effort in what is saved: Settings' switch, the task's pin and the run's reason; older files load as before.</summary>
+    private static void AutoEffortSaved()
+    {
+        Program.Equal("auto effort: on by default, in older settings too, kept by a copy",
+            (new AgentSettings().AutoEffort, JsonSerializer.Deserialize<AgentSettings>("{}")!.AutoEffort, JsonSerializer.Deserialize<AgentSettings>("""{"AutoEffort":false}""")!.AutoEffort,
+                new AgentSettings { AutoEffort = false }.Clone().AutoEffort),
+            (true, true, false, false));
+
+        // As the project's store writes and reads them.
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        var older = JsonSerializer.Deserialize<AgentTaskRecord>("""{"Goal":"Fix it","Workspace":"C:\\Work","Runs":[{"Provider":0,"Effort":"high","Outcome":"Done in 1:00"}]}""", options)!;
+        Program.Equal("auto effort: a task of an older Link keeps its own effort", (older.AutoEffort, older.Runs[0].Effort, older.Runs[0].EffortReason, older.Runs[0].Looped),
+            (false, "high", (string?)null, false));
+        var saved = JsonSerializer.Deserialize<AgentTaskRecord>(JsonSerializer.Serialize(new AgentTaskRecord
+        {
+            Goal = "Fix it",
+            Workspace = @"C:\Work",
+            AutoEffort = true,
+            Runs = [new AgentRunRecord { Effort = "medium", EffortReason = "carrying out the approved plan", Looped = true, Outcome = "Stopped after 4:00" }]
+        }, options), options)!;
+        Program.Equal("auto effort: the task's pin and the run's reason and loop are kept",
+            (saved.AutoEffort, saved.Runs[0].EffortReason, saved.Runs[0].Looped), (true, "carrying out the approved plan", true));
     }
 
     /// <summary>The loop check on runs in the recorded format: each kind of loop is told once, working runs get none.</summary>

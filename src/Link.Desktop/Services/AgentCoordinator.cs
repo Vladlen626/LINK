@@ -15,8 +15,11 @@ public sealed record AgentPlan(
     /// <summary>The model chosen on the card, one of the agent's own; null: the CLI's own.</summary>
     public string? Model { get; init; }
 
-    /// <summary>The effort chosen on the card; null: the CLI's own.</summary>
+    /// <summary>The effort chosen on the card; null: the CLI's own, or Link's pick when <see cref="AutoEffort"/> is on.</summary>
     public string? Effort { get; init; }
+
+    /// <summary>Auto on the card: Link picks the effort of each run (see <see cref="Services.AutoEffort"/>).</summary>
+    public bool AutoEffort { get; init; }
 
     /// <summary>Auto on the card: with edits, nothing is asked (see <see cref="AgentTask.AutoApprove"/>).</summary>
     public bool AutoApprove { get; init; }
@@ -159,7 +162,7 @@ public sealed class AgentCoordinator
         var said = record.Entries.Where(entry => entry.Kind == AgentEntryKind.You).Select(entry => "- " + entry.Text).ToArray();
         var plan = record.Plan.Select(item => $"- [{(item.Done ? "x" : " ")}] {item.Text}").ToArray();
         var files = numstat ?? string.Join('\n', record.ChangedFiles.Select(file => "- " + file));
-        var words = record.LastWords.Trim();
+        var words = AgentNext.Split(record.LastWords).Text.Trim();
         var steps = record.Steps.TakeLast(15).ToList();
         while (true)
         {
@@ -204,7 +207,7 @@ public sealed class AgentCoordinator
         var files = numstat ?? string.Join('\n', record.ChangedFiles.Select(file => "- " + file));
         if (files.Length > 0) brief.Append("\n\nFiles changed so far:\n").Append(files);
         if (record.LastCheck is { } check) brief.Append("\n\nThe project's check as it last ran:\n").Append(check);
-        if (record.LastWords.Trim() is { Length: > 0 } words) brief.Append($"\n\nHow {otherName} ended:\n").Append(words.Length <= 2000 ? words : words[..2000] + "…");
+        if (AgentNext.Split(record.LastWords).Text.Trim() is { Length: > 0 } words) brief.Append($"\n\nHow {otherName} ended:\n").Append(words.Length <= 2000 ? words : words[..2000] + "…");
         return brief.Append("\n\nLook at its changes, then finish the task.").ToString();
     }
 

@@ -31,6 +31,16 @@ dialog: a question or a request for permission ends it, and the user's answer co
   Two to four options, the one you recommend first; `"multiSelect": true` when several fit together. The user may
   answer in their own words instead. Nothing after the block.
 
+## The next step
+- The task is not finished and you know the next step: end your answer with one block, and Link sets the effort of
+  the next turn by it:
+  ```link-next
+  {"next": "wire the jump to Enhanced Input", "effort": "medium", "why": "plain wiring by the plan"}
+  ```
+  `effort` is how hard the NEXT step is: `low` mechanical (a rename, an import, a known edit), `medium` usual work,
+  `high` design, an unclear bug or a new mechanic, `xhigh` only after medium or high failed at it. Not together with
+  a link-ask block; nothing after it. The task is done: no block.
+
 ## Project and environment
 - `docs/map.md`, if present, is the project's map: what is where, how to build and check. Read it first.
 - Project skills are `.agents/skills/<name>/SKILL.md`: repeated work that a skill describes, do by it. A skill or a

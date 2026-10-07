@@ -56,6 +56,12 @@ public sealed class AgentTaskRecord
     /// <summary>In Perforce: the pending changelist Link keeps the task's files in, as P4V shows it; null elsewhere.</summary>
     public int? Changelist { get; set; }
 
+    /// <summary>
+    /// Link picks each run's effort (see <see cref="Services.AutoEffort"/>). An effort chosen by hand pins it, so a task
+    /// of an older Link, which had none, keeps its own.
+    /// </summary>
+    public bool AutoEffort { get; set; }
+
     [JsonIgnore]
     public AgentRunRecord? LastRun => Runs.Count == 0 ? null : Runs[^1];
 
@@ -111,6 +117,10 @@ public sealed record AgentRunRecord
     public AgentProviderKind Provider { get; init; }
     public string? Model { get; init; }
     public string? Effort { get; init; }
+
+    /// <summary>Why Link chose the effort when the task was on Auto; null when it was chosen by hand.</summary>
+    public string? EffortReason { get; init; }
+
     public AgentAccess Access { get; init; }
     public bool AutoApprove { get; init; }
     public string? SessionId { get; init; }
@@ -129,6 +139,9 @@ public sealed record AgentRunRecord
     public long? ContextTokens { get; init; }
 
     public long? ContextWindow { get; init; }
+
+    /// <summary>The CLI's loop check named a kind of loop in the run.</summary>
+    public bool Looped { get; init; }
 
     /// <summary>The run's steps in Activity's words, the last of them: what the task's thread folds under the run.</summary>
     public List<string> Steps { get; init; } = [];
@@ -307,6 +320,9 @@ public sealed record AgentTask
 
     /// <summary>How hard the model thinks, in the CLI's own levels (see <c>IAgentProvider.Efforts</c>); null: its settings.</summary>
     public string? Effort { get; init; }
+
+    /// <summary>Why Link chose <see cref="Effort"/> for a task on Auto (see <see cref="Services.AutoEffort"/>); null when the user did.</summary>
+    public string? EffortReason { get; init; }
 
     /// <summary>
     /// A guard against a run that goes on and on (Claude Code's <c>--max-turns</c>): each turn spends the provider's
@@ -518,6 +534,9 @@ public sealed class AgentSettings
     /// <summary>Link's own answers (a map, a skill, a note for Start over) run on Light.</summary>
     public bool OwnAnswersOnLight { get; set; } = true;
 
+    /// <summary>Link picks each run's effort for the tasks that start on Auto; the model and the agent stay the user's.</summary>
+    public bool AutoEffort { get; set; } = true;
+
     private const int DefaultContextBudget = 550_000;
 
     /// <summary>
@@ -588,6 +607,7 @@ public sealed class AgentSettings
         CodexDeep = new AgentLevelChoice { Model = CodexDeep.Model, Effort = CodexDeep.Effort },
         PlanOnDeep = PlanOnDeep,
         OwnAnswersOnLight = OwnAnswersOnLight,
+        AutoEffort = AutoEffort,
         ContextBudget = ContextBudget
     };
 

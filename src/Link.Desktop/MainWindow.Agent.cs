@@ -66,6 +66,8 @@ public partial class MainWindow
     private AgentTask? _earlierSession;
     // The model and effort a plan is carried out on, after Plan first ran on the strongest.
     private (string? Model, string? Effort) _planSetup;
+    // The run whose plan mode was turned off: while it is the last run, the next words carry its plan out.
+    private AgentRun? _planLeft;
     // The agent's question at the end of its last run: a choice until it is answered.
     private AgentQuestion? _question;
     // Words the user gave while the agent worked: a correction now (with its images), or words for after the run.
@@ -290,7 +292,10 @@ public partial class MainWindow
             images,
             goal,
             project.CheckCommand,
-            settings.DefaultAccess);
+            settings.DefaultAccess)
+        {
+            AutoEffort = settings.AutoEffort
+        };
     }
 
     private static string ModelName(IAgentProvider agent, string model) =>
@@ -529,13 +534,14 @@ public partial class MainWindow
         {
             Goal = Shorten(plan.Goal.Split('\n')[0].Trim(), 200),
             Brief = _agentOrigin.Prompt,
-            Workspace = plan.Workspace
+            Workspace = plan.Workspace,
+            AutoEffort = plan.AutoEffort
         };
         _task.Add(AgentEntryKind.Brief, plan.Goal.Trim() + ImagesNote(_agentOrigin.Images) + (plan.PlanFirst ? "\n(plan first)" : string.Empty));
         _earlierSession = null;
         _lastRun = null;
         _shownTask = _task;
-        await StartAgentAsync(_agentOrigin, null);
+        await StartAgentAsync(_agentOrigin, null, phase: EffortPhase.New);
     }
 
     private static string ImagesNote(IReadOnlyCollection<string> images) =>
@@ -565,15 +571,19 @@ public partial class MainWindow
 
         _question = null;
         _task?.Add(AgentEntryKind.You, text + ImagesNote(images));
+        var phase = _planLeft is not null && ReferenceEquals(_lastRun, _planLeft) ? EffortPhase.RunPlan : EffortPhase.Reply;
         if (_earlierSession is { } earlier)
         {
             _agentOrigin = earlier with { ResumeSessionId = null };
             _backupBeforeDo = true;
-            _ = StartAgentAsync(earlier with { Prompt = text, Images = images }, null);
+            _ = StartAgentAsync(earlier with { Prompt = text, Images = images }, null, phase: phase);
             return;
         }
 
-        if (_lastRun is { } run && AgentCoordinator.ContinueTask(run, text) is { } task) _ = StartAgentAsync(task with { Images = images }, run);
+        if (_lastRun is { } run && AgentCoordinator.ContinueTask(run, text) is { } task)
+        {
+            _ = StartAgentAsync(task with { Images = images }, run, phase: phase);
+        }
     }
 
     /// <summary>Tab while the agent works: the words wait for the end of the run, then the same session goes on with them.</summary>
@@ -594,7 +604,7 @@ public partial class MainWindow
     {
         if (AgentRunning || _lastRun is not { Task.PlanOnly: true } run) return;
         var (model, effort) = _settings.Current.Agent.PlanOnDeep ? _planSetup : (run.Task.Model, run.Task.Effort);
-        _lastRun = run with { Task = run.Task with { PlanOnly = false, Model = model, Effort = effort } };
+        _lastRun = _planLeft = run with { Task = run.Task with { PlanOnly = false, Model = model, Effort = effort } };
         if (_task is { } record)
         {
             record.Add(AgentEntryKind.You, "Plan mode off");
@@ -700,12 +710,14 @@ public partial class MainWindow
 
     /// <summary>
     /// Runs a task, fresh or continuing <paramref name="previous"/>, and shows it in its thread; <paramref name="note"/>
-    /// opens its steps, such as the note a new session starts over with.
+    /// opens its steps, such as the note a new session starts over with. <paramref name="phase"/> is what the run is for:
+    /// a task on Auto gets its effort from it; without one the task's own effort stands.
     /// </summary>
-    private async Task StartAgentAsync(AgentTask task, AgentRun? previous, string? note = null)
+    private async Task StartAgentAsync(AgentTask task, AgentRun? previous, string? note = null, EffortPhase? phase = null)
     {
         // Every run starts here, the user's and Link's own: the CLI compacts its session near the budget of Settings.
-        task = task with { ContextBudget = _settings.Current.Agent.ContextBudget };
+        task = task with { ContextBudget = _settings.Current.Agent.ContextBudget, EffortReason = null };
+        if (phase is { } kind) task = WithAutoEffort(task, kind);
         var provider = _agents.Provider(task.Provider);
         // Link's own answer (the map) runs apart: the open task keeps its session, its last run and its question.
         var own = !IsUserWork(task) || _task is null;
@@ -729,7 +741,7 @@ public partial class MainWindow
             ? (last.SessionId == task.ResumeSessionId ? last.ContextTokens : null, last.ContextWindow)
             : default;
         _runningFiles.Clear();
-        _liveTurn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort)}", "Starting…",
+        _liveTurn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason)}", "Starting…",
             (Brush)FindResource("AccentBrush")) { StepsOpen = true };
         if (own) _own = new OwnRun(task, _liveTurn);
         var cancellation = new CancellationTokenSource();
@@ -822,7 +834,7 @@ public partial class MainWindow
             _steerImages = [];
             if (ended is not null && AgentCoordinator.ContinueTask(ended, AgentCoordinator.Interrupted(words)) is { } next)
             {
-                await StartAgentAsync(next with { Images = images }, ended);
+                await StartAgentAsync(next with { Images = images }, ended, phase: EffortPhase.Steer);
             }
             else
             {
@@ -832,12 +844,29 @@ public partial class MainWindow
         else if (_queued is { } later)
         {
             _queued = null;
-            if (ended is not null && AgentCoordinator.ContinueTask(ended, later) is { } next) await StartAgentAsync(next, ended);
+            if (ended is not null && AgentCoordinator.ContinueTask(ended, later) is { } next) await StartAgentAsync(next, ended, phase: EffortPhase.Reply);
         }
     }
 
     /// <summary>The user's work, as opposed to Link's own answer written to a file, such as the map.</summary>
     private static bool IsUserWork(AgentTask task) => task.AnswerFile is null;
+
+    /// <summary>
+    /// The run's task with the effort <see cref="AutoEffort"/> chooses for <paramref name="phase"/> and its reason, when
+    /// the open task is on Auto: from the task's brief and runs and the next step the last one ended with. A task whose
+    /// effort the user chose, Link's own answer and a plan made on Strong stay as they are. The model is never touched.
+    /// </summary>
+    private AgentTask WithAutoEffort(AgentTask task, EffortPhase phase)
+    {
+        var agent = _settings.Current.Agent;
+        if (!agent.AutoEffort || _task is not { AutoEffort: true } record || !IsUserWork(task) || (task.PlanOnly && agent.PlanOnDeep)) return task;
+        var last = record.LastRun;
+        var brief = record.Entries.FirstOrDefault(entry => entry.Kind == AgentEntryKind.Brief)?.Text ?? record.Goal;
+        var efforts = _agents.Provider(task.Provider).EffortsOf(task.Model).Select(choice => choice.Value).ToArray();
+        var (effort, reason) = AutoEffort.Choose(phase, brief, efforts, last?.Effort, AutoEffort.Failures(record.Runs),
+            last is null ? null : AgentNext.Split(last.Words).Next);
+        return task with { Effort = effort, EffortReason = reason };
+    }
 
     /// <summary>Link's own answer, such as the map: a thread of its one run, outside the tasks.</summary>
     private void ShowOwnRun()
@@ -979,7 +1008,8 @@ public partial class MainWindow
 
         _task?.Add(AgentEntryKind.You, "Start over with a note" + (fresh.Note.Length > 0 ? ": " + fresh.Note : string.Empty));
         await StartAgentAsync(fresh.Task, run,
-            fresh.Note.Length > 0 ? "Note from the last attempt:\n" + fresh.Note : "No note came back: the new session starts with the task alone.");
+            fresh.Note.Length > 0 ? "Note from the last attempt:\n" + fresh.Note : "No note came back: the new session starts with the task alone.",
+            phase: EffortPhase.Restart);
     }
 
     /// <summary>
@@ -995,6 +1025,8 @@ public partial class MainWindow
         _task?.Add(AgentEntryKind.Model,
             $"{AgentName(resume.Task.Provider)} · {SetupWords(resume.Task.Provider, setup.Model, setup.Effort)}{(escalate ? ", escalated" : string.Empty)}");
         if (resume.Previous is null) _backupBeforeDo = true;
+        // A level chosen by hand stays; Escalate is the rule for a failure done by hand, and Auto goes on after it.
+        if (!escalate && _task is { } record) record.AutoEffort = false;
         _ = StartAgentAsync(resume.Task with { Model = setup.Model, Effort = setup.Effort, Prompt = prompt, Images = [] }, resume.Previous);
     }
 
@@ -1025,7 +1057,8 @@ public partial class MainWindow
         {
             Title = $"HAND OFF TO {AgentName(to).ToUpperInvariant()} · NEW SESSION",
             RunLabel = $"Hand off to {AgentName(to)}",
-            FixedProvider = true
+            FixedProvider = true,
+            AutoEffort = record.AutoEffort && _settings.Current.Agent.AutoEffort
         };
         _cardRun = plan => HandOffAsync(plan, fromProvider);
         ShowAgentPanel();
@@ -1048,13 +1081,16 @@ public partial class MainWindow
             AutoApprove = plan.AutoApprove,
             AllowedTools = AgentCoordinator.Tools(_taskProject ?? _projects.ActiveProject, template.Workspace, AgentAccess.Do)
         };
+        // Auto stays on the card's word: an effort chosen there pins it.
+        record.AutoEffort = plan.AutoEffort;
+        var setup = WithAutoEffort(task, EffortPhase.HandOff);
         record.Add(AgentEntryKind.HandOff,
-            $"{AgentName(fromProvider)} → {AgentName(plan.Provider)} · {SetupWords(plan.Provider, plan.Model, plan.Effort)}, a new session");
+            $"{AgentName(fromProvider)} → {AgentName(plan.Provider)} · {SetupWords(setup.Provider, setup.Model, setup.Effort)}, a new session");
         record.Brief += $"\n\n── Handed over to {AgentName(plan.Provider)} ──\n{plan.Goal}";
         // Start over begins the new agent's brief again.
         _agentOrigin = task;
         if (_lastRun is null) _backupBeforeDo = true;
-        await StartAgentAsync(task, _lastRun);
+        await StartAgentAsync(task, _lastRun, phase: EffortPhase.HandOff);
     }
 
     /// <summary>
@@ -1083,7 +1119,7 @@ public partial class MainWindow
             PlanOnly = false,
             AnswerFile = null,
             AnswerIsSkill = false
-        }, _lastRun);
+        }, _lastRun, phase: EffortPhase.HandOff);
     }
 
     /// <summary>The task's steps in Activity's words, for an agent that takes it over; the last ones are what counts.</summary>
@@ -1233,21 +1269,25 @@ public partial class MainWindow
             : task.Access == AgentAccess.Do ? task.AutoApprove ? "auto" : "edits"
             : "read only";
         var elapsed = _agentClock.Elapsed;
-        return $"{_agents.Provider(task.Provider).Name} · {SetupWords(task.Provider, task.Model, task.Effort)} · {access} · " +
+        return $"{_agents.Provider(task.Provider).Name} · {SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason)} · {access} · " +
                $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
     }
 
-    /// <summary>A run's model and effort as the user reads them, "Opus 5.5 · Extra high"; the CLI's own as its config names it.</summary>
-    private string SetupWords(AgentProviderKind provider, string? model, string? effort)
+    /// <summary>
+    /// A run's model and effort as the user reads them, "Opus 5.5 · Extra high"; the CLI's own as its config names it.
+    /// Where Link chose the effort, <paramref name="autoReason"/> says why: "Opus 5.5 · Medium · auto: a usual task".
+    /// </summary>
+    private string SetupWords(AgentProviderKind provider, string? model, string? effort, string? autoReason = null)
     {
         var agent = _agents.Provider(provider);
         var own = agent.OwnSetup;
         var modelName = (model ?? own.Model) is { } chosen ? ModelName(agent, chosen) : "its own model";
-        return (effort ?? own.Effort) is { } level ? $"{modelName} · {EffortName(agent, level)}" : modelName;
+        var words = (effort ?? own.Effort) is { } level ? $"{modelName} · {EffortName(agent, level)}" : modelName;
+        return autoReason is null ? words : $"{words} · auto: {autoReason}";
     }
 
     private string RunLine(AgentRunRecord run) =>
-        $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort)} · " +
+        $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason)} · " +
         $"{(run.Access != AgentAccess.Do ? "read only" : run.AutoApprove ? "auto" : "edits")}";
 
     /// <summary>Where the task works: the project, the folder and, in Perforce, its changelist.</summary>
@@ -1283,20 +1323,22 @@ public partial class MainWindow
         var stopped = result.Stopped || run.Check is { Outcome: AgentCheckOutcome.Stopped };
         // A red check is not "done", whatever the agent's own summary says.
         var checkFailed = !stopped && run.Check is { Passed: false };
+        var limitReached = !result.Succeeded && !stopped &&
+                           (LimitReached.IsMatch(result.Summary) || _limits.ReachedUntil(task.Provider) is not null);
+        // A limit is no failure of the work: Auto effort does not raise the next run for it.
         var ending = stopped ? $"Stopped after {elapsed}"
+            : limitReached ? $"Stopped at the usage limit after {elapsed}"
             : !result.Succeeded ? $"Failed after {elapsed}"
             : checkFailed ? $"Check failed after {elapsed}"
             : $"Done in {elapsed}";
         // An answer Link wrote to a file is shown as written.
         var answer = task.AnswerFile is null && !task.AnswerIsSkill ? result.Summary : AgentCoordinator.Unfenced(result.Summary);
         var (answerText, question) = AgentQuestion.Split(answer);
-        // The changelist's line is for P4V; the thread shows the answer without it.
-        var said = AgentChanges.SplitChangelistLine(answerText).Text;
+        // The changelist's line is for P4V and the next step is for Link's Auto effort; the thread shows the answer without them.
+        var said = AgentChanges.SplitChangelistLine(AgentNext.Split(answerText).Text).Text;
         // A question is asked by a run that ended well; one cut short asks nothing.
         _question = !stopped && result.Succeeded && !checkFailed ? question : null;
         var text = checkFailed ? CheckReport(task, run.Check!) + (said.Length > 0 ? "\n\n" + said : string.Empty) : said;
-        var limitReached = !result.Succeeded && !stopped &&
-                           (LimitReached.IsMatch(result.Summary) || _limits.ReachedUntil(task.Provider) is not null);
         // After a failure, or a Stop in a loop; a Stop without a loop was the user's own choice, and a task done in the
         // end got past its loop. A limit has its own card.
         var failed = !stopped && !limitReached && (!result.Succeeded || checkFailed);
@@ -1433,6 +1475,7 @@ public partial class MainWindow
             Provider = task.Provider,
             Model = task.Model,
             Effort = task.Effort,
+            EffortReason = task.EffortReason,
             Access = task.Access,
             AutoApprove = task.AutoApprove,
             SessionId = result.SessionId,
@@ -1445,6 +1488,7 @@ public partial class MainWindow
             CostUsd = stats.CostUsd,
             ContextTokens = stats.ContextTokens,
             ContextWindow = stats.ContextWindow,
+            Looped = result.Loops.Count > 0,
             Steps = [.. _runSteps.TakeLast(StepsKeptPerRun)],
             Files = files,
             Words = Shorten(answer, 12_000)
@@ -1608,7 +1652,9 @@ public partial class MainWindow
                     turn = null;
                     break;
                 case AgentEntryKind.Run:
-                    turn = TurnOf(record, runs < record.Runs.Count ? record.Runs[runs] : null, entry.Text);
+                    var run = runs < record.Runs.Count ? record.Runs[runs] : null;
+                    // The next step the agent named is ahead only for the last run, and not while another runs.
+                    turn = TurnOf(record, run, entry.Text, showNext: !live && run is not null && ReferenceEquals(run, record.LastRun));
                     runs++;
                     items.Add(turn);
                     break;
@@ -1630,17 +1676,19 @@ public partial class MainWindow
     }
 
     /// <summary>A recorded run as a turn of the thread; an earlier Link's run has only its line.</summary>
-    private ThreadTurn TurnOf(AgentTaskRecord record, AgentRunRecord? run, string line)
+    private ThreadTurn TurnOf(AgentTaskRecord record, AgentRunRecord? run, string line, bool showNext)
     {
         // "Claude Code · Opus 5.5: done in 3:12, 2 files changed".
         var colon = line.IndexOf(": ", StringComparison.Ordinal);
-        var who = run is not null ? $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort)}"
+        var who = run is not null ? $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason)}"
             : colon > 0 ? line[..colon] : line;
         var outcome = run?.Outcome ?? (colon > 0 ? line[(colon + 2)..] : string.Empty);
         var turn = new ThreadTurn(who, outcome, OutcomeBrush(outcome));
         if (run is null) return turn;
         turn.AddSteps(run.Steps.Select(StepRow));
-        turn.Said = AgentChanges.SplitChangelistLine(AgentQuestion.Split(run.Words).Text).Text;
+        var (said, next) = AgentNext.Split(AgentQuestion.Split(run.Words).Text);
+        turn.Said = AgentChanges.SplitChangelistLine(said).Text;
+        if (showNext && next is not null) turn.Next = next.Line;
         turn.Files = run.Files.Select(file => new AgentChangeRow(file, Path.Combine(record.Workspace, file))).ToArray();
         var tokens = run.InputTokens is { } input
             ? $" · {AgentContext.Tokens(input)} in ({AgentContext.Tokens(run.CachedTokens ?? 0)} cached), {AgentContext.Tokens(run.OutputTokens ?? 0)} out"
@@ -1836,7 +1884,7 @@ public partial class MainWindow
                     Prompt = "You may change files in the workspace now. Carry out the task." +
                              (task.CheckCommand is { } check ? " " + AgentCoordinator.CheckNote(check) : string.Empty),
                     Images = []
-                }, null);
+                }, null, phase: EffortPhase.Reply);
             };
             return true;
         }
@@ -1848,9 +1896,12 @@ public partial class MainWindow
             var edits = task.Access == AgentAccess.Do;
             // The plan was made on the strongest model; it is carried out with the card's, in the same session.
             var (model, effort) = _settings.Current.Agent.PlanOnDeep ? _planSetup : (task.Model, task.Effort);
+            var auto = _task is { AutoEffort: true } && _settings.Current.Agent.AutoEffort;
+            // On Auto the plan's run picks its effort when it starts, as it does for each run.
             _agentPanel.ShowDecision(
                 (edits ? "The plan is above. Carry it out with edits in the workspace?" : "The plan is above. Carry it out, read only?") +
-                ((model, effort) != (task.Model, task.Effort) ? $" It runs on {SetupWords(task.Provider, model, effort)}." : string.Empty),
+                (auto ? " Link picks its effort."
+                    : (model, effort) != (task.Model, task.Effort) ? $" It runs on {SetupWords(task.Provider, model, effort)}." : string.Empty),
                 "Run the plan",
                 canRemember: false);
             // The plan read only; the copy before edits is made now.
@@ -1865,7 +1916,7 @@ public partial class MainWindow
                     Images = [],
                     Model = model,
                     Effort = effort
-                }, null);
+                }, null, phase: EffortPhase.RunPlan);
             };
             return true;
         }
@@ -1890,7 +1941,7 @@ public partial class MainWindow
                     AllowedTools = allowed,
                     Prompt = $"These tools are allowed now: {string.Join(", ", rules)}. Continue the task.",
                     Images = []
-                }, run);
+                }, run, phase: EffortPhase.Reply);
             };
             return true;
         }
@@ -1999,7 +2050,7 @@ public partial class MainWindow
             .Append(record.LastRun is { } last ? $" ({AgentName(last.Provider)}, {last.Outcome.ToLowerInvariant()})" : string.Empty)
             .Append(files.Length > 0 ? "\n\nChanged files:\n" + string.Join('\n', files) : "\n\nNo files changed.");
         if (record.LastCheck is { } check) text.Append("\n\nCheck:\n").Append(check);
-        if (AgentQuestion.Split(run.Result.Summary).Text.Trim() is { Length: > 0 } words) text.Append("\n\nThe agent's last words:\n").Append(Shorten(words, 1500));
+        if (AgentNext.Split(AgentQuestion.Split(run.Result.Summary).Text).Text.Trim() is { Length: > 0 } words) text.Append("\n\nThe agent's last words:\n").Append(Shorten(words, 1500));
         if (diff is not null) text.Append("\n\nThe diff:\n```diff\n").Append(diff).Append("\n```");
         foreach (var old in _context.Where(item => item.Type == ContextItemType.AgentResult).ToArray()) _context.Remove(old);
         AddContext(new ContextItem
