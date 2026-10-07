@@ -61,6 +61,9 @@ internal static class AgentTests
         RoleSession();
         RoleSkills();
         RolesSaved();
+        TaskStateBuilt();
+        TaskStateBudget();
+        CompactSession();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -1175,6 +1178,187 @@ internal static class AgentTests
         }, options), options)!;
         Program.Equal("roles saved: the task's specialist and skills and the run's specialist are kept",
             (saved.RoleId, string.Join("+", saved.Skills), saved.Runs[0].RoleId), ("rigger-animator", "blender-anim+unreal-animbp", "qa-playtest"));
+    }
+
+    /// <summary>The task's state from its record: a section only when the record has something for it, in order, and the next step from the agent, else the plan.</summary>
+    private static void TaskStateBuilt()
+    {
+        var workspace = TempFolder();
+        try
+        {
+            var bare = new AgentTaskRecord { Goal = "Fix the jump", Brief = "Fix the jump, it is too low.", Workspace = workspace };
+            Program.Equal("task state: a new task has its goal and brief, no plan, no check and no step",
+                TaskState.Build(bare, null, workspace),
+                "# Task state\nGoal: Fix the jump\n## Current state\nNo plan written yet.\n## Verified\nNothing checked by Link yet.\n## Next action\nDecide from the state above.\n## Pointers\n- The brief this task began with is below.\n## Brief\nFix the jump, it is too low.");
+
+            Directory.CreateDirectory(Path.Combine(workspace, "docs"));
+            File.WriteAllText(ProjectMap.PathIn(workspace), "# Map");
+            WriteSkill(workspace, "jump-tuning", "Tune the jump.");
+            var at = DateTimeOffset.Now;
+            var time = AgentLimits.Time(at);
+            var record = new AgentTaskRecord
+            {
+                Goal = "Make the landing animation",
+                Brief = "Make the landing animation",
+                Workspace = workspace,
+                ChangedFiles = ["tools/anim.py"],
+                Plan = [new AgentPlanItem("Find the clip", true, false), new AgentPlanItem("Blend it", false, true)],
+                LastCheck = "dotnet test: failed (exit 1)",
+                Runs =
+                [
+                    new AgentRunRecord { Provider = AgentProviderKind.ClaudeCode, Outcome = "Failed after 1:02", StartedAt = at, Looped = true },
+                    new AgentRunRecord { Provider = AgentProviderKind.ClaudeCode, Outcome = "Done in 3:00", StartedAt = at, Looped = true },
+                    new AgentRunRecord { Provider = AgentProviderKind.Codex, Outcome = "Stopped after 0:10", StartedAt = at },
+                    new AgentRunRecord { Provider = AgentProviderKind.Codex, Outcome = "Stopped after 0:20", StartedAt = at, Looped = true },
+                    new AgentRunRecord
+                    {
+                        Provider = AgentProviderKind.Codex, Outcome = "Check failed after 2:00", StartedAt = at,
+                        Words = "Half done.\n```link-next\n{\"next\": \"wire it\"}\n```"
+                    }
+                ]
+            };
+            record.Add(AgentEntryKind.You, "keep the pose");
+            record.Add(AgentEntryKind.Check, "dotnet test: failed");
+            record.Add(AgentEntryKind.You, "no new bones");
+            var state = TaskState.Build(record, null, workspace);
+            Program.Equal("task state: the user's words, the plan, the files, the check, the failed runs, the agent's next step, the pointers, the brief",
+                state, string.Join('\n',
+                    "# Task state", "Goal: Make the landing animation",
+                    "## Decisions", "- keep the pose", "- no new bones",
+                    "## Current state", "- [x] Find the clip", "- [ ] Blend it",
+                    "## Files touched", "- tools/anim.py",
+                    "## Verified", "dotnet test: failed (exit 1)",
+                    "## Known problems", $"- Claude Code run {time}: Failed after 1:02 (stuck in a loop)", $"- Codex run {time}: Stopped after 0:20 (stuck in a loop)",
+                    $"- Codex run {time}: Check failed after 2:00",
+                    "## Next action", "wire it",
+                    "## Pointers", "- Project map: docs/map.md", "- Skills: .agents/skills/", "- The brief this task began with is below.",
+                    "## Brief", "Make the landing animation"));
+            Program.Equal("task state: git's lines added and removed take the place of the list of files",
+                TaskState.Build(record, "12\t3\ttools/anim.py", workspace).Contains("## Files touched\n12\t3\ttools/anim.py\n## Verified"), true);
+
+            var planned = new AgentTaskRecord { Goal = "Jump", Brief = "Jump", Workspace = workspace, Plan = record.Plan };
+            string Next(AgentTaskRecord each) => TaskState.Build(each, null, workspace).Split("\n## Next action\n")[1].Split('\n')[0];
+            Program.Equal("task state: without a word from the agent the next step is the plan's first open one, then nothing to go by",
+                (Next(planned), Next(new AgentTaskRecord { Goal = "Jump", Brief = "Jump", Workspace = workspace, Plan = [new AgentPlanItem("Find the clip", true, false)] })),
+                ("Blend it", "Decide from the state above."));
+            planned.Runs.Add(new AgentRunRecord { Words = "Done.\n```link-next\n{\"next\": \"tune the landing\", \"effort\": \"low\"}\n```" });
+            Program.Equal("task state: the agent's own next step comes before the plan, without its effort", Next(planned), "tune the landing");
+            planned.Runs.Add(new AgentRunRecord { Words = "Done, nothing left to say." });
+            Program.Equal("task state: only the last run's word counts", Next(planned), "Blend it");
+
+            Program.Equal("compact: the history line names what the session held, when known",
+                (TaskState.Compacted(182_000), TaskState.Compacted(null)),
+                ("Compacted: a fresh session from the task state (was 182k tokens)", "Compacted: a fresh session from the task state"));
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+    }
+
+    /// <summary>A state over the budget is cut in its order, and what must stay stays whatever the size.</summary>
+    private static void TaskStateBudget()
+    {
+        var workspace = TempFolder();
+        try
+        {
+            AgentTaskRecord Record(int problems, int decisions, int decisionLength, int briefLength, int files)
+            {
+                var record = new AgentTaskRecord
+                {
+                    Goal = "Make the landing animation",
+                    Brief = new string('b', briefLength),
+                    Workspace = workspace,
+                    ChangedFiles = [.. Enumerable.Range(1, files).Select(index => $"Assets/Animation/File{index:000}.uasset")],
+                    Plan = [new AgentPlanItem("Blend it", false, true)],
+                    Runs = [.. Enumerable.Range(1, problems).Select(index => new AgentRunRecord { Outcome = $"Failed after {index}:00" })]
+                };
+                for (var index = 1; index <= decisions; index++) record.Add(AgentEntryKind.You, $"{index}: " + new string('d', decisionLength));
+                return record;
+            }
+
+            string[] Section(string state, string title) =>
+                state.Split("\n## ").First(part => part.StartsWith(title + "\n", StringComparison.Ordinal)).Split('\n')[1..];
+
+            var small = TaskState.Build(Record(problems: 6, decisions: 2, decisionLength: 100, briefLength: 1000, files: 5), null, workspace);
+            Program.Equal("task state budget: a state that fits is whole",
+                (Section(small, "Known problems").Length, Section(small, "Decisions").Select(line => line.Length).Max(), Section(small, "Brief")[0].Length, small.Length <= AgentCoordinator.BriefBudget),
+                (6, 105, 1000, true));
+
+            var problems = TaskState.Build(Record(problems: 40, decisions: 2, decisionLength: 100, briefLength: 4200, files: 5), null, workspace);
+            Program.Equal("task state budget: the older problems go first, the last three stay, the rest is whole",
+                (string.Join(", ", Section(problems, "Known problems").Select(line => line[(line.LastIndexOf(": ", StringComparison.Ordinal) + 2)..])),
+                    Section(problems, "Decisions").Select(line => line.Length).Max(), Section(problems, "Brief")[0].Length, problems.Length <= AgentCoordinator.BriefBudget),
+                ("Failed after 38:00, Failed after 39:00, Failed after 40:00", 105, 4200, true));
+
+            var decisions = TaskState.Build(Record(problems: 40, decisions: 12, decisionLength: 590, briefLength: 1200, files: 5), null, workspace);
+            Program.Equal("task state budget: then each decision is cut to 300 characters, the brief is still whole",
+                (Section(decisions, "Decisions").Length, Section(decisions, "Decisions").Select(line => line.Length).Distinct().Single(), Section(decisions, "Known problems").Length,
+                    Section(decisions, "Brief")[0].Length, decisions.Length <= AgentCoordinator.BriefBudget),
+                (12, 303, 3, 1200, true));
+
+            var everything = TaskState.Build(Record(problems: 40, decisions: 8, decisionLength: 590, briefLength: 20_000, files: 100), null, workspace);
+            Program.Equal("task state budget: then the brief is cut to 1500 characters and the files to 30 lines; goal, decisions and next action stay",
+                (Section(everything, "Brief")[0].Length, Section(everything, "Files touched").Length, Section(everything, "Files touched")[^1], Section(everything, "Decisions").Length,
+                    everything.Contains("Goal: Make the landing animation"), Section(everything, "Next action")[0], everything.Length <= AgentCoordinator.BriefBudget),
+                (1501, 31, "… and 70 more", 8, true, "Blend it", true));
+
+            var long30 = TaskState.Build(Record(problems: 40, decisions: 30, decisionLength: 590, briefLength: 20_000, files: 100), null, workspace);
+            Program.Equal("task state budget: the decisions are never dropped, even when they alone are over the budget",
+                (Section(long30, "Decisions").Length, long30.Contains("Goal: Make the landing animation"), Section(long30, "Next action")[0], long30.Length > AgentCoordinator.BriefBudget),
+                (30, true, "Blend it", true));
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+    }
+
+    /// <summary>Compact: the same agent in a new session from the state, as the user edited it, told the task's specialist and skills like any new session.</summary>
+    private static void CompactSession()
+    {
+        var workspace = TempFolder();
+        try
+        {
+            WriteSkill(workspace, "blender-anim", "Animate in Blender.");
+            var record = new AgentTaskRecord
+            {
+                Goal = "Make the landing animation",
+                Brief = "Make the landing animation",
+                Workspace = workspace,
+                RoleId = "rigger-animator",
+                Skills = ["blender-anim"]
+            };
+            var brief = TaskState.CompactBrief(record, null, workspace);
+            Program.Equal("compact: the state and then the words to go on with",
+                (brief.StartsWith("# Task state\nGoal: Make the landing animation\n", StringComparison.Ordinal), brief.EndsWith($"\n\n{TaskState.GoOn}", StringComparison.Ordinal),
+                    TaskState.GoOn), (true, true, "Go on with the task from this state; look at the files touched before changing them; do not redo what is done."));
+
+            var last = new AgentTask
+            {
+                Provider = AgentProviderKind.Codex, Workspace = workspace, Prompt = "Continue", Access = AgentAccess.Do, AutoApprove = true, ResumeSessionId = "s1",
+                Model = "gpt-6-sol", Effort = "high", CheckCommand = "dotnet test", PlanOnly = true, AnswerFile = "docs/map.md", AnswerIsSkill = true,
+                RoleId = "qa-playtest", Skills = ["old"], Images = [@"C:\old.png"]
+            };
+            var task = AgentCoordinator.CompactTask(last, record, "  # Task state, edited \n", [@"C:\shot.png"]);
+            Program.Equal("compact: a new session of the same agent with its model, effort, access and check, the edited state as the prompt",
+                (task.Provider, task.ResumeSessionId, task.Prompt, task.Model, task.Effort, task.Access, task.AutoApprove, task.CheckCommand, task.PlanOnly, task.AnswerFile, task.AnswerIsSkill,
+                    string.Join(",", task.Images)),
+                (AgentProviderKind.Codex, (string?)null, "# Task state, edited", "gpt-6-sol", "high", AgentAccess.Do, true, "dotnet test", false, (string?)null, false, @"C:\shot.png"));
+            Program.Equal("compact: the task's specialist and skills, not the last run's",
+                (task.RoleId, string.Join(",", task.Skills)), ("rigger-animator", "blender-anim"));
+
+            var claude = new ClaudeCodeProvider(() => new AgentSettings(), _ => { });
+            var input = claude.StandardInput(task with { Provider = AgentProviderKind.ClaudeCode });
+            var order = new[] { "# Agent rules", "## Your role: Rigger / Animator", "Read first: .agents/skills/blender-anim/SKILL.md", "# Task\n\n# Task state" }
+                .Select(part => input.IndexOf(part, StringComparison.Ordinal)).ToArray();
+            Program.Equal("compact: the new session gets the rules, the role and the skills before the state",
+                (order.All(at => at >= 0), order.SequenceEqual(order.Order())), (true, true));
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
     }
 
     /// <summary>The loop check on runs in the recorded format: each kind of loop is told once, working runs get none.</summary>

@@ -1063,8 +1063,7 @@ public partial class MainWindow
     {
         if (AgentRunning || _task is not { } record || ResumableTask() is null && _agentOrigin is null) return;
         var fromProvider = record.LastRun?.Provider ?? Other(to);
-        var numstat = _lastRun is { } run ? await _agents.Changes.DiffAsync(run.Before, run.Changes, stat: true, 4000, CancellationToken.None) : null;
-        var brief = AgentCoordinator.HandOffBrief(record, AgentName(fromProvider), numstat);
+        var brief = AgentCoordinator.HandOffBrief(record, AgentName(fromProvider), await NumstatAsync());
         // The images the task began with go along; a task from the list has kept none.
         var card = CardModel(brief, string.Empty, _agentOrigin?.Images ?? [], to) with
         {
@@ -1117,6 +1116,72 @@ public partial class MainWindow
     }
 
     /// <summary>
+    /// The lines added and removed per file by the task's work, where git or Perforce tells them; null otherwise, and
+    /// the task's state then lists the files of its record.
+    /// </summary>
+    private async Task<string?> NumstatAsync() =>
+        _lastRun is { } run ? await _agents.Changes.DiffAsync(run.Before, run.Changes, stat: true, 4000, CancellationToken.None) : null;
+
+    /// <summary>The open task's state as Compact shows it, for the inspector; null without an open task.</summary>
+    internal async Task<string?> TaskStateText() =>
+        _task is { } record ? TaskState.Build(record, await NumstatAsync(), record.Workspace) : null;
+
+    /// <summary>
+    /// Compact: a fresh session of the same agent starts from the task's state rather than from the session that has
+    /// grown. Link makes the state from the task's record, and it is shown on the card first, where it can be changed,
+    /// with the model and access of the last run. The task's history stays whole.
+    /// </summary>
+    private async Task CompactTask()
+    {
+        if (AgentRunning || _task is not { } record || ResumableTask() is not { } resume) return;
+        var provider = resume.Task.Provider;
+        var state = TaskState.CompactBrief(record, await NumstatAsync(), record.Workspace);
+        // The images the task began with go along; a task from the list has kept none.
+        var card = CardModel(state, string.Empty, _agentOrigin?.Images ?? [], provider);
+        card = card with
+        {
+            // The card starts on the model and effort of the last run: Settings' Standard could be a silent downgrade.
+            Providers = [.. card.Providers.Select(agent => agent.Kind == provider ? agent with { Model = resume.Task.Model, Effort = resume.Task.Effort } : agent)],
+            Access = resume.Task.AutoApprove ? AgentAccessChoice.Auto : AgentAccessChoice.Edit,
+            Title = $"COMPACT · NEW SESSION OF {AgentName(provider).ToUpperInvariant()}",
+            RunLabel = "Compact",
+            FixedProvider = true,
+            AutoEffort = record.AutoEffort && _settings.Current.Agent.AutoEffort,
+            RoleId = record.RoleId,
+            Skills = record.Skills
+        };
+        _cardRun = CompactAsync;
+        ShowAgentPanel();
+        _agentPanel!.ShowCard(card);
+        AgentStatus($"A fresh session of {AgentName(provider)} starts from the state on the card: change it if you like, then Compact");
+    }
+
+    private async Task CompactAsync(AgentPlan plan)
+    {
+        if (AgentRunning || _task is not { } record) return;
+        _cardRun = null;
+        var template = ResumableTask()?.Task ?? _agentOrigin;
+        if (template is null) return;
+        // The card may have changed the specialist, the skills and Auto: the task keeps them.
+        record.AutoEffort = plan.AutoEffort;
+        record.RoleId = plan.RoleId;
+        record.Skills = [.. plan.Skills];
+        var task = AgentCoordinator.CompactTask(template, record, plan.Goal, _agentOrigin?.Images ?? []) with
+        {
+            Model = plan.Model,
+            Effort = plan.Effort,
+            Access = AgentAccess.Do,
+            AutoApprove = plan.AutoApprove,
+            AllowedTools = AgentCoordinator.Tools(_taskProject ?? _projects.ActiveProject, template.Workspace, AgentAccess.Do)
+        };
+        record.Add(AgentEntryKind.HandOff, TaskState.Compacted(record.LastRun?.ContextTokens));
+        // Start over begins from the state, not from the session that has grown.
+        _agentOrigin = task;
+        if (_lastRun is null) _backupBeforeDo = true;
+        await StartAgentAsync(task, _lastRun, phase: EffortPhase.Reply);
+    }
+
+    /// <summary>
     /// Return to the first agent, such as once its limit has reset: its own session goes on, told what the other did,
     /// rather than a new one learning the task anew.
     /// </summary>
@@ -1126,8 +1191,7 @@ public partial class MainWindow
         var back = record.Runs.LastOrDefault(run => run.Provider == provider && run.SessionId is not null);
         var template = ResumableTask()?.Task ?? _agentOrigin;
         if (back?.SessionId is not { } session || template is null) return;
-        var numstat = _lastRun is { } run ? await _agents.Changes.DiffAsync(run.Before, run.Changes, stat: true, 4000, CancellationToken.None) : null;
-        var prompt = AgentCoordinator.ReturnBrief(record, AgentName(Other(provider)), numstat);
+        var prompt = AgentCoordinator.ReturnBrief(record, AgentName(Other(provider)), await NumstatAsync());
         record.Add(AgentEntryKind.HandOff, $"Back to {AgentName(provider)}, its own session");
         record.Brief += $"\n\n── Back to {AgentName(provider)} ──\n{prompt}";
         if (_lastRun is null) _backupBeforeDo = true;
@@ -1817,6 +1881,13 @@ public partial class MainWindow
     private IReadOnlyList<PanelAction> MoreActions()
     {
         var actions = _afterRun.Where(action => action.Label != "Console").ToList();
+        if (!AgentRunning && ResumableTask() is not null)
+        {
+            actions.Add(new PanelAction("Compact — fresh session from the task state",
+                "A new session of the same agent starts from the task's state instead of the session that has grown; you see and can change the state first",
+                () => _ = CompactTask()));
+        }
+
         if (_lastRun is not null && _agentOrigin is not null)
         {
             actions.Add(new PanelAction("Start over with a note", "A new session of the same agent takes the task with a note of what was tried",

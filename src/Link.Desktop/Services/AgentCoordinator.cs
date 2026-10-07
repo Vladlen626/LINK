@@ -167,9 +167,9 @@ public sealed class AgentCoordinator
     /// </summary>
     public static string HandOffBrief(AgentTaskRecord record, string firstName, string? numstat)
     {
-        var said = record.Entries.Where(entry => entry.Kind == AgentEntryKind.You).Select(entry => "- " + entry.Text).ToArray();
-        var plan = record.Plan.Select(item => $"- [{(item.Done ? "x" : " ")}] {item.Text}").ToArray();
-        var files = numstat ?? string.Join('\n', record.ChangedFiles.Select(file => "- " + file));
+        var said = TaskState.Said(record);
+        var plan = TaskState.PlanLines(record);
+        var files = TaskState.Files(record, numstat);
         var words = AgentNext.Split(record.LastWords).Text.Trim();
         var steps = record.Steps.TakeLast(15).ToList();
         while (true)
@@ -206,13 +206,20 @@ public sealed class AgentCoordinator
         };
 
     /// <summary>
+    /// Compact: the same agent goes on in a new session of its own from the task's state, as the user saw and maybe
+    /// edited it. Like any new session it is told the task's specialist and skills.
+    /// </summary>
+    public static AgentTask CompactTask(AgentTask last, AgentTaskRecord record, string state, IReadOnlyList<string> images) =>
+        HandOffTask(last, last.Provider, state, images) with { RoleId = record.RoleId, Skills = [.. record.Skills] };
+
+    /// <summary>
     /// The first agent takes its task back, such as once its limit has reset: its own session goes on, told what the
     /// other agent did meanwhile, so that it does not learn the task anew.
     /// </summary>
     public static string ReturnBrief(AgentTaskRecord record, string otherName, string? numstat)
     {
         var brief = new StringBuilder($"While you were away, {otherName} worked on this task in the same workspace.");
-        var files = numstat ?? string.Join('\n', record.ChangedFiles.Select(file => "- " + file));
+        var files = TaskState.Files(record, numstat);
         if (files.Length > 0) brief.Append("\n\nFiles changed so far:\n").Append(files);
         if (record.LastCheck is { } check) brief.Append("\n\nThe project's check as it last ran:\n").Append(check);
         if (AgentNext.Split(record.LastWords).Text.Trim() is { Length: > 0 } words) brief.Append($"\n\nHow {otherName} ended:\n").Append(words.Length <= 2000 ? words : words[..2000] + "…");
