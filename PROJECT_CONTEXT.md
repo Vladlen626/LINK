@@ -367,6 +367,9 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    resume — разбор по схемам из бинарника и журналов. Этап 6 (поправки без остановки) — когда будут живые прогоны.
 7. **Позже, по желанию:** живой прогон Claude Code через Link и тот же разбор токенов по его журналам; память
    проекта (решения отдельно от summaries), context router, command palette и локальные команды.
+8. **Agent Studio** (концепт пользователя, 07.10): два режима — Chat и Studio; счётчик контекста и бюджет, Auto
+   Effort, роли-специалисты, Compact из состояния задачи, Custom-модели (GLM, DeepSeek, OpenRouter, Ollama) через
+   Claude Code, статистика, Harness Inspector — [docs/STUDIO_PLAN.md](docs/STUDIO_PLAN.md).
 
 ## Для AI-агентов
 
