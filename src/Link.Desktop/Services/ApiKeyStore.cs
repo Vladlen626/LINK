@@ -4,18 +4,23 @@ using System.Text;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// The Gemini API key, encrypted for this Windows user with DPAPI in its own file: never in settings.json,
-/// the log or a request other than Gemini's own.
+/// An API key (Gemini's, the custom model's), encrypted for this Windows user with DPAPI in its own file: never in
+/// settings.json, the log or a request other than its own service's. Each key has its own entropy, so that one file
+/// cannot be read as another's.
 /// </summary>
-public sealed class GeminiKeyStore
+public sealed class ApiKeyStore
 {
-    private static readonly byte[] Entropy = "Link Gemini TTS"u8.ToArray();
+    private readonly byte[] _entropy;
     private readonly string _path;
     private readonly Lock _lock = new();
     private string? _key;
     private bool _loaded;
 
-    public GeminiKeyStore(string path) => _path = path;
+    public ApiKeyStore(string path, string entropy)
+    {
+        _path = path;
+        _entropy = Encoding.UTF8.GetBytes(entropy);
+    }
 
     /// <summary>Changes with every save or removal, so that a rejected key is tried again once replaced.</summary>
     public int Version { get; private set; }
@@ -33,7 +38,7 @@ public sealed class GeminiKeyStore
                 if (File.Exists(_path))
                 {
                     var key = Encoding.UTF8.GetString(
-                        ProtectedData.Unprotect(File.ReadAllBytes(_path), Entropy, DataProtectionScope.CurrentUser));
+                        ProtectedData.Unprotect(File.ReadAllBytes(_path), _entropy, DataProtectionScope.CurrentUser));
                     _key = key.Length > 0 ? key : null;
                 }
             }
@@ -51,7 +56,7 @@ public sealed class GeminiKeyStore
     {
         key = key.Trim();
         if (key.Length == 0) throw new ArgumentException("The key is empty.", nameof(key));
-        var protectedKey = ProtectedData.Protect(Encoding.UTF8.GetBytes(key), Entropy, DataProtectionScope.CurrentUser);
+        var protectedKey = ProtectedData.Protect(Encoding.UTF8.GetBytes(key), _entropy, DataProtectionScope.CurrentUser);
         lock (_lock)
         {
             var temporaryPath = _path + ".tmp";

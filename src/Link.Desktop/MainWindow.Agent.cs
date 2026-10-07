@@ -10,7 +10,7 @@ using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
-// Agent: a CLI agent (Claude Code or Codex) works on one task of the user's in the project's workspace. The Tasks tab
+// Agent: a CLI agent (Claude Code, Codex or the custom model) works on one task of the user's in the project's workspace. The Tasks tab
 // lists the project's tasks, a card comes before a new one, and a task shows as one thread, as in the agents' own apps:
 // the user's words, each run with its steps folded, its answer and files, notes of hand-overs, models and limits, the
 // agent's question as a choice. Stop, corrections, decisions, models, hand-overs and undo work on the open task. The
@@ -93,13 +93,29 @@ public partial class MainWindow
 
     private bool AgentRunning => _agentCancellation is not null;
 
+    // The agent the project's last task chose; the custom model only while it is still set up.
     private AgentProviderKind ProjectProvider =>
-        _projects.ActiveProject.AgentProvider ?? _settings.Current.Agent.DefaultProvider;
+        _projects.ActiveProject.AgentProvider is { } chosen && _agents.Provider(chosen).Configured
+            ? chosen
+            : _settings.Current.Agent.DefaultProvider;
 
-    private static string ShortName(AgentProviderKind provider) => provider == AgentProviderKind.ClaudeCode ? "Claude" : "Codex";
+    private string ShortName(AgentProviderKind provider) => provider switch
+    {
+        AgentProviderKind.ClaudeCode => "Claude",
+        AgentProviderKind.Codex => "Codex",
+        _ => _settings.Current.Agent.Custom.DisplayName
+    };
 
-    private static AgentProviderKind Other(AgentProviderKind provider) =>
-        provider == AgentProviderKind.ClaudeCode ? AgentProviderKind.Codex : AgentProviderKind.ClaudeCode;
+    /// <summary>
+    /// The agent that takes the task over at a usage limit: Claude and Codex each have the other, the custom model has
+    /// the default agent. Hand off ▾ offers every agent, not only this one.
+    /// </summary>
+    private AgentProviderKind Other(AgentProviderKind provider) => provider switch
+    {
+        AgentProviderKind.ClaudeCode => AgentProviderKind.Codex,
+        AgentProviderKind.Codex => AgentProviderKind.ClaudeCode,
+        _ => _settings.Current.Agent.DefaultProvider
+    };
 
     private string AgentName(AgentProviderKind provider) => _agents.Provider(provider).Name;
 
@@ -196,10 +212,10 @@ public partial class MainWindow
             return;
         }
 
-        var (model, effort) = OwnAnswerLevel(ProjectProvider);
+        var (provider, model, effort) = OwnAnswerSetup(ProjectProvider, inSession: false);
         var map = new AgentTask
         {
-            Provider = ProjectProvider,
+            Provider = provider,
             Workspace = workspace,
             Prompt = prompt,
             AllowedTools = AgentCoordinator.Tools(project, workspace, AgentAccess.Analyze),
@@ -230,17 +246,14 @@ public partial class MainWindow
         }
 
         if (AgentCoordinator.SkillTask(run, request) is not { } task) return;
-        var (model, effort) = OwnAnswerLevel(task.Provider);
+        var (provider, model, effort) = OwnAnswerSetup(task.Provider, inSession: true);
         _task?.Add(AgentEntryKind.You, "Save as skill");
-        await StartAgentAsync(task with { Model = model, Effort = effort }, null);
+        await StartAgentAsync(task with { Provider = provider, Model = model, Effort = effort }, null);
     }
 
-    /// <summary>Link's own answers (a map, a skill, a note) run on Light, unless Settings says otherwise.</summary>
-    private (string? Model, string? Effort) OwnAnswerLevel(AgentProviderKind provider)
-    {
-        var agent = _settings.Current.Agent;
-        return agent.Level(provider, agent.OwnAnswersOnLight ? AgentLevel.Light : AgentLevel.Standard);
-    }
+    /// <summary>The agent and level of Link's own answers (a map, a skill, a note), as <see cref="AgentSettings.OwnAnswers"/> settles them.</summary>
+    private (AgentProviderKind Provider, string? Model, string? Effort) OwnAnswerSetup(AgentProviderKind provider, bool inSession) =>
+        _settings.Current.Agent.OwnAnswers(provider, inSession, _agents.Provider(AgentProviderKind.Custom).Configured);
 
     /// <summary>A skill of the same name is written over only when the user says so.</summary>
     private bool ReplaceSkill(string name) =>
@@ -272,7 +285,8 @@ public partial class MainWindow
         var workspace = project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null;
         var roles = ProjectRoles.In(workspace);
         return new AgentCardModel(
-            _agents.Providers.Select(agent =>
+            // The custom model is offered once it is set up; the agent the card is for stays, so that it never turns into another.
+            _agents.Providers.Where(agent => agent.Configured || agent.Kind == provider).Select(agent =>
             {
                 var (model, effort) = settings.Level(agent.Kind, AgentLevel.Standard);
                 var own = agent.OwnSetup;
@@ -310,16 +324,18 @@ public partial class MainWindow
     private static string EffortName(IAgentProvider agent, string effort) =>
         agent.Efforts.FirstOrDefault(choice => choice.Value == effort)?.Label.Split(" — ")[0] ?? effort;
 
-    /// <summary>Whether a run is on the strongest model and effort Settings has for its agent.</summary>
+    /// <summary>Whether a run is on the strongest model and effort Settings has for its agent; the custom model has only one.</summary>
     private bool IsStrongest(AgentTask task) =>
-        (task.Model, task.Effort) == _settings.Current.Agent.Level(task.Provider, AgentLevel.Deep);
+        task.Provider == AgentProviderKind.Custom || (task.Model, task.Effort) == _settings.Current.Agent.Level(task.Provider, AgentLevel.Deep);
 
     /// <summary>
     /// An agent's usage windows as bars: how much is used and when each resets. Each asks the agent anew when clicked;
-    /// an agent that has told nothing yet gets one row that offers it.
+    /// an agent that has told nothing yet gets one row that offers it; the custom model has none.
     /// </summary>
     private IReadOnlyList<LimitRow> LimitRows(AgentProviderKind provider)
     {
+        // No subscription, no windows: nothing to show or to ask.
+        if (!_agents.Provider(provider).Capabilities.Subscription) return [];
         var asking = _askingLimits.Contains(provider);
         var again = $"\nClick to ask {AgentName(provider)} now: it reads the account's usage and spends no tokens";
         var known = _limits.For(provider);
@@ -872,6 +888,8 @@ public partial class MainWindow
         if (!agent.AutoEffort || _task is not { AutoEffort: true } record || !IsUserWork(task) || (task.PlanOnly && agent.PlanOnDeep)) return task;
         var last = record.LastRun;
         var efforts = _agents.Provider(task.Provider).EffortsOf(task.Model).Select(choice => choice.Value).ToArray();
+        // An agent with no effort levels (the custom model) has nothing to pick, and no reason to show.
+        if (efforts.Length == 0) return task;
         var (effort, reason) = AutoEffort.Choose(phase, BriefOf(record), efforts, last?.Effort, AutoEffort.Failures(record.Runs),
             last is null ? null : AgentNext.Split(last.Words).Next, ProjectRoles.Find(record.RoleId, record.Workspace)?.Effort);
         return task with { Effort = effort, EffortReason = reason };
@@ -988,7 +1006,8 @@ public partial class MainWindow
     private async Task RestartWithNoteAsync()
     {
         if (_lastRun is not { } run || _agentOrigin is not { } origin || AgentRunning) return;
-        var provider = _agents.Provider(run.Task.Provider);
+        var (asker, model, effort) = OwnAnswerSetup(run.Task.Provider, inSession: true);
+        var provider = _agents.Provider(asker);
         var cancellation = new CancellationTokenSource();
         _agentCancellation = cancellation;
         _agentPanel?.ShowStep($"asking {provider.Name} for a note…", running: true);
@@ -996,7 +1015,7 @@ public partial class MainWindow
         (AgentTask Task, string Note)? next;
         try
         {
-            next = await _agents.StartOverAsync(run, origin, OwnAnswerLevel(run.Task.Provider), cancellation.Token);
+            next = await _agents.StartOverAsync(run, origin, (model, effort), cancellation.Token, asker);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
@@ -1124,7 +1143,7 @@ public partial class MainWindow
 
     /// <summary>The open task's state as Compact shows it, for the inspector; null without an open task.</summary>
     internal async Task<string?> TaskStateText() =>
-        _task is { } record ? TaskState.Build(record, await NumstatAsync(), record.Workspace) : null;
+        _task is { } record ? TaskState.Build(record, await NumstatAsync(), record.Workspace, AgentName) : null;
 
     /// <summary>
     /// Compact: a fresh session of the same agent starts from the task's state rather than from the session that has
@@ -1135,7 +1154,7 @@ public partial class MainWindow
     {
         if (AgentRunning || _task is not { } record || ResumableTask() is not { } resume) return;
         var provider = resume.Task.Provider;
-        var state = TaskState.CompactBrief(record, await NumstatAsync(), record.Workspace);
+        var state = TaskState.CompactBrief(record, await NumstatAsync(), record.Workspace, AgentName);
         // The images the task began with go along; a task from the list has kept none.
         var card = CardModel(state, string.Empty, _agentOrigin?.Images ?? [], provider);
         card = card with
@@ -1191,7 +1210,8 @@ public partial class MainWindow
         var back = record.Runs.LastOrDefault(run => run.Provider == provider && run.SessionId is not null);
         var template = ResumableTask()?.Task ?? _agentOrigin;
         if (back?.SessionId is not { } session || template is null) return;
-        var prompt = AgentCoordinator.ReturnBrief(record, AgentName(Other(provider)), await NumstatAsync());
+        // Whoever worked last is who the first agent is told of.
+        var prompt = AgentCoordinator.ReturnBrief(record, AgentName(record.LastRun?.Provider ?? Other(provider)), await NumstatAsync());
         record.Add(AgentEntryKind.HandOff, $"Back to {AgentName(provider)}, its own session");
         record.Brief += $"\n\n── Back to {AgentName(provider)} ──\n{prompt}";
         if (_lastRun is null) _backupBeforeDo = true;
@@ -1815,24 +1835,24 @@ public partial class MainWindow
     {
         if (ResumableTask() is not { } resume) return [];
         var current = resume.Task.Provider;
-        var other = Other(current);
-        var actions = new List<PanelAction>
-        {
-            new($"{AgentName(other)} · new session", $"{AgentName(other)} takes the task over with a brief of it; you see and can change the brief first",
-                () => _ = ShowHandOffCardAsync(other))
-        };
+        // Every other agent that can work now: the custom model only once it is set up.
+        var others = _agents.Providers.Where(agent => agent.Kind != current && agent.Configured).Select(agent => agent.Kind).ToArray();
+        var actions = others.Select(other => new PanelAction($"{AgentName(other)} · new session",
+            $"{AgentName(other)} takes the task over with a brief of it; you see and can change the brief first",
+            () => _ = ShowHandOffCardAsync(other))).ToList();
         // Settings' three choices, each once, other than the one the session is on.
         var seen = new HashSet<(string?, string?)> { (resume.Task.Model, resume.Task.Effort) };
         foreach (var level in Enum.GetValues<AgentLevel>())
         {
             var setup = _settings.Current.Agent.Level(current, level);
-            if (!seen.Add(setup)) continue;
+            // The custom model has one setup; its other models are chosen on a card.
+            if (current == AgentProviderKind.Custom || !seen.Add(setup)) continue;
             actions.Add(new PanelAction($"{AgentName(current)} · {SetupWords(current, setup.Model, setup.Effort)} · same session",
                 "The same session goes on with this model: it keeps what it knows, the model reads it anew once",
                 () => SwitchSetup(setup, escalate: false)));
         }
 
-        if (record.Runs.Any(run => run.Provider == other && run.SessionId is not null))
+        foreach (var other in others.Where(other => record.Runs.Any(run => run.Provider == other && run.SessionId is not null)))
         {
             actions.Add(new PanelAction($"Back to {AgentName(other)} · its own session",
                 $"{AgentName(other)} goes on in its own session, told what {AgentName(current)} did meanwhile",
@@ -1915,7 +1935,9 @@ public partial class MainWindow
         var cost = record.Runs.Sum(run => run.CostUsd ?? 0);
         var hint = cost > 0
             ? $"≈ {cost.ToString("$0.00", CultureInfo.InvariantCulture)} at API prices (Claude Code reports it). On a subscription it is no bill: the windows below are what runs out."
-            : "On a subscription the usage windows below are what runs out: the 5-hour one and the week.";
+            : record.Runs.Count > 0 && record.Runs.All(run => run.Provider == AgentProviderKind.Custom)
+                ? "The custom model runs on no subscription: its server counts the tokens, and bills them if it bills at all."
+                : "On a subscription the usage windows below are what runs out: the 5-hour one and the week.";
         if (ContextLine(record) is { } context)
         {
             lines.Add(context);
@@ -1999,7 +2021,7 @@ public partial class MainWindow
         if (result.Stopped || result.SessionId is not { } session) return false;
         // Changing files or running any command is never allowed in read only: it is a retry with edits, except for a
         // task whose file Link writes itself (a map, a skill).
-        var claude = task.Provider == AgentProviderKind.ClaudeCode;
+        var claude = task.Provider.RunsOnClaudeCode();
         var readOnly = task.Access == AgentAccess.Analyze;
         var answersInFile = task.AnswerFile is not null || task.AnswerIsSkill;
         if (readOnly && !task.PlanOnly && !answersInFile && result.Denials.Count > 0 &&
@@ -2068,7 +2090,7 @@ public partial class MainWindow
         {
             IReadOnlyList<string> rules = allowable;
             _agentPanel.ShowDecision(
-                $"Claude Code was not allowed: {string.Join(", ", rules)}. Allow {(rules.Count == 1 ? "it" : "them")} and continue?",
+                $"{AgentName(task.Provider)} was not allowed: {string.Join(", ", rules)}. Allow {(rules.Count == 1 ? "it" : "them")} and continue?",
                 "Allow and retry",
                 canRemember: true);
             _decision = () =>

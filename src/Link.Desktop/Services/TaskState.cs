@@ -32,16 +32,17 @@ public static class TaskState
     /// <summary>
     /// The state of the task from its record: <paramref name="numstat"/> is git's lines added and removed per file
     /// where it told them (the record's list of files otherwise), <paramref name="workspace"/> is where the map and the
-    /// skills it points to are looked for.
+    /// skills it points to are looked for, <paramref name="agentName"/> names an agent as Settings does.
     /// </summary>
-    public static string Build(AgentTaskRecord record, string? numstat, string workspace)
+    public static string Build(AgentTaskRecord record, string? numstat, string workspace, Func<AgentProviderKind, string>? agentName = null)
     {
+        agentName ??= kind => kind.DefaultName();
         var pointers = Pointers(workspace);
         var next = NextAction(record);
         var state = string.Empty;
         foreach (var cut in Cuts)
         {
-            state = Compose(record, numstat, pointers, next, cut);
+            state = Compose(record, numstat, pointers, next, cut, agentName);
             if (state.Length <= AgentCoordinator.BriefBudget) break;
         }
 
@@ -49,14 +50,15 @@ public static class TaskState
     }
 
     /// <summary>The state with the words that a fresh session goes on from it with: the text Compact shows and sends.</summary>
-    public static string CompactBrief(AgentTaskRecord record, string? numstat, string workspace) =>
-        $"{Build(record, numstat, workspace)}\n\n{GoOn}";
+    public static string CompactBrief(AgentTaskRecord record, string? numstat, string workspace, Func<AgentProviderKind, string>? agentName = null) =>
+        $"{Build(record, numstat, workspace, agentName)}\n\n{GoOn}";
 
     /// <summary>The line the task's history gets when it is compacted, with what the session held when that is known.</summary>
     public static string Compacted(long? contextTokens) =>
         "Compacted: a fresh session from the task state" + (contextTokens is { } tokens ? $" (was {AgentContext.Tokens(tokens)} tokens)" : string.Empty);
 
-    private static string Compose(AgentTaskRecord record, string? numstat, IReadOnlyList<string> pointers, string next, Cut cut)
+    private static string Compose(
+        AgentTaskRecord record, string? numstat, IReadOnlyList<string> pointers, string next, Cut cut, Func<AgentProviderKind, string> agentName)
     {
         var lines = new List<string> { "# Task state", $"Goal: {record.Goal}" };
         var decisions = Said(record, cut.Decision);
@@ -76,7 +78,7 @@ public static class TaskState
         lines.Add("## Verified");
         lines.Add(record.LastCheck ?? "Nothing checked by Link yet.");
 
-        var problems = Problems(record).TakeLast(cut.Problems).ToArray();
+        var problems = Problems(record, agentName).TakeLast(cut.Problems).ToArray();
         if (problems.Length > 0) lines.AddRange(["## Known problems", .. problems]);
 
         lines.AddRange(["## Next action", next, "## Pointers", .. pointers, "## Brief", Shortened(record.Brief.Trim(), cut.Brief)]);
@@ -101,12 +103,12 @@ public static class TaskState
     /// The runs that failed, failed the check or were stopped, oldest first; one the CLI saw loop says so. A run that
     /// ended well after a loop got past it and is no problem.
     /// </summary>
-    private static IEnumerable<string> Problems(AgentTaskRecord record) =>
+    private static IEnumerable<string> Problems(AgentTaskRecord record, Func<AgentProviderKind, string> agentName) =>
         record.Runs
             // A Stop of the user's own, or at a usage limit, is no problem of the work; one in a loop is.
             .Where(run => run.Outcome.StartsWith("Failed", StringComparison.Ordinal) || run.Outcome.StartsWith("Check failed", StringComparison.Ordinal) ||
                           (run.Outcome.StartsWith("Stopped", StringComparison.Ordinal) && run.Looped))
-            .Select(run => $"- {(run.Provider == AgentProviderKind.ClaudeCode ? "Claude Code" : "Codex")} run {AgentLimits.Time(run.StartedAt)}: " +
+            .Select(run => $"- {agentName(run.Provider)} run {AgentLimits.Time(run.StartedAt)}: " +
                            run.Outcome + (run.Looped ? " (stuck in a loop)" : string.Empty));
 
     /// <summary>The step the last run named for itself, else the plan's first open one.</summary>

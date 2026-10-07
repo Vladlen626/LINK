@@ -189,7 +189,7 @@
                     <ComboBox x:Name="ModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Model_OnChanged"
                               ToolTip="The agent's own models: its default from its settings, or one for this task" />
                     <TextBlock Grid.Row="3" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Effort" />
-                    <ComboBox x:Name="EffortCombo" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0"
+                    <ComboBox x:Name="EffortCombo" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" ToolTipService.ShowOnDisabled="True"
                               ToolTip="How long the model thinks: the levels this model takes. Higher spends more of the usage limits. Auto: Link picks it for each run and says why" />
                     <TextBlock Grid.Row="4" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Access" />
                     <ComboBox x:Name="AccessCombo" Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Card_OnChanged">

@@ -64,6 +64,17 @@ internal static class AgentTests
         TaskStateBuilt();
         TaskStateBudget();
         CompactSession();
+        CustomPresetsKnown();
+        CustomSettingsKept();
+        CustomAgentSettings();
+        CustomOwnAnswers();
+        CustomProviderEnvironment();
+        CustomProviderArguments();
+        await CustomProviderRefusesAsync();
+        CustomKeyStaysOut();
+        await CustomStartOverAsync();
+        CustomCapabilities();
+        CustomTaskStateNames();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -1361,6 +1372,317 @@ internal static class AgentTests
         }
     }
 
+    /// <summary>The presets Settings starts a custom model from: an address and models each, and who sees the code.</summary>
+    private static void CustomPresetsKnown()
+    {
+        var named = CustomPresets.All.Where(info => info.Preset != CustomPreset.Other).ToArray();
+        Program.Equal("custom presets: every one but Other has an http(s) address and a model",
+            named.All(info => (info.BaseUrl.StartsWith("https://", StringComparison.Ordinal) || info.BaseUrl.StartsWith("http://", StringComparison.Ordinal)) &&
+                              info.Models.Count > 0 && info.Name.Length > 0 && info.Note.Length > 0), true);
+        var other = CustomPresets.Of(CustomPreset.Other);
+        Program.Equal("custom presets: Other has neither, and each preset is found by its own name",
+            (other.BaseUrl, other.Models.Count, CustomPresets.All.All(info => CustomPresets.Of(info.Preset) == info)), ("", 0, true));
+        Program.Equal("custom presets: GLM is first and has the free flash model, no preset reads images",
+            (CustomPresets.All[0].Preset, CustomPresets.All[0].Models[0], CustomPresets.All.Any(info => info.Images)), (CustomPreset.ZaiGlm, "glm-4.7-flash", false));
+        Program.Equal("custom presets: only Ollama needs no key, and keeps the code on this PC",
+            (string.Join(",", CustomPresets.All.Where(info => !info.NeedsKey).Select(info => info.Preset)), CustomPresets.Of(CustomPreset.Ollama).SeesCode),
+            ("Ollama", "this PC"));
+    }
+
+    /// <summary>The custom model's setup: complete when new, blanks fall back to the preset, and only a safe address takes the key.</summary>
+    private static void CustomSettingsKept()
+    {
+        var fresh = new CustomModelSettings();
+        Program.Equal("custom settings: a new one is the GLM preset, complete",
+            (fresh.Preset, fresh.BaseUrl, fresh.Model, fresh.DisplayName), (CustomPreset.ZaiGlm, "https://api.z.ai/api/anthropic", "glm-4.7-flash", "GLM (Z.ai)"));
+        var blank = new CustomModelSettings { Preset = CustomPreset.Ollama, Name = "  ", BaseUrl = " ", Model = "" };
+        blank.Normalize();
+        Program.Equal("custom settings: blanks become the preset's address and first model, a blank name is none",
+            (blank.BaseUrl, blank.Model, blank.Name, blank.DisplayName), ("http://localhost:11434", "qwen3-coder", (string?)null, "Ollama (local)"));
+        var typed = new CustomModelSettings { Preset = CustomPreset.DeepSeek, Name = " Work ", BaseUrl = " https://example.test/anthropic ", Model = " my-model " };
+        typed.Normalize();
+        Program.Equal("custom settings: typed values are trimmed and kept, the name is what shows",
+            (typed.BaseUrl, typed.Model, typed.DisplayName), ("https://example.test/anthropic", "my-model", "Work"));
+        var nothing = new CustomModelSettings { Preset = CustomPreset.Other, BaseUrl = "", Model = "" };
+        nothing.Normalize();
+        var unknown = new CustomModelSettings { Preset = (CustomPreset)9 };
+        unknown.Normalize();
+        Program.Equal("custom settings: Other has nothing to fall back to, an unknown preset is the GLM one",
+            (nothing.BaseUrl, nothing.Model, unknown.Preset), ((string?)null, (string?)null, CustomPreset.ZaiGlm));
+
+        CustomModelSettings At(string address, CustomPreset preset = CustomPreset.ZaiGlm) => new() { Preset = preset, BaseUrl = address, Model = "m" };
+        Program.Equal("custom settings: a key goes to https, or to http on this PC, and to nothing else",
+            string.Join(" ", new[] { "https://api.z.ai/x", "http://localhost:11434", "http://127.0.0.1:1234/v1", "http://example.test/x", "ftp://example.test", "api.z.ai", "" }
+                .Select(address => At(address).HasSafeAddress ? "y" : "n")),
+            "y y y n n n n");
+        Program.Equal("custom settings: what is missing comes in order: the address, the model, the key",
+            (At("http://example.test").Missing(true), new CustomModelSettings { Model = "" }.Missing(true), At("https://api.z.ai").Missing(false),
+                At("https://api.z.ai").Missing(true), blank.Missing(false)),
+            ("Needs an https:// address (http:// only on this PC)", "Needs a model", "Needs a key", (string?)null, (string?)null));
+    }
+
+    /// <summary>The custom model in the agent settings: Claude Code's file, its own model, no effort; older settings load and it is never the default.</summary>
+    private static void CustomAgentSettings()
+    {
+        var settings = new AgentSettings { ClaudePath = @"C:\bin\claude.exe", CodexPath = @"C:\bin\codex.exe", ClaudeEffort = "high", CodexEffort = "low" };
+        settings.Custom.Model = "glm-4.7";
+        Program.Equal("custom agent: it runs the file of Claude Code, with its own model and no effort",
+            (settings.PathFor(AgentProviderKind.Custom), settings.ModelFor(AgentProviderKind.Custom), settings.EffortFor(AgentProviderKind.Custom)),
+            (@"C:\bin\claude.exe", "glm-4.7", (string?)null));
+        var levels = Enum.GetValues<AgentLevel>().Select(level => settings.Level(AgentProviderKind.Custom, level)).Distinct().ToArray();
+        Program.Equal("custom agent: its three levels are one model without an effort", (levels.Length, levels[0].Model, levels[0].Effort), (1, "glm-4.7", (string?)null));
+        settings.SetEffort(AgentProviderKind.Custom, "max");
+        Program.Equal("custom agent: an effort set for it changes nobody's",
+            (settings.ClaudeEffort, settings.CodexEffort, settings.EffortFor(AgentProviderKind.Custom)), ("high", "low", (string?)null));
+
+        Program.Equal("custom agent: the numbers of older settings stay",
+            ((int)AgentProviderKind.ClaudeCode, (int)AgentProviderKind.Codex, (int)AgentProviderKind.Custom), (0, 1, 2));
+        var older = JsonSerializer.Deserialize<AgentSettings>("""{"DefaultProvider":1,"ClaudeModel":"opus"}""")!;
+        older.Normalize();
+        Program.Equal("custom agent: settings of an older Link load with the GLM preset and Codex still the default",
+            (older.DefaultProvider, older.Custom.Preset, older.Custom.BaseUrl, older.Custom.Model, older.OwnAnswersOnCustom, older.ClaudeModel),
+            (AgentProviderKind.Codex, CustomPreset.ZaiGlm, "https://api.z.ai/api/anthropic", "glm-4.7-flash", false, "opus"));
+        var hand = JsonSerializer.Deserialize<AgentSettings>("""{"DefaultProvider":2,"Custom":null}""")!;
+        hand.Normalize();
+        Program.Equal("custom agent: it is never the default, and a missing setup is the GLM one",
+            (hand.DefaultProvider, hand.Custom.Preset), (AgentProviderKind.ClaudeCode, CustomPreset.ZaiGlm));
+
+        var saved = new AgentSettings { OwnAnswersOnCustom = true };
+        saved.Custom = new CustomModelSettings { Preset = CustomPreset.Ollama, Name = "Home", BaseUrl = "http://localhost:11434", Model = "gpt-oss:20b" };
+        var back = JsonSerializer.Deserialize<AgentSettings>(JsonSerializer.Serialize(saved))!;
+        Program.Equal("custom agent: the setup is saved with the settings",
+            (back.OwnAnswersOnCustom, back.Custom.Preset, back.Custom.Name, back.Custom.BaseUrl, back.Custom.Model),
+            (true, CustomPreset.Ollama, "Home", "http://localhost:11434", "gpt-oss:20b"));
+        var copy = saved.Clone();
+        copy.Custom.Model = "other";
+        Program.Equal("custom agent: a copy has its own setup", (copy.OwnAnswersOnCustom, saved.Custom.Model, copy.Custom.Preset), (true, "gpt-oss:20b", CustomPreset.Ollama));
+    }
+
+    /// <summary>Link's own answers: on the custom model only when Settings asks and it is set up, and a session stays with an agent that reads it.</summary>
+    private static void CustomOwnAnswers()
+    {
+        var on = new AgentSettings { OwnAnswersOnCustom = true };
+        var off = new AgentSettings();
+        Program.Equal("own answers: a map goes to the custom model when Settings asks and it is set up",
+            on.OwnAnswers(AgentProviderKind.ClaudeCode, inSession: false, customConfigured: true), (AgentProviderKind.Custom, (string?)"glm-4.7-flash", (string?)null));
+        Program.Equal("own answers: not set up, it stays on Claude's Quick setup",
+            on.OwnAnswers(AgentProviderKind.ClaudeCode, inSession: false, customConfigured: false), (AgentProviderKind.ClaudeCode, (string?)"claude-sonnet-5-5", (string?)"medium"));
+        Program.Equal("own answers: asked for nothing, a map is Quick on the project's agent",
+            off.OwnAnswers(AgentProviderKind.Codex, inSession: false, customConfigured: true), (AgentProviderKind.Codex, (string?)null, (string?)"low"));
+        Program.Equal("own answers: a project whose last task used the custom model does not send its map there unasked",
+            off.OwnAnswers(AgentProviderKind.Custom, inSession: false, customConfigured: true), (AgentProviderKind.ClaudeCode, (string?)"claude-sonnet-5-5", (string?)"medium"));
+        Program.Equal("own answers: a skill or note of a Claude Code session stays with Claude Code, which wrote the session",
+            on.OwnAnswers(AgentProviderKind.ClaudeCode, inSession: true, customConfigured: true).Provider, AgentProviderKind.ClaudeCode);
+        Program.Equal("own answers: a Codex session is read by Codex only",
+            on.OwnAnswers(AgentProviderKind.Codex, inSession: true, customConfigured: true).Provider, AgentProviderKind.Codex);
+        Program.Equal("own answers: a custom model's session goes on there",
+            off.OwnAnswers(AgentProviderKind.Custom, inSession: true, customConfigured: true), (AgentProviderKind.Custom, (string?)"glm-4.7-flash", (string?)null));
+    }
+
+    /// <summary>What the custom model's Claude Code is given: the server, the key as the token, the model for every name, the budget.</summary>
+    private static void CustomProviderEnvironment()
+    {
+        var settings = new AgentSettings { ContextBudget = 400_000 };
+        string? key = "sk-test-0123";
+        var custom = new CustomModelProvider(() => settings, () => key, _ => { });
+        var task = new AgentTask { Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Model = "glm-4.7", Effort = "high", ContextBudget = 400_000 };
+        var variables = custom.EnvironmentVariables(task);
+        string[] names =
+        [
+            "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
+            "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"
+        ];
+        Program.Equal("custom provider: the server, the key as the token, no Anthropic key, the chosen model for every name",
+            string.Join(";", names.Select(name => $"{name}={variables[name]}")),
+            "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic;ANTHROPIC_AUTH_TOKEN=sk-test-0123;ANTHROPIC_API_KEY=;ANTHROPIC_MODEL=glm-4.7;" +
+            "ANTHROPIC_DEFAULT_OPUS_MODEL=glm-4.7;ANTHROPIC_DEFAULT_SONNET_MODEL=glm-4.7;ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-4.7");
+        Program.Equal("custom provider: only the model's own traffic, a long timeout, and the context budget as for Claude Code",
+            (variables["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], variables["API_TIMEOUT_MS"], variables["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]), ("1", "600000", "400000"));
+        Program.Equal("custom provider: a task with no model runs on Settings' model",
+            custom.EnvironmentVariables(task with { Model = null })["ANTHROPIC_MODEL"], "glm-4.7-flash");
+
+        settings.Custom = new CustomModelSettings { Preset = CustomPreset.Ollama, BaseUrl = "http://localhost:11434", Model = "qwen3-coder" };
+        key = null;
+        var local = custom.EnvironmentVariables(task with { Model = null });
+        Program.Equal("custom provider: Ollama is called with a word for a token, and needs no key",
+            (local["ANTHROPIC_BASE_URL"], local["ANTHROPIC_AUTH_TOKEN"], local["ANTHROPIC_MODEL"], custom.Configured), ("http://localhost:11434", "ollama", "qwen3-coder", true));
+
+        settings.Custom = new CustomModelSettings();
+        Program.Equal("custom provider: GLM is set up with a key, not without, nor at an address a key must not go to",
+            (custom.Configured, Set(settings, "sk-1"), Set(settings, null), CustomWithAddress(settings, "http://example.test")), (false, true, false, false));
+
+        bool Set(AgentSettings each, string? value)
+        {
+            key = value;
+            return custom.Configured;
+        }
+
+        bool CustomWithAddress(AgentSettings each, string address)
+        {
+            key = "sk-1";
+            each.Custom.BaseUrl = address;
+            return custom.Configured;
+        }
+    }
+
+    /// <summary>Claude Code's arguments for the custom model: its model, never an effort, and no pictures it cannot read.</summary>
+    private static void CustomProviderArguments()
+    {
+        var settings = new AgentSettings();
+        var custom = new CustomModelProvider(() => settings, () => "sk-test-0123", _ => { });
+        var claude = new ClaudeCodeProvider(() => settings, _ => { });
+        var task = new AgentTask
+        {
+            Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Access = AgentAccess.Do, Model = "glm-4.7", Effort = "high"
+        };
+        var arguments = custom.Arguments(task);
+        Program.Equal("custom provider: --model is passed and --effort never, the rest is Claude Code's",
+            (arguments[arguments.ToList().IndexOf("--model") + 1], arguments.Contains("--effort"), arguments.SequenceEqual(claude.Arguments(task with { Effort = null }))),
+            ("glm-4.7", false, true));
+        Program.Equal("custom provider: a task with no model still names Settings' model",
+            custom.Arguments(task with { Model = null }).Zip(custom.Arguments(task with { Model = null }).Skip(1), (name, value) => name == "--model" ? value : null).OfType<string>().SingleOrDefault(),
+            "glm-4.7-flash");
+
+        var shot = task with { Images = [@"C:\Shots\a.png"] };
+        Program.Equal("custom provider: pictures it cannot read are left out, and the prompt says so",
+            (custom.Arguments(shot).Contains("--add-dir"), custom.Input(shot), claude.Input(shot).Contains("a.png")),
+            (false, "Explain\n\nScreenshots were left out: this model does not read images.", true));
+        Program.Equal("custom provider: without pictures the prompt is as it was", custom.Input(task), "Explain");
+        var started = custom.StandardInput(shot);
+        Program.Equal("custom provider: a new session is given the rules and the line, not the picture, and no key",
+            (started.Contains("# Agent rules"), started.Contains("Screenshots were left out"), started.Contains("a.png"), started.Contains("sk-test-0123")),
+            (true, true, false, false));
+        Program.Equal("custom provider: the key is in no argument",
+            string.Join(' ', arguments).Contains("sk-test-0123"), false);
+    }
+
+    /// <summary>A custom model that is not set up, or has no Claude Code to run through, does not start and says why.</summary>
+    private static async Task CustomProviderRefusesAsync()
+    {
+        var settings = new AgentSettings { ClaudePath = Environment.ProcessPath };
+        string? key = null;
+        var custom = new CustomModelProvider(() => settings, () => key, _ => { });
+        var task = new AgentTask { Provider = AgentProviderKind.Custom, Workspace = AppContext.BaseDirectory, Prompt = "x" };
+        Program.Equal("custom provider refuses: it is not ready without its key", custom.Configured, false);
+        var message = string.Empty;
+        try
+        {
+            await custom.RunAsync(task, new SyncProgress(_ => { }), CancellationToken.None);
+        }
+        catch (InvalidOperationException exception)
+        {
+            message = exception.Message;
+        }
+
+        Program.Equal("custom provider refuses: no key, nothing starts, and the message says what is missing",
+            message, "GLM (Z.ai): Needs a key. Settings → Agents has the setup.");
+
+        key = "sk-test-0123";
+        settings.ClaudePath = Path.Combine(Path.GetTempPath(), "no-such-folder", "claude.exe");
+        message = string.Empty;
+        try
+        {
+            await custom.RunAsync(task, new SyncProgress(_ => { }), CancellationToken.None);
+        }
+        catch (InvalidOperationException exception)
+        {
+            message = exception.Message;
+        }
+
+        Program.Equal("custom provider refuses: without Claude Code it says the custom model runs through it, and not the key",
+            (message.StartsWith("Claude Code is not found, and GLM (Z.ai) runs through it.", StringComparison.Ordinal), message.Contains("sk-test-0123")), (true, false));
+        Program.Equal("custom provider refuses: limits it has none of", (await custom.ReadLimitsAsync(CancellationToken.None)).Count, 0);
+    }
+
+    /// <summary>The Console shows that there is a key and never what it is; Claude Code's dollars for another server's model are not recorded.</summary>
+    private static void CustomKeyStaysOut()
+    {
+        var settings = new AgentSettings { ContextBudget = 400_000 };
+        var custom = new CustomModelProvider(() => settings, () => "sk-test-0123", _ => { });
+        var task = new AgentTask { Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Model = "glm-4.7", ContextBudget = 400_000 };
+        var console = new AgentConsole();
+        console.Sent("GLM (Z.ai) · new session", "claude", custom.Arguments(task), task.Workspace, custom.EnvironmentVariables(task), custom.StandardInput(task));
+        var text = console.After(0).Text;
+        Program.Equal("console: the token is shown as ***, an empty key as empty, and the rest as it is",
+            (text.Contains("sk-test-0123"), text.Contains("  + ANTHROPIC_AUTH_TOKEN=***\n") || text.Contains("  + ANTHROPIC_AUTH_TOKEN=***\r\n"),
+                text.Contains("  + ANTHROPIC_API_KEY=\n") || text.Contains("  + ANTHROPIC_API_KEY=\r\n"),
+                text.Contains("ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic"), text.Contains("CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000")),
+            (false, true, true, true, true));
+
+        var priced = Parse(new ClaudeEventParser(), "claude-do.jsonl").Parser.Stats.CostUsd;
+        var unpriced = Parse(custom.CreateParser(task), "claude-do.jsonl").Parser.Stats.CostUsd;
+        Program.Equal("custom provider: the dollars Claude Code guesses for another server are not counted",
+            (priced is > 0, unpriced), (true, (decimal?)null));
+    }
+
+    /// <summary>Start over, when the note is written by the custom model: it asks in the Claude Code session, and the new session is the run's own agent's.</summary>
+    private static async Task CustomStartOverAsync()
+    {
+        var claude = new ScriptedProvider((_, _) => new AgentResult { SessionId = "s2", Succeeded = true });
+        var custom = new ScriptedProvider((_, _) => new AgentResult { SessionId = "s1", Succeeded = true, Summary = "Tried it twice.\n" }, AgentProviderKind.Custom);
+        var agents = new AgentCoordinator([claude, custom], new AgentChanges(Path.GetTempPath()), _ => { });
+        var origin = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Fix it", Model = "claude-opus-5-5", Effort = "high" };
+        var before = new WorkspaceBefore(origin.Workspace, false, new Dictionary<string, string>(), null, DateTime.UtcNow);
+        var run = new AgentRun(origin with { ResumeSessionId = "s1" }, before, new AgentResult { SessionId = "s1" }, []);
+        var fresh = (await agents.StartOverAsync(run, origin, ("glm-4.7-flash", null), CancellationToken.None, AgentProviderKind.Custom))!.Value;
+        var ask = custom.Tasks.Single();
+        Program.Equal("custom start over: the custom model is asked in the session, on its own model and no effort",
+            (claude.Tasks.Count, ask.Provider, ask.ResumeSessionId, ask.Model, ask.Effort, ask.Access), (0, AgentProviderKind.Custom, "s1", "glm-4.7-flash", (string?)null, AgentAccess.Analyze));
+        Program.Equal("custom start over: the new session is the run's own agent's, with the note",
+            (fresh.Task.Provider, fresh.Task.ResumeSessionId, fresh.Note), (AgentProviderKind.ClaudeCode, (string?)null, "Tried it twice."));
+    }
+
+    /// <summary>What each agent can do and who sees the code; a provider that says nothing is taken for a subscription agent.</summary>
+    private static void CustomCapabilities()
+    {
+        var settings = new AgentSettings();
+        IAgentProvider claude = new ClaudeCodeProvider(() => settings, _ => { });
+        IAgentProvider codex = new CodexProvider(() => settings, _ => { });
+        IAgentProvider custom = new CustomModelProvider(() => settings, () => null, _ => { });
+        IAgentProvider unnamed = ScriptedProvider.Answering("x");
+        Program.Equal("capabilities: the subscription agents read images, take an effort, and say who sees the code",
+            (claude.Capabilities, codex.Capabilities), (new AgentCapabilities(true, true, true, "Anthropic"), new AgentCapabilities(true, true, true, "OpenAI")));
+        Program.Equal("capabilities: the custom model has no subscription, no effort, and the preset's server sees the code",
+            custom.Capabilities, new AgentCapabilities(false, false, false, "Z.ai"));
+        settings.Custom = new CustomModelSettings { Preset = CustomPreset.Ollama };
+        Program.Equal("capabilities: Ollama keeps the code on this PC", custom.Capabilities.SeesCode, "this PC");
+        Program.Equal("capabilities: a provider that says nothing is a subscription agent that is ready",
+            (unnamed.Capabilities, unnamed.Configured), (AgentCapabilities.Usual, true));
+
+        settings.Custom = new CustomModelSettings { Preset = CustomPreset.DeepSeek, Name = "Cheap one", Model = "my-model" };
+        Program.Equal("custom provider: named as Settings names it, with the preset's models and the chosen one, and no efforts",
+            (custom.Name, custom.Kind, string.Join(",", custom.Models.Select(model => model.Value)), custom.Efforts.Count, custom.EffortsOf("my-model").Count, custom.OwnSetup),
+            ("Cheap one", AgentProviderKind.Custom, "deepseek-chat,deepseek-reasoner,my-model", 0, 0, ((string?)"my-model", (string?)null)));
+    }
+
+    /// <summary>The state's known problems name the agent as Settings does, the custom model included.</summary>
+    private static void CustomTaskStateNames()
+    {
+        var workspace = TempFolder();
+        try
+        {
+            var record = new AgentTaskRecord
+            {
+                Goal = "Fix it",
+                Workspace = workspace,
+                Runs =
+                [
+                    new AgentRunRecord { Provider = AgentProviderKind.ClaudeCode, Outcome = "Failed after 1:00" },
+                    new AgentRunRecord { Provider = AgentProviderKind.Codex, Outcome = "Failed after 2:00" },
+                    new AgentRunRecord { Provider = AgentProviderKind.Custom, Outcome = "Failed after 3:00" }
+                ]
+            };
+            var plain = TaskState.Build(record, null, workspace).Split('\n').Where(line => line.Contains(" run ")).Select(line => line.Split(" run ")[0]).ToArray();
+            Program.Equal("task state: the agents are named, the custom model without Settings as such", string.Join("|", plain), "- Claude Code|- Codex|- Custom model");
+            var named = TaskState.CompactBrief(record, null, workspace, kind => kind == AgentProviderKind.Custom ? "GLM (Z.ai)" : kind.DefaultName());
+            Program.Equal("task state: with Settings' names, the custom model is its own", named.Contains("- GLM (Z.ai) run ") && !named.Contains("Custom model"), true);
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+    }
+
     /// <summary>The loop check on runs in the recorded format: each kind of loop is told once, working runs get none.</summary>
     private static void Loops()
     {
@@ -1821,10 +2143,10 @@ internal static class AgentTests
     }
 
     /// <summary>An agent whose runs do what the check says, for what Link does around a run; it keeps the tasks it got.</summary>
-    private sealed class ScriptedProvider(Func<AgentTask, int, AgentResult> run) : IAgentProvider
+    private sealed class ScriptedProvider(Func<AgentTask, int, AgentResult> run, AgentProviderKind kind = AgentProviderKind.ClaudeCode) : IAgentProvider
     {
         public List<AgentTask> Tasks { get; } = [];
-        public AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
+        public AgentProviderKind Kind => kind;
         public string Name => "Scripted";
         public IReadOnlyList<AgentChoice> Efforts => [];
         public IReadOnlyList<AgentChoice> Models => [];

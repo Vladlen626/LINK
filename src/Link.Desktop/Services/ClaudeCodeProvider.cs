@@ -8,12 +8,14 @@ namespace Link.Desktop.Services;
 /// allowed by the project's rules is refused and listed in the result, and the file tools are denied outright. Do runs
 /// in <c>acceptEdits</c>, or in <c>auto</c> on Auto, where Claude Code's own check stops risky actions; a plan runs in
 /// <c>plan</c>. <c>bypassPermissions</c> is never used.
+/// The custom model is this provider pointed at another server (<see cref="CustomModelProvider"/>).
 /// </summary>
-public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
+public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
     : CliAgentProvider(settings, log, console)
 {
     public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
     public override string Name => "Claude Code";
+    public override AgentCapabilities Capabilities => new(true, true, true, "Anthropic");
 
     // Claude Code's --effort levels; max is the highest. Ultracode is no effort but a setting that runs subagent
     // workflows, and Link runs agents without subagents.
@@ -147,8 +149,11 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     }
 }
 
-/// <summary>Claude Code's stream-json: <c>system/init</c>, <c>assistant</c> text and tool calls, tool results, <c>result</c>.</summary>
-public sealed class ClaudeEventParser : AgentEventParser
+/// <summary>
+/// Claude Code's stream-json: <c>system/init</c>, <c>assistant</c> text and tool calls, tool results, <c>result</c>.
+/// <paramref name="priced"/> is false for another server's model: the dollars Claude Code reports are a guess at Anthropic's prices.
+/// </summary>
+public sealed class ClaudeEventParser(bool priced = true) : AgentEventParser
 {
     private static readonly HashSet<string> EditTools = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
     private static readonly HashSet<string> SearchTools = ["Glob", "Grep", "Read", "LS"];
@@ -325,7 +330,7 @@ public sealed class ClaudeEventParser : AgentEventParser
                 Number(usage, "input_tokens") + Number(usage, "cache_creation_input_tokens") + cached,
                 cached,
                 Number(usage, "output_tokens"),
-                root.TryGetProperty("total_cost_usd", out var cost) && cost.TryGetDecimal(out var usd) ? usd : null);
+                priced && root.TryGetProperty("total_cost_usd", out var cost) && cost.TryGetDecimal(out var usd) ? usd : null);
         }
 
         // The window is told only here; the size it is told with is the last message's.

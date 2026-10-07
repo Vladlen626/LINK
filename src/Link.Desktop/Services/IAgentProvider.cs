@@ -3,15 +3,30 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// A command-line agent that works in a workspace: Claude Code or Codex. Its own sign-in, tools and permissions do
-/// the work; Link starts it, follows its events and stops it.
+/// What an agent can do and where the user's code goes, for the inspector and the recommendations: whether it runs on a
+/// subscription (and has usage windows), reads images, takes an effort setting, and who sees the code.
+/// </summary>
+public sealed record AgentCapabilities(bool Subscription, bool Images, bool Effort, string SeesCode)
+{
+    /// <summary>What an agent is taken to do until its provider says otherwise.</summary>
+    public static AgentCapabilities Usual { get; } = new(true, true, true, "the provider");
+}
+
+/// <summary>
+/// A command-line agent that works in a workspace: Claude Code, Codex or the custom model. Its own sign-in, tools and
+/// permissions do the work; Link starts it, follows its events and stops it.
 /// </summary>
 public interface IAgentProvider
 {
     AgentProviderKind Kind { get; }
 
-    /// <summary>The name the user sees: "Claude Code", "Codex".</summary>
+    /// <summary>The name the user sees: "Claude Code", "Codex", the custom model's own.</summary>
     string Name { get; }
+
+    AgentCapabilities Capabilities => AgentCapabilities.Usual;
+
+    /// <summary>Whether a run can start: the custom model needs its address, a model and, for most servers, a key.</summary>
+    bool Configured => true;
 
     /// <summary>The effort levels its CLI takes, lowest first; the card offers them beside the CLI's own default.</summary>
     IReadOnlyList<AgentChoice> Efforts { get; }

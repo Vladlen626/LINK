@@ -571,10 +571,14 @@
                     <Grid>
                         <Border x:Name="ComboBorder" Background="{TemplateBinding Background}" BorderBrush="{TemplateBinding BorderBrush}"
                                 BorderThickness="{TemplateBinding BorderThickness}" CornerRadius="{StaticResource ControlRadius}" />
-                        <ContentPresenter Margin="{TemplateBinding Padding}" VerticalAlignment="Center" HorizontalAlignment="Left"
+                        <ContentPresenter x:Name="SelectionPresenter" Margin="{TemplateBinding Padding}" VerticalAlignment="Center" HorizontalAlignment="Left"
                                           Content="{TemplateBinding SelectionBoxItem}" ContentTemplate="{TemplateBinding SelectionBoxItemTemplate}" />
                         <ToggleButton Template="{StaticResource ComboToggleTemplate}" Background="Transparent" BorderThickness="0" Focusable="False"
                                       IsChecked="{Binding IsDropDownOpen, Mode=TwoWay, RelativeSource={RelativeSource TemplatedParent}}" />
+                        <!-- An editable box takes typed text: it lies over the toggle, leaving the chevron's end free. -->
+                        <TextBox x:Name="PART_EditableTextBox" Style="{StaticResource BareTextBoxStyle}" Visibility="Collapsed" Padding="0"
+                                 Margin="10,0,28,0" VerticalAlignment="Center" FontSize="{TemplateBinding FontSize}"
+                                 IsReadOnly="{Binding IsReadOnly, RelativeSource={RelativeSource TemplatedParent}}" />
                         <Popup x:Name="PART_Popup" AllowsTransparency="True" Focusable="False" IsOpen="{TemplateBinding IsDropDownOpen}"
                                Placement="Bottom" PopupAnimation="Fade">
                             <Border MinWidth="{TemplateBinding ActualWidth}" MaxHeight="260" Margin="6,4,6,12" Padding="3"
@@ -588,6 +592,10 @@
                     <ControlTemplate.Triggers>
                         <Trigger Property="IsKeyboardFocusWithin" Value="True"><Setter TargetName="ComboBorder" Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" /></Trigger>
                         <Trigger Property="IsEnabled" Value="False"><Setter TargetName="ComboBorder" Property="Opacity" Value="0.48" /></Trigger>
+                        <Trigger Property="IsEditable" Value="True">
+                            <Setter TargetName="PART_EditableTextBox" Property="Visibility" Value="Visible" />
+                            <Setter TargetName="SelectionPresenter" Property="Visibility" Value="Collapsed" />
+                        </Trigger>
                     </ControlTemplate.Triggers>
                 </ControlTemplate>
             </Setter.Value>

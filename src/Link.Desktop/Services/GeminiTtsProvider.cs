@@ -19,14 +19,14 @@ public sealed class GeminiTtsProvider : ITextToSpeechProvider
     private static readonly Uri Endpoint = new("https://generativelanguage.googleapis.com/v1beta/interactions");
     private static readonly Uri Host = new("https://generativelanguage.googleapis.com/");
     private static readonly TimeSpan WarmInterval = TimeSpan.FromSeconds(50);
-    private readonly GeminiKeyStore _keys;
+    private readonly ApiKeyStore _keys;
     private readonly HttpClient _http;
     // Speech usually starts within a second; a request that stays silent this long has hung.
     private readonly TimeSpan _firstAudioTimeout = TimeSpan.FromSeconds(6);
     private readonly TimeSpan _stallTimeout = TimeSpan.FromSeconds(5);
     private long _warmedAt;
 
-    public GeminiTtsProvider(GeminiKeyStore keys)
+    public GeminiTtsProvider(ApiKeyStore keys)
         : this(keys, new SocketsHttpHandler
         {
             ConnectTimeout = TimeSpan.FromSeconds(5),
@@ -35,7 +35,7 @@ public sealed class GeminiTtsProvider : ITextToSpeechProvider
     {
     }
 
-    internal GeminiTtsProvider(GeminiKeyStore keys, HttpMessageHandler handler, TimeSpan? timeout = null)
+    internal GeminiTtsProvider(ApiKeyStore keys, HttpMessageHandler handler, TimeSpan? timeout = null)
     {
         _keys = keys;
         _http = new HttpClient(handler) { Timeout = Timeout.InfiniteTimeSpan };

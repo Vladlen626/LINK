@@ -14,6 +14,7 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
 {
     public override AgentProviderKind Kind => AgentProviderKind.Codex;
     public override string Name => "Codex";
+    public override AgentCapabilities Capabilities => new(true, true, true, "OpenAI");
 
     // Codex lowers a level its model lacks to the model's highest. Ultra is left out: it works through parallel
     // subagents, and Link runs agents without them.

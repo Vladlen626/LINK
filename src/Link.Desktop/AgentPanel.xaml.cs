@@ -87,7 +87,14 @@ public partial class AgentPanel : UserControl
     private IReadOnlyList<PanelAction> _more = [];
     private readonly List<CheckBox> _choices = [];
 
-    public AgentPanel() => InitializeComponent();
+    // The effort box's own tooltip, which a model without effort levels replaces.
+    private readonly object? _effortTip;
+
+    public AgentPanel()
+    {
+        InitializeComponent();
+        _effortTip = EffortCombo.ToolTip;
+    }
 
     public event Action<AgentPlan>? RunRequested;
     public event Action? CardCancelled;
@@ -496,6 +503,16 @@ public partial class AgentPanel : UserControl
     private void ShowEfforts(AgentCardProvider agent, string? effort, bool auto)
     {
         var efforts = agent.EffortsOf(SelectedModel);
+        // A model with no effort levels (the custom model) has nothing to choose, and Auto nothing to pick.
+        EffortCombo.IsEnabled = efforts.Count > 0;
+        EffortCombo.ToolTip = efforts.Count > 0 ? _effortTip : "This model takes no effort setting";
+        if (efforts.Count == 0)
+        {
+            EffortCombo.ItemsSource = new[] { new AgentChoice(string.Empty, "None") };
+            EffortCombo.SelectedIndex = 0;
+            return;
+        }
+
         var offered = _card?.AutoEffort == true;
         var choices = efforts.Prepend(new AgentChoice(string.Empty, agent.OwnEffort));
         EffortCombo.ItemsSource = (offered ? choices.Prepend(AutoChoice) : choices).ToArray();
@@ -645,7 +662,8 @@ public partial class AgentPanel : UserControl
         {
             Model = SelectedModel,
             Effort = SelectedEffort,
-            AutoEffort = SelectedAutoEffort,
+            // An agent with no effort levels (the custom model) leaves Auto as the card had it, for the agents the task may reach.
+            AutoEffort = SelectedAutoEffort || (!EffortCombo.IsEnabled && _card?.AutoEffort == true),
             AutoApprove = SelectedAuto,
             RoleId = SelectedRoleId,
             Skills = _skills

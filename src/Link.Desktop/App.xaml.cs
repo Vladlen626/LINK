@@ -21,7 +21,8 @@ public partial class App : System.Windows.Application
     private AudioRecorderService? _audio;
     private SherpaStreamingSpeechToText? _streamingSpeech;
     private SpeechModelManager? _speechModels;
-    private GeminiKeyStore? _geminiKey;
+    private ApiKeyStore? _geminiKey;
+    private ApiKeyStore? _customModelKey;
     private AgentCoordinator? _agents;
     private TextToSpeechService? _textToSpeech;
     private EmbeddedChatIntegration? _chat;
@@ -65,7 +66,9 @@ public partial class App : System.Windows.Application
         var speechModels = new SpeechModelManager(paths, Log);
         _speechModels = speechModels;
         _streamingSpeech = new SherpaStreamingSpeechToText(speechModels);
-        _geminiKey = new GeminiKeyStore(paths.GeminiKeyFile);
+        _geminiKey = new ApiKeyStore(paths.GeminiKeyFile, "Link Gemini TTS");
+        var customModelKey = new ApiKeyStore(paths.CustomModelKeyFile, "Link custom model");
+        _customModelKey = customModelKey;
         // One player for the voice and the sound cues; the voice owns it.
         var speaker = new AudioPlayer();
         _textToSpeech = new TextToSpeechService(
@@ -88,7 +91,8 @@ public partial class App : System.Windows.Application
         _agents = new AgentCoordinator(
             [
                 new ClaudeCodeProvider(() => settings.Current.Agent, Log, console),
-                new CodexProvider(() => settings.Current.Agent, Log, console)
+                new CodexProvider(() => settings.Current.Agent, Log, console),
+                new CustomModelProvider(() => settings.Current.Agent, customModelKey.Read, Log, console)
             ],
             new AgentChanges(paths.Backups),
             Log,
@@ -247,7 +251,7 @@ public partial class App : System.Windows.Application
     private void ShowSettings()
     {
         if (_settings is null || _mainWindow is null || _hotkeys is null || _audio is null || _textToSpeech is null
-            || _geminiKey is null || _speechModels is null || _agents is null)
+            || _geminiKey is null || _customModelKey is null || _speechModels is null || _agents is null)
         {
             return;
         }
@@ -258,7 +262,7 @@ public partial class App : System.Windows.Application
         _mainWindow.PauseConversation(true);
         try
         {
-            var window = new SettingsWindow(_settings, _audio, _textToSpeech, _geminiKey, _speechModels, _agents.Providers);
+            var window = new SettingsWindow(_settings, _audio, _textToSpeech, _geminiKey, _customModelKey, _speechModels, _agents.Providers);
             if (_mainWindow.IsVisible) window.Owner = _mainWindow;
             if (window.ShowDialog() == true)
             {

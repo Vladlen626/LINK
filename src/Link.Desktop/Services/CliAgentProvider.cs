@@ -7,7 +7,7 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// What the two agents share: find the CLI, run it through <see cref="AgentProcess"/>, turn its JSONL into events and
+/// What the agents share: find the CLI, run it through <see cref="AgentProcess"/>, turn its JSONL into events and
 /// write one <c>[Agent]</c> line to link.log. A provider only says which arguments to pass and how to read its events.
 /// </summary>
 public abstract class CliAgentProvider : IAgentProvider
@@ -27,6 +27,8 @@ public abstract class CliAgentProvider : IAgentProvider
     public abstract string Name { get; }
     public abstract IReadOnlyList<AgentChoice> Efforts { get; }
     public abstract IReadOnlyList<AgentChoice> Models { get; }
+    public virtual AgentCapabilities Capabilities => AgentCapabilities.Usual;
+    public virtual bool Configured => true;
 
     public virtual IReadOnlyList<AgentChoice> EffortsOf(string? model) => Efforts;
 
@@ -38,6 +40,12 @@ public abstract class CliAgentProvider : IAgentProvider
     protected static readonly TimeSpan UsageWait = TimeSpan.FromSeconds(30);
 
     public string? FindExecutable() => AgentExecutables.Find(Kind, _settings().PathFor(Kind));
+
+    /// <summary>What the user is told when the CLI is not found.</summary>
+    protected virtual string NotFound => $"{Name} is not found. Install it or choose its file in Settings.";
+
+    /// <summary>Why a run cannot start though the CLI is found, such as a custom model without its key; null when it can.</summary>
+    protected virtual string? NotReady => null;
 
     public async Task<AgentProviderStatus> CheckAsync(string? chosenPath, CancellationToken cancellationToken)
     {
@@ -52,8 +60,8 @@ public abstract class CliAgentProvider : IAgentProvider
 
     public async Task<AgentResult> RunAsync(AgentTask task, IProgress<AgentEvent> progress, CancellationToken cancellationToken)
     {
-        var executable = FindExecutable()
-            ?? throw new InvalidOperationException($"{Name} is not found. Install it or choose its file in Settings.");
+        var executable = FindExecutable() ?? throw new InvalidOperationException(NotFound);
+        if (NotReady is { } reason) throw new InvalidOperationException(reason);
         var parser = CreateParser(task);
         var loops = new AgentLoopDetector(task.Access == AgentAccess.Do && !task.PlanOnly);
         var clock = Stopwatch.StartNew();

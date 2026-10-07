@@ -165,7 +165,7 @@ internal static class TextToSpeechTests
     private static async Task GeminiAsync()
     {
         var keyFile = Path.Combine(Path.GetTempPath(), $"link-tests-{Guid.NewGuid():N}.bin");
-        var keys = new GeminiKeyStore(keyFile);
+        var keys = new ApiKeyStore(keyFile, "Link Gemini TTS");
         try
         {
             var handler = new FakeHttp();
@@ -177,7 +177,7 @@ internal static class TextToSpeechTests
 
             keys.Save("  test-key  ");
             Program.Equal("the key is kept encrypted, not as text", File.ReadAllText(keyFile).Contains("test-key"), false);
-            Program.Equal("the key reads back", new GeminiKeyStore(keyFile).Read(), "test-key");
+            Program.Equal("the key reads back", new ApiKeyStore(keyFile, "Link Gemini TTS").Read(), "test-key");
 
             var samples = Enumerable.Range(0, 101).Select(index => (byte)index).ToArray();
             handler.Respond = _ => Sse(

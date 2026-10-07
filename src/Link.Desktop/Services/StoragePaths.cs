@@ -40,4 +40,7 @@ public sealed class StoragePaths
 
     /// <summary>The Gemini API key for voice replies, encrypted for this Windows user.</summary>
     public string GeminiKeyFile => Path.Combine(Root, "gemini-key.bin");
+
+    /// <summary>The custom model's API key, encrypted for this Windows user; never in settings.json.</summary>
+    public string CustomModelKeyFile => Path.Combine(Root, "custom-model.key");
 }

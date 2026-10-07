@@ -21,7 +21,8 @@ public partial class SettingsWindow : Window
     private readonly SettingsService _settings;
     private readonly IAudioRecorder _audio;
     private readonly TextToSpeechService _textToSpeech;
-    private readonly GeminiKeyStore _geminiKey;
+    private readonly ApiKeyStore _geminiKey;
+    private readonly ApiKeyStore _customKey;
     private readonly SpeechModelManager _models;
     private readonly DispatcherTimer _downloadTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private Button? _capturingHotkey;
@@ -30,6 +31,15 @@ public partial class SettingsWindow : Window
     private CancellationTokenSource? _microphoneTest;
     private CancellationTokenSource? _voiceTest;
     private readonly IAgentProvider[] _agents;
+    // The agents the default can be: the custom model is chosen on the card, never by default.
+    private readonly IAgentProvider[] _defaultAgents;
+    private static readonly CustomPresetInfo[] Presets = [.. CustomPresets.All];
+    // The preset the custom model's box shows, to fill the address and models only when it changes.
+    private CustomPreset _customPreset;
+    // The preset the saved key was meant for: one key file serves them all, so a changed server is warned of.
+    private CustomPreset _keyPreset;
+    // Whether Claude Code was found, which the custom model needs; null until the check is done.
+    private bool? _claudeFound;
     // The agents' files as chosen here; they apply on Save, like the rest.
     private readonly AgentSettings _agentPaths;
     // What each model or effort list shows after its default, to read the choice back on Save.
@@ -44,16 +54,19 @@ public partial class SettingsWindow : Window
         SettingsService settings,
         IAudioRecorder audio,
         TextToSpeechService textToSpeech,
-        GeminiKeyStore geminiKey,
+        ApiKeyStore geminiKey,
+        ApiKeyStore customKey,
         SpeechModelManager models,
         IEnumerable<IAgentProvider> agents)
     {
         _settings = settings;
         _agents = agents.ToArray();
+        _defaultAgents = [.. _agents.Where(agent => agent.Kind != AgentProviderKind.Custom)];
         _agentPaths = settings.Current.Agent.Clone();
         _audio = audio;
         _textToSpeech = textToSpeech;
         _geminiKey = geminiKey;
+        _customKey = customKey;
         _models = models;
         InitializeComponent();
         SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
@@ -94,8 +107,8 @@ public partial class SettingsWindow : Window
         SetHotkey(ConversationHotkey, current.Hotkeys.Conversation);
         SetHotkey(AskAboutScreenHotkey, current.Hotkeys.AskAboutScreen);
         VersionText.Text = $"Version {GetInformationalVersion()}";
-        DefaultAgentCombo.ItemsSource = _agents.Select(agent => agent.Name).ToArray();
-        DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_agents, agent => agent.Kind == current.Agent.DefaultProvider));
+        DefaultAgentCombo.ItemsSource = _defaultAgents.Select(agent => agent.Name).ToArray();
+        DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_defaultAgents, agent => agent.Kind == current.Agent.DefaultProvider));
         DefaultAccessCombo.SelectedIndex = current.Agent.DefaultAccess == AgentAccessChoice.Auto ? 1 : 0;
         _budgets = [.. ContextBudgets.Append(current.Agent.ContextBudget).Distinct().Order()];
         ContextBudgetCombo.ItemsSource = _budgets.Select(budget => AgentContext.Tokens(budget)).ToArray();
@@ -111,6 +124,7 @@ public partial class SettingsWindow : Window
         ShowLevel(ClaudeDeepModelCombo, ClaudeDeepEffortCombo, claude, current.Agent.ClaudeDeep, "Claude Code's own");
         ShowLevel(CodexLightModelCombo, CodexLightEffortCombo, codex, current.Agent.CodexLight, "Codex's config");
         ShowLevel(CodexDeepModelCombo, CodexDeepEffortCombo, codex, current.Agent.CodexDeep, "Codex's config");
+        LoadCustomModel(current.Agent);
         Closing += (_, _) => _agentChecks.Cancel();
         Loaded += (_, _) => _ = CheckAgentsAsync();
     }
@@ -143,7 +157,8 @@ public partial class SettingsWindow : Window
     /// </summary>
     private async Task CheckAgentsAsync()
     {
-        foreach (var agent in _agents)
+        // The custom model is Claude Code with another server: its status is its setup, shown apart.
+        foreach (var agent in _defaultAgents)
         {
             var text = agent.Kind == AgentProviderKind.ClaudeCode ? ClaudeStatusText : CodexStatusText;
             text.Text = "Checking…";
@@ -151,6 +166,12 @@ public partial class SettingsWindow : Window
             try
             {
                 var status = await agent.CheckAsync(chosen, _agentChecks.Token);
+                if (agent.Kind == AgentProviderKind.ClaudeCode)
+                {
+                    _claudeFound = status.Installed;
+                    ShowCustomState();
+                }
+
                 text.Text = !status.Installed
                     ? chosen is null ? "Not found. Install it, or choose its file." : $"Not found: {chosen}"
                     : $"{(status.SignedIn switch { true => "Signed in", false => "Not signed in", null => "Sign-in unknown" })}" +
@@ -185,6 +206,89 @@ public partial class SettingsWindow : Window
         if (kind == AgentProviderKind.ClaudeCode) _agentPaths.ClaudePath = path;
         else _agentPaths.CodexPath = path;
         _ = CheckAgentsAsync();
+    }
+
+    private void LoadCustomModel(AgentSettings agent)
+    {
+        var custom = agent.Custom;
+        _customPreset = _keyPreset = custom.Preset;
+        CustomPresetCombo.ItemsSource = Presets.Select(info => info.Name).ToArray();
+        CustomPresetCombo.SelectedIndex = Math.Max(0, Array.FindIndex(Presets, info => info.Preset == custom.Preset));
+        CustomAddressBox.Text = custom.BaseUrl ?? string.Empty;
+        CustomModelCombo.ItemsSource = custom.Info.Models;
+        CustomModelCombo.Text = custom.Model ?? string.Empty;
+        // The box has its text once the event is over.
+        CustomModelCombo.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new TextChangedEventHandler((_, _) => Dispatcher.InvokeAsync(ShowCustomState)));
+        OwnAnswersOnCustomBox.IsChecked = agent.OwnAnswersOnCustom;
+        ShowCustomState();
+    }
+
+    /// <summary>A new preset fills the address and the models; both stay editable.</summary>
+    private void CustomPreset_OnChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (CustomPresetCombo.SelectedIndex < 0 || Presets[CustomPresetCombo.SelectedIndex] is not { } info || info.Preset == _customPreset) return;
+        _customPreset = info.Preset;
+        CustomAddressBox.Text = info.BaseUrl;
+        CustomModelCombo.ItemsSource = info.Models;
+        CustomModelCombo.Text = info.Models.FirstOrDefault() ?? string.Empty;
+        ShowCustomState();
+    }
+
+    private void CustomAddressBox_OnTextChanged(object sender, TextChangedEventArgs e) => ShowCustomState();
+
+    /// <summary>The setup as typed here: what the preset says, whether Claude Code is found and what is still missing.</summary>
+    private void ShowCustomState()
+    {
+        if (CustomPresetCombo.SelectedIndex < 0) return;
+        var info = Presets[CustomPresetCombo.SelectedIndex];
+        var typed = new CustomModelSettings { Preset = info.Preset, BaseUrl = CustomAddressBox.Text.Trim(), Model = CustomModelCombo.Text.Trim() };
+        var hasKey = _customKey.HasKey;
+        CustomKeyLabel.Visibility = CustomKeyRow.Visibility = info.NeedsKey ? Visibility.Visible : Visibility.Collapsed;
+        CustomKeyRemoveButton.IsEnabled = hasKey;
+        CustomNoteText.Text = $"{info.Note} · Code goes to: {info.SeesCode}";
+        CustomStatusText.Text = _claudeFound == false ? "Claude Code not found — Custom runs through Claude Code" : typed.Missing(hasKey) ?? "Ready";
+        if (hasKey && info.NeedsKey && info.Preset != _keyPreset)
+        {
+            CustomStatusText.Text += $"\nThe saved key is for {CustomPresets.Of(_keyPreset).Name}: save this server's key, or that one goes here.";
+        }
+    }
+
+    private void CustomKeyBox_OnPasswordChanged(object sender, RoutedEventArgs e) =>
+        CustomKeySaveButton.IsEnabled = CustomKeyBox.Password.Trim().Length > 0;
+
+    private void CustomKeySave_OnClick(object sender, RoutedEventArgs e) => SaveTypedCustomKey();
+
+    private void CustomKeyRemove_OnClick(object sender, RoutedEventArgs e)
+    {
+        try
+        {
+            _customKey.Clear();
+            ShowCustomState();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            CustomStatusText.Text = $"The key could not be removed: {exception.Message}";
+        }
+    }
+
+    /// <summary>Stores a key typed into the box; Save changes uses it too, so it is never left behind.</summary>
+    private bool SaveTypedCustomKey()
+    {
+        var key = CustomKeyBox.Password.Trim();
+        if (key.Length == 0) return true;
+        try
+        {
+            _customKey.Save(key);
+            _keyPreset = Presets[Math.Max(0, CustomPresetCombo.SelectedIndex)].Preset;
+            CustomKeyBox.Clear();
+            ShowCustomState();
+            return true;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        {
+            CustomStatusText.Text = $"The key could not be saved: {exception.Message}";
+            return false;
+        }
     }
 
     private void LoadMicrophones(AppSettings current)
@@ -576,7 +680,7 @@ public partial class SettingsWindow : Window
             current.MicrophoneDeviceId = microphone?.Id;
             current.MicrophoneDeviceName = microphone?.Id is null ? null : microphone.Name;
         }
-        if (!SaveTypedGeminiKey()) return;
+        if (!SaveTypedGeminiKey() || !SaveTypedCustomKey()) return;
         var speech = ChosenSpeech();
         current.VoiceReplies = VoiceRepliesBox.IsChecked == true;
         current.ReadTypedAnswers = ReadTypedAnswersBox.IsChecked == true;
@@ -598,7 +702,7 @@ public partial class SettingsWindow : Window
         current.Hotkeys.CaptureRegion = GetHotkey(RegionHotkey);
         current.Hotkeys.Conversation = GetHotkey(ConversationHotkey);
         current.Hotkeys.AskAboutScreen = GetHotkey(AskAboutScreenHotkey);
-        current.Agent.DefaultProvider = DefaultAgentCombo.SelectedIndex >= 0 ? _agents[DefaultAgentCombo.SelectedIndex].Kind : current.Agent.DefaultProvider;
+        current.Agent.DefaultProvider = DefaultAgentCombo.SelectedIndex >= 0 ? _defaultAgents[DefaultAgentCombo.SelectedIndex].Kind : current.Agent.DefaultProvider;
         current.Agent.ClaudePath = _agentPaths.ClaudePath;
         current.Agent.CodexPath = _agentPaths.CodexPath;
         current.Agent.DefaultAccess = DefaultAccessCombo.SelectedIndex == 0 ? AgentAccessChoice.Edit : AgentAccessChoice.Auto;
@@ -612,6 +716,10 @@ public partial class SettingsWindow : Window
         current.Agent.ClaudeDeep = new AgentLevelChoice { Model = Chosen(ClaudeDeepModelCombo), Effort = Chosen(ClaudeDeepEffortCombo) };
         current.Agent.CodexLight = new AgentLevelChoice { Model = Chosen(CodexLightModelCombo), Effort = Chosen(CodexLightEffortCombo) };
         current.Agent.CodexDeep = new AgentLevelChoice { Model = Chosen(CodexDeepModelCombo), Effort = Chosen(CodexDeepEffortCombo) };
+        current.Agent.Custom.Preset = Presets[Math.Max(0, CustomPresetCombo.SelectedIndex)].Preset;
+        current.Agent.Custom.BaseUrl = CustomAddressBox.Text;
+        current.Agent.Custom.Model = CustomModelCombo.Text;
+        current.Agent.OwnAnswersOnCustom = OwnAnswersOnCustomBox.IsChecked == true;
         current.Agent.Normalize();
 
         try

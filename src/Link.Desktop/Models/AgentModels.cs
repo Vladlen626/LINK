@@ -2,11 +2,28 @@ using System.Text.Json.Serialization;
 
 namespace Link.Desktop.Models;
 
-/// <summary>The command-line agent that does work in a workspace.</summary>
+/// <summary>The command-line agent that does work in a workspace. The numbers stay those of older settings.</summary>
 public enum AgentProviderKind
 {
-    ClaudeCode,
-    Codex
+    ClaudeCode = 0,
+    Codex = 1,
+
+    /// <summary>Claude Code pointed at another server with an Anthropic-compatible API (see <see cref="CustomModelSettings"/>).</summary>
+    Custom = 2
+}
+
+public static class AgentProviderKinds
+{
+    /// <summary>Whether Claude Code does the work: it is the CLI of the custom model too.</summary>
+    public static bool RunsOnClaudeCode(this AgentProviderKind kind) => kind is AgentProviderKind.ClaudeCode or AgentProviderKind.Custom;
+
+    /// <summary>The agent's name where no settings are at hand; the custom model is named in Settings.</summary>
+    public static string DefaultName(this AgentProviderKind kind) => kind switch
+    {
+        AgentProviderKind.ClaudeCode => "Claude Code",
+        AgentProviderKind.Codex => "Codex",
+        _ => "Custom model"
+    };
 }
 
 /// <summary>What an agent may do in the workspace. Analyze only reads; Do is chosen for one task, never by default.</summary>
@@ -552,6 +569,12 @@ public sealed class AgentSettings
     /// <summary>Link picks each run's effort for the tasks that start on Auto; the model and the agent stay the user's.</summary>
     public bool AutoEffort { get; set; } = true;
 
+    /// <summary>The custom model: its server and model. It is the user's to pick on the card; it is never the default agent.</summary>
+    public CustomModelSettings Custom { get; set; } = new();
+
+    /// <summary>Link's own answers (a map, a skill, a note) run on the custom model, not on the subscription agent.</summary>
+    public bool OwnAnswersOnCustom { get; set; }
+
     private const int DefaultContextBudget = 550_000;
 
     /// <summary>
@@ -562,7 +585,7 @@ public sealed class AgentSettings
 
     public void Normalize()
     {
-        if (!Enum.IsDefined(DefaultProvider)) DefaultProvider = AgentProviderKind.ClaudeCode;
+        if (!Enum.IsDefined(DefaultProvider) || DefaultProvider == AgentProviderKind.Custom) DefaultProvider = AgentProviderKind.ClaudeCode;
         if (!Enum.IsDefined(DefaultAccess)) DefaultAccess = AgentAccessChoice.Auto;
         if (ContextBudget is < 50_000 or > 2_000_000) ContextBudget = DefaultContextBudget;
         ClaudePath = Trimmed(ClaudePath);
@@ -576,11 +599,16 @@ public sealed class AgentSettings
             level.Model = Trimmed(level.Model);
             level.Effort = Trimmed(level.Effort);
         }
+
+        Custom ??= new();
+        Custom.Normalize();
     }
 
     /// <summary>A level's model and effort for an agent; null parts are left to the CLI.</summary>
     public (string? Model, string? Effort) Level(AgentProviderKind provider, AgentLevel level)
     {
+        // One model without an effort setting: its levels are all alike.
+        if (provider == AgentProviderKind.Custom) return (Custom.Model, null);
         var claude = provider == AgentProviderKind.ClaudeCode;
         var choice = level switch
         {
@@ -591,19 +619,41 @@ public sealed class AgentSettings
         return choice is null ? (ModelFor(provider), EffortFor(provider)) : (choice.Model, choice.Effort);
     }
 
-    public string? PathFor(AgentProviderKind provider) =>
-        provider == AgentProviderKind.ClaudeCode ? ClaudePath : CodexPath;
+    /// <summary>
+    /// Who writes Link's own answers (a map, a skill, a note) and on what: Light, unless Settings says otherwise, and the
+    /// custom model when Settings asks for it and it is set up (<paramref name="customConfigured"/>). The custom model is
+    /// the user's choice for a task, so a project that last used it does not send its map there by itself. An answer
+    /// that goes on in the task's session (<paramref name="inSession"/>) stays with the task's agent: another server is
+    /// not trusted to read a session another model wrote (its thinking blocks are that model's).
+    /// </summary>
+    public (AgentProviderKind Provider, string? Model, string? Effort) OwnAnswers(AgentProviderKind provider, bool inSession, bool customConfigured)
+    {
+        var onCustom = OwnAnswersOnCustom && customConfigured && !inSession;
+        var writer = onCustom ? AgentProviderKind.Custom : provider == AgentProviderKind.Custom && !inSession ? DefaultProvider : provider;
+        var (model, effort) = Level(writer, OwnAnswersOnLight ? AgentLevel.Light : AgentLevel.Standard);
+        return (writer, model, effort);
+    }
 
-    public string? ModelFor(AgentProviderKind provider) =>
-        provider == AgentProviderKind.ClaudeCode ? ClaudeModel : CodexModel;
+    public string? PathFor(AgentProviderKind provider) => provider.RunsOnClaudeCode() ? ClaudePath : CodexPath;
 
-    public string? EffortFor(AgentProviderKind provider) =>
-        provider == AgentProviderKind.ClaudeCode ? ClaudeEffort : CodexEffort;
+    public string? ModelFor(AgentProviderKind provider) => provider switch
+    {
+        AgentProviderKind.ClaudeCode => ClaudeModel,
+        AgentProviderKind.Custom => Custom.Model,
+        _ => CodexModel
+    };
+
+    public string? EffortFor(AgentProviderKind provider) => provider switch
+    {
+        AgentProviderKind.ClaudeCode => ClaudeEffort,
+        AgentProviderKind.Custom => null,
+        _ => CodexEffort
+    };
 
     public void SetEffort(AgentProviderKind provider, string? effort)
     {
         if (provider == AgentProviderKind.ClaudeCode) ClaudeEffort = Trimmed(effort);
-        else CodexEffort = Trimmed(effort);
+        else if (provider == AgentProviderKind.Codex) CodexEffort = Trimmed(effort);
     }
 
     public AgentSettings Clone() => new()
@@ -623,6 +673,8 @@ public sealed class AgentSettings
         PlanOnDeep = PlanOnDeep,
         OwnAnswersOnLight = OwnAnswersOnLight,
         AutoEffort = AutoEffort,
+        Custom = Custom.Clone(),
+        OwnAnswersOnCustom = OwnAnswersOnCustom,
         ContextBudget = ContextBudget
     };
 

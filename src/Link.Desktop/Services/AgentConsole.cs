@@ -11,6 +11,7 @@ public sealed class AgentConsole
 {
     private const int Limit = 2_000_000;
     private const int LineLimit = 4_000;
+    private static readonly string[] SecretNames = ["TOKEN", "KEY", "SECRET", "PASSWORD"];
     private readonly Lock _lock = new();
     private readonly StringBuilder _text = new();
 
@@ -36,7 +37,7 @@ public sealed class AgentConsole
             .Append("━━ ").Append(DateTime.Now.ToString("HH:mm:ss")).Append(" · ").AppendLine(title)
             .Append("> ").AppendLine(string.Join(' ', arguments.Prepend(executable).Select(Quoted)))
             .Append("  in ").AppendLine(folder);
-        foreach (var (name, value) in variables) text.Append("  + ").Append(name).Append('=').AppendLine(value);
+        foreach (var (name, value) in variables) text.Append("  + ").Append(name).Append('=').AppendLine(Shown(name, value));
         text.AppendLine("── stdin ──").AppendLine(input.TrimEnd()).AppendLine("── output ──");
         Append(text.ToString());
     }
@@ -75,6 +76,10 @@ public sealed class AgentConsole
             _start += cut;
         }
     }
+
+    /// <summary>A variable's value as the window shows it: a key or token is never written out, only that there is one.</summary>
+    internal static string Shown(string name, string value) =>
+        value.Length > 0 && SecretNames.Any(part => name.Contains(part, StringComparison.OrdinalIgnoreCase)) ? "***" : value;
 
     private static string Quoted(string argument) =>
         argument.Length > 0 && argument.IndexOfAny([' ', '\t', '"', '&', '|', '<', '>']) < 0

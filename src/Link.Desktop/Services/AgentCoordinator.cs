@@ -286,18 +286,23 @@ public sealed class AgentCoordinator
     /// Start over with a note: the run's session is asked once, read only, what it tried and why it did not work; the
     /// task returned is for a new session, with the original goal and images, that note, and the access, folder and
     /// check of the run. Without a session to ask it goes without a note; null when Stop ended the asking.
+    /// <paramref name="askedOf"/> is the agent that writes the note when it is not the run's own (Claude Code and the
+    /// custom model read each other's sessions); the new session is the run's own agent's.
     /// </summary>
     public async Task<(AgentTask Task, string Note)?> StartOverAsync(
         AgentRun run,
         AgentTask origin,
         (string? Model, string? Effort) asking,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AgentProviderKind? askedOf = null)
     {
         var note = string.Empty;
         if (run.Result.SessionId is { } session)
         {
-            var asked = await Provider(run.Task.Provider).RunAsync(run.Task with
+            var asker = askedOf ?? run.Task.Provider;
+            var asked = await Provider(asker).RunAsync(run.Task with
             {
+                Provider = asker,
                 ResumeSessionId = session,
                 Access = AgentAccess.Analyze,
                 PlanOnly = false,

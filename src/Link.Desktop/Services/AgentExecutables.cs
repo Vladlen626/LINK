@@ -4,14 +4,15 @@ namespace Link.Desktop.Services;
 
 /// <summary>
 /// Finds an agent's CLI: the path chosen in Settings, then PATH, then where its installers put it. A real .exe is
-/// preferred; a .cmd wrapper (an npm install) is used only when there is nothing else.
+/// preferred; a .cmd wrapper (an npm install) is used only when there is nothing else. The custom model runs through
+/// Claude Code, so it finds claude.
 /// </summary>
 public static class AgentExecutables
 {
     public static string? Find(AgentProviderKind provider, string? chosenPath)
     {
         if (chosenPath is not null) return File.Exists(chosenPath) ? chosenPath : null;
-        var name = provider == AgentProviderKind.ClaudeCode ? "claude" : "codex";
+        var name = provider.RunsOnClaudeCode() ? "claude" : "codex";
         var inPath = SearchPath(name + ".exe");
         if (inPath is not null) return inPath;
         var installed = InstallPlaces(provider).FirstOrDefault(File.Exists);
@@ -29,7 +30,7 @@ public static class AgentExecutables
         var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (provider == AgentProviderKind.ClaudeCode)
+        if (provider.RunsOnClaudeCode())
         {
             // The native installer, WinGet, then the copy the Claude desktop app keeps for itself, newest first.
             yield return Path.Combine(profile, ".local", "bin", "claude.exe");

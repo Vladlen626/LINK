@@ -164,7 +164,7 @@
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <TextBlock VerticalAlignment="Center" Text="Default agent" />
                             <ComboBox x:Name="DefaultAgentCombo" Grid.Column="1" Width="190" HorizontalAlignment="Left" />
@@ -227,7 +227,41 @@
                                     <ComboBox x:Name="CodexDeepEffortCombo" Grid.Row="2" Grid.Column="2" Margin="6,6,0,0" />
                                 </Grid>
                             </StackPanel>
-                            <TextBlock Grid.Row="6" Grid.ColumnSpan="2" Margin="0,10,0,6" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                            <!-- Any model with an Anthropic-compatible API, run through Claude Code: a third agent, never chosen by itself. -->
+                            <TextBlock Grid.Row="6" Margin="0,12,0,0" Text="Custom model" />
+                            <StackPanel Grid.Row="6" Grid.Column="1" Margin="0,12,0,0">
+                                <TextBlock x:Name="CustomStatusText" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Text="Checking…" />
+                                <Grid Margin="0,6,0,0">
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Server" />
+                                    <ComboBox x:Name="CustomPresetCombo" Grid.Column="1" SelectionChanged="CustomPreset_OnChanged" />
+                                    <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Address" />
+                                    <TextBox x:Name="CustomAddressBox" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" TextChanged="CustomAddressBox_OnTextChanged"
+                                             ToolTip="Where Claude Code sends its requests: https, or http on this PC" />
+                                    <TextBlock Grid.Row="2" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Model" />
+                                    <ComboBox x:Name="CustomModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" IsEditable="True"
+                                              ToolTip="One of the server's models, or the name of another" />
+                                    <TextBlock x:Name="CustomKeyLabel" Grid.Row="3" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Key" />
+                                    <Grid x:Name="CustomKeyRow" Grid.Row="3" Grid.Column="1" Margin="0,6,0,0">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <PasswordBox x:Name="CustomKeyBox" PasswordChanged="CustomKeyBox_OnPasswordChanged"
+                                                     ToolTip="Kept encrypted for your Windows account; sent only to the server above" />
+                                        <Button x:Name="CustomKeySaveButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}"
+                                                Click="CustomKeySave_OnClick" Content="Save key" IsEnabled="False" />
+                                        <Button x:Name="CustomKeyRemoveButton" Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}"
+                                                Click="CustomKeyRemove_OnClick" Content="Remove" />
+                                    </Grid>
+                                </Grid>
+                                <TextBlock x:Name="CustomNoteText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                                <CheckBox x:Name="OwnAnswersOnCustomBox" Margin="0,8,0,0" Content="Link's own answers on this model"
+                                          ToolTip="The project map, skills and notes Link asks for run on the custom model instead of your subscription" />
+                            </StackPanel>
+                            <TextBlock Grid.Row="7" Grid.ColumnSpan="2" Margin="0,10,0,6" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
                                        Text="Link neither installs the agents nor signs in to them: run 'claude auth login' or 'codex login' once. They spend your Claude or ChatGPT subscription. The task card offers each agent's own models and efforts and starts from Default. Plan first makes the plan on Strong and carries it out on the card's choice in the same session; Escalate goes on with Strong; Link's own answers (map, skill, note) run on Quick; Hand off ▾ offers all three for the same session. Default leaves the model or the effort to the agent's own settings. Agents run without subagents, so Codex's Ultra and Claude's ultracode, which work through them, are not offered." />
                         </Grid>
                     </Border>
