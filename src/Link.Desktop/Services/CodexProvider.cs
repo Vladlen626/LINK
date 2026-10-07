@@ -487,7 +487,7 @@ public sealed partial class CodexEventParser : AgentEventParser
                 // The first step not done is the one under way.
                 var active = Array.FindIndex(plan, item => !item.Done);
                 if (active >= 0) plan[active] = plan[active] with { Active = true };
-                events.Add(new AgentEvent(AgentEventKind.Plan, $"Plan: {plan.Count(item => item.Done)} of {plan.Length} done") { Plan = plan });
+                events.Add(PlanEvent(plan));
                 break;
             case "item.started" when root.TryGetProperty("item", out var item) && Text(item, "type") == "command_execution":
                 var command = Unwrap(Text(item, "command"));

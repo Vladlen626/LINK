@@ -75,6 +75,12 @@ internal static class AgentTests
         await CustomStartOverAsync();
         CustomCapabilities();
         CustomTaskStateNames();
+        PlanTaskTools();
+        PlanTaskToolsAcrossRuns();
+        PlanKeepsOlderRecords();
+        StepGroupsSummary();
+        StepMarks();
+        TaskChangesCount();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -2140,6 +2146,143 @@ internal static class AgentTests
         protected override bool IsSignedIn(string answer) => true;
         public override Task<IReadOnlyList<AgentLimit>> ReadLimitsAsync(CancellationToken cancellationToken) =>
             System.Threading.Tasks.Task.FromResult<IReadOnlyList<AgentLimit>>([]);
+    }
+
+    private static string Create(string id, string subject, string doing) =>
+        $$$"""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"{{{id}}}","name":"TaskCreate","input":{"subject":"{{{subject}}}","description":"d","activeForm":"{{{doing}}}"}}]}}""";
+
+    private static string Created(string id, string text) =>
+        $$$"""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"{{{id}}}","content":"{{{text}}}"}]}}""";
+
+    private static string Update(string input) =>
+        """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"u","name":"TaskUpdate","input":""" + input + """}]}}""";
+
+    /// <summary>A plan in a line, as the panel marks it: ✓ done, ◐ under way, ○ to do, then the task's number.</summary>
+    private static string PlanLine(IEnumerable<AgentPlanItem> plan) =>
+        string.Join(", ", plan.Select(item => (item.Done ? "✓" : item.Active ? "◐" : "○") + item.Number));
+
+    /// <summary>Claude Code's TaskCreate and TaskUpdate become the plan; a task is numbered by its result.</summary>
+    private static void PlanTaskTools()
+    {
+        var claude = new ClaudeEventParser();
+        IReadOnlyList<AgentPlanItem> Plan(string line) => claude.Read(line).LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Plan)?.Plan ?? [];
+        Program.Equal("tasks: a TaskCreate is no step, and its task joins the plan when the result numbers it",
+            (claude.Read(Create("c1", "Find the cause", "Finding the cause")).Count, PlanLine(Plan(Created("c1", "Task #1 created successfully: Find the cause")))),
+            (0, "○1"));
+        claude.Read(Create("c2", "Fix it", "Fixing it"));
+        claude.Read(Create("c3", "Run the check", "Running the check"));
+        Plan(Created("c2", "Task #2 created successfully: Fix it"));
+        Program.Equal("tasks: three created, three numbered", PlanLine(Plan(Created("c3", "Task #3 created successfully: Run the check"))), "○1, ○2, ○3");
+        Program.Equal("tasks: TaskUpdate to in_progress marks the task under way, with the agent's words for it",
+            (PlanLine(Plan(Update("""{"taskId":"2","status":"in_progress"}"""))), Plan(Update("""{"taskId":"2"}"""))[1].Doing), ("○1, ◐2, ○3", "Fixing it"));
+        Program.Equal("tasks: completed", PlanLine(Plan(Update("""{"taskId":"1","status":"completed"}"""))), "✓1, ◐2, ○3");
+        var final = Plan(Update("""{"taskId":"3","status":"deleted"}"""));
+        Program.Equal("tasks: deleted leaves the plan", (PlanLine(final), string.Join(" / ", final.Select(item => item.Text))), ("✓1, ◐2", "Find the cause / Fix it"));
+        Program.Equal("tasks: a new subject and words replace the old ones, a status that is not known changes nothing",
+            (Plan(Update("""{"taskId":2,"subject":"Fix it for good","activeForm":"Fixing for good","status":"blocked"}""")) is [_, { Text: "Fix it for good", Doing: "Fixing for good", Active: true }]),
+            true);
+        Program.Equal("tasks: a task the plan does not know, reading the list and a failed create change nothing",
+            (claude.Read(Update("""{"taskId":"9","status":"completed"}""")).Count,
+                claude.Read("""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"l","name":"TaskList","input":{}},{"type":"tool_use","id":"g","name":"TaskGet","input":{"taskId":"1"}}]}}""").Count,
+                claude.Read(Create("c4", "Broken", "Breaking")).Count + claude.Read("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"c4","is_error":true,"content":"no"}]}}""").Count),
+            (0, 0, 0));
+
+        var bare = new ClaudeEventParser();
+        bare.Read(Create("a", "First", "Firsting"));
+        bare.Read(Create("b", "Second", "Seconding"));
+        bare.Read(Created("a", "Created."));
+        var counted = bare.Read(Created("b", "Created."));
+        Program.Equal("tasks: a result that names no number gives the next in creation order", PlanLine(counted.Single().Plan), "○1, ○2");
+        Program.Equal("tasks: the plan event says how many are done",
+            claude.Read(Update("""{"taskId":"2","status":"completed"}""")).Single().Text, "Plan: 2 of 2 done");
+
+        var todo = new ClaudeEventParser().Read("""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"t1","name":"TodoWrite","input":{"todos":[{"content":"Fix it","status":"in_progress","activeForm":"Fixing it"}]}}]}}""");
+        Program.Equal("tasks: TodoWrite still gives the plan, with the agent's words for the step under way",
+            todo.Single().Plan is [{ Text: "Fix it", Active: true, Doing: "Fixing it" }], true);
+    }
+
+    /// <summary>A session that goes on has its tasks already; TaskUpdate names them by the numbers they were created with.</summary>
+    private static void PlanTaskToolsAcrossRuns()
+    {
+        var earlier = new[] { new AgentPlanItem("Find the cause", true, false, null, 1), new AgentPlanItem("Fix it", false, true, "Fixing it", 4) };
+        var resumed = new ClaudeEventParser(plan: earlier);
+        var plan = resumed.Read("""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"u","name":"TaskUpdate","input":{"taskId":"4","status":"completed"}}]}}""").Single().Plan;
+        Program.Equal("tasks: the next run's TaskUpdate finds the task of the run before", PlanLine(plan), "✓1, ✓4");
+        var unnumbered = new ClaudeEventParser(plan: [new AgentPlanItem("Find the cause", false, false), new AgentPlanItem("Fix it", false, false)]);
+        Program.Equal("tasks: a plan without numbers (TodoWrite's, Codex's) is numbered in order",
+            PlanLine(unnumbered.Read("""{"type":"assistant","message":{"content":[{"type":"tool_use","id":"u","name":"TaskUpdate","input":{"taskId":"2","status":"in_progress"}}]}}""").Single().Plan),
+            "○1, ◐2");
+        var task = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = "w", Prompt = "p", Plan = earlier };
+        const string complete = """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"u","name":"TaskUpdate","input":{"taskId":"4","status":"completed"}}]}}""";
+        Program.Equal("tasks: Claude Code's and the custom model's runs both start from the plan of the session",
+            (PlanLine(new ClaudeCodeProvider(() => new AgentSettings(), _ => { }).CreateParser(task).Read(complete).Single().Plan),
+                PlanLine(new CustomModelProvider(() => new AgentSettings(), () => "key", _ => { }).CreateParser(task).Read(complete).Single().Plan)),
+            ("✓1, ✓4", "✓1, ✓4"));
+    }
+
+    /// <summary>Plans saved by an earlier Link have no words for a step under way and no numbers.</summary>
+    private static void PlanKeepsOlderRecords()
+    {
+        var older = JsonSerializer.Deserialize<AgentTaskRecord>("""{"Goal":"Fix it","Workspace":"C:\\Work","Plan":[{"Text":"Find it","Done":true,"Active":false},{"Text":"Fix it","Done":false,"Active":true}]}""")!;
+        Program.Equal("plan: a record of an earlier Link loads with no words and no numbers",
+            older.Plan is [{ Text: "Find it", Done: true, Doing: null, Number: null }, { Active: true, Doing: null }], true);
+        var saved = JsonSerializer.Deserialize<AgentTaskRecord>(JsonSerializer.Serialize(new AgentTaskRecord
+        {
+            Goal = "Fix it", Workspace = "C:\\Work", Plan = [new AgentPlanItem("Fix it", false, true, "Fixing it", 2)]
+        }))!;
+        Program.Equal("plan: the words and the number are saved", saved.Plan.Single(), new AgentPlanItem("Fix it", false, true, "Fixing it", 2));
+    }
+
+    /// <summary>The steps between the agent's words are summed up as the agents' own apps do.</summary>
+    private static void StepGroupsSummary()
+    {
+        string[] steps =
+        [
+            "$ Bash: git status", "$ Bash: dotnet build", "$ Bash: dotnet test", "≡ Read: a.cs", "≡ Read: b.cs", "≡ Read: a.cs",
+            "✎ Edit: a.cs", "✎ Edit: a.cs", "⌕ Grep: Jump", "⌕ Glob: *.cs", "▸ ue-mcp: tools call", "▸ WebSearch: jump", "▸ Skill: map", "▸ Skill: rig",
+            "Said something", "· Session started"
+        ];
+        Program.Equal("steps: commands, files read, files edited, searches and other tools in a line, a file twice is one",
+            StepGroups.Summarize(steps), "Ran 3 commands, read 2 files, edited 1 file, searched 2, used 4 tools");
+        Program.Equal("steps: one of each reads in the singular",
+            StepGroups.Summarize(["$ Bash: ls", "≡ Read: a.cs", "✎ Edit: a.cs", "⌕ Grep: x", "▸ Skill: map"]), "Ran 1 command, read 1 file, edited 1 file, searched 1, used 1 tool");
+        Program.Equal("steps: the line starts with what the group did first",
+            StepGroups.Summarize(["≡ Read: a.cs", "▸ Skill: map"]), "Read 1 file, used 1 tool");
+        Program.Equal("steps: the agent's words and notes are no tool call", (StepGroups.Summarize(["Said something", "· Session started", "⚠ Not allowed", "✗ Error"]), StepGroups.KindOf("$5 fee")), ("", (StepKind?)null));
+        Program.Equal("steps: a tool row of an earlier Link, marked ▸ only, counts as a tool used",
+            StepGroups.Summarize(["▸ Bash: ls", "▸ Edit: a.cs", "▸ Read: a.cs"]), "Used 3 tools");
+    }
+
+    /// <summary>A tool step starts with the mark of what the call did, whichever agent made it.</summary>
+    private static void StepMarks()
+    {
+        AgentEvent Tool(string name, string text, bool search = false) => new(AgentEventKind.Tool, text, name) { IsSearch = search };
+        Program.Equal("steps: the marks by tool, Claude's and Codex's",
+            string.Join('|', new[]
+            {
+                Tool("Bash", "Bash: ls"), Tool("PowerShell", "PowerShell: dir"), Tool("command", "dotnet test"), Tool("Read", "Read: a.cs", search: true),
+                Tool("Grep", "Grep: x", search: true), Tool("command", "rg Jump", search: true), Tool("Edit", "Edit: a.cs"), Tool("Write", "Write: b.cs"),
+                Tool("file_change", "Edit: c.cs"), Tool("mcp__ue-mcp__tools", "ue-mcp: tools"), Tool("mcp", "unreal-mcp: call_tool"), Tool("search", "Search: jump")
+            }.Select(StepGroups.Step)),
+            "$ Bash: ls|$ PowerShell: dir|$ dotnet test|≡ Read: a.cs|⌕ Grep: x|⌕ rg Jump|✎ Edit: a.cs|✎ Write: b.cs|✎ Edit: c.cs|▸ ue-mcp: tools|▸ unreal-mcp: call_tool|▸ Search: jump");
+        var run = Parse(new ClaudeEventParser(), "claude-do.jsonl").Events.Where(agentEvent => agentEvent.Kind == AgentEventKind.Tool).Select(StepGroups.Step);
+        Program.Equal("steps: a recorded run of Claude Code in a line (a search by rg counts as a search, not a command)",
+            StepGroups.Summarize(run), "Ran 2 commands, read 1 file, edited 1 file, searched 3");
+    }
+
+    /// <summary>The header of a task: lines added and removed where git counts them, else the number of files.</summary>
+    private static void TaskChangesCount()
+    {
+        string[] files = ["src/a.cs", "src/b.cs", "logo.png"];
+        Program.Equal("changes: git's numbers add up, a binary file counts none",
+            TaskChanges.Describe("12\t3\tsrc/a.cs\n169\t9\tsrc/b.cs\n-\t-\tlogo.png\n", files), ("+181 −12", "src/a.cs\nsrc/b.cs\nlogo.png"));
+        Program.Equal("changes: without git's numbers, the files", TaskChanges.Describe(null, files).Text, "3 files");
+        Program.Equal("changes: Perforce tells the kind of change per file, not lines", TaskChanges.Describe("edit\tsrc/a.cs\nadd\tsrc/b.cs", files).Text, "3 files");
+        Program.Equal("changes: one file, none", (TaskChanges.Describe(null, ["a.cs"]).Text, TaskChanges.Describe(null, []).Text, TaskChanges.Describe("", []).Hint), ("1 file", "", ""));
+        var many = Enumerable.Range(1, 25).Select(index => $"f{index}.cs").ToArray();
+        Program.Equal("changes: the hint names twenty files and counts the rest",
+            TaskChanges.Describe(null, many).Hint.Split('\n') is { Length: 21 } lines && lines[^1] == "… and 5 more", true);
+        Program.Equal("changes: a nothing-changed answer gives no numbers", TaskChanges.Describe("0\t0\tsrc/a.cs", ["src/a.cs"]).Text, "+0 −0");
     }
 
     /// <summary>An agent whose runs do what the check says, for what Link does around a run; it keeps the tasks it got.</summary>

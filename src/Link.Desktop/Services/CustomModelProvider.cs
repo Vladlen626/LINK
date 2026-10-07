@@ -59,7 +59,7 @@ public sealed class CustomModelProvider : ClaudeCodeProvider
 
     protected override bool IsSignedIn(string answer) => Configured;
 
-    public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser(priced: false);
+    public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser(priced: false, plan: task.Plan);
 
     public override Task<IReadOnlyList<AgentLimit>> ReadLimitsAsync(CancellationToken cancellationToken) =>
         Task.FromResult<IReadOnlyList<AgentLimit>>([]);

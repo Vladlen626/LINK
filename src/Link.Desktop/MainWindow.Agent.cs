@@ -49,6 +49,8 @@ public partial class MainWindow
     // The project the open task belongs to: the user may switch projects while it runs.
     private LinkProject? _taskProject;
     private AgentRun? _lastRun;
+    // What the shown task changed in its header ("+181 −12"), counted once when a run ends or the task opens.
+    private (Guid Task, string Text, string Hint) _changes;
     private AgentTask? _runningTask;
     // The run under way in the thread: its steps arrive as the CLI writes them.
     private ThreadTurn? _liveTurn;
@@ -679,6 +681,7 @@ public partial class MainWindow
         {
             _shownTask = record;
             ShowRecord(record, readOnly: true);
+            _ = ShowChangesAsync(record);
             return;
         }
 
@@ -719,6 +722,7 @@ public partial class MainWindow
         _afterRun = [ConsoleAction()];
         _agentPanel?.ResetCards();
         ShowTaskInPanel();
+        _ = ShowChangesAsync(record);
         UpdateRouteButton();
         AgentStatus(_earlierSession is null
             ? "This task has no session to go on with"
@@ -757,6 +761,8 @@ public partial class MainWindow
             _earlierSession = null;
             _continueAt?.Stop();
             _task!.Status = AgentTaskStatus.Running;
+            // A session that goes on keeps its tasks; the parser follows the agent's TaskUpdate by their numbers.
+            if (task.ResumeSessionId is not null && _task.LastRun?.Provider == task.Provider) task = task with { Plan = _task.Plan };
         }
 
         _runningTask = task;
@@ -911,6 +917,7 @@ public partial class MainWindow
         panel.SetStatus(running ? "working" : own.Status, (Brush)FindResource(running ? "BusyOrbBrush" : own.Dot));
         panel.SetHeader(running ? AgentHeader(task) : $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort)} · read only");
         panel.ShowPlan([]);
+        panel.ShowChanges(string.Empty, string.Empty);
         panel.ShowThread([own.Turn]);
         panel.ShowBrief(string.Empty);
         panel.ShowUsage(string.Empty, string.Empty);
@@ -1248,12 +1255,15 @@ public partial class MainWindow
         if (_taskSteps.Count > StepsHandedOn * 2) _taskSteps.RemoveRange(0, _taskSteps.Count - StepsHandedOn);
     }
 
-    /// <summary>A step as the thread shows it; null for what has a place of its own (the answer, files, plan, usage).</summary>
+    /// <summary>
+    /// A step as the thread shows it; null for what has a place of its own (the answer, files, plan, usage). A tool
+    /// starts with the mark of what it did, which groups the steps between the agent's words.
+    /// </summary>
     private static string? StepText(AgentEvent agentEvent) => agentEvent.Kind switch
     {
         AgentEventKind.Completed or AgentEventKind.Artifact or AgentEventKind.ToolFailed or AgentEventKind.Plan or AgentEventKind.Limit
             or AgentEventKind.Context => null,
-        AgentEventKind.Tool => "▸ " + agentEvent.Text,
+        AgentEventKind.Tool => StepGroups.Step(agentEvent),
         AgentEventKind.Output => agentEvent.Text,
         AgentEventKind.NeedsInput => "⚠ " + agentEvent.Text,
         AgentEventKind.Loop => "⟳ " + agentEvent.Text,
@@ -1265,7 +1275,7 @@ public partial class MainWindow
     private AgentStepRow StepRow(string text) => new(text, (Brush)FindResource(
         text.StartsWith('✗') ? "ErrorBrush"
         : text.StartsWith('⚠') || text.StartsWith('⟳') ? "AccentBrush"
-        : text.StartsWith('▸') || text.StartsWith('·') ? "MutedBrush"
+        : StepGroups.KindOf(text) is not null || text.StartsWith('·') ? "MutedBrush"
         : "TextBrush"));
 
     private DispatcherTimer CreateActivityTimer()
@@ -1491,6 +1501,7 @@ public partial class MainWindow
         RecordRun(run, ending, text, checkFailed ? text : answer, needsYou, stopped, checkFailed);
         if (_task is not null && IsUserWork(task))
         {
+            _ = ShowChangesAsync(_task);
             ShowTask();
         }
         else if (_agentPanel is not null)
@@ -1698,6 +1709,23 @@ public partial class MainWindow
         AgentStatus($"The task goes on by itself at {AgentLimits.Time(reset.AddMinutes(1))} while Link runs");
     }
 
+    /// <summary>
+    /// The size of the task's changes in its header: the files at once, then the lines git counts for them. Asked once
+    /// when a run ends or a task opens, never on a timer; git runs off the UI thread.
+    /// </summary>
+    private async Task ShowChangesAsync(AgentTaskRecord record)
+    {
+        var files = record.ChangedFiles.ToArray();
+        SetChanges(record, TaskChanges.Describe(null, files));
+        SetChanges(record, TaskChanges.Describe(await _agents.Changes.NumstatAsync(record.Workspace, files, CancellationToken.None), files));
+    }
+
+    private void SetChanges(AgentTaskRecord record, (string Text, string Hint) changes)
+    {
+        _changes = (record.Id, changes.Text, changes.Hint);
+        if (!_ownShown && _shownTask?.Id == record.Id) _agentPanel?.ShowChanges(changes.Text, changes.Hint);
+    }
+
     /// <summary>The open task in the Tasks tab, unless another task is shown there to be read.</summary>
     private void ShowTask()
     {
@@ -1721,6 +1749,8 @@ public partial class MainWindow
         panel.SetStatus(status, dot);
         panel.SetHeader(live ? AgentHeader(_runningTask!) : record.LastRun is { } last ? RunLine(last, record.Workspace) : "No run yet");
         panel.ShowPlan(record.Plan);
+        var (changed, changedFiles) = _changes.Task == record.Id ? (_changes.Text, _changes.Hint) : TaskChanges.Describe(null, record.ChangedFiles);
+        panel.ShowChanges(changed, changedFiles);
         panel.ShowThread(BuildThread(record, live));
         panel.ShowBrief(record.Brief);
         var (usage, hint) = UsageText(record);
@@ -2190,6 +2220,7 @@ public partial class MainWindow
                 _task.ChangedFiles = left.Select(change => Relative(change.Path)).ToList();
                 _task.Add(AgentEntryKind.You, left.Count == 0 ? "Undid the agent's changes" : $"Undid the agent's changes; {left.Count} files still differ");
                 SaveTask(_task);
+                _ = ShowChangesAsync(_task);
                 ShowTask();
             }
 

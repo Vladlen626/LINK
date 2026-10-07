@@ -274,15 +274,26 @@ public partial class AgentPanel : UserControl
         UpdateReplyHint();
     }
 
-    /// <summary>The agent's plan as it last wrote it: done, under way, to do.</summary>
+    /// <summary>
+    /// The agent's plan as it last wrote it, as its own app shows it: ✓ done, ◐ under way (in the agent's words for it,
+    /// when it gave any), ○ to do.
+    /// </summary>
     public void ShowPlan(IReadOnlyList<AgentPlanItem> plan)
     {
-        PlanList.ItemsSource = plan.Select(item => new AgentStepRow(
-            (item.Done ? "✓ " : item.Active ? "▸ " : "○ ") + item.Text,
-            (Brush)FindResource(item.Done ? "MutedBrush" : item.Active ? "AccentBrush" : "TextBrush"))).ToArray();
+        PlanList.ItemsSource = plan.Select(item => item.Done ? new PlanRow("✓", item.Text, (Brush)FindResource("MutedBrush"))
+            : item.Active ? new PlanRow("◐", item.Doing ?? item.Text, (Brush)FindResource("AccentBrush"))
+            : new PlanRow("○", item.Text, (Brush)FindResource("TextBrush"))).ToArray();
         PlanToggle.Visibility = plan.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         PlanList.Visibility = plan.Count > 0 && _planOpen ? Visibility.Visible : Visibility.Collapsed;
-        PlanLabel.Text = $"AGENT'S PLAN · {plan.Count(item => item.Done)} OF {plan.Count} {(_planOpen ? "▾" : "▸")}";
+        PlanLabel.Text = $"PLAN · {plan.Count(item => item.Done)}/{plan.Count} {(_planOpen ? "▾" : "▸")}";
+    }
+
+    /// <summary>What the task changed, beside its standing: "+181 −12" or "5 files", the files as its hint; empty hides it.</summary>
+    public void ShowChanges(string text, string files)
+    {
+        ChangesText.Text = text;
+        ChangesText.ToolTip = files.Length == 0 ? null : files;
+        ChangesText.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
     /// <summary>What Link gave the agent for the task, word for word; empty hides it.</summary>
@@ -748,6 +759,11 @@ public partial class AgentPanel : UserControl
     private void TurnSteps_OnClick(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: ThreadTurn turn }) turn.StepsOpen = !turn.StepsOpen;
+    }
+
+    private void StepGroup_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: StepGroup group }) group.Open = !group.Open;
     }
 
     private void TaskRow_OnClick(object sender, RoutedEventArgs e)

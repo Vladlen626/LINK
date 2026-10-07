@@ -77,7 +77,7 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
             ? new Dictionary<string, string> { ["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture) }
             : new Dictionary<string, string>();
 
-    public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser();
+    public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser(plan: task.Plan);
 
     /// <summary>
     /// Claude Code's own <c>/usage</c>, which print mode runs without the model: its lines "Current session: 23% used ·
@@ -152,8 +152,9 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
 /// <summary>
 /// Claude Code's stream-json: <c>system/init</c>, <c>assistant</c> text and tool calls, tool results, <c>result</c>.
 /// <paramref name="priced"/> is false for another server's model: the dollars Claude Code reports are a guess at Anthropic's prices.
+/// <paramref name="plan"/> is the plan of the session that goes on, which TaskUpdate names by number.
 /// </summary>
-public sealed class ClaudeEventParser(bool priced = true) : AgentEventParser
+public sealed class ClaudeEventParser(bool priced = true, IReadOnlyList<AgentPlanItem>? plan = null) : AgentEventParser
 {
     private static readonly HashSet<string> EditTools = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
     private static readonly HashSet<string> SearchTools = ["Glob", "Grep", "Read", "LS"];
@@ -162,6 +163,13 @@ public sealed class ClaudeEventParser(bool priced = true) : AgentEventParser
     // Each call's tool until its result comes back; an edit counts as a change only when that result is not an error.
     private readonly Dictionary<string, string> _pendingTools = [];
     private readonly Dictionary<string, string> _pendingEdits = [];
+
+    // The agent's tasks as TaskCreate and TaskUpdate keep them, by number. A plan without numbers (TodoWrite's) is numbered
+    // in order, as Claude Code does.
+    private readonly List<AgentPlanItem> _tasks = (plan ?? []).Select((item, index) => item with { Number = item.Number ?? index + 1 }).ToList();
+
+    // A TaskCreate's task until its result tells the number.
+    private readonly Dictionary<string, AgentPlanItem> _creating = [];
 
     protected override void Read(JsonElement root, List<AgentEvent> events)
     {
@@ -269,13 +277,30 @@ public sealed class ClaudeEventParser(bool priced = true) : AgentEventParser
                 if (name == "TodoWrite" && input.ValueKind == JsonValueKind.Object && input.TryGetProperty("todos", out var todos) &&
                     todos.ValueKind == JsonValueKind.Array)
                 {
-                    var plan = todos.EnumerateArray()
-                        .Select(todo => new AgentPlanItem(Text(todo, "content"), Text(todo, "status") == "completed", Text(todo, "status") == "in_progress"))
+                    var list = todos.EnumerateArray()
+                        .Select(todo => new AgentPlanItem(Text(todo, "content"), Text(todo, "status") == "completed", Text(todo, "status") == "in_progress",
+                            Text(todo, "activeForm") is { Length: > 0 } doing ? doing : null))
                         .Where(item => item.Text.Length > 0)
                         .ToArray();
-                    events.Add(new AgentEvent(AgentEventKind.Plan, $"Plan: {plan.Count(item => item.Done)} of {plan.Length} done") { Plan = plan });
+                    events.Add(PlanEvent(list));
                     break;
                 }
+
+                // Its tasks come one call at a time; a new one is numbered by the result, an old one is named by that number.
+                if (name == "TaskCreate" && Text(input, "subject") is { Length: > 0 } subject)
+                {
+                    _creating[Text(block, "id")] = new AgentPlanItem(subject, false, false, Text(input, "activeForm") is { Length: > 0 } active ? active : null);
+                    break;
+                }
+
+                if (name == "TaskUpdate" && input.ValueKind == JsonValueKind.Object)
+                {
+                    UpdateTask(input, events);
+                    break;
+                }
+
+                // Reading the list changes nothing.
+                if (name is "TaskList" or "TaskGet") break;
 
                 var command = Text(input, "command");
                 var target = Text(input, "file_path") is { Length: > 0 } file ? file
@@ -304,8 +329,58 @@ public sealed class ClaudeEventParser(bool priced = true) : AgentEventParser
         if (Text(block, "type") != "tool_result") return;
         var id = Text(block, "tool_use_id");
         var failed = block.TryGetProperty("is_error", out var isError) && isError.ValueKind == JsonValueKind.True;
+        if (_creating.Remove(id, out var created))
+        {
+            if (!failed) AddTask(created, ResultText(block), events);
+            return;
+        }
+
         if (_pendingTools.Remove(id, out var tool) && failed) ToolFailed(tool, ResultText(block), events);
         if (_pendingEdits.Remove(id, out var file) && !failed) Changed(file, events);
+    }
+
+    /// <summary>
+    /// A created task joins the plan under the number the result tells ("Task #3 created successfully"); one that tells
+    /// none gets the next number, as Claude Code counts.
+    /// </summary>
+    private void AddTask(AgentPlanItem created, string result, List<AgentEvent> events)
+    {
+        var told = System.Text.RegularExpressions.Regex.Match(result, @"#(\d+)");
+        var number = told.Success && int.TryParse(told.Groups[1].Value, out var read) ? read : (_tasks.Max(item => item.Number) ?? 0) + 1;
+        var at = _tasks.FindIndex(item => item.Number == number);
+        if (at >= 0) _tasks[at] = created with { Number = number };
+        else _tasks.Add(created with { Number = number });
+        events.Add(PlanEvent([.. _tasks]));
+    }
+
+    /// <summary>
+    /// TaskUpdate changes a task named by its number: its status, and its words when it gives them; "deleted" takes it
+    /// off the plan. A number the plan does not know is not guessed at.
+    /// </summary>
+    private void UpdateTask(JsonElement input, List<AgentEvent> events)
+    {
+        var named = input.TryGetProperty("taskId", out var id) && int.TryParse(id.ToString(), out var number) ? number : 0;
+        var at = _tasks.FindIndex(item => item.Number == named);
+        if (at < 0) return;
+        var status = Text(input, "status");
+        if (status == "deleted")
+        {
+            _tasks.RemoveAt(at);
+        }
+        else
+        {
+            var task = _tasks[at];
+            var known = status is "pending" or "in_progress" or "completed";
+            _tasks[at] = task with
+            {
+                Text = Text(input, "subject") is { Length: > 0 } subject ? subject : task.Text,
+                Doing = Text(input, "activeForm") is { Length: > 0 } doing ? doing : task.Doing,
+                Done = known ? status == "completed" : task.Done,
+                Active = known ? status == "in_progress" : task.Active
+            };
+        }
+
+        events.Add(PlanEvent([.. _tasks]));
     }
 
     /// <summary>A tool result's text: a string, or text blocks.</summary>

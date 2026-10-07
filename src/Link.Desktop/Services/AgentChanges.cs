@@ -268,6 +268,18 @@ public sealed partial class AgentChanges
         return diff.Length <= limit ? diff : diff[..limit] + $"\n… cut at {limit / 1000} KB of {diff.Length / 1000} KB";
     }
 
+    /// <summary>
+    /// The lines added and removed in <paramref name="files"/> (relative to the workspace) against the last commit, as git
+    /// counts them; null without git or changes. For a task that is opened later, when what the workspace looked like
+    /// before it is no longer at hand.
+    /// </summary>
+    public async Task<string?> NumstatAsync(string workspace, IReadOnlyList<string> files, CancellationToken cancellationToken)
+    {
+        if (files.Count == 0) return null;
+        var numstat = await GitAsync(workspace, ["diff", "--no-color", "--numstat", "HEAD", "--", .. files], cancellationToken);
+        return string.IsNullOrWhiteSpace(numstat) ? null : numstat;
+    }
+
     private static IReadOnlyList<AgentChange> ChangedSince(WorkspaceBefore before,
         IReadOnlyList<(string Path, string Code)> after) =>
         after

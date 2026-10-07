@@ -322,6 +322,10 @@ public abstract partial class AgentEventParser
         events.Add(new AgentEvent(AgentEventKind.NeedsInput, text, rule));
     }
 
+    /// <summary>The agent's plan as it stands, whole: what the Task tab shows as a list.</summary>
+    protected static AgentEvent PlanEvent(IReadOnlyList<AgentPlanItem> plan) =>
+        new(AgentEventKind.Plan, $"Plan: {plan.Count(item => item.Done)} of {plan.Count} done") { Plan = plan };
+
     protected void Changed(string path, List<AgentEvent> events)
     {
         _changedFiles.Add(path);

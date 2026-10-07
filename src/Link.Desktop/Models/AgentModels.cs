@@ -213,8 +213,12 @@ public enum AgentEntryKind
     NoStart
 }
 
-/// <summary>A step of the agent's own plan (Claude Code's todo list, Codex's plan).</summary>
-public sealed record AgentPlanItem(string Text, bool Done, bool Active);
+/// <summary>
+/// A step of the agent's own plan (Claude Code's tasks, Codex's plan). <see cref="Doing"/> is what the agent says while
+/// it works on the step ("Fixing the jump"); <see cref="Number"/> is the task's number in Claude Code, by which its
+/// TaskUpdate names it. Plans of an earlier Link have neither.
+/// </summary>
+public sealed record AgentPlanItem(string Text, bool Done, bool Active, string? Doing = null, int? Number = null);
 
 /// <summary>
 /// A usage window of an agent's subscription as the CLI last reported it: "5 h" or "week", how much of it is used and
@@ -355,6 +359,9 @@ public sealed record AgentTask
 
     /// <summary>The names of the workspace's skills picked for the task: a new session is told to read them first.</summary>
     public IReadOnlyList<string> Skills { get; init; } = [];
+
+    /// <summary>The agent's plan so far, for a session that goes on: its TaskUpdate names a task by the number it was created with.</summary>
+    public IReadOnlyList<AgentPlanItem> Plan { get; init; } = [];
 
     /// <summary>
     /// A guard against a run that goes on and on (Claude Code's <c>--max-turns</c>): each turn spends the provider's

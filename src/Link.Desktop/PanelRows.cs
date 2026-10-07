@@ -3,6 +3,7 @@ using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media;
 using Link.Desktop.Models;
+using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
@@ -26,7 +27,7 @@ public sealed record ThreadAnswer(string Text, string Time, ProjectExchange Exch
 /// </summary>
 public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush) : INotifyPropertyChanged
 {
-    private const int StepsKept = 300;
+    private const int StepsKept = StepGroup.RowsKept;
     private string _outcome = outcome;
     private Brush _outcomeBrush = outcomeBrush;
     private string _current = string.Empty;
@@ -41,7 +42,8 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush) :
     /// <summary>"Claude Code · Opus 5.5 · Extra high".</summary>
     public string Who { get; } = who;
 
-    public ObservableCollection<AgentStepRow> Steps { get; } = [];
+    /// <summary>The run's steps in order: the agent's words as rows, the tool steps between them as <see cref="StepGroup"/>s.</summary>
+    public ObservableCollection<object> Steps { get; } = [];
 
     /// <summary>"Done in 3:12", "Working · 1:05", "Stopped after 0:40".</summary>
     public string Outcome
@@ -100,21 +102,55 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush) :
 
     public Visibility StatsVisibility => _stats.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
 
+    /// <summary>The steps are shown; closing them folds their groups, so that they open folded again.</summary>
     public bool StepsOpen
     {
         get => _stepsOpen;
-        set => Set(ref _stepsOpen, value, nameof(StepsVisibility), nameof(StepsLabel));
+        set
+        {
+            if (!value) FoldGroups();
+            Set(ref _stepsOpen, value, nameof(StepsVisibility), nameof(StepsLabel));
+        }
     }
 
     public Visibility StepsVisibility => _stepsOpen && Steps.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
     public Visibility StepsToggleVisibility => Steps.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-    public string StepsLabel => $"{Steps.Count} {(Steps.Count == 1 ? "step" : "steps")} {(_stepsOpen ? "▾" : "▸")}";
+    public string StepsLabel => $"{StepCount} {(StepCount == 1 ? "step" : "steps")} {(_stepsOpen ? "▾" : "▸")}";
 
+    private int StepCount => Steps.Sum(step => step is StepGroup group ? group.Rows.Count : 1);
+
+    /// <summary>
+    /// Rows join the steps: a tool step goes to the group before it, or starts one when the agent spoke in between. While
+    /// the steps are shown the newest group is open and the one before it folds; a turn read afterwards has them all folded.
+    /// </summary>
     public void AddSteps(IEnumerable<AgentStepRow> rows)
     {
-        foreach (var row in rows) Steps.Add(row);
-        while (Steps.Count > StepsKept) Steps.RemoveAt(0);
+        foreach (var row in rows)
+        {
+            if (StepGroups.KindOf(row.Text) is null)
+            {
+                Steps.Add(row);
+                continue;
+            }
+
+            if (Steps.Count == 0 || Steps[^1] is not StepGroup group)
+            {
+                FoldGroups();
+                group = new StepGroup { Open = _stepsOpen };
+                Steps.Add(group);
+            }
+
+            group.Add(row);
+        }
+
+        // The oldest go first, a whole group at a time; a group that is alone is cut by itself.
+        while (StepCount > StepsKept && Steps.Count > 1) Steps.RemoveAt(0);
         Raise(nameof(StepsLabel), nameof(StepsToggleVisibility), nameof(StepsVisibility));
+    }
+
+    private void FoldGroups()
+    {
+        foreach (var group in Steps.OfType<StepGroup>()) group.Open = false;
     }
 
     private void Set<T>(ref T field, T value, params string[] names)
@@ -131,8 +167,51 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush) :
     }
 }
 
-/// <summary>A row of a task's steps or plan: its text in its colour.</summary>
+/// <summary>A row of a task's steps: its text in its colour.</summary>
 public sealed record AgentStepRow(string Text, Brush Brush);
+
+/// <summary>A step of the agent's plan: its mark (✓ done, ◐ under way, ○ to do), its words and their colour.</summary>
+public sealed record PlanRow(string Mark, string Text, Brush Brush);
+
+/// <summary>
+/// The tool steps between two pieces of the agent's words, folded into the line that sums them up ("Ran 3 commands, read
+/// 2 files"); a click opens the rows.
+/// </summary>
+public sealed class StepGroup : INotifyPropertyChanged
+{
+    public const int RowsKept = 300;
+    private bool _open;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public ObservableCollection<AgentStepRow> Rows { get; } = [];
+
+    public string Label => $"{StepGroups.Summarize(Rows.Select(row => row.Text))} {(_open ? "▾" : "▸")}";
+    public Visibility RowsVisibility => _open ? Visibility.Visible : Visibility.Collapsed;
+
+    public bool Open
+    {
+        get => _open;
+        set
+        {
+            if (_open == value) return;
+            _open = value;
+            Raise(nameof(Label), nameof(RowsVisibility));
+        }
+    }
+
+    public void Add(AgentStepRow row)
+    {
+        Rows.Add(row);
+        while (Rows.Count > RowsKept) Rows.RemoveAt(0);
+        Raise(nameof(Label));
+    }
+
+    private void Raise(params string[] names)
+    {
+        foreach (var name in names) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
+    }
+}
 
 /// <summary>A changed file; the label says how it changed and whether undo can take it back.</summary>
 public sealed record AgentChangeRow(string Label, string Path);
