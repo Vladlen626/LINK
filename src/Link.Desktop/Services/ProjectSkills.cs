@@ -47,16 +47,25 @@ public static partial class ProjectSkills
         return skills;
     }
 
-    /// <summary>
-    /// The name and description of a SKILL.md's front matter (<c>---</c> lines around <c>name:</c> and
-    /// <c>description:</c>); a folded description (<c>&gt;</c> or <c>|</c>) is joined into one line.
-    /// </summary>
+    /// <summary>The name and description of a SKILL.md's front matter; null when it has none.</summary>
     public static (string? Name, string? Description) Header(string text)
     {
+        var (fields, _) = FrontMatter(text);
+        return (fields.GetValueOrDefault("name"), fields.GetValueOrDefault("description"));
+    }
+
+    /// <summary>
+    /// A file's front matter (<c>---</c> lines around <c>key: value</c> lines) and the text after it, as skills and roles
+    /// are written. A folded value (<c>&gt;</c> or <c>|</c>) is joined into one line, a blank one is left out. A file
+    /// without front matter has no fields and is all body.
+    /// </summary>
+    public static (IReadOnlyDictionary<string, string> Fields, string Body) FrontMatter(string text)
+    {
         var lines = text.Replace("\r\n", "\n").Trim().Split('\n');
-        if (lines.Length == 0 || lines[0].Trim() != "---") return (null, null);
-        string? name = null, description = null;
-        for (var index = 1; index < lines.Length && lines[index].Trim() != "---"; index++)
+        var fields = new Dictionary<string, string>();
+        if (lines[0].Trim() != "---") return (fields, string.Join('\n', lines));
+        var index = 1;
+        for (; index < lines.Length && lines[index].Trim() != "---"; index++)
         {
             var match = Field().Match(lines[index]);
             if (!match.Success) continue;
@@ -69,17 +78,16 @@ public static partial class ProjectSkills
             }
 
             value = value.Trim('"', '\'');
-            if (match.Groups[1].Value == "name") name = value;
-            else description = value;
+            if (value.Length > 0) fields[match.Groups[1].Value] = value;
         }
 
-        return (name is { Length: > 0 } ? name : null, description is { Length: > 0 } ? description : null);
+        return (fields, string.Join('\n', lines.Skip(index + 1)).Trim());
     }
 
     /// <summary>A skill's name as both agents accept it: lowercase Latin letters, digits and single hyphens, up to 64.</summary>
     public static bool IsName(string name) => name.Length <= 64 && Name().IsMatch(name);
 
-    [GeneratedRegex(@"^(name|description):(.*)$")]
+    [GeneratedRegex(@"^([A-Za-z][\w-]*):(.*)$")]
     private static partial Regex Field();
 
     [GeneratedRegex(@"^[a-z0-9]+(-[a-z0-9]+)*$")]

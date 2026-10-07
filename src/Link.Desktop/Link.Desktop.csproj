@@ -43,11 +43,12 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- The agent's rules and tasks lie beside Link.exe: they can be changed without a new build. -->
+    <!-- The agent's rules, tasks and specialists lie beside Link.exe: they can be changed without a new build. -->
     <Content Include="..\..\docs\harness\agent-rules.md" Link="harness\agent-rules.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\perforce.md" Link="harness\perforce.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\map-task.md" Link="harness\map-task.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\skill-task.md" Link="harness\skill-task.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\docs\harness\roles\*.md" Link="harness\roles\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
   <!-- The Vulkan runtime copies its Linux build too, unconditionally; Link runs on Windows only. -->

@@ -12,14 +12,15 @@ public static partial class AgentRules
     public static string File => Path.Combine(AppContext.BaseDirectory, "harness", "agent-rules.md");
 
     /// <summary>
-    /// A new session's input: the rules, the workspace's skills when the agent does not find them itself, then the task.
+    /// A new session's input: the rules, the specialist's role and the skills picked for the task, the workspace's skills
+    /// when the agent does not find them itself, then the task.
     /// </summary>
-    public static string Before(string task, string workspace, bool listSkills)
+    public static string Before(string task, string workspace, bool listSkills, AgentRole? role = null, IReadOnlyList<string>? picked = null)
     {
         string rules;
         try
         {
-            rules = Comment().Replace(System.IO.File.ReadAllText(File), string.Empty).Trim();
+            rules = WithoutNotes(System.IO.File.ReadAllText(File));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -29,6 +30,7 @@ public static partial class AgentRules
         var input = new StringBuilder(rules);
         // A Perforce workspace's files are read-only until opened: the agent is told how to open them.
         if (AgentChanges.IsPerforce(workspace) && ReadHarness(PerforceFile) is { Length: > 0 } perforce) input.Append("\n\n").Append(perforce);
+        if (ProjectRoles.SessionText(role, picked ?? [], workspace) is { Length: > 0 } specialist) input.Append("\n\n").Append(specialist);
         var skills = listSkills ? ProjectSkills.In(workspace) : [];
         if (skills.Count > 0)
         {
@@ -44,12 +46,15 @@ public static partial class AgentRules
 
     public static string PerforceFile => Path.Combine(AppContext.BaseDirectory, "harness", "perforce.md");
 
+    /// <summary>A harness file's text without its notes for whoever edits it.</summary>
+    public static string WithoutNotes(string text) => Comment().Replace(text, string.Empty).Trim();
+
     /// <summary>A harness file without its notes for whoever edits it; empty when it is missing.</summary>
     private static string ReadHarness(string file)
     {
         try
         {
-            return Comment().Replace(System.IO.File.ReadAllText(file), string.Empty).Trim();
+            return WithoutNotes(System.IO.File.ReadAllText(file));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {

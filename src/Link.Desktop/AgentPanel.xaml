@@ -168,6 +168,7 @@
                 <Border Style="{StaticResource FieldStyle}">
                     <TextBox x:Name="GoalBox" Style="{StaticResource BareTextBoxStyle}" Padding="4,4" FontSize="12.5" MinHeight="60"
                              MaxHeight="260" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                             LostFocus="Goal_OnLostFocus"
                              ToolTip="What the agent is told, word for word: its first line names the task. Edit it before Run" />
                 </Border>
                 <!-- The images that go along: the screen and pictures from the chips. -->
@@ -178,7 +179,8 @@
                     <Grid.ColumnDefinitions><ColumnDefinition Width="72" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <Grid.RowDefinitions>
                         <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                        <RowDefinition Height="Auto" />
                     </Grid.RowDefinitions>
                     <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Agent" />
                     <ComboBox x:Name="ProviderCombo" Grid.Column="1" SelectionChanged="Provider_OnChanged" />
@@ -195,10 +197,25 @@
                         <ComboBoxItem Content="Auto — edits and runs commands, asks nothing"
                                       ToolTip="The agent's own review stops risky actions: Claude Code's auto mode, Codex's automatic review" />
                     </ComboBox>
-                    <TextBlock Grid.Row="5" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Project" />
-                    <TextBlock x:Name="ProjectText" Grid.Row="5" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
-                    <TextBlock Grid.Row="6" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Workspace" />
-                    <TextBlock x:Name="WorkspaceText" Grid.Row="6" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
+                    <!-- The specialist Link picks from the goal, and the skills that go with it: both can be changed. -->
+                    <Grid x:Name="RoleRow" Grid.Row="5" Grid.ColumnSpan="2" Margin="0,8,0,0" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="72" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Specialist" />
+                        <ComboBox x:Name="RoleCombo" Grid.Column="1" SelectionChanged="Role_OnChanged" />
+                        <TextBlock x:Name="RolePickText" Grid.Row="1" Grid.Column="1" Margin="0,2,0,0" Style="{StaticResource SecondaryTextStyle}"
+                                   FontSize="11" TextWrapping="Wrap" Text="Picked by Link from your words: change it if it does not fit" />
+                    </Grid>
+                    <Grid x:Name="SkillsRow" Grid.Row="6" Grid.ColumnSpan="2" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="72" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <TextBlock Margin="0,12,0,0" VerticalAlignment="Top" Style="{StaticResource SecondaryTextStyle}" Text="Skills"
+                                   ToolTip="Skills of the workspace the agent is told to read first" />
+                        <WrapPanel x:Name="SkillsPanel" Grid.Column="1" />
+                    </Grid>
+                    <TextBlock Grid.Row="7" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Project" />
+                    <TextBlock x:Name="ProjectText" Grid.Row="7" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
+                    <TextBlock Grid.Row="8" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Workspace" />
+                    <TextBlock x:Name="WorkspaceText" Grid.Row="8" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
                 </Grid>
 
                 <CheckBox x:Name="PlanFirstBox" Margin="0,10,0,0" Checked="Card_OnChanged" Unchecked="Card_OnChanged" />
@@ -353,7 +370,7 @@
                             Visibility="Collapsed"
                             ToolTip="The session only reads and plans: edits, editor calls and commands are refused in it, whatever is allowed. Turn it off: your next words go on with edits, in the same session" />
                     <Button x:Name="HandOffButton" Style="{StaticResource SmallChipStyle}" Click="HandOff_OnClick" Content="Hand off ▾"
-                            ToolTip="The other agent in a new session with a brief you see first, another model in the same session, or the first agent back" />
+                            ToolTip="The other agent in a new session with a brief you see first, another model or another specialist in the same session, or the first agent back" />
                     <Button x:Name="FinishButton" Style="{StaticResource SmallChipStyle}" Click="Finish_OnClick" Content="Finish"
                             ToolTip="Close the task; it stays in the list, where it can be opened and taken up again" />
                 </WrapPanel>

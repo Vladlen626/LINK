@@ -88,6 +88,8 @@ public partial class MainWindow
     private IReadOnlyList<PanelAction> _afterRun = [];
     // Files the running agent reported changed, listed until git, Perforce or the copy tells the whole list.
     private readonly HashSet<string> _runningFiles = new(StringComparer.OrdinalIgnoreCase);
+    // The specialist's name in the header, which is drawn at every tick of a run: its file is read once, not at each.
+    private (string? Id, string? Workspace, string? Name) _roleName;
 
     private bool AgentRunning => _agentCancellation is not null;
 
@@ -268,6 +270,7 @@ public partial class MainWindow
         var project = _projects.ActiveProject;
         var settings = _settings.Current.Agent;
         var workspace = project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null;
+        var roles = ProjectRoles.In(workspace);
         return new AgentCardModel(
             _agents.Providers.Select(agent =>
             {
@@ -294,7 +297,10 @@ public partial class MainWindow
             project.CheckCommand,
             settings.DefaultAccess)
         {
-            AutoEffort = settings.AutoEffort
+            AutoEffort = settings.AutoEffort,
+            Roles = roles,
+            RoleId = ProjectRoles.Suggest(goal, roles)?.Id,
+            WorkspaceSkills = workspace is null ? [] : ProjectSkills.In(workspace)
         };
     }
 
@@ -535,7 +541,9 @@ public partial class MainWindow
             Goal = Shorten(plan.Goal.Split('\n')[0].Trim(), 200),
             Brief = _agentOrigin.Prompt,
             Workspace = plan.Workspace,
-            AutoEffort = plan.AutoEffort
+            AutoEffort = plan.AutoEffort,
+            RoleId = plan.RoleId,
+            Skills = [.. plan.Skills]
         };
         _task.Add(AgentEntryKind.Brief, plan.Goal.Trim() + ImagesNote(_agentOrigin.Images) + (plan.PlanFirst ? "\n(plan first)" : string.Empty));
         _earlierSession = null;
@@ -685,6 +693,8 @@ public partial class MainWindow
                 Effort = last.Effort,
                 AllowedTools = AgentCoordinator.Tools(project, record.Workspace, last.Access),
                 CheckCommand = project.CheckCommand,
+                RoleId = record.RoleId,
+                Skills = record.Skills,
                 ResumeSessionId = session
             }
             : null;
@@ -861,12 +871,15 @@ public partial class MainWindow
         var agent = _settings.Current.Agent;
         if (!agent.AutoEffort || _task is not { AutoEffort: true } record || !IsUserWork(task) || (task.PlanOnly && agent.PlanOnDeep)) return task;
         var last = record.LastRun;
-        var brief = record.Entries.FirstOrDefault(entry => entry.Kind == AgentEntryKind.Brief)?.Text ?? record.Goal;
         var efforts = _agents.Provider(task.Provider).EffortsOf(task.Model).Select(choice => choice.Value).ToArray();
-        var (effort, reason) = AutoEffort.Choose(phase, brief, efforts, last?.Effort, AutoEffort.Failures(record.Runs),
-            last is null ? null : AgentNext.Split(last.Words).Next);
+        var (effort, reason) = AutoEffort.Choose(phase, BriefOf(record), efforts, last?.Effort, AutoEffort.Failures(record.Runs),
+            last is null ? null : AgentNext.Split(last.Words).Next, ProjectRoles.Find(record.RoleId, record.Workspace)?.Effort);
         return task with { Effort = effort, EffortReason = reason };
     }
+
+    /// <summary>The words the task began with, as the user gave them.</summary>
+    private static string BriefOf(AgentTaskRecord record) =>
+        record.Entries.FirstOrDefault(entry => entry.Kind == AgentEntryKind.Brief)?.Text ?? record.Goal;
 
     /// <summary>Link's own answer, such as the map: a thread of its one run, outside the tasks.</summary>
     private void ShowOwnRun()
@@ -1058,7 +1071,10 @@ public partial class MainWindow
             Title = $"HAND OFF TO {AgentName(to).ToUpperInvariant()} · NEW SESSION",
             RunLabel = $"Hand off to {AgentName(to)}",
             FixedProvider = true,
-            AutoEffort = record.AutoEffort && _settings.Current.Agent.AutoEffort
+            AutoEffort = record.AutoEffort && _settings.Current.Agent.AutoEffort,
+            // The new session works as the task's specialist, unless it is changed here.
+            RoleId = record.RoleId,
+            Skills = record.Skills
         };
         _cardRun = plan => HandOffAsync(plan, fromProvider);
         ShowAgentPanel();
@@ -1079,13 +1095,20 @@ public partial class MainWindow
             Effort = plan.Effort,
             Access = AgentAccess.Do,
             AutoApprove = plan.AutoApprove,
-            AllowedTools = AgentCoordinator.Tools(_taskProject ?? _projects.ActiveProject, template.Workspace, AgentAccess.Do)
+            AllowedTools = AgentCoordinator.Tools(_taskProject ?? _projects.ActiveProject, template.Workspace, AgentAccess.Do),
+            RoleId = plan.RoleId,
+            Skills = plan.Skills
         };
         // Auto stays on the card's word: an effort chosen there pins it.
         record.AutoEffort = plan.AutoEffort;
+        var specialist = string.Equals(record.RoleId, plan.RoleId, StringComparison.OrdinalIgnoreCase)
+            ? string.Empty
+            : $", as {RoleName(plan.RoleId, record.Workspace) ?? "General"}";
+        record.RoleId = plan.RoleId;
+        record.Skills = [.. plan.Skills];
         var setup = WithAutoEffort(task, EffortPhase.HandOff);
         record.Add(AgentEntryKind.HandOff,
-            $"{AgentName(fromProvider)} → {AgentName(plan.Provider)} · {SetupWords(setup.Provider, setup.Model, setup.Effort)}, a new session");
+            $"{AgentName(fromProvider)} → {AgentName(plan.Provider)} · {SetupWords(setup.Provider, setup.Model, setup.Effort)}, a new session{specialist}");
         record.Brief += $"\n\n── Handed over to {AgentName(plan.Provider)} ──\n{plan.Goal}";
         // Start over begins the new agent's brief again.
         _agentOrigin = task;
@@ -1269,9 +1292,20 @@ public partial class MainWindow
             : task.Access == AgentAccess.Do ? task.AutoApprove ? "auto" : "edits"
             : "read only";
         var elapsed = _agentClock.Elapsed;
-        return $"{_agents.Provider(task.Provider).Name} · {SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason)} · {access} · " +
-               $"{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
+        return $"{RoleWords(task.RoleId, task.Workspace)}{_agents.Provider(task.Provider).Name} · " +
+               $"{SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason)} · {access} · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
     }
+
+    /// <summary>The specialist's name for a header; null for General. A role whose file is gone shows its file name.</summary>
+    private string? RoleName(string? id, string workspace)
+    {
+        if (id is null) return null;
+        if (_roleName.Id != id || _roleName.Workspace != workspace) _roleName = (id, workspace, ProjectRoles.Find(id, workspace)?.Name ?? id);
+        return _roleName.Name;
+    }
+
+    /// <summary>"Rigger / Animator · " before a line of who works, when the task has a specialist.</summary>
+    private string RoleWords(string? id, string workspace) => RoleName(id, workspace) is { } name ? name + " · " : string.Empty;
 
     /// <summary>
     /// A run's model and effort as the user reads them, "Opus 5.5 · Extra high"; the CLI's own as its config names it.
@@ -1286,8 +1320,8 @@ public partial class MainWindow
         return autoReason is null ? words : $"{words} · auto: {autoReason}";
     }
 
-    private string RunLine(AgentRunRecord run) =>
-        $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason)} · " +
+    private string RunLine(AgentRunRecord run, string workspace) =>
+        $"{RoleWords(run.RoleId, workspace)}{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason)} · " +
         $"{(run.Access != AgentAccess.Do ? "read only" : run.AutoApprove ? "auto" : "edits")}";
 
     /// <summary>Where the task works: the project, the folder and, in Perforce, its changelist.</summary>
@@ -1476,6 +1510,7 @@ public partial class MainWindow
             Model = task.Model,
             Effort = task.Effort,
             EffortReason = task.EffortReason,
+            RoleId = task.RoleId,
             Access = task.Access,
             AutoApprove = task.AutoApprove,
             SessionId = result.SessionId,
@@ -1600,7 +1635,7 @@ public partial class MainWindow
         panel.ShowTaskView(record.Goal, WhereLine(record));
         var (status, dot) = Standing(record, live);
         panel.SetStatus(status, dot);
-        panel.SetHeader(live ? AgentHeader(_runningTask!) : record.LastRun is { } last ? RunLine(last) : "No run yet");
+        panel.SetHeader(live ? AgentHeader(_runningTask!) : record.LastRun is { } last ? RunLine(last, record.Workspace) : "No run yet");
         panel.ShowPlan(record.Plan);
         panel.ShowThread(BuildThread(record, live));
         panel.ShowBrief(record.Brief);
@@ -1710,7 +1745,7 @@ public partial class MainWindow
 
     /// <summary>
     /// Hand off ▾: the other agent in a new session (with a brief to look at first), another model of Settings for the
-    /// same agent in the same session, or the first agent back in its own session.
+    /// same agent in the same session, the first agent back in its own session, or another specialist in the same session.
     /// </summary>
     private IReadOnlyList<PanelAction> HandOffActions(AgentTaskRecord record)
     {
@@ -1740,7 +1775,42 @@ public partial class MainWindow
                 () => _ = ReturnToAsync(other)));
         }
 
+        // The specialists: the same session goes on as another one, or as none.
+        foreach (var role in ProjectRoles.In(record.Workspace).Where(role => !string.Equals(role.Id, record.RoleId, StringComparison.OrdinalIgnoreCase)))
+        {
+            actions.Add(new PanelAction($"As {role.Name} · same session",
+                $"{role.Description} The same session goes on as this specialist, with its skills: it does not read the project again",
+                () => SwitchRole(role)));
+        }
+
+        if (record.RoleId is not null)
+        {
+            actions.Add(new PanelAction("As General · same session", "The same session goes on without a specialist role", () => SwitchRole(null)));
+        }
+
         return actions;
+    }
+
+    /// <summary>
+    /// Another specialist takes the task over in the same session (null: General): it is told so with the role's text and
+    /// the skills picked for it, and does not read the project again. What follows, a hand-over too, keeps the new one.
+    /// </summary>
+    private void SwitchRole(AgentRole? role)
+    {
+        if (AgentRunning || _task is not { } record || ResumableTask() is not { } resume) return;
+        var skills = ProjectRoles.SkillsFor(BriefOf(record), role, ProjectSkills.In(record.Workspace));
+        record.RoleId = role?.Id;
+        record.Skills = [.. skills];
+        record.Add(AgentEntryKind.HandOff, $"Specialist: {role?.Name ?? "General"}");
+        if (resume.Previous is null) _backupBeforeDo = true;
+        if (_agentOrigin is { } origin) _agentOrigin = origin with { RoleId = role?.Id, Skills = skills };
+        _ = StartAgentAsync(resume.Task with
+        {
+            RoleId = role?.Id,
+            Skills = skills,
+            Prompt = ProjectRoles.SwitchText(role, skills, record.Workspace),
+            Images = []
+        }, resume.Previous, phase: EffortPhase.Reply);
     }
 
     /// <summary>The ⋯ menu: what the last run allows (chat, undo, a skill), starting over, and the console.</summary>

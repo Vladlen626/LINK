@@ -181,9 +181,14 @@ public abstract class CliAgentProvider : IAgentProvider
     /// <summary>What the provider learns after a run from outside its events, such as Codex's rate limits.</summary>
     protected virtual IReadOnlyList<AgentEvent> AfterRun(AgentResult result) => [];
 
-    /// <summary>What the CLI gets on stdin: a new session starts with the agent's rules, a resumed one has them.</summary>
+    /// <summary>
+    /// What the CLI gets on stdin: a new session starts with the agent's rules and the task's specialist and skills, a
+    /// resumed one has them.
+    /// </summary>
     public string StandardInput(AgentTask task) =>
-        task.ResumeSessionId is null ? AgentRules.Before(Input(task), task.Workspace, !FindsSkills) : Input(task);
+        task.ResumeSessionId is null
+            ? AgentRules.Before(Input(task), task.Workspace, !FindsSkills, ProjectRoles.Find(task.RoleId, task.Workspace), task.Skills)
+            : Input(task);
 
     public abstract AgentEventParser CreateParser(AgentTask task);
 

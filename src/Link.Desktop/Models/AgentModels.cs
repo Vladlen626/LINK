@@ -62,6 +62,12 @@ public sealed class AgentTaskRecord
     /// </summary>
     public bool AutoEffort { get; set; }
 
+    /// <summary>The specialist the task runs as, the file name of its role (<see cref="Services.ProjectRoles"/>); null: General.</summary>
+    public string? RoleId { get; set; }
+
+    /// <summary>The names of the skills the agent is told to read first, as the card or the last change of specialist picked them.</summary>
+    public List<string> Skills { get; set; } = [];
+
     [JsonIgnore]
     public AgentRunRecord? LastRun => Runs.Count == 0 ? null : Runs[^1];
 
@@ -120,6 +126,9 @@ public sealed record AgentRunRecord
 
     /// <summary>Why Link chose the effort when the task was on Auto; null when it was chosen by hand.</summary>
     public string? EffortReason { get; init; }
+
+    /// <summary>The specialist this run worked as; null: General.</summary>
+    public string? RoleId { get; init; }
 
     public AgentAccess Access { get; init; }
     public bool AutoApprove { get; init; }
@@ -323,6 +332,12 @@ public sealed record AgentTask
 
     /// <summary>Why Link chose <see cref="Effort"/> for a task on Auto (see <see cref="Services.AutoEffort"/>); null when the user did.</summary>
     public string? EffortReason { get; init; }
+
+    /// <summary>The specialist the task runs as (see <see cref="Services.ProjectRoles"/>): a new session is told its role. Null: General.</summary>
+    public string? RoleId { get; init; }
+
+    /// <summary>The names of the workspace's skills picked for the task: a new session is told to read them first.</summary>
+    public IReadOnlyList<string> Skills { get; init; } = [];
 
     /// <summary>
     /// A guard against a run that goes on and on (Claude Code's <c>--max-turns</c>): each turn spends the provider's

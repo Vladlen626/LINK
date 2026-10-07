@@ -47,6 +47,17 @@ public sealed record AgentCardModel(
 
     /// <summary>The effort list starts with Auto, Link's pick for each run, and the card starts on it.</summary>
     public bool AutoEffort { get; init; }
+
+    /// <summary>The specialists the card offers (none: no row) and the one it starts on, Link's pick; null: General.</summary>
+    public IReadOnlyList<AgentRole> Roles { get; init; } = [];
+
+    public string? RoleId { get; init; }
+
+    /// <summary>The workspace's skills, which the card picks from and offers to add (none: no row).</summary>
+    public IReadOnlyList<ProjectSkill> WorkspaceSkills { get; init; } = [];
+
+    /// <summary>The skills the card starts with, such as a task's own on a hand-over; null: picked from the goal.</summary>
+    public IReadOnlyList<string>? Skills { get; init; }
 }
 
 /// <summary>
@@ -58,8 +69,15 @@ public partial class AgentPanel : UserControl
 {
     private const double ThumbnailHeight = 54;
     private static readonly AgentChoice AutoChoice = new("auto", "Auto — Link picks");
+    private static readonly AgentChoice GeneralChoice = new(string.Empty, "General");
     private AgentCardModel? _card;
     private bool _fillingCard;
+    // The specialist is the user's once they chose it (a hand-over starts so): the goal's words pick it no more.
+    private bool _roleChosen;
+    // The skills on the card as chips; those the user took off or added stay so when Link picks again.
+    private IReadOnlyList<string> _skills = [];
+    private readonly HashSet<string> _skillsOff = new(StringComparer.OrdinalIgnoreCase);
+    private readonly HashSet<string> _skillsOn = new(StringComparer.OrdinalIgnoreCase);
     private bool _running;
     private bool _planning;
     private bool _hasTask;
@@ -147,6 +165,7 @@ public partial class AgentPanel : UserControl
         ShowImages(card.Images);
         CardWarningText.Visibility = Visibility.Collapsed;
         ShowAgentChoices();
+        ShowRoles(card);
         _fillingCard = false;
         UpdateCard();
         ShowView(CardView);
@@ -483,6 +502,10 @@ public partial class AgentPanel : UserControl
         EffortCombo.SelectedIndex = offered && auto ? 0 : (offered ? 1 : 0) + Math.Max(0, efforts.ToList().FindIndex(choice => choice.Value == effort) + 1);
     }
 
+    // The first item of the specialists is General, no role.
+    private string? SelectedRoleId => RoleCombo.SelectedItem is AgentChoice { Value.Length: > 0 } role ? role.Value : null;
+    private AgentRole? SelectedRole => _card?.Roles.FirstOrDefault(role => role.Id == SelectedRoleId);
+
     // The first item of each list is the CLI's own choice, sent as none; Auto, when offered, is before it.
     private string? SelectedModel => ModelCombo.SelectedItem is AgentChoice { Value.Length: > 0 } model ? model.Value : null;
     private bool SelectedAutoEffort => ReferenceEquals(EffortCombo.SelectedItem, AutoChoice);
@@ -502,6 +525,87 @@ public partial class AgentPanel : UserControl
     {
         if (_fillingCard || SelectedAgent is not { } agent) return;
         ShowEfforts(agent, SelectedEffort, SelectedAutoEffort);
+    }
+
+    /// <summary>The specialist and the skills the card starts with: Link's pick from the goal, or a hand-over's own.</summary>
+    private void ShowRoles(AgentCardModel card)
+    {
+        _roleChosen = card.FixedProvider;
+        _skillsOff.Clear();
+        _skillsOn.Clear();
+        RoleRow.Visibility = card.Roles.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        RoleCombo.ItemsSource = card.Roles.Select(role => new AgentChoice(role.Id, role.Name)).Prepend(GeneralChoice).ToArray();
+        SelectRole(card.RoleId);
+        SkillsRow.Visibility = card.WorkspaceSkills.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        ShowSkills(card.Skills ?? PickedSkills());
+    }
+
+    private void SelectRole(string? id)
+    {
+        var filling = _fillingCard;
+        _fillingCard = true;
+        RoleCombo.SelectedIndex = Math.Max(0, (_card?.Roles.ToList().FindIndex(role => role.Id == id) ?? -1) + 1);
+        _fillingCard = filling;
+        var role = SelectedRole;
+        RoleCombo.ToolTip = role?.Description ?? "No specialist: the agent works as its rules say";
+        RolePickText.Visibility = role is not null && !_roleChosen ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>The skills for the goal and the specialist as they stand: Link's picks without those taken off, and those added.</summary>
+    private IReadOnlyList<string> PickedSkills() =>
+        _card is null
+            ? []
+            : [.. ProjectRoles.SkillsFor(GoalBox.Text, SelectedRole, _card.WorkspaceSkills).Where(name => !_skillsOff.Contains(name)).Union(_skillsOn, StringComparer.OrdinalIgnoreCase)];
+
+    /// <summary>The skills as chips: a click takes one off, and the last chip adds one of the workspace's that is not there.</summary>
+    private void ShowSkills(IReadOnlyList<string> skills)
+    {
+        _skills = skills;
+        SkillsPanel.Children.Clear();
+        foreach (var name in skills)
+        {
+            var chip = new Button { Style = (Style)FindResource("SmallChipStyle"), Content = name + " ✕", ToolTip = "Take it off: the agent is not told to read it first" };
+            chip.Click += (_, _) =>
+            {
+                _skillsOn.Remove(name);
+                _skillsOff.Add(name);
+                ShowSkills([.. _skills.Where(each => each != name)]);
+            };
+            SkillsPanel.Children.Add(chip);
+        }
+
+        var others = _card?.WorkspaceSkills.Where(skill => !skills.Contains(skill.Name, StringComparer.OrdinalIgnoreCase)).ToArray() ?? [];
+        if (others.Length == 0) return;
+        var add = new Button { Style = (Style)FindResource("SmallChipStyle"), Content = "+ skill", ToolTip = "Add a skill of the workspace: the agent is told to read it first" };
+        add.Click += (_, _) => ShowMenu(add, [.. others.Select(skill => new PanelAction(skill.Name, skill.Description, () =>
+        {
+            _skillsOff.Remove(skill.Name);
+            _skillsOn.Add(skill.Name);
+            ShowSkills([.. _skills, skill.Name]);
+        }))], PlacementMode.Bottom);
+        SkillsPanel.Children.Add(add);
+    }
+
+    private void Role_OnChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_fillingCard) return;
+        _roleChosen = true;
+        SelectRole(SelectedRoleId);
+        ShowSkills(PickedSkills());
+    }
+
+    /// <summary>
+    /// The goal as the user left it: the specialist is picked from the new words while it is still Link's pick, and the
+    /// skills are, whoever chose the specialist. A hand-over keeps the task's.
+    /// </summary>
+    private void Goal_OnLostFocus(object sender, RoutedEventArgs e)
+    {
+        if (_card is not { FixedProvider: false } card) return;
+        if (!_roleChosen && card.Roles.Count > 0) SelectRole(ProjectRoles.Suggest(GoalBox.Text, card.Roles)?.Id);
+        // The chips stay as they are unless the pick changed: a click on one lost the focus of the goal, and a chip
+        // drawn anew under the mouse would take that click.
+        var skills = PickedSkills();
+        if (!skills.SequenceEqual(_skills)) ShowSkills(skills);
     }
 
     private void Card_OnChanged(object sender, RoutedEventArgs e)
@@ -542,7 +646,9 @@ public partial class AgentPanel : UserControl
             Model = SelectedModel,
             Effort = SelectedEffort,
             AutoEffort = SelectedAutoEffort,
-            AutoApprove = SelectedAuto
+            AutoApprove = SelectedAuto,
+            RoleId = SelectedRoleId,
+            Skills = _skills
         };
         _card = null;
         RunRequested?.Invoke(plan);

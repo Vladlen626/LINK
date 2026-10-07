@@ -56,6 +56,11 @@ internal static class AgentTests
         AutoEffortPolicy();
         AutoEffortFailures();
         AutoEffortSaved();
+        RolesRead();
+        RoleSuggest();
+        RoleSession();
+        RoleSkills();
+        RolesSaved();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -575,6 +580,13 @@ internal static class AgentTests
         return folder;
     }
 
+    private static void WriteSkill(string workspace, string name, string description)
+    {
+        var folder = Path.Combine(ProjectSkills.FolderIn(workspace), name);
+        Directory.CreateDirectory(folder);
+        File.WriteAllText(Path.Combine(folder, "SKILL.md"), $"---\nname: {name}\ndescription: {description}\n---\n\n# Steps\n");
+    }
+
     private static void DeleteFolder(string folder)
     {
         foreach (var file in Directory.EnumerateFiles(folder, "*", SearchOption.AllDirectories)) File.SetAttributes(file, FileAttributes.Normal);
@@ -987,6 +999,182 @@ internal static class AgentTests
         }, options), options)!;
         Program.Equal("auto effort: the task's pin and the run's reason and loop are kept",
             (saved.AutoEffort, saved.Runs[0].EffortReason, saved.Runs[0].Looped), (true, "carrying out the approved plan", true));
+    }
+
+    /// <summary>Specialists as files: the eight that ship beside Link, a workspace's own that add or replace by file name, and junk skipped.</summary>
+    private static void RolesRead()
+    {
+        var builtIn = ProjectRoles.In(null);
+        Program.Equal("roles: eight ship beside Link, by name",
+            string.Join("|", builtIn.Select(role => role.Name)),
+            "3D Artist|Build / Performance|Level Artist|QA / Playtest|Rigger / Animator|Technical Designer|UI/UX Designer|Unreal Developer");
+        Program.Equal("roles: each has a description, keywords, skills, an effort and a body without the editor's note",
+            builtIn.All(role => role.Description.Length > 0 && role.Keywords.Count > 0 && role.Skills.Count > 0 && role.Effort is not null &&
+                                role.Body.StartsWith("## Duties", StringComparison.Ordinal) && !role.Body.Contains("<!--")), true);
+        var rigger = builtIn.First(role => role.Id == "rigger-animator");
+        Program.Equal("roles: a file's front matter is read, a list by its commas",
+            (rigger.Name, rigger.Effort, string.Join("+", rigger.Skills), rigger.Keywords.Contains("animat"), rigger.FilePath.EndsWith("rigger-animator.md", StringComparison.Ordinal)),
+            ("Rigger / Animator", "medium", "blender-anim+unreal-animbp", true, true));
+
+        var workspace = TempFolder();
+        try
+        {
+            var folder = ProjectRoles.FolderIn(workspace);
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "qa-playtest.md"),
+                "<!-- the game's own checker -->\n---\nname: QA of this game\ndescription: Our checker.\nkeywords: smoke, плейтест\nskills: game-check\neffort: high\n---\nCheck by the game's script.\n");
+            File.WriteAllText(Path.Combine(folder, "audio.md"), "---\nname: Audio\ndescription: Sound.\nkeywords: sound, звук\n---\nMix the sound.");
+            File.WriteAllText(Path.Combine(folder, "plain.md"), "Just notes, no front matter.");
+            File.WriteAllText(Path.Combine(folder, "nameless.md"), "---\ndescription: No name.\nkeywords: x\n---\nBody");
+            File.WriteAllText(Path.Combine(folder, "notes.txt"), "---\nname: Not a role\n---\nBody");
+            var roles = ProjectRoles.In(workspace);
+            Program.Equal("roles: a workspace file adds a role; junk, a file without a name and other extensions are skipped",
+                string.Join("|", roles.Select(role => role.Id)),
+                "3d-artist|audio|build-engineer|level-artist|qa-playtest|rigger-animator|technical-designer|ui-ux-designer|unreal-developer");
+            var own = roles.First(role => role.Id == "qa-playtest");
+            Program.Equal("roles: a workspace file of a built-in one's name replaces it",
+                (own.Name, own.Effort, string.Join("+", own.Keywords), string.Join("+", own.Skills), own.Body), ("QA of this game", "high", "smoke+плейтест", "game-check", "Check by the game's script."));
+            Program.Equal("roles: Find by file name, none for General and for a role whose file is gone",
+                (ProjectRoles.Find("audio", workspace)?.Name, ProjectRoles.Find("AUDIO", workspace)?.Name, ProjectRoles.Find("audio", null)?.Name, ProjectRoles.Find(null, workspace)?.Name, ProjectRoles.Find("gone", workspace)?.Name),
+                ("Audio", "Audio", (string?)null, (string?)null, (string?)null));
+            Program.Equal("roles: no workspace folder, no workspace at all", (ProjectRoles.In(Path.Combine(workspace, "none")).Count, ProjectRoles.In(null).Count), (8, 8));
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+
+        var (fields, body) = ProjectSkills.FrontMatter("---\nname: x\nkeywords: a, b\ndescription: >\n  folded\n  in one\nempty:\n---\n\nBody\nmore");
+        Program.Equal("front matter: fields, a folded value in one line, a blank one left out, the body after",
+            (fields["name"], fields["keywords"], fields["description"], fields.ContainsKey("empty"), body), ("x", "a, b", "folded in one", false, "Body\nmore"));
+        Program.Equal("front matter: a file without it is all body",
+            ProjectSkills.FrontMatter("No header\nhere").Body + "|" + ProjectSkills.FrontMatter("No header").Fields.Count, "No header\nhere|0");
+    }
+
+    /// <summary>The specialist Link suggests from the brief: the most keywords, by word starts, in English or Russian; none is General.</summary>
+    private static void RoleSuggest()
+    {
+        var roles = ProjectRoles.In(null);
+        string? Id(string brief) => ProjectRoles.Suggest(brief, roles)?.Id;
+        Program.Equal("suggest: a Russian brief about an animation is the rigger",
+            (Id("Переделай анимацию прыжка Нори"), Id("Fix the foot sliding in the run cycle")), ("rigger-animator", "rigger-animator"));
+        Program.Equal("suggest: a build problem is the build engineer",
+            (Id("Почему падает билд при упаковке"), Id("Cook errors when packaging for Windows")), ("build-engineer", "build-engineer"));
+        Program.Equal("suggest: each of the others by its own words",
+            (Id("Make a low-poly mesh in Blender and unwrap it"), Id("Блокаут локации и освещение"), Id("Нужен плейтест и баг-репорт"), Id("Write a spec with acceptance criteria"),
+                Id("Draw the HUD in Figma"), Id("Add an Enhanced Input action in a Blueprint")),
+            ("3d-artist", "level-artist", "qa-playtest", "technical-designer", "ui-ux-designer", "unreal-developer"));
+        Program.Equal("suggest: the role with more of its keywords wins", Id("Retarget the run cycle animation and fix the camera"), "rigger-animator");
+        Program.Equal("suggest: case does not matter", Id("PACKAGING FAILS"), "build-engineer");
+        Program.Equal("suggest: a keyword counts once, and only at the start of a word",
+            (Id("The inanimate object"), Id("Rename the variable"), Id(string.Empty), ProjectRoles.Suggest("Fix the animation", []) is null), ((string?)null, (string?)null, (string?)null, true));
+
+        AgentRole Role(string id, params string[] keywords) => new(id, id, string.Empty, keywords, [], null, string.Empty, string.Empty);
+        Program.Equal("suggest: a tie goes to the earlier role",
+            (ProjectRoles.Suggest("a jump and a run", [Role("one", "jump"), Role("two", "run")])?.Id, ProjectRoles.Suggest("a jump and a run", [Role("two", "run"), Role("one", "jump")])?.Id), ("one", "two"));
+        Program.Equal("suggest: the same word twice scores once",
+            ProjectRoles.Suggest("jump jump jump run", [Role("one", "jump"), Role("two", "run", "walk", "jump")])?.Id, "two");
+    }
+
+    /// <summary>What a new session is told of its specialist and skills, where, and what a change of specialist says.</summary>
+    private static void RoleSession()
+    {
+        var rigger = ProjectRoles.Find("rigger-animator", null)!;
+        var workspace = TempFolder();
+        try
+        {
+            WriteSkill(workspace, "blender-anim", "Animate in Blender.");
+            WriteSkill(workspace, "other", "Something else.");
+            var text = ProjectRoles.SessionText(rigger, ["blender-anim", "unreal-animbp"], workspace);
+            Program.Equal("role text: the name and the body, then the skills the workspace has, as relative files",
+                (text.StartsWith("## Your role: Rigger / Animator\n## Duties", StringComparison.Ordinal), text.EndsWith("\n\nRead first: .agents/skills/blender-anim/SKILL.md", StringComparison.Ordinal),
+                    text.Contains("unreal-animbp"), text.Contains("<!--")),
+                (true, true, false, false));
+            Program.Equal("role text: a role without skills has no line, no role and no skills nothing, skills alone only the line",
+                (ProjectRoles.SessionText(rigger, [], workspace).Contains("Read first"), ProjectRoles.SessionText(null, [], workspace), ProjectRoles.SessionText(null, ["blender-anim", "other"], workspace)),
+                (false, string.Empty, "Read first: .agents/skills/blender-anim/SKILL.md, .agents/skills/other/SKILL.md"));
+            var switched = ProjectRoles.SwitchText(rigger, ["blender-anim"], workspace);
+            Program.Equal("role text: a change of specialist says from now on, then the same text",
+                (switched.StartsWith("From now on you work on this task as Rigger / Animator.\n\n## Your role: Rigger / Animator\n", StringComparison.Ordinal), switched.EndsWith("blender-anim/SKILL.md", StringComparison.Ordinal)),
+                (true, true));
+            Program.Equal("role text: back to General says the role no longer applies",
+                (ProjectRoles.SwitchText(null, [], workspace).Contains("without a specialist role"), ProjectRoles.SwitchText(null, [], workspace).Contains("## Your role")), (true, false));
+
+            var withRole = AgentRules.Before("Fix it", workspace, listSkills: true, rigger, ["blender-anim"]);
+            var order = new[] { "# Agent rules", "## Your role: Rigger / Animator", "Read first: .agents/skills/blender-anim/SKILL.md", "## Skills of this workspace", "\n\n# Task\n\nFix it" }
+                .Select(part => withRole.IndexOf(part, StringComparison.Ordinal)).ToArray();
+            Program.Equal("role text: in a new session after the rules, before the skills list and the task",
+                (order.All(at => at >= 0), order.SequenceEqual(order.Order()), withRole.EndsWith("\n\n# Task\n\nFix it", StringComparison.Ordinal)), (true, true, true));
+            var plain = AgentRules.Before("Fix it", workspace, listSkills: false);
+            Program.Equal("role text: General with no skills adds nothing, nor do skills the workspace lacks",
+                (plain.Contains("## Your role"), plain == AgentRules.Before("Fix it", workspace, listSkills: false, null, ["gone"])), (false, true));
+
+            var claude = new ClaudeCodeProvider(() => new AgentSettings(), _ => { });
+            var task = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = workspace, Prompt = "Fix it", RoleId = "rigger-animator", Skills = ["blender-anim"] };
+            Program.Equal("role text: the provider gives a new session its role and skills, and a resumed one has them already",
+                (claude.StandardInput(task).Contains("## Your role: Rigger / Animator"), claude.StandardInput(task).Contains("Read first: .agents/skills/blender-anim/SKILL.md"),
+                    claude.StandardInput(task with { ResumeSessionId = "s1" }), claude.StandardInput(task with { RoleId = "gone", Skills = [] }).Contains("Your role")),
+                (true, true, "Fix it", false));
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+    }
+
+    /// <summary>The skills picked for a task: the role's own first, then those whose words are in the brief, at most four.</summary>
+    private static void RoleSkills()
+    {
+        ProjectSkill[] skills =
+        [
+            new("blender-anim", "Animate and export rigs from Blender.", string.Empty),
+            new("unreal-animbp", "Animation Blueprints in Unreal.", string.Empty),
+            new("level-lighting", "Lighting of a level, Lumen settings.", string.Empty),
+            new("jump-tuning", "Tune the jump height of the character.", string.Empty),
+            new("save-system", "Save games to slots.", string.Empty),
+            new("sound-mix", "Mix the sound.", string.Empty)
+        ];
+        var rigger = ProjectRoles.Find("rigger-animator", null)!;
+        string Picked(string brief, AgentRole? role, params ProjectSkill[] among) => string.Join(",", ProjectRoles.SkillsFor(brief, role, among.Length > 0 ? among : skills));
+
+        Program.Equal("skills: the role's own first, then the brief's words", Picked("Redo the jump", rigger), "blender-anim,unreal-animbp,jump-tuning");
+        Program.Equal("skills: without a role only the brief's words; none when none match",
+            (Picked("Fix the lighting", null), Picked("Rename the field", null)), ("level-lighting", string.Empty));
+        Program.Equal("skills: the role's skills the workspace lacks are skipped",
+            Picked("Fix the lighting", rigger, skills[2], skills[5]), "level-lighting");
+        Program.Equal("skills: at most four, in the workspace's order on a tie", Picked("jump lighting sound save blender", null), "blender-anim,level-lighting,jump-tuning,save-system");
+        Program.Equal("skills: the more words of a skill the brief has, the earlier",
+            Picked("Mix the sound of the jump and tune it", null), "sound-mix,jump-tuning");
+        Program.Equal("skills: a word counts at its start, in any case, and only a name's whole parts or a description's long words",
+            (Picked("JUMPING", null), Picked("a jumper", null), Picked("unjump", null), Picked("an anim", null)), ("jump-tuning", "jump-tuning", string.Empty, "blender-anim"));
+
+        Program.Equal("skills: words any text has tie no skill to a task",
+            Picked("Fix the menu in the project, using the docs", null, new ProjectSkill("ue-blueprint", "Edit Blueprint graphs of the project using ue.mjs.", string.Empty)),
+            string.Empty);
+
+        AgentRole Role(string id, string skill, params string[] keywords) => new(id, id, string.Empty, keywords, string.IsNullOrEmpty(skill) ? [] : [skill], null, string.Empty, string.Empty);
+        ProjectSkill[] measuring = [new("pie-check", "Measure foot sliding in PIE.", string.Empty), new("other", "Something else.", string.Empty)];
+        Program.Equal("skills: a skill whose description has the role's keyword goes with the role",
+            (Picked("Anything", Role("r", string.Empty, "foot slid"), measuring), Picked("Anything", Role("r", string.Empty, "lighting"), measuring)), ("pie-check", string.Empty));
+        Program.Equal("skills: a role skill is named as the workspace has it, once", Picked("Anything", Role("r", "BLENDER-ANIM"), skills[0], skills[0]), "blender-anim");
+    }
+
+    /// <summary>The specialist and skills in what is saved: older tasks load as General with no skills.</summary>
+    private static void RolesSaved()
+    {
+        var options = new JsonSerializerOptions { WriteIndented = true };
+        var older = JsonSerializer.Deserialize<AgentTaskRecord>("""{"Goal":"Fix it","Workspace":"C:\\Work","Runs":[{"Provider":0,"Outcome":"Done in 1:00"}]}""", options)!;
+        Program.Equal("roles saved: a task of an older Link is General with no skills", (older.RoleId, older.Skills.Count, older.Runs[0].RoleId), ((string?)null, 0, (string?)null));
+        var saved = JsonSerializer.Deserialize<AgentTaskRecord>(JsonSerializer.Serialize(new AgentTaskRecord
+        {
+            Goal = "Fix it",
+            Workspace = @"C:\Work",
+            RoleId = "rigger-animator",
+            Skills = ["blender-anim", "unreal-animbp"],
+            Runs = [new AgentRunRecord { RoleId = "qa-playtest", Outcome = "Done in 1:00" }]
+        }, options), options)!;
+        Program.Equal("roles saved: the task's specialist and skills and the run's specialist are kept",
+            (saved.RoleId, string.Join("+", saved.Skills), saved.Runs[0].RoleId), ("rigger-animator", "blender-anim+unreal-animbp", "qa-playtest"));
     }
 
     /// <summary>The loop check on runs in the recorded format: each kind of loop is told once, working runs get none.</summary>

@@ -23,6 +23,12 @@ public sealed record AgentPlan(
 
     /// <summary>Auto on the card: with edits, nothing is asked (see <see cref="AgentTask.AutoApprove"/>).</summary>
     public bool AutoApprove { get; init; }
+
+    /// <summary>The specialist chosen on the card, the file name of its role; null: General.</summary>
+    public string? RoleId { get; init; }
+
+    /// <summary>The skills on the card, which the agent is told to read first.</summary>
+    public IReadOnlyList<string> Skills { get; init; } = [];
 }
 
 /// <summary>
@@ -89,7 +95,9 @@ public sealed class AgentCoordinator
             CheckCommand = project.CheckCommand,
             AutoApprove = plan.AutoApprove && plan.Access == AgentAccess.Do,
             Model = plan.Model,
-            Effort = plan.Effort
+            Effort = plan.Effort,
+            RoleId = plan.RoleId,
+            Skills = plan.Skills
         };
     }
 
