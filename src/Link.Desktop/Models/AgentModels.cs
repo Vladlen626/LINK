@@ -125,6 +125,11 @@ public sealed record AgentRunRecord
     public long? OutputTokens { get; init; }
     public decimal? CostUsd { get; init; }
 
+    /// <summary>What the session held when the run ended and the model's window; null when the CLI did not tell.</summary>
+    public long? ContextTokens { get; init; }
+
+    public long? ContextWindow { get; init; }
+
     /// <summary>The run's steps in Activity's words, the last of them: what the task's thread folds under the run.</summary>
     public List<string> Steps { get; init; } = [];
 
@@ -309,6 +314,9 @@ public sealed record AgentTask
     /// </summary>
     public int MaxTurns { get; init; } = 150;
 
+    /// <summary>The tokens near which the CLI compacts the session by itself (Settings' Context budget); null leaves it alone.</summary>
+    public int? ContextBudget { get; init; }
+
     /// <summary>
     /// A file of the workspace, relative to it, that Link writes the agent's answer to, such as the project map: the
     /// only change of a read-only task, made by Link rather than by the agent.
@@ -351,6 +359,9 @@ public enum AgentEventKind
     /// <summary>The CLI told how much of the subscription is used; <see cref="AgentEvent.Limits"/> are its windows.</summary>
     Limit,
 
+    /// <summary>The session's context is told: <see cref="AgentEvent.ContextTokens"/> is its size now. Counted, not listed.</summary>
+    Context,
+
     Completed,
     Error
 }
@@ -375,6 +386,11 @@ public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail
 
     public IReadOnlyList<AgentPlanItem> Plan { get; init; } = [];
     public IReadOnlyList<AgentLimit> Limits { get; init; } = [];
+
+    /// <summary>For a context event: what the session holds, and the model's window when the CLI named it.</summary>
+    public long ContextTokens { get; init; }
+
+    public long? ContextWindow { get; init; }
 }
 
 /// <summary>How a run ended. <see cref="Denials"/> are the tool rules the agent was refused, to allow and try again.</summary>
@@ -425,6 +441,11 @@ public sealed record AgentStats
     /// </summary>
     public bool SessionTokens { get; init; }
 
+    /// <summary>What the session held at the run's last word and the model's window: a level, not a sum.</summary>
+    public long? ContextTokens { get; init; }
+
+    public long? ContextWindow { get; init; }
+
     public TimeSpan Duration { get; init; }
 
     /// <summary>These numbers and those of the run that continued this one, as one task's.</summary>
@@ -444,6 +465,8 @@ public sealed record AgentStats
             OutputTokens = tokens is not null ? tokens.OutputTokens : Sum(OutputTokens, next.OutputTokens),
             CostUsd = CostUsd is null && next.CostUsd is null ? null : (CostUsd ?? 0) + (next.CostUsd ?? 0),
             SessionTokens = SessionTokens || next.SessionTokens,
+            ContextTokens = next.ContextTokens ?? ContextTokens,
+            ContextWindow = next.ContextWindow ?? ContextWindow,
             Duration = Duration + next.Duration
         };
 
@@ -495,10 +518,19 @@ public sealed class AgentSettings
     /// <summary>Link's own answers (a map, a skill, a note for Start over) run on Light.</summary>
     public bool OwnAnswersOnLight { get; set; } = true;
 
+    private const int DefaultContextBudget = 550_000;
+
+    /// <summary>
+    /// The tokens near which an agent's CLI compacts its session by itself, so that a long task does not grow without
+    /// end; the CLI caps it at the model's own window.
+    /// </summary>
+    public int ContextBudget { get; set; } = DefaultContextBudget;
+
     public void Normalize()
     {
         if (!Enum.IsDefined(DefaultProvider)) DefaultProvider = AgentProviderKind.ClaudeCode;
         if (!Enum.IsDefined(DefaultAccess)) DefaultAccess = AgentAccessChoice.Auto;
+        if (ContextBudget is < 50_000 or > 2_000_000) ContextBudget = DefaultContextBudget;
         ClaudePath = Trimmed(ClaudePath);
         CodexPath = Trimmed(CodexPath);
         ClaudeModel = Trimmed(ClaudeModel);
@@ -555,7 +587,8 @@ public sealed class AgentSettings
         CodexLight = new AgentLevelChoice { Model = CodexLight.Model, Effort = CodexLight.Effort },
         CodexDeep = new AgentLevelChoice { Model = CodexDeep.Model, Effort = CodexDeep.Effort },
         PlanOnDeep = PlanOnDeep,
-        OwnAnswersOnLight = OwnAnswersOnLight
+        OwnAnswersOnLight = OwnAnswersOnLight,
+        ContextBudget = ContextBudget
     };
 
     private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

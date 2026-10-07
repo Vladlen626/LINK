@@ -34,6 +34,10 @@ public partial class SettingsWindow : Window
     private readonly AgentSettings _agentPaths;
     // What each model or effort list shows after its default, to read the choice back on Save.
     private readonly Dictionary<ComboBox, List<AgentChoice>> _choices = [];
+    // The context budgets Settings offers; a saved one the list lacks, such as one set by hand, joins it.
+    private static readonly int[] ContextBudgets = [200_000, 300_000, 400_000, 550_000, 800_000, 1_000_000];
+    // What the context budget box lists, to read the choice back on Save.
+    private readonly List<int> _budgets;
     private readonly CancellationTokenSource _agentChecks = new();
 
     public SettingsWindow(
@@ -93,6 +97,9 @@ public partial class SettingsWindow : Window
         DefaultAgentCombo.ItemsSource = _agents.Select(agent => agent.Name).ToArray();
         DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_agents, agent => agent.Kind == current.Agent.DefaultProvider));
         DefaultAccessCombo.SelectedIndex = current.Agent.DefaultAccess == AgentAccessChoice.Auto ? 1 : 0;
+        _budgets = [.. ContextBudgets.Append(current.Agent.ContextBudget).Distinct().Order()];
+        ContextBudgetCombo.ItemsSource = _budgets.Select(budget => AgentContext.Tokens(budget)).ToArray();
+        ContextBudgetCombo.SelectedIndex = _budgets.IndexOf(current.Agent.ContextBudget);
         var claude = _agents.First(agent => agent.Kind == AgentProviderKind.ClaudeCode);
         var codex = _agents.First(agent => agent.Kind == AgentProviderKind.Codex);
         ShowChoices(ClaudeModelCombo, claude.Models, current.Agent.ClaudeModel, "Default — Claude Code's own");
@@ -594,6 +601,7 @@ public partial class SettingsWindow : Window
         current.Agent.ClaudePath = _agentPaths.ClaudePath;
         current.Agent.CodexPath = _agentPaths.CodexPath;
         current.Agent.DefaultAccess = DefaultAccessCombo.SelectedIndex == 0 ? AgentAccessChoice.Edit : AgentAccessChoice.Auto;
+        current.Agent.ContextBudget = ContextBudgetCombo.SelectedIndex >= 0 ? _budgets[ContextBudgetCombo.SelectedIndex] : current.Agent.ContextBudget;
         current.Agent.ClaudeModel = Chosen(ClaudeModelCombo);
         current.Agent.CodexModel = Chosen(CodexModelCombo);
         current.Agent.SetEffort(AgentProviderKind.ClaudeCode, Chosen(ClaudeEffortCombo));

@@ -69,6 +69,12 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
             ? task.Prompt
             : task.Prompt + "\n\nImages attached to this task (open them with Read):\n" + string.Join('\n', task.Images);
 
+    /// <summary>The budget is Claude Code's auto-compact window: it compacts near it, and never above the model's own window.</summary>
+    public override IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task) =>
+        task.ContextBudget is { } budget
+            ? new Dictionary<string, string> { ["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture) }
+            : new Dictionary<string, string>();
+
     public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser();
 
     /// <summary>
@@ -160,7 +166,14 @@ public sealed class ClaudeEventParser : AgentEventParser
                 SessionId = Text(root, "session_id");
                 events.Add(new AgentEvent(AgentEventKind.Status, Describe(root)));
                 break;
+            // Claude Code compacted the session by itself, near the budget or at the model's window.
+            case "system" when Text(root, "subtype") == "compact_boundary":
+                var before = root.TryGetProperty("compact_metadata", out var compacted) ? Number(compacted, "pre_tokens") : 0;
+                events.Add(new AgentEvent(AgentEventKind.Status,
+                    before > 0 ? $"Claude Code compacted the context (was {AgentContext.Tokens(before)})" : "Claude Code compacted the context"));
+                break;
             case "assistant":
+                ReadContext(root, events);
                 foreach (var block in Content(root)) ReadAssistant(block, events);
                 break;
             case "user":
@@ -202,6 +215,39 @@ public sealed class ClaudeEventParser : AgentEventParser
         }
 
         return limits;
+    }
+
+    /// <summary>
+    /// The context after this message: all the input it read, cached or not. Claude Code repeats a message's usage for
+    /// each of its content blocks, so a size is told once, when it changes.
+    /// </summary>
+    private void ReadContext(JsonElement root, List<AgentEvent> events)
+    {
+        var usage = root.TryGetProperty("message", out var message) && message.ValueKind == JsonValueKind.Object &&
+                    message.TryGetProperty("usage", out var found)
+            ? found
+            : default;
+        var tokens = Number(usage, "input_tokens") + Number(usage, "cache_read_input_tokens") + Number(usage, "cache_creation_input_tokens");
+        if (tokens > 0 && tokens != ContextTokens) Context(tokens, null, events);
+    }
+
+    /// <summary>
+    /// The window of the main model: the result lists the models of a run, and the one that read the most is the
+    /// session's (a helper model reads little). Null when the result does not say.
+    /// </summary>
+    private static long? WindowOf(JsonElement result)
+    {
+        if (!result.TryGetProperty("modelUsage", out var models) || models.ValueKind != JsonValueKind.Object) return null;
+        long? window = null;
+        var most = -1L;
+        foreach (var model in models.EnumerateObject())
+        {
+            var size = Number(model.Value, "contextWindow");
+            var read = Number(model.Value, "inputTokens") + Number(model.Value, "cacheReadInputTokens") + Number(model.Value, "cacheCreationInputTokens");
+            if (size > 0 && read > most) (window, most) = (size, read);
+        }
+
+        return window;
     }
 
     private void ReadAssistant(JsonElement block, List<AgentEvent> events)
@@ -281,6 +327,9 @@ public sealed class ClaudeEventParser : AgentEventParser
                 Number(usage, "output_tokens"),
                 root.TryGetProperty("total_cost_usd", out var cost) && cost.TryGetDecimal(out var usd) ? usd : null);
         }
+
+        // The window is told only here; the size it is told with is the last message's.
+        if (ContextTokens is { } context && WindowOf(root) is { } window) Context(context, window, events);
 
         if (root.TryGetProperty("permission_denials", out var denials) && denials.ValueKind == JsonValueKind.Array)
         {

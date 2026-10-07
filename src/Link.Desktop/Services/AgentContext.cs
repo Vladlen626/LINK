@@ -1,0 +1,26 @@
+using System.Globalization;
+
+namespace Link.Desktop.Services;
+
+/// <summary>How the size of an agent's context is told: "182k", and "Context 182k / 400k (46%)" against the limit.</summary>
+public static class AgentContext
+{
+    public static string Tokens(long number) => number switch
+    {
+        < 1_000 => number.ToString(CultureInfo.InvariantCulture),
+        < 100_000 => (number / 1_000.0).ToString("0.#k", CultureInfo.InvariantCulture),
+        < 1_000_000 => (number / 1_000.0).ToString("0k", CultureInfo.InvariantCulture),
+        _ => (number / 1_000_000.0).ToString("0.#M", CultureInfo.InvariantCulture)
+    };
+
+    /// <summary>
+    /// What the session holds against the limit its CLI compacts at: the budget, or the model's window when that is
+    /// smaller (the CLI caps the budget there).
+    /// </summary>
+    public static string Line(long used, long? window, int budget)
+    {
+        var limit = Math.Min(budget, window ?? budget);
+        var percent = (int)Math.Round(used * 100.0 / limit, MidpointRounding.AwayFromZero);
+        return $"Context {Tokens(used)} / {Tokens(limit)} ({percent}%)";
+    }
+}

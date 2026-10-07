@@ -35,6 +35,8 @@ public partial class MainWindow
     private readonly List<string> _taskSteps = [];
     // The running run's own steps, kept with it in the task's record.
     private readonly List<string> _runSteps = [];
+    // What the running session holds and the model's window, as the CLI last told.
+    private (long? Tokens, long? Window) _liveContext;
     private AgentConsoleWindow? _agentConsoleWindow;
     private AgentPanel? _agentPanel;
     // What Run on the card does: start a task, or hand the open one over with the brief on the card.
@@ -702,6 +704,8 @@ public partial class MainWindow
     /// </summary>
     private async Task StartAgentAsync(AgentTask task, AgentRun? previous, string? note = null)
     {
+        // Every run starts here, the user's and Link's own: the CLI compacts its session near the budget of Settings.
+        task = task with { ContextBudget = _settings.Current.Agent.ContextBudget };
         var provider = _agents.Provider(task.Provider);
         // Link's own answer (the map) runs apart: the open task keeps its session, its last run and its question.
         var own = !IsUserWork(task) || _task is null;
@@ -720,6 +724,10 @@ public partial class MainWindow
         _runningTask = task;
         _limitOffered = false;
         _runSteps.Clear();
+        // A session taken up again holds what its last run left, and the model's window stays until a run says otherwise.
+        _liveContext = !own && _task?.LastRun is { } last && last.Provider == task.Provider
+            ? (last.SessionId == task.ResumeSessionId ? last.ContextTokens : null, last.ContextWindow)
+            : default;
         _runningFiles.Clear();
         _liveTurn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort)}", "Starting…",
             (Brush)FindResource("AccentBrush")) { StepsOpen = true };
@@ -1100,7 +1108,8 @@ public partial class MainWindow
     /// <summary>A step as the thread shows it; null for what has a place of its own (the answer, files, plan, usage).</summary>
     private static string? StepText(AgentEvent agentEvent) => agentEvent.Kind switch
     {
-        AgentEventKind.Completed or AgentEventKind.Artifact or AgentEventKind.ToolFailed or AgentEventKind.Plan or AgentEventKind.Limit => null,
+        AgentEventKind.Completed or AgentEventKind.Artifact or AgentEventKind.ToolFailed or AgentEventKind.Plan or AgentEventKind.Limit
+            or AgentEventKind.Context => null,
         AgentEventKind.Tool => "▸ " + agentEvent.Text,
         AgentEventKind.Output => agentEvent.Text,
         AgentEventKind.NeedsInput => "⚠ " + agentEvent.Text,
@@ -1167,6 +1176,16 @@ public partial class MainWindow
         {
             if (userWork) _task!.Plan = [.. plan.Plan];
             if (shown && userWork) _agentPanel.ShowPlan(plan.Plan);
+        }
+
+        if (userWork && events.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Context) is { } context)
+        {
+            _liveContext = (context.ContextTokens, context.ContextWindow ?? _liveContext.Window);
+            if (shown)
+            {
+                var (usage, hint) = UsageText(_task!);
+                _agentPanel.ShowUsage(usage, hint);
+            }
         }
 
         if (events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Limit))
@@ -1424,6 +1443,8 @@ public partial class MainWindow
             CachedTokens = Less(stats.CachedTokens, earlier.Sum(previous => previous.CachedTokens ?? 0)),
             OutputTokens = Less(stats.OutputTokens, earlier.Sum(previous => previous.OutputTokens ?? 0)),
             CostUsd = stats.CostUsd,
+            ContextTokens = stats.ContextTokens,
+            ContextWindow = stats.ContextWindow,
             Steps = [.. _runSteps.TakeLast(StepsKeptPerRun)],
             Files = files,
             Words = Shorten(answer, 12_000)
@@ -1622,7 +1643,7 @@ public partial class MainWindow
         turn.Said = AgentChanges.SplitChangelistLine(AgentQuestion.Split(run.Words).Text).Text;
         turn.Files = run.Files.Select(file => new AgentChangeRow(file, Path.Combine(record.Workspace, file))).ToArray();
         var tokens = run.InputTokens is { } input
-            ? $" · {Tokens(input)} in ({Tokens(run.CachedTokens ?? 0)} cached), {Tokens(run.OutputTokens ?? 0)} out"
+            ? $" · {AgentContext.Tokens(input)} in ({AgentContext.Tokens(run.CachedTokens ?? 0)} cached), {AgentContext.Tokens(run.OutputTokens ?? 0)} out"
             : string.Empty;
         turn.Stats = $"{(int)run.Duration.TotalMinutes}:{run.Duration.Seconds:00}{tokens}";
         return turn;
@@ -1688,7 +1709,10 @@ public partial class MainWindow
         return actions;
     }
 
-    /// <summary>The task's tokens by agent; the money is a hint only, as the usage windows are what runs out.</summary>
+    /// <summary>
+    /// The task's tokens by agent and what its session holds; the money is a hint only, as the usage windows are what
+    /// runs out.
+    /// </summary>
     private (string Text, string Hint) UsageText(AgentTaskRecord record)
     {
         var lines = record.Runs.GroupBy(run => run.Provider).Select(runs =>
@@ -1696,14 +1720,31 @@ public partial class MainWindow
             var input = runs.Sum(run => run.InputTokens ?? 0);
             var cached = runs.Sum(run => run.CachedTokens ?? 0);
             var output = runs.Sum(run => run.OutputTokens ?? 0);
-            var tokens = input > 0 ? $", {Tokens(input)} tokens in ({Tokens(cached)} cached), {Tokens(output)} out" : string.Empty;
+            var tokens = input > 0 ? $", {AgentContext.Tokens(input)} tokens in ({AgentContext.Tokens(cached)} cached), {AgentContext.Tokens(output)} out" : string.Empty;
             return $"This task, {AgentName(runs.Key)}: {Plural(runs.Count(), "run")}{tokens}";
-        });
+        }).ToList();
         var cost = record.Runs.Sum(run => run.CostUsd ?? 0);
         var hint = cost > 0
             ? $"≈ {cost.ToString("$0.00", CultureInfo.InvariantCulture)} at API prices (Claude Code reports it). On a subscription it is no bill: the windows below are what runs out."
             : "On a subscription the usage windows below are what runs out: the 5-hour one and the week.";
+        if (ContextLine(record) is { } context)
+        {
+            lines.Add(context);
+            hint += "\nContext: what the agent's session holds. Its CLI compacts it near the budget of Settings, or at the model's window if that is smaller.";
+        }
+
         return (string.Join('\n', lines), hint);
+    }
+
+    /// <summary>
+    /// "Context 182k / 400k (46%)": the session against the limit it is compacted at. The run under way tells it as it
+    /// goes; otherwise it is what the last run left. Null when the agent did not tell.
+    /// </summary>
+    private string? ContextLine(AgentTaskRecord record)
+    {
+        var live = AgentRunning && ReferenceEquals(record, _task) && _runningTask is { } running && IsUserWork(running);
+        var (used, window) = live ? _liveContext : (record.LastRun?.ContextTokens, record.LastRun?.ContextWindow);
+        return used is { } tokens ? AgentContext.Line(tokens, window, _settings.Current.Agent.ContextBudget) : null;
     }
 
     /// <summary>The agent's pill in the card's header and the Tasks tab's dot: who works and how the task stands.</summary>
@@ -2043,7 +2084,7 @@ public partial class MainWindow
         if (stats.ToolErrors > 0) parts.Add(Plural(stats.ToolErrors, "tool error"));
         if (stats.InputTokens is { } input)
         {
-            parts.Add($"{Tokens(input)} tokens in ({Tokens(stats.CachedTokens ?? 0)} cached), {Tokens(stats.OutputTokens ?? 0)} out" +
+            parts.Add($"{AgentContext.Tokens(input)} tokens in ({AgentContext.Tokens(stats.CachedTokens ?? 0)} cached), {AgentContext.Tokens(stats.OutputTokens ?? 0)} out" +
                       (stats.SessionTokens ? " for the session" : string.Empty));
         }
 
@@ -2051,14 +2092,6 @@ public partial class MainWindow
     }
 
     private static string Plural(int number, string one, string? many = null) => $"{number} {(number == 1 ? one : many ?? one + "s")}";
-
-    private static string Tokens(long number) => number switch
-    {
-        < 1_000 => number.ToString(CultureInfo.InvariantCulture),
-        < 100_000 => (number / 1_000.0).ToString("0.#k", CultureInfo.InvariantCulture),
-        < 1_000_000 => (number / 1_000.0).ToString("0k", CultureInfo.InvariantCulture),
-        _ => (number / 1_000_000.0).ToString("0.#M", CultureInfo.InvariantCulture)
-    };
 
     private static string Shorten(string text, int length) => text.Length <= length ? text : text[..(length - 1)] + "…";
 

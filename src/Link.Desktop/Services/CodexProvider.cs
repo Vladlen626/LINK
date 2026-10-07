@@ -194,47 +194,84 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
     /// <summary>A window's name by its length: "5 h", "week".</summary>
     private static string WindowOf(long minutes) => minutes switch { 300 => "5 h", 10080 => "week", > 0 => $"{minutes / 60} h", _ => "window" };
 
-    /// <summary>Codex's exec events carry no rate limits; its own log of the session does, so they are read from there.</summary>
-    protected override IReadOnlyList<AgentEvent> AfterRun(AgentResult result) =>
-        result.SessionId is { } session && SessionLimits(Path.Combine(CodexHome, "sessions"), session) is { Count: > 0 } limits
-            ? [new AgentEvent(AgentEventKind.Limit, "Usage reported") { Limits = limits }]
-            : [];
+    /// <summary>
+    /// Codex's exec events carry no rate limits and no context size; its own log of the session does, so they are read
+    /// from there.
+    /// </summary>
+    protected override IReadOnlyList<AgentEvent> AfterRun(AgentResult result)
+    {
+        if (result.SessionId is not { } session) return [];
+        var (limits, context) = SessionReport(Path.Combine(CodexHome, "sessions"), session);
+        var events = new List<AgentEvent>();
+        if (limits.Count > 0) events.Add(new AgentEvent(AgentEventKind.Limit, "Usage reported") { Limits = limits });
+        if (context is not null) events.Add(context);
+        return events;
+    }
 
     /// <summary>
-    /// The 5-hour and weekly windows Codex last wrote into its log of a session (<c>rollout-…-&lt;session&gt;.jsonl</c>,
-    /// <c>rate_limits</c> of a token count). Only those lines are looked at; nothing else of the session is read.
+    /// What Codex last wrote into its log of a session (<c>rollout-…-&lt;session&gt;.jsonl</c>) in a token count: the
+    /// 5-hour and weekly windows (<c>rate_limits</c>) and the context now (<c>last_token_usage</c> with the model's
+    /// window). Only those lines are looked at; nothing else of the session is read.
     /// </summary>
-    internal static IReadOnlyList<AgentLimit> SessionLimits(string sessionsFolder, string session)
+    internal static (IReadOnlyList<AgentLimit> Limits, AgentEvent? Context) SessionReport(string sessionsFolder, string session)
     {
         try
         {
             var file = Directory.Exists(sessionsFolder)
                 ? Directory.EnumerateFiles(sessionsFolder, $"rollout-*{session}.jsonl", SearchOption.AllDirectories).FirstOrDefault()
                 : null;
-            var last = file is null ? null : File.ReadLines(file).LastOrDefault(line => line.Contains("\"rate_limits\"") && line.Contains("\"codex\""));
-            if (last is null) return [];
-            using var document = JsonDocument.Parse(last);
-            if (!document.RootElement.TryGetProperty("payload", out var payload) || !payload.TryGetProperty("rate_limits", out var limits)) return [];
-            var now = DateTimeOffset.Now;
-            return new[] { "primary", "secondary" }
-                .Select(name => limits.TryGetProperty(name, out var window) && window.ValueKind == JsonValueKind.Object ? window : default)
-                .Where(window => window.ValueKind == JsonValueKind.Object)
-                .Select(window =>
-                {
-                    var minutes = window.TryGetProperty("window_minutes", out var length) && length.TryGetInt64(out var value) ? value : 0;
-                    // Codex writes percents (31.0), never shares: 1.0 is one percent, not all of it.
-                    double? used = window.TryGetProperty("used_percent", out var percent) && percent.TryGetDouble(out var number) ? number : null;
-                    var reset = AgentLimits.UnixTime(window, "resets_at") ??
-                                (window.TryGetProperty("resets_in_seconds", out var seconds) && seconds.TryGetInt64(out var left) ? now.AddSeconds(left) : null);
-                    return new AgentLimit(AgentProviderKind.Codex, WindowOf(minutes), used, reset, used >= 100, now);
-                })
-                .ToArray();
+            if (file is null) return ([], null);
+            string? limits = null, count = null;
+            foreach (var line in File.ReadLines(file))
+            {
+                if (line.Contains("\"rate_limits\"") && line.Contains("\"codex\"")) limits = line;
+                if (line.Contains("\"token_count\"") && line.Contains("\"last_token_usage\"")) count = line;
+            }
+
+            return (limits is null ? [] : LimitsIn(limits), count is null ? null : ContextIn(count));
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            return [];
+            return ([], null);
         }
     }
+
+    private static IReadOnlyList<AgentLimit> LimitsIn(string line)
+    {
+        using var document = JsonDocument.Parse(line);
+        if (!document.RootElement.TryGetProperty("payload", out var payload) || !payload.TryGetProperty("rate_limits", out var limits)) return [];
+        var now = DateTimeOffset.Now;
+        return new[] { "primary", "secondary" }
+            .Select(name => limits.TryGetProperty(name, out var window) && window.ValueKind == JsonValueKind.Object ? window : default)
+            .Where(window => window.ValueKind == JsonValueKind.Object)
+            .Select(window =>
+            {
+                var minutes = window.TryGetProperty("window_minutes", out var length) && length.TryGetInt64(out var value) ? value : 0;
+                // Codex writes percents (31.0), never shares: 1.0 is one percent, not all of it.
+                double? used = window.TryGetProperty("used_percent", out var percent) && percent.TryGetDouble(out var number) ? number : null;
+                var reset = AgentLimits.UnixTime(window, "resets_at") ??
+                            (window.TryGetProperty("resets_in_seconds", out var seconds) && seconds.TryGetInt64(out var left) ? now.AddSeconds(left) : null);
+                return new AgentLimit(AgentProviderKind.Codex, WindowOf(minutes), used, reset, used >= 100, now);
+            })
+            .ToArray();
+    }
+
+    /// <summary>
+    /// The context after the last request of a token count: what it read plus what it wrote is what the model holds
+    /// now (the count's totals add every request of the session up). Null when the count lacks them.
+    /// </summary>
+    private static AgentEvent? ContextIn(string line)
+    {
+        using var document = JsonDocument.Parse(line);
+        var info = Child(Child(document.RootElement, "payload"), "info");
+        var last = Child(info, "last_token_usage");
+        var tokens = AgentEventParser.Number(last, "input_tokens") + AgentEventParser.Number(last, "output_tokens");
+        var window = AgentEventParser.Number(info, "model_context_window");
+        return tokens > 0 ? new AgentEvent(AgentEventKind.Context, "Context") { ContextTokens = tokens, ContextWindow = window > 0 ? window : null } : null;
+    }
+
+    private static JsonElement Child(JsonElement element, string name) =>
+        element.ValueKind == JsonValueKind.Object && element.TryGetProperty(name, out var value) ? value : default;
 
     /// <summary>
     /// What a task in a workspace does without. The Codex desktop app's plugins (with their skills and computer
@@ -278,6 +315,8 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
 
         if (task.Model is { } model) arguments.AddRange(["-c", $"model={model}"]);
         if (task.Effort is { } effort) arguments.AddRange(["-c", $"model_reasoning_effort={effort}"]);
+        // A tenth below the budget, so that the session is compacted before it reaches it; the model's window caps it.
+        if (task.ContextBudget is { } budget) arguments.AddRange(["-c", $"model_auto_compact_token_limit={budget * 9 / 10}"]);
         // Auto: what would leave the sandbox (the network, a file outside the workspace) goes to Codex's automatic
         // review instead of failing, as --approve-for-me does; resume takes it only through config.
         if (task.AutoApprove && sandbox == "workspace-write")

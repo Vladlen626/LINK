@@ -116,7 +116,14 @@ public abstract class CliAgentProvider : IAgentProvider
             Loops = loops.Kinds.ToArray(),
             Log = process.Log
         };
-        foreach (var agentEvent in await Task.Run(() => AfterRun(result), CancellationToken.None)) progress.Report(agentEvent);
+        var after = await Task.Run(() => AfterRun(result), CancellationToken.None);
+        // What the provider reads after the run (Codex's context) belongs to the run's numbers as well.
+        if (after.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Context) is { } held)
+        {
+            result = result with { Stats = result.Stats with { ContextTokens = held.ContextTokens, ContextWindow = held.ContextWindow } };
+        }
+
+        foreach (var agentEvent in after) progress.Report(agentEvent);
         // Never the task's text: it can hold anything the user wrote.
         var outcome = result.Stopped ? "stopped" : result.Succeeded ? "done" : $"failed (exit {result.ExitCode})";
         var first = firstEvent is { } elapsed ? Seconds(elapsed) : "none";
@@ -241,6 +248,7 @@ public abstract partial class AgentEventParser
     private long? _cachedTokens;
     private long? _outputTokens;
     private decimal? _cost;
+    private long? _contextWindow;
 
     public string? SessionId { get; protected set; }
     public string Summary { get; protected set; } = string.Empty;
@@ -260,10 +268,15 @@ public abstract partial class AgentEventParser
         CachedTokens = _cachedTokens,
         OutputTokens = _outputTokens,
         CostUsd = _cost,
-        SessionTokens = TokensOfSession && _inputTokens is not null
+        SessionTokens = TokensOfSession && _inputTokens is not null,
+        ContextTokens = ContextTokens,
+        ContextWindow = _contextWindow
     };
 
     protected int Turns { get; set; }
+
+    /// <summary>What the session holds, as the provider last told; null before it tells.</summary>
+    protected long? ContextTokens { get; private set; }
 
     /// <summary>The provider reports the tokens of the whole session so far, as Codex does for a resumed one.</summary>
     protected bool TokensOfSession { get; init; }
@@ -341,6 +354,17 @@ public abstract partial class AgentEventParser
     }
 
     /// <summary>
+    /// The session's context now, a level that the run's last word keeps; the model's window when the provider names it
+    /// (a window once told stays).
+    /// </summary>
+    protected void Context(long tokens, long? window, List<AgentEvent> events)
+    {
+        ContextTokens = tokens;
+        _contextWindow = window ?? _contextWindow;
+        events.Add(new AgentEvent(AgentEventKind.Context, "Context") { ContextTokens = tokens, ContextWindow = window });
+    }
+
+    /// <summary>
     /// Whether a shell command only looks around: the first program it runs, after any change of folder, finds, lists
     /// or reads files. Codex searches only this way; Claude Code mostly with its own tools.
     /// </summary>
@@ -373,7 +397,7 @@ public abstract partial class AgentEventParser
 
     private static string ProgramOf(string word) => Path.GetFileNameWithoutExtension(word.Trim('"', '\''));
 
-    protected static long Number(JsonElement element, string property) =>
+    internal static long Number(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.TryGetInt64(out var number)
             ? number
             : 0;

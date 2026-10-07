@@ -24,6 +24,8 @@ internal static class AgentTests
         ClaudeFixtures();
         CodexFixtures();
         Stats();
+        ContextMeter();
+        ContextBudget();
         Loops();
         Arguments();
         HandOff();
@@ -716,6 +718,130 @@ internal static class AgentTests
         }
     }
 
+    /// <summary>
+    /// What the session holds: Claude Code's usage of each message (told once per size) and the window of its result,
+    /// Codex's token count in the log of its session; the line the task shows.
+    /// </summary>
+    private static void ContextMeter()
+    {
+        // Claude Code writes a message's content blocks as lines of their own, each with the message's usage.
+        var claude = new ClaudeEventParser();
+        var events = new List<AgentEvent>();
+        foreach (var line in new[]
+                 {
+                     """{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"Looking."}],"usage":{"input_tokens":5,"cache_creation_input_tokens":2000,"cache_read_input_tokens":90000,"output_tokens":10}}}""",
+                     """{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"a.cs"}}],"usage":{"input_tokens":5,"cache_creation_input_tokens":2000,"cache_read_input_tokens":90000,"output_tokens":10}}}""",
+                     """{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"Found it."}],"usage":{"input_tokens":6,"cache_creation_input_tokens":1000,"cache_read_input_tokens":120000,"output_tokens":40}}}""",
+                     """{"type":"system","subtype":"compact_boundary","compact_metadata":{"trigger":"auto","pre_tokens":380000}}""",
+                     """{"type":"assistant","message":{"id":"m3","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":3,"cache_creation_input_tokens":40000,"cache_read_input_tokens":0,"output_tokens":20}}}""",
+                     """{"type":"result","subtype":"success","is_error":false,"result":"Done.","session_id":"s1","num_turns":3,"usage":{"input_tokens":14,"cache_creation_input_tokens":43000,"cache_read_input_tokens":210000,"output_tokens":70},"modelUsage":{"claude-haiku-4-5-20251001":{"inputTokens":900,"outputTokens":50,"cacheReadInputTokens":0,"cacheCreationInputTokens":0,"contextWindow":200000},"claude-opus-5-5":{"inputTokens":14,"outputTokens":70,"cacheReadInputTokens":210000,"cacheCreationInputTokens":43000,"contextWindow":1000000}}}"""
+                 })
+        {
+            events.AddRange(claude.Read(line));
+        }
+
+        Program.Equal("Claude context: the input with the cache, once per size; the main model's window comes with the result",
+            string.Join(", ", events.Where(e => e.Kind == AgentEventKind.Context).Select(e => $"{e.ContextTokens}/{e.ContextWindow}")),
+            "92005/, 121006/, 40003/, 40003/1000000");
+        Program.Equal("Claude context: the compaction is a step of Activity with the size it began at",
+            events.Where(e => e.Text.StartsWith("Claude Code compacted", StringComparison.Ordinal)).Select(e => (e.Kind, e.Text)).Single(),
+            (AgentEventKind.Status, "Claude Code compacted the context (was 380k)"));
+        Program.Equal("Claude context: the run keeps the last size and the window",
+            (claude.Stats.ContextTokens, claude.Stats.ContextWindow), ((long?)40003, (long?)1_000_000));
+
+        // A format that lacks what is looked for gives nothing, not a guess: the recorded run has a window but no usage per message.
+        var recorded = Parse(new ClaudeEventParser(), "claude-do.jsonl");
+        Program.Equal("Claude context: without usage there is no event, and no size in the numbers",
+            (recorded.Events.Count(e => e.Kind == AgentEventKind.Context), recorded.Parser.Stats.ContextTokens, recorded.Parser.Stats.ContextWindow),
+            (0, (long?)null, (long?)null));
+        var bare = new ClaudeEventParser();
+        Program.Equal("Claude context: a compaction without its size is still told",
+            bare.Read("""{"type":"system","subtype":"compact_boundary"}""").Single().Text, "Claude Code compacted the context");
+        Program.Equal("Claude context: a message with no usage, or an empty one, tells nothing",
+            (bare.Read("""{"type":"assistant","message":{"content":[{"type":"text","text":"x"}]}}""").Count(e => e.Kind == AgentEventKind.Context),
+                bare.Read("""{"type":"assistant","message":{"content":[],"usage":{"input_tokens":0}}}""").Count),
+            (0, 0));
+
+        // Codex: the last count of the log, with the window; a count with no info, or text that only names the field, is passed over.
+        var folder = TempFolder();
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(folder, "2026", "10", "07"));
+            var rate = ""","rate_limits":{"limit_id":"codex","primary":{"used_percent":12.0,"window_minutes":300,"resets_at":4102444800},"secondary":{"used_percent":31.0,"window_minutes":10080,"resets_at":4102444800}}""";
+            var file = Path.Combine(folder, "2026", "10", "07", "rollout-2026-10-07T10-00-00-abc.jsonl");
+            File.WriteAllLines(file,
+            [
+                """{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":60000,"output_tokens":1500},"last_token_usage":{"input_tokens":60000,"cached_input_tokens":50000,"output_tokens":1500,"total_tokens":61500},"model_context_window":258400}""" + rate + "}}",
+                """{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":242000,"output_tokens":1840},"last_token_usage":{"input_tokens":182000,"cached_input_tokens":150000,"output_tokens":340,"total_tokens":182340},"model_context_window":258400}""" + rate + "}}",
+                """{"type":"response_item","payload":{"type":"message","content":[{"type":"output_text","text":"the \"token_count\" event has \"last_token_usage\" in it"}]}}""",
+                """{"type":"event_msg","payload":{"type":"token_count","info":null""" + rate + "}}"
+            ]);
+            var report = CodexProvider.SessionReport(folder, "abc");
+            Program.Equal("Codex context: the last count of the session's log gives the size and the window",
+                (report.Context?.Kind, report.Context?.ContextTokens, report.Context?.ContextWindow),
+                ((AgentEventKind?)AgentEventKind.Context, (long?)182340, (long?)258400));
+            Program.Equal("Codex context: the limits are still read from the same log", report.Limits.Count, 2);
+
+            File.WriteAllLines(file, ["""{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":5}}}}"""]);
+            Program.Equal("Codex context: a log without a last request tells none",
+                (CodexProvider.SessionReport(folder, "abc").Context, CodexProvider.SessionReport(folder, "other").Context, CodexProvider.SessionReport(Path.Combine(folder, "none"), "abc").Context),
+                ((AgentEvent?)null, (AgentEvent?)null, (AgentEvent?)null));
+        }
+        finally
+        {
+            DeleteFolder(folder);
+        }
+
+        // A level, not a sum: the run that goes on says where the session stands now.
+        var held = new AgentStats { ContextTokens = 300_000, ContextWindow = 1_000_000 };
+        var again = held.Add(new AgentStats { ContextTokens = 120_000 });
+        Program.Equal("stats: the continuation's context wins, the window stays when it names none",
+            (again.ContextTokens, again.ContextWindow, held.Add(new AgentStats()).ContextTokens), ((long?)120_000, (long?)1_000_000, (long?)300_000));
+
+        Program.Equal("context line: against the budget, or the model's window when that is smaller",
+            (AgentContext.Line(182_000, null, 400_000), AgentContext.Line(150_000, 200_000, 400_000), AgentContext.Line(300_000, 1_000_000, 400_000),
+                AgentContext.Line(500_000, null, 1_000_000)),
+            ("Context 182k / 400k (46%)", "Context 150k / 200k (75%)", "Context 300k / 400k (75%)", "Context 500k / 1M (50%)"));
+
+        var record = JsonSerializer.Deserialize<AgentRunRecord>("""{"Provider":1,"Outcome":"done"}""")!;
+        var kept = JsonSerializer.Deserialize<AgentRunRecord>(JsonSerializer.Serialize(new AgentRunRecord { ContextTokens = 182_000, ContextWindow = 200_000 }))!;
+        Program.Equal("run record: an older one loads without a context, a new one keeps it",
+            (record.ContextTokens, record.ContextWindow, kept.ContextTokens, kept.ContextWindow), ((long?)null, (long?)null, (long?)182_000, (long?)200_000));
+    }
+
+    /// <summary>The context budget: Settings' choice and its limits, and how it reaches each CLI.</summary>
+    private static void ContextBudget()
+    {
+        var settings = new AgentSettings();
+        Program.Equal("budget: 550k by default, in older settings too", (settings.ContextBudget, JsonSerializer.Deserialize<AgentSettings>("{}")!.ContextBudget), (550_000, 550_000));
+        var normalized = new[] { 0, -1, 49_999, 2_000_001, 50_000, 550_000, 2_000_000 }.Select(budget =>
+        {
+            var each = new AgentSettings { ContextBudget = budget };
+            each.Normalize();
+            return each.ContextBudget;
+        });
+        Program.Equal("budget: 50k to 2M is kept, anything else is the default",
+            string.Join(", ", normalized), "550000, 550000, 550000, 550000, 50000, 550000, 2000000");
+        Program.Equal("budget: a copy keeps it", new AgentSettings { ContextBudget = 800_000 }.Clone().ContextBudget, 800_000);
+
+        var claude = new ClaudeCodeProvider(() => settings, _ => { });
+        var codex = new CodexProvider(() => settings, _ => { });
+        var task = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Explain" };
+        Program.Equal("budget: Claude Code compacts at it, through its auto-compact window",
+            (claude.EnvironmentVariables(task with { ContextBudget = 400_000 }).GetValueOrDefault("CLAUDE_CODE_AUTO_COMPACT_WINDOW"),
+                claude.EnvironmentVariables(task).ContainsKey("CLAUDE_CODE_AUTO_COMPACT_WINDOW")),
+            ("400000", false));
+        Program.Equal("budget: Claude Code takes no argument for it",
+            claude.Arguments(task with { ContextBudget = 400_000 }).SequenceEqual(claude.Arguments(task)), true);
+
+        var codexTask = task with { Provider = AgentProviderKind.Codex };
+        Program.Equal("budget: Codex compacts at nine tenths of it, on resume too, and without a budget leaves it alone",
+            (string.Join(' ', codex.Arguments(codexTask with { ContextBudget = 400_000 })).Contains("-c model_auto_compact_token_limit=360000"),
+                string.Join(' ', codex.Arguments(codexTask with { ContextBudget = 400_000, ResumeSessionId = "t1" })).Contains("-c model_auto_compact_token_limit=360000"),
+                string.Join(' ', codex.Arguments(codexTask)).Contains("compact")),
+            (true, true, false));
+    }
+
     /// <summary>The loop check on runs in the recorded format: each kind of loop is told once, working runs get none.</summary>
     private static void Loops()
     {
@@ -1051,7 +1177,7 @@ internal static class AgentTests
         [
             """{"type":"event_msg","payload":{"type":"token_count","rate_limits":{"limit_id":"codex","primary":{"used_percent":12.0,"window_minutes":300,"resets_at":4102444800},"secondary":{"used_percent":100.0,"window_minutes":10080,"resets_at":4102444800}}}}"""
         ]);
-        var windows = CodexProvider.SessionLimits(folder, "abc");
+        var windows = CodexProvider.SessionReport(folder, "abc").Limits;
         Directory.Delete(folder, recursive: true);
         Program.Equal("Codex's session log gives its 5-hour and weekly windows, a full one reached",
             windows.Select(limit => $"{limit.Window} {limit.UsedPercent:0} {limit.Reached}").Aggregate((a, b) => a + ", " + b), "5 h 12 False, week 100 True");
