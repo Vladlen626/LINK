@@ -92,6 +92,8 @@ public partial class MainWindow
     private readonly HashSet<string> _runningFiles = new(StringComparer.OrdinalIgnoreCase);
     // The specialist's name in the header, which is drawn at every tick of a run: its file is read once, not at each.
     private (string? Id, string? Workspace, string? Name) _roleName;
+    // The project's stats for the inspector, which reads them again only after a task is saved.
+    private (Guid Project, IReadOnlyList<StatsRow> Rows)? _stats;
 
     private bool AgentRunning => _agentCancellation is not null;
 
@@ -1650,6 +1652,7 @@ public partial class MainWindow
         try
         {
             _projects.SaveAgentTask(_taskProject ?? _projects.ActiveProject, record);
+            _stats = null;
             RefreshTaskList();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -1983,9 +1986,80 @@ public partial class MainWindow
     /// </summary>
     private string? ContextLine(AgentTaskRecord record)
     {
-        var live = AgentRunning && ReferenceEquals(record, _task) && _runningTask is { } running && IsUserWork(running);
-        var (used, window) = live ? _liveContext : (record.LastRun?.ContextTokens, record.LastRun?.ContextWindow);
+        var (used, window) = ContextOf(record);
         return used is { } tokens ? AgentContext.Line(tokens, window, _settings.Current.Agent.ContextBudget) : null;
+    }
+
+    /// <summary>What the task's session holds and the model's window: as the run under way tells it, else as the last run left it.</summary>
+    private (long? Used, long? Window) ContextOf(AgentTaskRecord record)
+    {
+        var live = AgentRunning && ReferenceEquals(record, _task) && _runningTask is { } running && IsUserWork(running);
+        return live ? _liveContext : (record.LastRun?.ContextTokens, record.LastRun?.ContextWindow);
+    }
+
+    /// <summary>
+    /// What the agent really gets, for the inspector: the open task's setup, context, rules, role, memory, state,
+    /// skills, brief, tools, check and the project's stats. Before a task is open it is what the next one would get.
+    /// Light enough to build at every refresh: no git, no model, the stats read once.
+    /// </summary>
+    internal HarnessView CurrentHarness()
+    {
+        var record = _task;
+        var project = record is null ? _projects.ActiveProject : _taskProject ?? _projects.ActiveProject;
+        var settings = _settings.Current.Agent;
+        var workspace = record?.Workspace ?? (project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null);
+
+        // What the agent has now: the run under way, else the last run, else what the card would start from.
+        AgentProviderKind provider;
+        string? model, effort, reason;
+        AgentAccess access;
+        bool autoApprove;
+        if (AgentRunning && _runningTask is { } running && IsUserWork(running))
+        {
+            (provider, model, effort, reason, access, autoApprove) = (running.Provider, running.Model, running.Effort, running.EffortReason, running.Access, running.AutoApprove);
+        }
+        else if (record?.LastRun is { } last)
+        {
+            (provider, model, effort, reason, access, autoApprove) = (last.Provider, last.Model, last.Effort, last.EffortReason, last.Access, last.AutoApprove);
+        }
+        else
+        {
+            provider = ProjectProvider;
+            (model, effort) = settings.Level(provider, AgentLevel.Standard);
+            (reason, access, autoApprove) = (null, AgentAccess.Do, settings.DefaultAccess == AgentAccessChoice.Auto);
+        }
+
+        var agent = _agents.Provider(provider);
+        var (used, window) = record is null ? (null, null) : ContextOf(record);
+        return HarnessView.Build(new HarnessInput(
+            workspace,
+            agent.Name,
+            SetupWords(provider, model, effort),
+            HarnessView.EffortWhy(agent.Capabilities.Effort, (record?.AutoEffort ?? true) && settings.AutoEffort, reason, effort),
+            agent.Capabilities,
+            settings.ContextBudget)
+        {
+            Task = record,
+            Access = access,
+            AutoApprove = autoApprove,
+            ContextUsed = used,
+            ContextWindow = window,
+            CheckCommand = project.CheckCommand,
+            ToolRules = workspace is null ? [] : AgentCoordinator.Tools(project, workspace, access),
+            Stats = ProjectStats(project, workspace),
+            AgentName = AgentName
+        });
+    }
+
+    /// <summary>The project's stats by its saved tasks; read once, and again after a task is saved.</summary>
+    private IReadOnlyList<StatsRow> ProjectStats(LinkProject project, string? workspace)
+    {
+        if (_stats is { } known && known.Project == project.Id) return known.Rows;
+        var roles = ProjectRoles.In(workspace);
+        var rows = AgentStatsReport.For(_projects.ReadAgentTasks(project), AgentName,
+            id => id is null ? "General" : roles.FirstOrDefault(role => string.Equals(role.Id, id, StringComparison.OrdinalIgnoreCase))?.Name ?? id);
+        _stats = (project.Id, rows);
+        return rows;
     }
 
     /// <summary>The agent's pill in the card's header and the Tasks tab's dot: who works and how the task stands.</summary>

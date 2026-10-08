@@ -81,6 +81,9 @@ internal static class AgentTests
         StepGroupsSummary();
         StepMarks();
         TaskChangesCount();
+        StatsReport();
+        HarnessBuilt();
+        HarnessWords();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -2283,6 +2286,190 @@ internal static class AgentTests
         Program.Equal("changes: the hint names twenty files and counts the rest",
             TaskChanges.Describe(null, many).Hint.Split('\n') is { Length: 21 } lines && lines[^1] == "… and 5 more", true);
         Program.Equal("changes: a nothing-changed answer gives no numbers", TaskChanges.Describe("0\t0\tsrc/a.cs", ["src/a.cs"]).Text, "+0 −0");
+    }
+
+    /// <summary>
+    /// The project's stats: runs grouped by specialist, agent and model; a task is done where its last run did not fail,
+    /// a stop is no failure, the averages leave out what a run did not tell, the steers count once in the last group.
+    /// </summary>
+    private static void StatsReport()
+    {
+        static AgentRunRecord RunOf(string? role, AgentProviderKind provider, string? model, string outcome, int seconds, long? input = null, long? output = null) =>
+            new() { RoleId = role, Provider = provider, Model = model, Outcome = outcome, Duration = TimeSpan.FromSeconds(seconds), InputTokens = input, OutputTokens = output };
+        static AgentTaskRecord TaskOf(AgentTaskStatus status, int steers, params AgentRunRecord[] runs)
+        {
+            var record = new AgentTaskRecord { Goal = "Goal", Workspace = "w", Status = status, Runs = [.. runs] };
+            for (var index = 0; index < steers; index++) record.Add(AgentEntryKind.You, "a word");
+            record.Add(AgentEntryKind.Check, "not a steer");
+            return record;
+        }
+
+        const AgentProviderKind Claude = AgentProviderKind.ClaudeCode;
+        const AgentProviderKind Codex = AgentProviderKind.Codex;
+        var tasks = new[]
+        {
+            // Failed first, done on the second run; and failed outright; and finished by the user after a red check.
+            TaskOf(AgentTaskStatus.Done, 2, RunOf("rigger", Claude, "opus", "Failed after 1:00", 60, 100_000, 10_000), RunOf("rigger", Claude, "opus", "Done in 3:00", 180, 200_000, 20_000)),
+            TaskOf(AgentTaskStatus.Failed, 1, RunOf("rigger", Claude, "opus", "Failed after 2:00", 120)),
+            TaskOf(AgentTaskStatus.Finished, 0, RunOf("rigger", Claude, "opus", "Check failed after 4:00", 240, 50_000)),
+            TaskOf(AgentTaskStatus.Done, 0, RunOf("rigger", Codex, null, "Done in 1:00", 60, 30_000)),
+            // A usage limit, then the other agent finished: the first is no failure, the steer is the last group's.
+            TaskOf(AgentTaskStatus.Done, 1, RunOf(null, Claude, "sonnet", "Stopped at the usage limit after 0:30", 30), RunOf(null, Codex, null, "Done in 2:00", 120)),
+            // A task of an earlier Link: no time, no tokens. And a task that never ran.
+            TaskOf(AgentTaskStatus.Done, 0, RunOf(null, AgentProviderKind.Custom, "glm", "an earlier session", 0)),
+            TaskOf(AgentTaskStatus.Stopped, 3)
+        };
+        string Role(string? id) => id switch { null => "General", "rigger" => "Rigger", _ => id };
+        var rows = AgentStatsReport.For(tasks, kind => kind.DefaultName(), Role);
+        Program.Equal("stats: role, agent, model | tasks, runs, done, failed | average time, tokens | steers; the busiest group first, then by names",
+            string.Join("\n", rows.Select(row => $"{row.Role}|{row.Agent}|{row.Model}|{row.Tasks}|{row.Runs}|{row.Done}|{row.Failed}|{row.AverageTime:m\\:ss}|{row.AverageTokens}|{row.Steers}")),
+            string.Join("\n",
+                "Rigger|Claude Code|opus|3|4|1|3|2:30|126667|3",
+                "General|Claude Code|sonnet|1|1|1|0|0:30||0",
+                "General|Codex||1|1|1|0|2:00||1",
+                "General|Custom model|glm|1|1|1|0|0:00||0",
+                "Rigger|Codex||1|1|1|0|1:00|30000|0"));
+        Program.Equal("stats: no tasks, no rows", AgentStatsReport.For([], kind => kind.DefaultName(), Role).Count, 0);
+    }
+
+    /// <summary>The inspector's sections from a workspace and a task: each says what the agent gets, and what is missing, without a model.</summary>
+    private static void HarnessBuilt()
+    {
+        var workspace = TempFolder();
+        try
+        {
+            var caps = new AgentCapabilities(true, true, true, "Anthropic");
+            HarnessInput Input(AgentTaskRecord? task = null) => new(workspace, "Claude Code", "Opus 5.5 · Medium", "Link picked it: a usual task", caps, 400_000)
+            {
+                Task = task,
+                ContextUsed = 182_000,
+                ContextWindow = 1_000_000,
+                CheckCommand = "dotnet test",
+                ToolRules = ["Read", "Bash(git log:*)"]
+            };
+            static HarnessSection Section(HarnessView view, string title) => view.Sections.Single(section => section.Title == title);
+
+            var bare = HarnessView.Build(Input());
+            Program.Equal("harness: the sections, in order",
+                string.Join("|", bare.Sections.Select(section => section.Title)),
+                "Setup|Context|Rules|Role|Project memory|Task state|Skills|Injected context|Tools and MCP|Verification|Stats");
+            Program.Equal("harness setup: the role (General), the agent, the model and effort, the effort's reason, who sees the code",
+                (Section(bare, "Setup").Value, Section(bare, "Setup").Note),
+                ("General · Claude Code · Opus 5.5 · Medium", "Effort: Link picked it: a usual task\nSubscription · code goes to Anthropic"));
+            Program.Equal("harness setup: an API model says so",
+                HarnessView.Build(Input() with { Capabilities = new AgentCapabilities(false, false, false, "Z.ai") }).Sections[0].Note,
+                "Effort: Link picked it: a usual task\nAPI, no subscription · code goes to Z.ai");
+            Program.Equal("harness context: what the session holds against the budget, the budget told",
+                (Section(bare, "Context").Value, Section(bare, "Context").Note!.StartsWith("Budget 400k:", StringComparison.Ordinal)), ("182k / 400k (46%)", true));
+            Program.Equal("harness context: nothing told yet",
+                Section(HarnessView.Build(Input() with { ContextUsed = null }), "Context").Value, "Not told yet");
+            Program.Equal("harness rules: the file beside Link.exe, to open",
+                (Section(bare, "Rules").Value, Section(bare, "Rules").FilePath), ("agent-rules.md", AgentRules.File));
+
+            Program.Equal("harness: nothing yet without a task",
+                (Section(bare, "Task state").Value, Section(bare, "Task state").Detail, Section(bare, "Injected context").Value, Section(bare, "Injected context").ShowsConsole,
+                 Section(bare, "Role").Value),
+                ("No task yet", (string?)null, "Nothing yet", true, "General — no role"));
+
+            // Project memory and skills, MCP, check.
+            Program.Equal("harness memory: a map that is not there is missing, and not opened",
+                (Section(bare, "Project memory").Value, Section(bare, "Project memory").FilePath), ("docs/map.md · missing", (string?)null));
+            Directory.CreateDirectory(Path.Combine(workspace, "docs"));
+            File.WriteAllText(ProjectMap.PathIn(workspace), "# Map");
+            Program.Equal("harness memory: a map that is there opens",
+                (Section(HarnessView.Build(Input()), "Project memory").Value, Section(HarnessView.Build(Input()), "Project memory").FilePath),
+                ("docs/map.md · exists", ProjectMap.PathIn(workspace)));
+            Program.Equal("harness memory: no workspace",
+                Section(HarnessView.Build(Input() with { Workspace = null }), "Project memory").Value, "No workspace chosen");
+
+            Program.Equal("harness skills: none",
+                Section(bare, "Skills").Value, "None in .agents/skills");
+            WriteSkill(workspace, "jump-tuning", "Tune the jump.");
+            WriteSkill(workspace, "tidy-up", "Tidy.");
+            var task = new AgentTaskRecord
+            {
+                Goal = "Fix the jump",
+                Brief = "Fix the jump.",
+                Workspace = workspace,
+                RoleId = "rigger-animator",
+                Skills = ["jump-tuning"],
+                LastCheck = "dotnet test: failed with exit code 1\nerror CS1002"
+            };
+            task.Add(AgentEntryKind.HandOff, TaskState.Compacted(180_000));
+            task.Add(AgentEntryKind.HandOff, "Specialist: General");
+            task.Add(AgentEntryKind.HandOff, TaskState.Compacted(null));
+            var open = HarnessView.Build(Input(task));
+            var skills = Section(open, "Skills");
+            Program.Equal("harness skills: the count, the ones to read first marked, with their descriptions",
+                (skills.Value, skills.Detail), ("2 skills · 1 to read first", "jump-tuning (read first): Tune the jump.\ntidy-up: Tidy."));
+            Program.Equal("harness role: the specialist's name and description, its file to open",
+                (Section(open, "Role").Value, Section(open, "Role").Note!.Length > 0, Section(open, "Role").FilePath!.EndsWith("rigger-animator.md", StringComparison.Ordinal)),
+                ("Rigger / Animator", true, true));
+            Program.Equal("harness role: a role whose file is gone is named by its file",
+                Section(HarnessView.Build(Input(new AgentTaskRecord { Goal = "g", Workspace = workspace, RoleId = "gone" })), "Role").Value, "gone (its file is gone)");
+            Program.Equal("harness context: the compactions in the task's history are counted",
+                Section(open, "Context").Note!.EndsWith("\nCompacted 2 times", StringComparison.Ordinal), true);
+            Program.Equal("harness task state: the state Compact starts from",
+                Section(open, "Task state").Detail!.StartsWith("# Task state\nGoal: Fix the jump\n", StringComparison.Ordinal), true);
+            Program.Equal("harness injected context: the brief Link gave, to read, and the Console",
+                (Section(open, "Injected context").Value, Section(open, "Injected context").Detail, Section(open, "Injected context").ShowsConsole),
+                ("The brief Link gave: 13 characters", "Fix the jump.", true));
+
+            Program.Equal("harness tools: no .mcp.json, no servers, nothing to open; the access and the project's rules",
+                (Section(open, "Tools and MCP").Value, Section(open, "Tools and MCP").FilePath, Section(open, "Tools and MCP").Note, Section(open, "Tools and MCP").Detail),
+                ("No MCP servers", (string?)null, "Access: edits: other commands ask you\nTool rules the project allows: 2", "Read\nBash(git log:*)"));
+            File.WriteAllText(Path.Combine(workspace, ".mcp.json"), "{\"mcpServers\": {\"unreal\": {\"command\": \"node\"}, \"blender\": {\"url\": \"http://localhost:1\"}}}");
+            var tools = Section(HarnessView.Build(Input(task) with { AutoApprove = true }), "Tools and MCP");
+            Program.Equal("harness tools: the MCP servers by the workspace's .mcp.json, auto access",
+                (tools.Value, tools.FilePath, tools.Note!.Split('\n')[0]),
+                ("MCP: unreal, blender", Path.Combine(workspace, ".mcp.json"), "Access: auto: edits and commands without asking"));
+            Program.Equal("harness tools: read only",
+                Section(HarnessView.Build(Input() with { Access = AgentAccess.Analyze }), "Tools and MCP").Note!.Split('\n')[0], "Access: read only");
+            File.WriteAllText(Path.Combine(workspace, ".mcp.json"), "{ not json");
+            Program.Equal("harness tools: a .mcp.json that cannot be read gives no servers",
+                Section(HarnessView.Build(Input()), "Tools and MCP").Value, "No MCP servers");
+
+            var check = Section(open, "Verification");
+            Program.Equal("harness verification: the command, the check as it last ran, its output behind a toggle",
+                (check.Value, check.Note, check.Detail), ("dotnet test", "Last: dotnet test: failed with exit code 1", "dotnet test: failed with exit code 1\nerror CS1002"));
+            var noCheck = Section(HarnessView.Build(Input() with { CheckCommand = null }), "Verification");
+            Program.Equal("harness verification: no command, you check the result",
+                (noCheck.Value, noCheck.Note!.StartsWith("A check command", StringComparison.Ordinal)), ("None — you check the result", true));
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+    }
+
+    /// <summary>The words of the inspector that no file decides: the effort's reason, the stats' rows, the compaction count.</summary>
+    private static void HarnessWords()
+    {
+        Program.Equal("harness effort: Link's reason, Link's pick to come, the pin, the CLI's own, a model without an effort",
+            string.Join("|",
+                HarnessView.EffortWhy(true, true, "a usual task", "medium"), HarnessView.EffortWhy(true, true, null, null), HarnessView.EffortWhy(true, false, null, "high"),
+                HarnessView.EffortWhy(true, false, null, null), HarnessView.EffortWhy(false, true, "x", "high")),
+            "Link picked it: a usual task|Link picks it for each run|pinned on the card|the CLI's own|this model has no effort setting");
+
+        var caps = AgentCapabilities.Usual;
+        HarnessSection StatsOf(params StatsRow[] rows) =>
+            HarnessView.Build(new HarnessInput(null, "Codex", "its own model", "the CLI's own", caps, 550_000) { Stats = rows }).Sections.Single(section => section.Title == "Stats");
+        Program.Equal("harness stats: none yet", StatsOf().Value, "No runs yet");
+        var busy = StatsOf(
+            new StatsRow("Rigger", "Claude Code", "opus", 3, 4, 1, 3, TimeSpan.FromSeconds(150), 126_667, 3),
+            new StatsRow("General", "Codex", null, 1, 1, 1, 0, TimeSpan.Zero, null, 0));
+        Program.Equal("harness stats: the runs in all, each row with what it has to tell",
+            (busy.Value, busy.Note), ("5 runs in this project",
+                "Rigger · Claude Code · opus — 3 tasks, 1 done, 3 failed, 2:30 a run, 127k tokens a run, 3 steers\nGeneral · Codex · its own model — 1 task, 1 done"));
+        var many = StatsOf([.. Enumerable.Range(1, 8).Select(index => new StatsRow("R" + index, "Codex", null, 1, 1, 1, 0, TimeSpan.Zero, null, 0))]);
+        Program.Equal("harness stats: only the first five rows show", (many.Value, many.Note!.Split('\n').Length), ("8 runs in this project", 5));
+
+        var task = new AgentTaskRecord { Goal = "g", Workspace = "w" };
+        task.Add(AgentEntryKind.HandOff, "Back to Claude Code, its own session");
+        Program.Equal("compact count: only the compactions of the history", TaskState.CompactCount(task), 0);
+        task.Add(AgentEntryKind.HandOff, TaskState.Compacted(null));
+        Program.Equal("compact count: one", TaskState.CompactCount(task), 1);
+        Program.Equal("context: the usage is the line without its word", AgentContext.Line(182_000, 1_000_000, 400_000), "Context " + AgentContext.Usage(182_000, 1_000_000, 400_000));
     }
 
     /// <summary>An agent whose runs do what the check says, for what Link does around a run; it keeps the tasks it got.</summary>

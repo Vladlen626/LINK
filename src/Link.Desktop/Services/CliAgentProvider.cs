@@ -186,6 +186,23 @@ public abstract class CliAgentProvider : IAgentProvider
         return File.Exists(file) ? file : null;
     }
 
+    /// <summary>The names of the workspace's MCP servers, as its <c>.mcp.json</c> lists them; none for a file that cannot be read.</summary>
+    internal static IReadOnlyList<string> McpServerNames(string workspace)
+    {
+        if (McpConfigIn(workspace) is not { } file) return [];
+        try
+        {
+            using var document = JsonDocument.Parse(File.ReadAllText(file));
+            return document.RootElement.TryGetProperty("mcpServers", out var servers) && servers.ValueKind == JsonValueKind.Object
+                ? [.. servers.EnumerateObject().Select(server => server.Name)]
+                : [];
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>What the provider learns after a run from outside its events, such as Codex's rate limits.</summary>
     protected virtual IReadOnlyList<AgentEvent> AfterRun(AgentResult result) => [];
 

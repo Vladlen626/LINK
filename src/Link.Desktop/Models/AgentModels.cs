@@ -154,6 +154,10 @@ public sealed record AgentRunRecord
     public TimeSpan Duration { get; init; }
     public string Outcome { get; init; } = string.Empty;
 
+    /// <summary>The run failed, or the project's check did after it. A Stop is neither: it is the user's choice or a limit.</summary>
+    [JsonIgnore]
+    public bool Failed => Outcome.StartsWith("Failed", StringComparison.Ordinal) || Outcome.StartsWith("Check failed", StringComparison.Ordinal);
+
     /// <summary>This run's own tokens: for a Codex session the difference from its run before.</summary>
     public long? InputTokens { get; init; }
 

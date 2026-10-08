@@ -57,6 +57,10 @@ public static class TaskState
     public static string Compacted(long? contextTokens) =>
         "Compacted: a fresh session from the task state" + (contextTokens is { } tokens ? $" (was {AgentContext.Tokens(tokens)} tokens)" : string.Empty);
 
+    /// <summary>How many times the task was compacted, as its history says.</summary>
+    public static int CompactCount(AgentTaskRecord record) =>
+        record.Entries.Count(entry => entry.Kind == AgentEntryKind.HandOff && entry.Text.StartsWith("Compacted:", StringComparison.Ordinal));
+
     private static string Compose(
         AgentTaskRecord record, string? numstat, IReadOnlyList<string> pointers, string next, Cut cut, Func<AgentProviderKind, string> agentName)
     {
@@ -106,8 +110,7 @@ public static class TaskState
     private static IEnumerable<string> Problems(AgentTaskRecord record, Func<AgentProviderKind, string> agentName) =>
         record.Runs
             // A Stop of the user's own, or at a usage limit, is no problem of the work; one in a loop is.
-            .Where(run => run.Outcome.StartsWith("Failed", StringComparison.Ordinal) || run.Outcome.StartsWith("Check failed", StringComparison.Ordinal) ||
-                          (run.Outcome.StartsWith("Stopped", StringComparison.Ordinal) && run.Looped))
+            .Where(run => run.Failed || (run.Outcome.StartsWith("Stopped", StringComparison.Ordinal) && run.Looped))
             .Select(run => $"- {agentName(run.Provider)} run {AgentLimits.Time(run.StartedAt)}: " +
                            run.Outcome + (run.Looped ? " (stuck in a loop)" : string.Empty));
 

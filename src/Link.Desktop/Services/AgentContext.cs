@@ -17,10 +17,13 @@ public static class AgentContext
     /// What the session holds against the limit its CLI compacts at: the budget, or the model's window when that is
     /// smaller (the CLI caps the budget there).
     /// </summary>
-    public static string Line(long used, long? window, int budget)
+    public static string Line(long used, long? window, int budget) => "Context " + Usage(used, window, budget);
+
+    /// <summary>"182k / 400k (46%)": the line without its word, for a place that has the word already.</summary>
+    public static string Usage(long used, long? window, int budget)
     {
         var limit = Math.Min(budget, window ?? budget);
         var percent = (int)Math.Round(used * 100.0 / limit, MidpointRounding.AwayFromZero);
-        return $"Context {Tokens(used)} / {Tokens(limit)} ({percent}%)";
+        return $"{Tokens(used)} / {Tokens(limit)} ({percent}%)";
     }
 }

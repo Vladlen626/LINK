@@ -88,8 +88,7 @@ public static class AutoEffort
         {
             var run = runs[index];
             var stopped = run.Outcome.StartsWith("Stopped", StringComparison.Ordinal);
-            if (run.Outcome.StartsWith("Failed", StringComparison.Ordinal) || run.Outcome.StartsWith("Check failed", StringComparison.Ordinal) ||
-                (stopped && run.Looped))
+            if (run.Failed || (stopped && run.Looped))
             {
                 failures++;
             }
