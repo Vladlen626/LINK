@@ -1005,8 +1005,9 @@ internal static class AgentTests
             (AutoEffort.Failures([]), AutoEffort.Failures([Run("Failed after 1:00"), Run("Done in 2:10")])), (0, 0));
         Program.Equal("auto failures: a failed run and a failed check each count",
             (AutoEffort.Failures([Run("Done in 1:00"), Run("Failed after 1:00")]), AutoEffort.Failures([Run("Failed after 1:00"), Run("Check failed after 3:00")])), (1, 2));
-        Program.Equal("auto failures: a run stopped by the user is neither good nor bad",
-            (AutoEffort.Failures([Run("Failed after 1:00"), Run("Stopped after 0:10")]), AutoEffort.Failures([Run("Done in 1:00"), Run("Stopped after 0:10")])), (1, 0));
+        Program.Equal("auto failures: a run stopped by the user or a limit ends the count: it already had the raise",
+            (AutoEffort.Failures([Run("Failed after 1:00"), Run("Stopped after 0:10")]),
+                AutoEffort.Failures([Run("Failed after 1:00"), Run("Stopped at the usage limit after 2:00")])), (0, 0));
         Program.Equal("auto failures: stopped in a loop counts, done after a loop does not",
             (AutoEffort.Failures([Run("Stopped after 4:00", looped: true)]), AutoEffort.Failures([Run("Done in 5:00", looped: true)])), (1, 0));
     }
@@ -1502,10 +1503,10 @@ internal static class AgentTests
     /// <summary>What the custom model's Claude Code is given: the server, the key as the token, the model for every name, the budget.</summary>
     private static void CustomProviderEnvironment()
     {
-        var settings = new AgentSettings { ContextBudget = 400_000 };
+        var settings = new AgentSettings { ContextBudget = 150_000 };
         string? key = "sk-test-0123";
         var custom = new CustomModelProvider(() => settings, () => key, _ => { });
-        var task = new AgentTask { Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Model = "glm-4.7", Effort = "high", ContextBudget = 400_000 };
+        var task = new AgentTask { Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Model = "glm-4.7", Effort = "high", ContextBudget = 150_000 };
         var variables = custom.EnvironmentVariables(task);
         string[] names =
         [
@@ -1517,9 +1518,15 @@ internal static class AgentTests
             "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic;ANTHROPIC_AUTH_TOKEN=sk-test-0123;ANTHROPIC_API_KEY=;ANTHROPIC_MODEL=glm-4.7;" +
             "ANTHROPIC_DEFAULT_OPUS_MODEL=glm-4.7;ANTHROPIC_DEFAULT_SONNET_MODEL=glm-4.7;ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-4.7");
         Program.Equal("custom provider: only the model's own traffic, a long timeout, and the context budget as for Claude Code",
-            (variables["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], variables["API_TIMEOUT_MS"], variables["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]), ("1", "600000", "400000"));
+            (variables["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], variables["API_TIMEOUT_MS"], variables["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]), ("1", "600000", "150000"));
         Program.Equal("custom provider: a task with no model runs on Settings' model",
             custom.EnvironmentVariables(task with { Model = null })["ANTHROPIC_MODEL"], "glm-4.7-flash");
+        var wide = task with { ContextBudget = 550_000 };
+        var glmWindow = custom.EnvironmentVariables(wide)["CLAUDE_CODE_AUTO_COMPACT_WINDOW"];
+        settings.Custom = new CustomModelSettings { Preset = CustomPreset.DeepSeek };
+        settings.Custom.Normalize();
+        Program.Equal("custom provider: a budget over the server model's window compacts by the window",
+            (glmWindow, custom.EnvironmentVariables(wide)["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]), ("200000", "128000"));
 
         settings.Custom = new CustomModelSettings { Preset = CustomPreset.Ollama, BaseUrl = "http://localhost:11434", Model = "qwen3-coder" };
         key = null;
@@ -1617,16 +1624,16 @@ internal static class AgentTests
     /// <summary>The Console shows that there is a key and never what it is; Claude Code's dollars for another server's model are not recorded.</summary>
     private static void CustomKeyStaysOut()
     {
-        var settings = new AgentSettings { ContextBudget = 400_000 };
+        var settings = new AgentSettings { ContextBudget = 150_000 };
         var custom = new CustomModelProvider(() => settings, () => "sk-test-0123", _ => { });
-        var task = new AgentTask { Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Model = "glm-4.7", ContextBudget = 400_000 };
+        var task = new AgentTask { Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Model = "glm-4.7", ContextBudget = 150_000 };
         var console = new AgentConsole();
         console.Sent("GLM (Z.ai) · new session", "claude", custom.Arguments(task), task.Workspace, custom.EnvironmentVariables(task), custom.StandardInput(task));
         var text = console.After(0).Text;
         Program.Equal("console: the token is shown as ***, an empty key as empty, and the rest as it is",
             (text.Contains("sk-test-0123"), text.Contains("  + ANTHROPIC_AUTH_TOKEN=***\n") || text.Contains("  + ANTHROPIC_AUTH_TOKEN=***\r\n"),
                 text.Contains("  + ANTHROPIC_API_KEY=\n") || text.Contains("  + ANTHROPIC_API_KEY=\r\n"),
-                text.Contains("ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic"), text.Contains("CLAUDE_CODE_AUTO_COMPACT_WINDOW=400000")),
+                text.Contains("ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic"), text.Contains("CLAUDE_CODE_AUTO_COMPACT_WINDOW=150000")),
             (false, true, true, true, true));
 
         var priced = Parse(new ClaudeEventParser(), "claude-do.jsonl").Parser.Stats.CostUsd;

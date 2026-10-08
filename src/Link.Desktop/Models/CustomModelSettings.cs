@@ -14,7 +14,7 @@ public enum CustomPreset
 
 /// <summary>
 /// A preset: the address and models to start from, whether the server wants a key and sees pictures, who gets the user's
-/// code, and a note on its price and limits.
+/// code, a note on its price and limits, and the tokens its models hold (null: as the server is set up).
 /// </summary>
 public sealed record CustomPresetInfo(
     CustomPreset Preset,
@@ -24,21 +24,22 @@ public sealed record CustomPresetInfo(
     bool NeedsKey,
     bool Images,
     string SeesCode,
-    string Note);
+    string Note,
+    int? ContextWindow = null);
 
 public static class CustomPresets
 {
     public static IReadOnlyList<CustomPresetInfo> All { get; } =
     [
         new(CustomPreset.ZaiGlm, "GLM (Z.ai)", "https://api.z.ai/api/anthropic", ["glm-4.7-flash", "glm-4.7"], true, false, "Z.ai",
-            "GLM-4.7-Flash is free (about one request a second); keys at z.ai"),
+            "GLM-4.7-Flash is free (about one request a second); keys at z.ai", 200_000),
         new(CustomPreset.DeepSeek, "DeepSeek", "https://api.deepseek.com/anthropic", ["deepseek-chat", "deepseek-reasoner"], true, false, "DeepSeek",
-            "Cheap, not free; keys at platform.deepseek.com"),
+            "Cheap, not free; keys at platform.deepseek.com", 128_000),
         new(CustomPreset.OpenRouter, "OpenRouter", "https://openrouter.ai/api", ["openai/gpt-oss-120b:free", "z-ai/glm-4.5-air:free"], true, false,
             "OpenRouter and the model's host",
-            "Free models end in :free: 20 a minute, 50 a day (1000 after a one-time $10); the list changes — see openrouter.ai/models"),
+            "Free models end in :free: 20 a minute, 50 a day (1000 after a one-time $10); the list changes — see openrouter.ai/models", 128_000),
         new(CustomPreset.Ollama, "Ollama (local)", "http://localhost:11434", ["qwen3-coder", "glm-4.7-flash", "gpt-oss:20b"], false, false, "this PC",
-            "Runs on this PC: nothing leaves it; needs Ollama 0.14 or newer and the model pulled"),
+            "Runs on this PC: nothing leaves it; needs Ollama 0.14 or newer, the model pulled and a context of 64k or more"),
         new(CustomPreset.Other, "Custom", string.Empty, [], true, false, "the address below", "Any server with an Anthropic Messages API")
     ];
 

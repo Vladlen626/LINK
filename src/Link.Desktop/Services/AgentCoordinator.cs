@@ -200,6 +200,8 @@ public sealed class AgentCoordinator
             ResumeSessionId = null,
             Prompt = brief.Trim(),
             Images = images,
+            // A new session numbers its tasks from #1 again: the old plan would mix with the new one.
+            Plan = [],
             PlanOnly = false,
             AnswerFile = null,
             AnswerIsSkill = false
@@ -319,7 +321,7 @@ public sealed class AgentCoordinator
         }
 
         var prompt = note.Length == 0 ? origin.Prompt : $"{origin.Prompt}\n\nA note from an earlier attempt at this task, which did not work out:\n{note}";
-        return (run.Task with { ResumeSessionId = null, Prompt = prompt, Images = origin.Images }, note);
+        return (run.Task with { ResumeSessionId = null, Prompt = prompt, Images = origin.Images, Plan = [] }, note);
     }
 
     /// <summary>

@@ -79,7 +79,8 @@ public static class AutoEffort
 
     /// <summary>
     /// The runs since the task's last good one that failed, failed the check, or were stopped in a loop. A run stopped
-    /// without one is neither good nor bad: the user's own choice. A run done after a loop got past it.
+    /// without one (the user's Stop or Steer, a usage limit) ends the count like a good one: it already had the raise,
+    /// and the next run keeps its effort. A run done after a loop got past it.
     /// </summary>
     public static int Failures(IReadOnlyList<AgentRunRecord> runs)
     {
@@ -92,7 +93,7 @@ public static class AutoEffort
             {
                 failures++;
             }
-            else if (!stopped)
+            else
             {
                 break;
             }

@@ -1,3 +1,4 @@
+using System.Globalization;
 using Link.Desktop.Models;
 
 namespace Link.Desktop.Services;
@@ -85,6 +86,12 @@ public sealed class CustomModelProvider : ClaudeCodeProvider
         };
         var model = Prepared(task).Model ?? string.Empty;
         foreach (var name in ModelVariables) variables[name] = model;
+        // Claude Code takes a model it does not know for a 200k one: where the server's holds less, it compacts by that.
+        if (task.ContextBudget is { } budget && Custom.Info.ContextWindow is { } window && window < budget)
+        {
+            variables["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = window.ToString(CultureInfo.InvariantCulture);
+        }
+
         return variables;
     }
 
