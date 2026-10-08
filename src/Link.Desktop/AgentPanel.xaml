@@ -1,7 +1,9 @@
 <UserControl x:Class="Link.Desktop.AgentPanel"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-             xmlns:local="clr-namespace:Link.Desktop">
+             xmlns:local="clr-namespace:Link.Desktop"
+             AllowDrop="True" PreviewDragOver="Panel_OnPreviewDragOver" PreviewDrop="Panel_OnPreviewDrop"
+             PreviewKeyDown="Panel_OnPreviewKeyDown">
     <UserControl.Resources>
         <!-- A card that wants an answer or a decision: the agent's question, a limit, a choice, a start over. -->
         <Style x:Key="NoticeCardStyle" TargetType="Border">
@@ -301,10 +303,11 @@
                     <TextBox x:Name="GoalBox" Style="{StaticResource BareTextBoxStyle}" Padding="0,2" FontSize="13.5" MinHeight="96"
                              MaxHeight="300" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                              LostFocus="Goal_OnLostFocus" PreviewKeyDown="Goal_OnPreviewKeyDown"
-                             ToolTip="What the agent is told, word for word: its first line names the task. Edit it before Run (Ctrl+Enter runs)" />
+                             ToolTip="What the agent is told, word for word: its first line names the task. Edit it before Run (Ctrl+Enter runs). Ctrl+V or drop adds pictures and files" />
                 </Border>
-                <!-- The images that go along: the screen and pictures from the chips. -->
+                <!-- The images that go along: the screen and pictures from the chips; then what was pasted or dropped. -->
                 <WrapPanel x:Name="ImagesPanel" Margin="0,8,0,0" />
+                <WrapPanel x:Name="CardAttachedPanel" Visibility="Collapsed" />
                 <TextBlock x:Name="AttachmentsText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
 
                 <!-- The setup: who works, on what, how hard, with what leave. -->
@@ -547,15 +550,17 @@
                  The task's buttons sit in the box, under the words, when the task is at rest. -->
             <Border x:Name="ReplyPanel" Grid.Row="2" MaxWidth="780" Margin="24,6,24,16" Style="{StaticResource ComposerStyle}" Visibility="Collapsed">
                 <Grid>
-                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <Grid x:Name="ReplyEditor">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <!-- Pictures and files pasted (Ctrl+V) or dropped, to go with the words. -->
+                    <WrapPanel x:Name="ReplyAttachedPanel" Margin="0,0,0,6" Visibility="Collapsed" />
+                    <Grid x:Name="ReplyEditor" Grid.Row="1">
                         <TextBox x:Name="ReplyBox" Style="{StaticResource BareTextBoxStyle}" Padding="0,2" FontSize="13.5" MinHeight="44" MaxHeight="180"
                                  AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                  TextChanged="ReplyBox_OnTextChanged" PreviewKeyDown="ReplyBox_OnPreviewKeyDown" />
                         <TextBlock x:Name="ReplyPlaceholder" Margin="2,2,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="13"
                                    IsHitTestVisible="False" TextWrapping="Wrap" />
                     </Grid>
-                    <Grid x:Name="ComposerFooter" Grid.Row="1" Margin="0,6,0,0">
+                    <Grid x:Name="ComposerFooter" Grid.Row="2" Margin="0,6,0,0">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <WrapPanel x:Name="TaskButtons" VerticalAlignment="Center">
                             <Button x:Name="PlanModeButton" Style="{StaticResource GhostChipStyle}" Click="PlanMode_OnClick" Content="Plan mode ✕"

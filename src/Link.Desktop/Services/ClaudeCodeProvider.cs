@@ -64,8 +64,8 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
         arguments.Add("--strict-mcp-config");
         if (!task.WithoutMcp && McpConfigIn(task.Workspace) is { } servers) arguments.AddRange(["--mcp-config", servers]);
         if (task.ResumeSessionId is { } session) arguments.AddRange(["--resume", session]);
-        // Images live in Link's data, outside the workspace: their folders are opened for reading.
-        foreach (var folder in task.Images.Select(Path.GetDirectoryName).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
+        // Images live in Link's data and attached files anywhere, outside the workspace: their folders are opened for reading.
+        foreach (var folder in task.Images.Concat(task.Files).Select(Path.GetDirectoryName).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
         {
             arguments.AddRange(["--add-dir", folder]);
         }

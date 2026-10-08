@@ -30,6 +30,11 @@ public static partial class AgentRules
         var input = new StringBuilder(rules);
         // A Perforce workspace's files are read-only until opened: the agent is told how to open them.
         if (AgentChanges.IsPerforce(workspace) && ReadHarness(PerforceFile) is { Length: > 0 } perforce) input.Append("\n\n").Append(perforce);
+        // The engine's or tool's own rules, for every task in a project of it, with or without a specialist.
+        foreach (var pack in ToolPacks.For(workspace))
+        {
+            if (ReadHarness(Path.Combine(pack.Folder, "rules.md")) is { Length: > 0 } packRules) input.Append("\n\n").Append(packRules);
+        }
         if (ProjectRoles.SessionText(role, picked ?? [], workspace) is { Length: > 0 } specialist) input.Append("\n\n").Append(specialist);
         var skills = listSkills ? ProjectSkills.In(workspace) : [];
         if (skills.Count > 0)

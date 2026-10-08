@@ -77,6 +77,11 @@ public partial class MainWindow
     private string? _steerWith;
     private IReadOnlyList<string> _steerImages = [];
     private string? _queued;
+    private readonly List<string> _queuedImages = [];
+    // Files the user attached: the next run of the task is told their paths and may read their folders.
+    private readonly List<string> _attachedFiles = [];
+    // A new task the user ran while an agent worked: it starts when that run is over.
+    private (AgentPlan Plan, InputSnapshot Snapshot)? _nextTask;
     private bool _restartWhenStopped;
     private AgentProviderKind? _handOffWhenStopped;
     private bool _backupBeforeDo = true;
@@ -156,13 +161,6 @@ public partial class MainWindow
             return;
         }
 
-        if (!takesWords && AgentRunning)
-        {
-            SetStatus("An agent is working: a new task waits until it ends. Enter on the Agent route gives it your words");
-            ShowAgentPanel();
-            return;
-        }
-
         var project = _projects.ActiveProject;
         var snapshot = await TakeSnapshotAsync(project, PromptBox.Text, RequestRoute.Agent, AutoFrameOn);
         // The images stay on disk while the agent may still read them.
@@ -180,15 +178,9 @@ public partial class MainWindow
         ContinueAgent(words, images);
     }
 
-    /// <summary>New task in the Studio: a card with what is in Link's input and chips, maybe nothing yet.</summary>
+    /// <summary>New task in the Studio: a card with what is in Link's input and chips, maybe nothing yet; while an agent works, its Run waits for it.</summary>
     private async Task OpenNewTaskCardAsync()
     {
-        if (AgentRunning)
-        {
-            SetStatus("An agent is working: a new task waits until it ends");
-            return;
-        }
-
         RemoveMissingContextFiles();
         var snapshot = await TakeSnapshotAsync(_projects.ActiveProject, PromptBox.Text, RequestRoute.Agent, AutoFrameOn);
         _attempts.Keep(snapshot);
@@ -257,6 +249,8 @@ public partial class MainWindow
             .Select(item => item.Label)
             .ToArray();
         var (starting, notice) = StartingAgent();
+        const string waits = "An agent is working now: Run puts this task next, and it starts by itself when that run ends.";
+        if (AgentRunning) notice = notice is null ? waits : $"{waits} {notice}";
         var card = CardModel(brief ?? snapshot.Text, others.Length == 0 ? string.Empty : "Goes along: " + string.Join(", ", others),
             images, starting) with { Notice = notice };
         _cardRun = RunAgentAsync;
@@ -404,7 +398,7 @@ public partial class MainWindow
 
     private AgentPanel CreateAgentPanel()
     {
-        var panel = new AgentPanel();
+        var panel = new AgentPanel { SaveImage = _history.SaveClipboardImage };
         panel.RunRequested += plan =>
         {
             if (_cardRun is { } run) _ = run(plan);
@@ -422,8 +416,8 @@ public partial class MainWindow
         };
         panel.RestartRequested += RequestRestart;
         panel.EscalateRequested += Escalate;
-        panel.ContinueRequested += words => ContinueAgent(words);
-        panel.QueueRequested += QueueAfterRun;
+        panel.ContinueRequested += (words, attached) => ContinueWithAttached(words, attached, queue: false);
+        panel.QueueRequested += (words, attached) => ContinueWithAttached(words, attached, queue: true);
         panel.FinishRequested += FinishTask;
         panel.CheaperRequested += () => _ = ShowHandOffCardAsync(AgentProviderKind.Custom);
         panel.PlanModeOffRequested += LeavePlanMode;
@@ -530,10 +524,13 @@ public partial class MainWindow
 
     private PanelAction ConsoleAction() => new("Console", "What Link gave the agent's CLI and what it wrote back", ShowAgentConsole);
 
-    /// <summary>Run on the card: a new task. An open one is finished first; it stays in the list.</summary>
+    /// <summary>
+    /// Run on the card: a new task. An open one is finished first; it stays in the list. While an agent works, the new
+    /// task waits for it and starts by itself when that run is over (<see cref="StartNextTask"/>).
+    /// </summary>
     private async Task RunAgentAsync(AgentPlan plan)
     {
-        if (_agentSnapshot is not { } snapshot || AgentRunning) return;
+        if (_agentSnapshot is not { } snapshot) return;
         // The task belongs to the project the card was opened for, not to the one that is active by now.
         if (_projects.Projects.FirstOrDefault(each => each.Id == plan.ProjectId) is not { } project)
         {
@@ -542,6 +539,34 @@ public partial class MainWindow
         }
 
         _cardRun = null;
+        if (AgentRunning)
+        {
+            _nextTask = (plan, snapshot);
+            _agentPanel?.HideCard();
+            ShowTask();
+            AgentStatus($"Next task waits: \"{Shorten(plan.Goal.Split('\n')[0].Trim(), 60)}\" starts when this run ends");
+            return;
+        }
+
+        await StartNewTaskAsync(plan, snapshot, project);
+    }
+
+    /// <summary>
+    /// The new task the user ran while an agent worked, once the run is wholly over and nothing of the open task goes on
+    /// by itself: a steer, words for after it, a team's next step (which start before this is called) take precedence.
+    /// </summary>
+    private void StartNextTask() =>
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (_nextTask is not { } next || AgentRunning || _steerWith is not null || _queued is not null) return;
+            _nextTask = null;
+            if (_projects.Projects.FirstOrDefault(each => each.Id == next.Plan.ProjectId) is not { } project) return;
+            _agentSnapshot = next.Snapshot;
+            _ = StartNewTaskAsync(next.Plan, next.Snapshot, project);
+        });
+
+    private async Task StartNewTaskAsync(AgentPlan plan, InputSnapshot snapshot, LinkProject project)
+    {
         if (_task is { Status: not AgentTaskStatus.Finished }) FinishTask();
         _backupBeforeDo = plan.BackupBeforeDo;
         // The input went to the agent: like a sent message, it leaves the prompt.
@@ -554,7 +579,12 @@ public partial class MainWindow
         _planSetup = (plan.Model, plan.Effort);
         var (model, effort) = lead is not null ? agent.Level(lead.Provider, lead.Level)
             : plan.PlanFirst && agent.PlanOnDeep ? agent.Level(plan.Provider, AgentLevel.Deep) : _planSetup;
-        _agentOrigin = AgentCoordinator.BuildTask(plan with { Model = model, Effort = effort }, snapshot, project);
+        // What was pasted or dropped on the card: images go as images, other files by their paths.
+        var (goal, attachedImages, attachedFiles) = WithAttached(plan.Goal, plan.Attached);
+        _attachedFiles.Clear();
+        _attachedFiles.AddRange(attachedFiles);
+        _agentOrigin = AgentCoordinator.BuildTask(plan with { Model = model, Effort = effort, Goal = goal }, snapshot, project);
+        _agentOrigin = _agentOrigin with { Images = [.. _agentOrigin.Images, .. attachedImages] };
         var brief = _agentOrigin.Prompt;
         if (lead is not null)
         {
@@ -575,7 +605,7 @@ public partial class MainWindow
             Mode = lead is null ? TaskMode.Solo : TaskMode.Team
         };
         var how = lead is not null ? $"\n(team: {WorkerLabel(lead)} plans the steps)" : plan.PlanFirst ? "\n(plan first)" : string.Empty;
-        _task.Add(AgentEntryKind.Brief, plan.Goal.Trim() + ImagesNote(_agentOrigin.Images) + how);
+        _task.Add(AgentEntryKind.Brief, goal.Trim() + ImagesNote(_agentOrigin.Images) + how);
         _earlierSession = null;
         _lastRun = null;
         _shownTask = _task;
@@ -671,9 +701,31 @@ public partial class MainWindow
     }
 
     /// <summary>Tab while the agent works: the words wait for the end of the run, then the same session goes on with them.</summary>
-    private void QueueAfterRun(string words)
+    /// <summary>
+    /// The user's words with what they pasted or dropped: images go as images, other files are named by path at the end
+    /// of the words, and the next run may read their folders.
+    /// </summary>
+    private (string Words, IReadOnlyList<string> Images, IReadOnlyList<string> Files) WithAttached(string words, IReadOnlyList<string> attached)
+    {
+        var images = attached.Where(AgentPanel.IsImage).ToArray();
+        var files = attached.Except(images).ToArray();
+        if (files.Length > 0) words = $"{words.Trim()}\n\nAttached files:\n{string.Join('\n', files.Select(file => "- " + file))}";
+        return (words.Trim(), images, files);
+    }
+
+    /// <summary>A reply from the Studio with what came along with it.</summary>
+    private void ContinueWithAttached(string words, IReadOnlyList<string> attached, bool queue)
+    {
+        var (text, images, files) = WithAttached(words, attached);
+        _attachedFiles.AddRange(files);
+        if (queue) QueueAfterRun(text, images);
+        else ContinueAgent(text, images);
+    }
+
+    private void QueueAfterRun(string words, IReadOnlyList<string> images)
     {
         if (!AgentRunning || _runningTask is null) return;
+        _queuedImages.AddRange(images);
         _queued = _queued is null ? words : $"{_queued}\n{words}";
         _task?.Add(AgentEntryKind.You, "(after this step) " + words);
         ShowTask();
@@ -823,6 +875,12 @@ public partial class MainWindow
     {
         // Every run starts here, the user's and Link's own: the CLI compacts its session near the budget of Settings.
         task = task with { ContextBudget = _settings.Current.Agent.ContextBudget, EffortReason = null };
+        if (IsUserWork(task) && _attachedFiles.Count > 0)
+        {
+            task = task with { Files = [.. task.Files.Union(_attachedFiles, StringComparer.OrdinalIgnoreCase)] };
+            _attachedFiles.Clear();
+        }
+
         if (phase is { } kind) task = WithAutoEffort(task, kind);
         var provider = _agents.Provider(task.Provider);
         // Link's own answer (the map) runs apart: the open task keeps its session, its last run and its question.
@@ -917,6 +975,7 @@ public partial class MainWindow
             UpdateAgentPill();
             RefreshTaskList();
             RefreshStudio();
+            StartNextTask();
             return;
         }
 
@@ -955,8 +1014,12 @@ public partial class MainWindow
         else if (_queued is { } later)
         {
             _queued = null;
-            if (ended is not null && AgentCoordinator.ContinueTask(ended, later) is { } next) await StartAgentAsync(next, ended, phase: EffortPhase.Reply);
+            IReadOnlyList<string> images = [.. _queuedImages];
+            _queuedImages.Clear();
+            if (ended is not null && AgentCoordinator.ContinueTask(ended, later) is { } next) await StartAgentAsync(next with { Images = images }, ended, phase: EffortPhase.Reply);
         }
+
+        StartNextTask();
     }
 
     /// <summary>The user's work, as opposed to Link's own answer written to a file, such as the map.</summary>

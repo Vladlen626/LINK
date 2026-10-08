@@ -387,6 +387,9 @@ public sealed record AgentTask
     /// <summary>Images to look at, such as the snapshot's screenshot.</summary>
     public IReadOnlyList<string> Images { get; init; } = [];
 
+    /// <summary>Files the user attached, outside the workspace maybe: the agent is told their paths and may read their folders.</summary>
+    public IReadOnlyList<string> Files { get; init; } = [];
+
     /// <summary>
     /// With edits: files change and commands run without asking, and the agent's own review stops risky ones (Claude
     /// Code's auto mode, Codex's automatic review of what would leave its sandbox).

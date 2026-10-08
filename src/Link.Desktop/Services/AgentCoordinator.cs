@@ -35,6 +35,9 @@ public sealed record AgentPlan(
 
     /// <summary>A team does the task: the lead plans it first, read only, and Link gives each step to its worker.</summary>
     public bool Team { get; init; }
+
+    /// <summary>What the user pasted or dropped on the card: images and files, by path.</summary>
+    public IReadOnlyList<string> Attached { get; init; } = [];
 }
 
 /// <summary>

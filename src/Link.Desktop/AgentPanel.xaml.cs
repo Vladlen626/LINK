@@ -85,6 +85,10 @@ public partial class AgentPanel : UserControl
 {
     private const double SidebarWidth = 264;
     private const double ThumbnailHeight = 54;
+
+    // Pictures and files the user pasted or dropped, for the card and for the next reply.
+    private readonly List<string> _cardAttached = [];
+    private readonly List<string> _replyAttached = [];
     private static readonly AgentChoice AutoChoice = new("auto", "Auto — Link picks");
     private AgentCardModel? _card;
     private bool _fillingCard;
@@ -143,10 +147,10 @@ public partial class AgentPanel : UserControl
     public event Action? EscalateRequested;
 
     /// <summary>The user's words: a reply after a run, words to steer it with while the agent works, or the answer to its question.</summary>
-    public event Action<string>? ContinueRequested;
+    public event Action<string, IReadOnlyList<string>>? ContinueRequested;
 
     /// <summary>Words for after the run that is going on (Tab): the same session goes on with them once it ends.</summary>
-    public event Action<string>? QueueRequested;
+    public event Action<string, IReadOnlyList<string>>? QueueRequested;
 
     public event Action? FinishRequested;
 
@@ -619,21 +623,136 @@ public partial class AgentPanel : UserControl
         TaskList.ItemsSource = _rows.Select(row => row with { IsOpen = _lit == (row.Record?.Id ?? Guid.Empty) }).ToArray();
     }
 
+    /// <summary>Whether a file goes to the agent as an image rather than by its path.</summary>
+    public static bool IsImage(string path) =>
+        Path.GetExtension(path).ToLowerInvariant() is ".png" or ".jpg" or ".jpeg" or ".gif" or ".webp" or ".bmp";
+
+    /// <summary>Saves a pasted picture where Link keeps its images and returns the file; set by the window.</summary>
+    public Func<BitmapSource, string>? SaveImage { get; set; }
+
+    // Ctrl+V with a picture or files on the clipboard attaches them; text pastes as always.
+    private void Panel_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.V || Keyboard.Modifiers != ModifierKeys.Control || !CanAttach) return;
+        try
+        {
+            if (Clipboard.ContainsFileDropList())
+            {
+                Attach(Clipboard.GetFileDropList().Cast<string>());
+                e.Handled = true;
+            }
+            else if (Clipboard.ContainsImage() && SaveImage is { } save && Clipboard.GetImage() is { } image)
+            {
+                Attach([save(image)]);
+                e.Handled = true;
+            }
+        }
+        catch (Exception exception) when (exception is System.Runtime.InteropServices.ExternalException or IOException)
+        {
+            // A busy clipboard pastes nothing; the user tries again.
+        }
+    }
+
+    private void Panel_OnPreviewDragOver(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop)) return;
+        e.Effects = CanAttach ? DragDropEffects.Copy : DragDropEffects.None;
+        e.Handled = true;
+    }
+
+    private void Panel_OnPreviewDrop(object sender, DragEventArgs e)
+    {
+        if (!e.Data.GetDataPresent(DataFormats.FileDrop) || !CanAttach) return;
+        if (e.Data.GetData(DataFormats.FileDrop) is string[] files) Attach(files);
+        e.Handled = true;
+    }
+
+    /// <summary>Pictures and files go with the card while it is open, else with the reply.</summary>
+    private bool CanAttach => _card is not null || ReplyPanel.Visibility == Visibility.Visible;
+
+    private List<string> Attached => _card is not null ? _cardAttached : _replyAttached;
+
+    private void Attach(IEnumerable<string> paths)
+    {
+        var attached = Attached;
+        // A folder is no file to read; a file already there comes once.
+        foreach (var path in paths.Where(File.Exists))
+        {
+            if (!attached.Contains(path, StringComparer.OrdinalIgnoreCase)) attached.Add(path);
+        }
+
+        ShowAttached();
+    }
+
+    /// <summary>What was pasted or dropped, as small pictures and file names; a click takes one off.</summary>
+    private void ShowAttached()
+    {
+        Fill(CardAttachedPanel, _cardAttached);
+        Fill(ReplyAttachedPanel, _replyAttached);
+        ContinueButton.IsEnabled = ReplyBox.Text.Trim().Length > 0 || _replyAttached.Count > 0;
+    }
+
+    private void Fill(WrapPanel panel, List<string> attached)
+    {
+        panel.Children.Clear();
+        foreach (var path in attached.ToArray())
+        {
+            UIElement content = new TextBlock { Text = "📄 " + Path.GetFileName(path), Margin = new Thickness(8, 3, 8, 3), FontSize = 12 };
+            if (IsImage(path) && Thumbnail(path) is { } picture)
+            {
+                content = new Image { Source = picture, Height = ThumbnailHeight, Stretch = Stretch.Uniform };
+            }
+
+            var chip = new Border
+            {
+                Margin = new Thickness(0, 0, 6, 6),
+                CornerRadius = new CornerRadius(4),
+                BorderBrush = (Brush)FindResource("GlassBorderSoftBrush"),
+                BorderThickness = new Thickness(1),
+                ClipToBounds = true,
+                Cursor = Cursors.Hand,
+                ToolTip = $"{path}\nClick to take it off",
+                Child = content
+            };
+            chip.MouseLeftButtonUp += (_, _) =>
+            {
+                attached.Remove(path);
+                ShowAttached();
+            };
+            panel.Children.Add(chip);
+        }
+
+        panel.Visibility = attached.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    private static BitmapImage? Thumbnail(string path)
+    {
+        try
+        {
+            var picture = new BitmapImage();
+            picture.BeginInit();
+            picture.UriSource = new Uri(path);
+            picture.DecodePixelHeight = (int)(ThumbnailHeight * 2);
+            picture.CacheOption = BitmapCacheOption.OnLoad;
+            picture.EndInit();
+            picture.Freeze();
+            return picture;
+        }
+        catch (Exception exception) when (exception is IOException or NotSupportedException or UriFormatException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Small pictures of the images that go along; a click shows the file.</summary>
     private void ShowImages(IReadOnlyList<string> images)
     {
         ImagesPanel.Children.Clear();
         foreach (var path in images.Where(File.Exists))
         {
-            try
+            // A picture that does not read still goes; only its preview is missing.
+            if (Thumbnail(path) is { } picture)
             {
-                var picture = new BitmapImage();
-                picture.BeginInit();
-                picture.UriSource = new Uri(path);
-                picture.DecodePixelHeight = (int)(ThumbnailHeight * 2);
-                picture.CacheOption = BitmapCacheOption.OnLoad;
-                picture.EndInit();
-                picture.Freeze();
                 var thumbnail = new Border
                 {
                     Margin = new Thickness(0, 0, 6, 6),
@@ -647,10 +766,6 @@ public partial class AgentPanel : UserControl
                 };
                 thumbnail.MouseLeftButtonUp += (_, _) => OpenFileRequested?.Invoke(path);
                 ImagesPanel.Children.Add(thumbnail);
-            }
-            catch (Exception exception) when (exception is IOException or NotSupportedException or UriFormatException)
-            {
-                // A picture that does not read still goes; only its preview is missing.
             }
         }
 
@@ -927,9 +1042,12 @@ public partial class AgentPanel : UserControl
             AutoApprove = SelectedAuto,
             RoleId = SelectedRoleId,
             Skills = _skills,
-            ProjectId = card.ProjectId
+            ProjectId = card.ProjectId,
+            Attached = [.. _cardAttached]
         };
         _card = null;
+        _cardAttached.Clear();
+        ShowAttached();
         RunRequested?.Invoke(plan);
     }
 
@@ -955,23 +1073,31 @@ public partial class AgentPanel : UserControl
     {
         ReplyPlaceholder.Visibility = ReplyBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
         // Nothing to send leaves the button dim, as Enter does nothing then.
-        ContinueButton.IsEnabled = ReplyBox.Text.Trim().Length > 0;
+        ContinueButton.IsEnabled = ReplyBox.Text.Trim().Length > 0 || _replyAttached.Count > 0;
     }
 
     private void SendReply(bool queue)
     {
         var reply = ReplyBox.Text.Trim();
-        if (reply.Length == 0) return;
+        if (reply.Length == 0 && _replyAttached.Count == 0) return;
+        // Pictures alone still say something: the agent is told to look.
+        if (reply.Length == 0) reply = "Look at what I attached.";
+        IReadOnlyList<string> attached = [.. _replyAttached];
+        _replyAttached.Clear();
         ReplyBox.Clear();
-        if (queue) QueueRequested?.Invoke(reply);
-        else ContinueRequested?.Invoke(reply);
+        ShowAttached();
+        if (queue) QueueRequested?.Invoke(reply, attached);
+        else ContinueRequested?.Invoke(reply, attached);
     }
 
     private void Answer(string words)
     {
         QuestionCard.Visibility = Visibility.Collapsed;
         UpdateReplyHint();
-        ContinueRequested?.Invoke(words);
+        IReadOnlyList<string> attached = [.. _replyAttached];
+        _replyAttached.Clear();
+        ShowAttached();
+        ContinueRequested?.Invoke(words, attached);
     }
 
     private void SendChoices_OnClick(object sender, RoutedEventArgs e)
@@ -1047,6 +1173,8 @@ public partial class AgentPanel : UserControl
     private void CancelCard_OnClick(object sender, RoutedEventArgs e)
     {
         _card = null;
+        _cardAttached.Clear();
+        ShowAttached();
         CardCancelled?.Invoke();
     }
 
