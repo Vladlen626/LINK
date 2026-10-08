@@ -91,6 +91,11 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
         : effort is not null ? "pinned on the card"
         : "the CLI's own";
 
+    /// <summary>"Context budget 400k · 5 skills · MCP: unreal, blender": what else goes with a run, as the card's muted line says it.</summary>
+    public static string CardLine(int contextBudget, int skills, IReadOnlyList<string> mcpServers) =>
+        $"Context budget {AgentContext.Tokens(contextBudget)} · {(skills == 0 ? "no skills" : Plural(skills, "skill"))} · " +
+        (mcpServers.Count == 0 ? "no MCP servers" : "MCP: " + string.Join(", ", mcpServers));
+
     private static HarnessSection Setup(HarnessInput input, AgentRole? role)
     {
         var caps = input.Capabilities;

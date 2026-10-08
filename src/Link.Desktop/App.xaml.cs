@@ -134,6 +134,7 @@ public partial class App : System.Windows.Application
 
         _tray = new TrayIconService(
             () => Dispatcher.Invoke(_mainWindow.ToggleVisible),
+            () => Dispatcher.Invoke(_mainWindow.ShowAgentPanel),
             () => Dispatcher.Invoke(ShowSettings),
             () => Dispatcher.Invoke(ExitApplication));
         _started = true;

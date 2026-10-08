@@ -29,6 +29,8 @@ public partial class MainWindow
             if (double.IsFinite(ActualWidth) && ActualWidth > 0) _settings.Current.Window.Width = ActualWidth;
         }
 
+        // The Studio's place is saved with the overlay's, as Link exits.
+        _studio?.Remember();
         _settings.Save();
     }
 

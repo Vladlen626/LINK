@@ -61,6 +61,7 @@ public sealed class AppSettings
     public Guid? ActiveProjectId { get; set; }
     public WindowPlacement Window { get; set; } = new();
     public SidePanelSettings SidePanel { get; set; } = new();
+    public StudioSettings Studio { get; set; } = new();
     public HotkeySettings Hotkeys { get; set; } = new();
     public AgentSettings Agent { get; set; } = new();
 
@@ -69,6 +70,7 @@ public sealed class AppSettings
         Window ??= new WindowPlacement();
         Agent ??= new AgentSettings();
         SidePanel ??= new SidePanelSettings();
+        Studio ??= new StudioSettings();
         Hotkeys ??= new HotkeySettings();
         if (SchemaVersion < 4)
         {
@@ -104,6 +106,7 @@ public sealed class AppSettings
             : DefaultVoiceReplySpeed;
         Window.Normalize();
         SidePanel.Normalize();
+        Studio.Normalize();
         Hotkeys.Normalize();
         Agent.Normalize();
     }
@@ -121,6 +124,44 @@ public sealed class SidePanelSettings
 
     public void Normalize() =>
         Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, MinWidth, MaxWidth) : DefaultWidth;
+}
+
+/// <summary>The Studio window: where it was left, how big, and whether its inspector column is open.</summary>
+public sealed class StudioSettings
+{
+    public const double MinWidth = 760;
+    public const double MinHeight = 480;
+    public const double MaxWidth = 8000;
+    public const double MaxHeight = 4320;
+    public const double DefaultWidth = 1100;
+    public const double DefaultHeight = 720;
+    // No screen is wider than this: beyond it a place is nonsense.
+    private const double FarthestPlace = 100_000;
+
+    /// <summary>Null with <see cref="Top"/>: the window opens centered.</summary>
+    public double? Left { get; set; }
+    public double? Top { get; set; }
+    public double Width { get; set; } = DefaultWidth;
+    public double Height { get; set; } = DefaultHeight;
+    public bool Maximized { get; set; }
+    public bool InspectorOpen { get; set; } = true;
+
+    /// <summary>Keeps where the window stands, its normal bounds when it is maximized.</summary>
+    public void Remember(double left, double top, double width, double height, bool maximized)
+    {
+        (Left, Top, Width, Height, Maximized) = (left, top, width, height, maximized);
+        Normalize();
+    }
+
+    public void Normalize()
+    {
+        // A place is both numbers or none, and a number beyond any screen is none.
+        if (Left is not { } left || Top is not { } top || !IsPlace(left) || !IsPlace(top)) (Left, Top) = (null, null);
+        Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, MinWidth, MaxWidth) : DefaultWidth;
+        Height = double.IsFinite(Height) && Height > 0 ? Math.Clamp(Height, MinHeight, MaxHeight) : DefaultHeight;
+    }
+
+    private static bool IsPlace(double value) => double.IsFinite(value) && Math.Abs(value) <= FarthestPlace;
 }
 
 public sealed class WindowPlacement

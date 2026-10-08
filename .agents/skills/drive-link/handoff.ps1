@@ -1,5 +1,5 @@
 # Drives the user's own Link through UI Automation, at the user's request: in the Bigsteps project, open the latest
-# task in Tasks, Hand off to Claude Code, add the user's words to the brief on the card, and press Run.
+# task in the Studio, Hand off to Claude Code, add the user's words to the brief on the card, and press Run.
 # ASCII only: Windows PowerShell 5.1 runs it; the Russian words come from a UTF-8 file.
 param([string]$Project = 'Bigsteps', [string]$Extra, [switch]$NoRun)
 $ErrorActionPreference = 'Stop'
@@ -40,7 +40,7 @@ $name = (Wait-Id 'ProjectNameText').Current.Name
 "project: $name"
 if ($name -ne $Project) { throw "Link shows the project '$name', not '$Project': switch it first" }
 
-# The panel open, on Tasks, with the list.
+# The side panel open, its Tasks button pressed (it opens the Studio), with the list.
 if (-not (Find-Id 'TaskTabButton')) { Invoke-Element (Wait-Id 'ExpandButton'); Start-Sleep -Milliseconds 800 }
 Invoke-Element (Wait-Id 'TaskTabButton'); Start-Sleep -Milliseconds 800
 $list = Wait-Id 'TaskList'

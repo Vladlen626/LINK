@@ -485,8 +485,8 @@ public partial class MainWindow
 
     private void NotifyIfAway(LinkProject project, string title, string message)
     {
-        // Someone looking at Link already sees the result.
-        if (IsVisible && IsLinkActive) return;
+        // Someone looking at Link, its panel or the Studio already sees the result.
+        if (IsLinkActive) return;
         NotificationRequested?.Invoke($"{title} · {project.Name}", message, project.Id);
     }
 
@@ -550,7 +550,7 @@ public partial class MainWindow
 
     /// <summary>
     /// Where Send goes, said where the user looks: ChatGPT's chat; on the Agent route the open task, as its next words
-    /// (a correction while the agent works), or a card for a new task when none is open.
+    /// (steered now while the agent works), or a card for a new task when none is open.
     /// </summary>
     private void UpdateRouteButton()
     {
@@ -564,17 +564,17 @@ public partial class MainWindow
         RouteButton.ToolTip = (!agent
                 ? $"Send asks ChatGPT in {(chat is { IsNew: false } ? "the chat " + chat.Title : "a new chat")}, with the chips you see."
                 : open is not null
-                    ? $"Send gives your words and chips to the task «{open.Goal}»: {(AgentRunning ? "a correction while the agent works" : "it goes on in the same session")}. Ctrl+Enter opens a card for a new task instead."
+                    ? $"Send gives your words and chips to the task «{open.Goal}»: {(AgentRunning ? "steer now, the agent stops its step and goes on with them" : "it goes on in the same session")}. Ctrl+Enter opens a card for a new task instead."
                     : $"Send opens a task card for {_agents.Provider(ProjectProvider).Name}; nothing runs before Run.") +
             "\nClick: ChatGPT or the agent · Ctrl+K: the chats";
         PromptPlaceholder.Text = !agent
             ? chat is { IsNew: false } ? $"Ask in «{Shorten(chat.Title, 40)}»…" : "Ask in a new chat…"
             : open is not null
-                ? AgentRunning ? $"Correct {ShortName(provider)}: it stops the step and goes on with your words…" : $"Your words for {ShortName(provider)}: the task goes on…"
+                ? AgentRunning ? $"Steer {ShortName(provider)} now: it stops the step and goes on with your words…" : $"Your words for {ShortName(provider)}: the task goes on…"
                 : $"A new task for {ShortName(ProjectProvider)}: Enter shows its card first…";
         SendHintText.Text = !agent ? "sends to ChatGPT"
             : open is null ? "opens a task card"
-            : AgentRunning ? "corrects the agent"
+            : AgentRunning ? "steers the agent now"
             : "goes on with the task";
         UpdateSendButton();
     }

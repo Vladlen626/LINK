@@ -39,6 +39,9 @@ public partial class SidePanelWindow : Window
     /// <summary>A tab was clicked.</summary>
     public event Action<PanelTab>? TabChosen;
 
+    /// <summary>The Tasks button was clicked: the tasks are in the Studio, a window of its own.</summary>
+    public event Action? StudioRequested;
+
     /// <summary>Shows a tab's content; the others stay one click away. The project's tab bears its name.</summary>
     public void ShowTab(PanelTab tab, string projectName, FrameworkElement content)
     {
@@ -47,7 +50,6 @@ public partial class SidePanelWindow : Window
         foreach (var (button, text, chosen) in new[]
                  {
                      (ChatsTabButton, ChatsTabText, tab == PanelTab.Chats),
-                     (TaskTabButton, TaskTabText, tab == PanelTab.Tasks),
                      (ProjectTabButton, ProjectTabText, tab == PanelTab.Project)
                  })
         {
@@ -58,7 +60,7 @@ public partial class SidePanelWindow : Window
         Body.Content = content;
     }
 
-    /// <summary>The task tab's dot: how the agent's task stands (working, needs you, done); null hides it.</summary>
+    /// <summary>The Tasks button's dot: how the agent's task stands (working, needs you, done); null hides it.</summary>
     public void ShowTaskDot(Brush? dot)
     {
         TaskTabDot.Fill = dot;
@@ -67,7 +69,7 @@ public partial class SidePanelWindow : Window
 
     private void ChatsTab_OnClick(object sender, RoutedEventArgs e) => TabChosen?.Invoke(PanelTab.Chats);
 
-    private void TaskTab_OnClick(object sender, RoutedEventArgs e) => TabChosen?.Invoke(PanelTab.Tasks);
+    private void TaskTab_OnClick(object sender, RoutedEventArgs e) => StudioRequested?.Invoke();
 
     private void ProjectTab_OnClick(object sender, RoutedEventArgs e) => TabChosen?.Invoke(PanelTab.Project);
 
@@ -110,6 +112,5 @@ public partial class SidePanelWindow : Window
 public enum PanelTab
 {
     Chats,
-    Tasks,
     Project
 }

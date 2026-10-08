@@ -17,7 +17,7 @@ unasked is refused, and Link's agents spend the user's limits.
    ```powershell
    & .agents\skills\drive-link\handoff.ps1 -Project Bigsteps -Extra <words.txt> -NoRun
    ```
-   It waits until nobody has typed for 15 s (the card takes the keyboard), opens Tasks, the newest task, Hand off ▾ →
+   It waits until nobody has typed for 15 s (the card takes the keyboard), opens the Studio (the side panel's Tasks button), the newest task, Hand off ▾ →
    Claude Code · new session, and appends the words to the brief.
 4. Read the card through UIA (ProviderCombo, ModelCombo, EffortCombo, AccessCombo, the end of GoalBox), then invoke
    `RunButton`. The pill (`AgentPillText`) shows "Claude · 0:10" once it runs; its `[Agent]` line comes to link.log at
@@ -28,7 +28,7 @@ unasked is refused, and Link's agents spend the user's limits.
 ```powershell
 & .agents\skills\drive-link\reply.ps1 -Project Bigsteps -Words <words.txt> [-NoSend]
 ```
-It waits for 15 s without typing, opens Tasks — the task Link shows there, or else the newest of the list — puts the
+It waits for 15 s without typing, opens the Studio (the side panel's Tasks button) — the task Link shows there, or else the newest of the list — puts the
 words into `ReplyBox` and invokes `ContinueButton` (Send). It prints the task's goal and whether the `Plan mode ✕`
 chip shows: while it does, the session only plans, so a reply that should do the work comes after a click on it.
 

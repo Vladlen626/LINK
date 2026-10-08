@@ -84,6 +84,9 @@ internal static class AgentTests
         StatsReport();
         HarnessBuilt();
         HarnessWords();
+        HarnessCardLine();
+        StudioSettingsKept();
+        StudioSettingsOdd();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -2470,6 +2473,63 @@ internal static class AgentTests
         task.Add(AgentEntryKind.HandOff, TaskState.Compacted(null));
         Program.Equal("compact count: one", TaskState.CompactCount(task), 1);
         Program.Equal("context: the usage is the line without its word", AgentContext.Line(182_000, 1_000_000, 400_000), "Context " + AgentContext.Usage(182_000, 1_000_000, 400_000));
+    }
+
+    /// <summary>The card's muted line says the context budget, the skills and the MCP servers the run gets; with none of them it says so.</summary>
+    private static void HarnessCardLine()
+    {
+        Program.Equal("harness card line: the budget, the skills and the MCP servers",
+            HarnessView.CardLine(400_000, 5, ["unreal", "blender"]), "Context budget 400k · 5 skills · MCP: unreal, blender");
+        Program.Equal("harness card line: one skill; no skills and no servers",
+            (HarnessView.CardLine(550_000, 1, ["unreal"]), HarnessView.CardLine(1_000_000, 0, [])),
+            ("Context budget 550k · 1 skill · MCP: unreal", "Context budget 1M · no skills · no MCP servers"));
+    }
+
+    /// <summary>The Studio window's place and inspector are saved with the settings; an older settings.json has the defaults.</summary>
+    private static void StudioSettingsKept()
+    {
+        static (double?, double?, double, double, bool, bool) Of(StudioSettings studio) =>
+            (studio.Left, studio.Top, studio.Width, studio.Height, studio.Maximized, studio.InspectorOpen);
+
+        var older = JsonSerializer.Deserialize<AppSettings>("""{"Opacity":0.7}""")!;
+        older.Normalize();
+        Program.Equal("studio settings: an older settings.json opens the Studio centered, 1100 x 720, with the inspector open",
+            Of(older.Studio), ((double?)null, (double?)null, 1100.0, 720.0, false, true));
+        var missing = JsonSerializer.Deserialize<AppSettings>("""{"Studio":null}""")!;
+        missing.Normalize();
+        Program.Equal("studio settings: a missing section is the defaults", Of(missing.Studio), Of(older.Studio));
+
+        var kept = new AppSettings();
+        kept.Studio.Remember(120, 80, 1400, 900, maximized: true);
+        kept.Studio.InspectorOpen = false;
+        var back = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(kept))!;
+        back.Normalize();
+        Program.Equal("studio settings: the place, the size, maximized and a folded inspector are saved",
+            Of(back.Studio), ((double?)120.0, (double?)80.0, 1400.0, 900.0, true, false));
+        Program.Equal("studio settings: a place on a screen left of the first is a place",
+            Of(Remembered(-1500, 40, 1000, 700, false)), ((double?)-1500.0, (double?)40.0, 1000.0, 700.0, false, true));
+    }
+
+    /// <summary>A place that is no place and a size that is none fall back to the centered default, a small one to the least.</summary>
+    private static void StudioSettingsOdd()
+    {
+        Program.Equal("studio settings: a place with a number missing or not a number is none",
+            (Remembered(double.NaN, 50, 1000, 700, false).Left, Remembered(50, double.PositiveInfinity, 1000, 700, false).Top,
+                new StudioSettings { Left = 10 }.Top),
+            ((double?)null, (double?)null, (double?)null));
+        Program.Equal("studio settings: a place beyond any screen is none, with its other number",
+            (Remembered(500_000, 10, 1000, 700, false).Left, Remembered(500_000, 10, 1000, 700, false).Top), ((double?)null, (double?)null));
+        Program.Equal("studio settings: a size under the least is the least, over the most the most, none the default",
+            (Remembered(0, 0, 10, 100, false).Width, Remembered(0, 0, 10, 100, false).Height, Remembered(0, 0, 99_999, 99_999, false).Width,
+                Remembered(0, 0, 99_999, 99_999, false).Height, Remembered(0, 0, double.NaN, -5, false).Width, Remembered(0, 0, double.NaN, -5, false).Height),
+            (760.0, 480.0, 8000.0, 4320.0, 1100.0, 720.0));
+    }
+
+    private static StudioSettings Remembered(double left, double top, double width, double height, bool maximized)
+    {
+        var studio = new StudioSettings();
+        studio.Remember(left, top, width, height, maximized);
+        return studio;
     }
 
     /// <summary>An agent whose runs do what the check says, for what Link does around a run; it keeps the tasks it got.</summary>

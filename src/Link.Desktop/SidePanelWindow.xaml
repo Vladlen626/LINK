@@ -20,7 +20,7 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <!-- Three tabs, always named: the chats with ChatGPT, the agents' tasks, and the project itself. -->
+                <!-- The chats with ChatGPT and the project itself are tabs; the agents' tasks are the Studio, a button away. -->
                 <Grid Margin="9,0,8,0">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                     <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
@@ -29,10 +29,10 @@
                             <TextBlock x:Name="ChatsTabText" FontSize="12.5" FontWeight="SemiBold" Text="Chats" />
                         </Button>
                         <Button x:Name="TaskTabButton" Style="{StaticResource GhostButtonStyle}" Height="28" Margin="2,0,0,0" Padding="9,2"
-                                Click="TaskTab_OnClick" ToolTip="The agents' tasks: open one to see its thread and go on with it">
+                                Click="TaskTab_OnClick" ToolTip="Open Link Studio: the agents' tasks, their threads, and the Harness Inspector">
                             <StackPanel Orientation="Horizontal">
                                 <Ellipse x:Name="TaskTabDot" Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center" Visibility="Collapsed" />
-                                <TextBlock x:Name="TaskTabText" FontSize="12.5" FontWeight="SemiBold" Text="Tasks" />
+                                <TextBlock x:Name="TaskTabText" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Tasks" />
                             </StackPanel>
                         </Button>
                         <Button x:Name="ProjectTabButton" Style="{StaticResource GhostButtonStyle}" Height="28" Margin="2,0,0,0" Padding="9,2"

@@ -58,10 +58,13 @@ public sealed record AgentCardModel(
 
     /// <summary>The skills the card starts with, such as a task's own on a hand-over; null: picked from the goal.</summary>
     public IReadOnlyList<string>? Skills { get; init; }
+
+    /// <summary>"Context budget 400k · 5 skills · MCP: unreal, blender": what else goes with the run, shown muted under the setup.</summary>
+    public string HarnessLine { get; init; } = string.Empty;
 }
 
 /// <summary>
-/// The Tasks tab beside Link: the project's tasks, the card before a run, and a task as one thread (the user's words,
+/// The agents' tasks in the Studio: the project's tasks, the card before a run, and a task as one thread (the user's words,
 /// each run of an agent, notes between) with the box for the next words. It only shows and asks; the window does the
 /// work behind each button.
 /// </summary>
@@ -109,7 +112,7 @@ public partial class AgentPanel : UserControl
     /// <summary>The same session goes on with the strongest model.</summary>
     public event Action? EscalateRequested;
 
-    /// <summary>The user's words: a reply after a run, a correction while the agent works, or the answer to its question.</summary>
+    /// <summary>The user's words: a reply after a run, words to steer it with while the agent works, or the answer to its question.</summary>
     public event Action<string>? ContinueRequested;
 
     /// <summary>Words for after the run that is going on (Tab): the same session goes on with them once it ends.</summary>
@@ -132,6 +135,9 @@ public partial class AgentPanel : UserControl
 
     /// <summary>An agent's usage was clicked: it is to be asked for its windows now.</summary>
     public event Action<AgentProviderKind>? LimitRefreshRequested;
+
+    /// <summary>The card's Harness button: the Studio's inspector column is to open.</summary>
+    public event Action? HarnessRequested;
 
     /// <summary>
     /// The list of the project's tasks with the agents' usage, Link's own run (<paramref name="own"/>) first while there
@@ -167,6 +173,7 @@ public partial class AgentPanel : UserControl
         ProjectText.Text = card.ProjectName;
         WorkspaceText.Text = card.Workspace ?? "Not chosen: choose it in the Project tab";
         WorkspaceText.Foreground = (Brush)FindResource(card.Workspace is null ? "ErrorBrush" : "TextBrush");
+        HarnessLineText.Text = card.HarnessLine;
         AttachmentsText.Text = card.Attachments;
         AttachmentsText.Visibility = card.Attachments.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         ShowImages(card.Images);
@@ -436,15 +443,15 @@ public partial class AgentPanel : UserControl
     private void UpdateReplyHint()
     {
         ReplyPlaceholder.Text = _running
-            ? $"Correct {_replyTarget}: Enter stops the step and goes on with your words · Tab: after this run"
+            ? $"Steer {_replyTarget} now: Enter stops the step and goes on with your words · Tab: after this step"
             : QuestionCard.Visibility == Visibility.Visible
                 ? $"Answer {_replyTarget} in your own words"
                 : _planning
                     ? $"Reply to {_replyTarget}: the session stays in plan mode, reading and planning only"
                     : $"Reply to {_replyTarget}: the same session goes on with your words";
-        ContinueButton.Content = _running ? "Correct" : "Send";
+        ContinueButton.Content = _running ? "Steer now" : "Send";
         ContinueButton.ToolTip = _running
-            ? "The agent stops the step it is on and goes on with your words in the same session (Enter); Tab keeps them for after this run"
+            ? "Stops the current step and goes on in the same session with your words; nothing is read again (Enter) · Tab: After this step, your words wait for it to end"
             : "The same session goes on with your words, with the same access and folder (Enter)";
     }
 
@@ -774,6 +781,8 @@ public partial class AgentPanel : UserControl
     }
 
     private void NewTask_OnClick(object sender, RoutedEventArgs e) => NewTaskRequested?.Invoke();
+
+    private void CardHarness_OnClick(object sender, RoutedEventArgs e) => HarnessRequested?.Invoke();
 
     private void LimitRow_OnClick(object sender, RoutedEventArgs e)
     {

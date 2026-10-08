@@ -10,7 +10,7 @@ using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
-// Agent: a CLI agent (Claude Code, Codex or the custom model) works on one task of the user's in the project's workspace. The Tasks tab
+// Agent: a CLI agent (Claude Code, Codex or the custom model) works on one task of the user's in the project's workspace. The Studio
 // lists the project's tasks, a card comes before a new one, and a task shows as one thread, as in the agents' own apps:
 // the user's words, each run with its steps folded, its answer and files, notes of hand-overs, models and limits, the
 // agent's question as a choice. Stop, corrections, decisions, models, hand-overs and undo work on the open task. The
@@ -44,7 +44,7 @@ public partial class MainWindow
     private InputSnapshot? _agentSnapshot;
     // The open task: its record holds everything its thread shows; null when there is none.
     private AgentTaskRecord? _task;
-    // The task the Tasks tab shows: the open one, or another from the list, only to be read while an agent works.
+    // The task the Studio shows: the open one, or another from the list, only to be read while an agent works.
     private AgentTaskRecord? _shownTask;
     // The project the open task belongs to: the user may switch projects while it runs.
     private LinkProject? _taskProject;
@@ -54,9 +54,9 @@ public partial class MainWindow
     private AgentTask? _runningTask;
     // The run under way in the thread: its steps arrive as the CLI writes them.
     private ThreadTurn? _liveTurn;
-    // Link's own answer (the map), apart from the open task: the Tasks tab shows it on its own, with Stop.
+    // Link's own answer (the map), apart from the open task: the Studio shows it on its own, with Stop.
     private OwnRun? _own;
-    // Whether the Tasks tab shows Link's own answer rather than a task or the list.
+    // Whether the Studio shows Link's own answer rather than a task or the list.
     private bool _ownShown;
     // The agent whose usage the shown task or run lists under its buttons.
     private AgentProviderKind? _limitsProvider;
@@ -164,12 +164,12 @@ public partial class MainWindow
 
         var (words, images) = AgentCoordinator.Words(snapshot, newTask: false);
         if (PromptBox.Text.Trim() == snapshot.Text) ClearSentInput(PromptBox.Text);
-        // The panel follows when it is open; closed, the pill shows the agent at work.
-        if (_settings.Current.SidePanel.IsOpen) ShowTaskInPanel();
+        // The Studio follows when it is open, without coming over what is being written; closed, the pill shows the agent at work.
+        if (_studio is not null) ShowOpenTask();
         ContinueAgent(words, images);
     }
 
-    /// <summary>New task in the Tasks tab: a card with what is in Link's input and chips, maybe nothing yet.</summary>
+    /// <summary>New task in the Studio: a card with what is in Link's input and chips, maybe nothing yet.</summary>
     private async Task OpenNewTaskCardAsync()
     {
         if (AgentRunning)
@@ -187,7 +187,7 @@ public partial class MainWindow
     /// <summary>
     /// The workspace's Map button: the agent looks through the folder read only and Link writes its answer to
     /// docs/map.md, the one change, shown and undone like any other. Link's own answer, on Quick: a run of its own
-    /// in the Tasks tab, which leaves the open task as it is.
+    /// in the Studio, which leaves the open task as it is.
     /// </summary>
     private async Task WriteProjectMapAsync()
     {
@@ -288,6 +288,7 @@ public partial class MainWindow
         var settings = _settings.Current.Agent;
         var workspace = project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null;
         var roles = ProjectRoles.In(workspace);
+        IReadOnlyList<ProjectSkill> skills = workspace is null ? [] : ProjectSkills.In(workspace);
         return new AgentCardModel(
             // The custom model is offered once it is set up; the agent the card is for stays, so that it never turns into another.
             _agents.Providers.Where(agent => agent.Configured || agent.Kind == provider).Select(agent =>
@@ -318,7 +319,8 @@ public partial class MainWindow
             AutoEffort = settings.AutoEffort,
             Roles = roles,
             RoleId = ProjectRoles.Suggest(goal, roles)?.Id,
-            WorkspaceSkills = workspace is null ? [] : ProjectSkills.In(workspace)
+            WorkspaceSkills = skills,
+            HarnessLine = HarnessView.CardLine(settings.ContextBudget, skills.Count, workspace is null ? [] : CliAgentProvider.McpServerNames(workspace))
         };
     }
 
@@ -407,15 +409,6 @@ public partial class MainWindow
 
     private IReadOnlyList<LimitRow> AllLimitRows() => _agents.Providers.SelectMany(agent => LimitRows(agent.Kind)).ToArray();
 
-    /// <summary>The Tasks tab as it stands: the card, the open task, or the list.</summary>
-    private void ShowAgentPanel()
-    {
-        if (!_settings.Current.SidePanel.IsOpen) SetPanelOpen(true);
-        ShowPanel();
-        _agentPanel ??= CreateAgentPanel();
-        ShowPanelTab(PanelTab.Tasks);
-    }
-
     private AgentPanel CreateAgentPanel()
     {
         var panel = new AgentPanel();
@@ -442,6 +435,8 @@ public partial class MainWindow
         panel.TaskSelected += OpenAgentTask;
         panel.OwnRunRequested += ShowOwnRun;
         panel.LimitRefreshRequested += provider => _ = RefreshLimitsAsync(provider);
+        // The card is in the Studio, so the Studio is there to open its column.
+        panel.HarnessRequested += () => _studio?.ShowInspector(true);
         panel.ShowList(TaskRows(), AllLimitRows(), null);
         return panel;
     }
@@ -590,10 +585,10 @@ public partial class MainWindow
             if (_runningTask is not { } running || !IsUserWork(running) || _restartWhenStopped) return;
             _steerWith = text;
             _steerImages = images;
-            _task?.Add(AgentEntryKind.You, "(correction) " + text + ImagesNote(images));
+            _task?.Add(AgentEntryKind.You, "(steer now) " + text + ImagesNote(images));
             _agentCancellation?.Cancel();
             ShowTask();
-            AgentStatus("Stopping the agent to pass your words on…");
+            AgentStatus($"Steering {ShortName(running.Provider)} now: it stops the step and goes on with your words…");
             return;
         }
 
@@ -619,7 +614,7 @@ public partial class MainWindow
     {
         if (!AgentRunning || _runningTask is null) return;
         _queued = _queued is null ? words : $"{_queued}\n{words}";
-        _task?.Add(AgentEntryKind.You, "(after this run) " + words);
+        _task?.Add(AgentEntryKind.You, "(after this step) " + words);
         ShowTask();
         AgentStatus("Your words wait for the end of this run");
     }
@@ -664,6 +659,7 @@ public partial class MainWindow
         UpdateAgentPill();
         UpdateRouteButton();
         ShowTaskList();
+        RefreshStudio();
         AgentStatus("Task finished: it stays in the list of tasks");
     }
 
@@ -731,10 +727,15 @@ public partial class MainWindow
             : $"Your words go on with the task: in its thread, or with Enter on the Agent route");
     }
 
-    /// <summary>The open task in the Tasks tab.</summary>
+    /// <summary>The open task in the Studio.</summary>
     private void ShowTaskInPanel()
     {
         ShowAgentPanel();
+        ShowOpenTask();
+    }
+
+    private void ShowOpenTask()
+    {
         _ownShown = false;
         _shownTask = _task;
         ShowTask();
@@ -801,8 +802,8 @@ public partial class MainWindow
         _cues.Play(SoundCue.Sent);
         SayAgent($"{ShortName(task.Provider)} начал работу.", $"{ShortName(task.Provider)} started.");
         AgentStatus(own
-            ? $"{provider.Name} writes {OwnWhat(task)} · Stop is in the Tasks tab"
-            : $"{provider.Name} is working · its thread is in the Tasks tab");
+            ? $"{provider.Name} writes {OwnWhat(task)} · Stop is in the Studio"
+            : $"{provider.Name} is working · its thread is in the Studio");
         UpdateAgentPill();
         UpdateRouteButton();
         RefreshTaskList();
@@ -841,6 +842,7 @@ public partial class MainWindow
             _liveTurn = null;
             UpdateAgentPill();
             RefreshTaskList();
+            RefreshStudio();
             return;
         }
 
@@ -850,6 +852,7 @@ public partial class MainWindow
         UpdateAgentPill();
         UpdateRouteButton();
         RefreshTaskList();
+        RefreshStudio();
 
         if (_restartWhenStopped)
         {
@@ -1020,7 +1023,7 @@ public partial class MainWindow
         var cancellation = new CancellationTokenSource();
         _agentCancellation = cancellation;
         _agentPanel?.ShowStep($"asking {provider.Name} for a note…", running: true);
-        AgentStatus($"{provider.Name} writes a note for a new session · Stop is in the Tasks tab");
+        AgentStatus($"{provider.Name} writes a note for a new session · Stop is in the Studio");
         (AgentTask Task, string Note)? next;
         try
         {
@@ -1341,6 +1344,8 @@ public partial class MainWindow
                 var (usage, hint) = UsageText(_task!);
                 _agentPanel.ShowUsage(usage, hint);
             }
+
+            RefreshStudio(live: true);
         }
 
         if (events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Limit))
@@ -1377,7 +1382,7 @@ public partial class MainWindow
             new PanelAction("Go on", "The agent works on; when the limit stops it, the same choices come again", () => { })
         ]);
         _task?.Add(AgentEntryKind.Limit, $"{AgentName(provider)} near its limit: {_limits.Describe(provider)}");
-        AgentStatus($"{AgentName(provider)} is near its usage limit · the Tasks tab offers a way on");
+        AgentStatus($"{AgentName(provider)} is near its usage limit · the Studio offers a way on");
     }
 
     private string AgentHeader(AgentTask task)
@@ -1552,8 +1557,8 @@ public partial class MainWindow
         }
 
         AgentStatus(limitReached
-            ? $"{provider.Name} ran out of its limit · the Tasks tab offers a way on"
-            : _question is not null ? $"{provider.Name} asks: the choice is in the Tasks tab"
+            ? $"{provider.Name} ran out of its limit · the Studio offers a way on"
+            : _question is not null ? $"{provider.Name} asks: the choice is in the Studio"
             : $"{provider.Name}: {ending.ToLowerInvariant()} · {Plural(run.Changes.Count, "file")} changed");
     }
 
@@ -1729,7 +1734,7 @@ public partial class MainWindow
         if (!_ownShown && _shownTask?.Id == record.Id) _agentPanel?.ShowChanges(changes.Text, changes.Hint);
     }
 
-    /// <summary>The open task in the Tasks tab, unless another task is shown there to be read.</summary>
+    /// <summary>The open task in the Studio, unless another task is shown there to be read.</summary>
     private void ShowTask()
     {
         if (_agentPanel is null || _task is not { } record || _ownShown) return;
@@ -1739,7 +1744,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// A task in the Tasks tab: its goal and standing, the line of who works on what, its plan, thread and usage. The
+    /// A task in the Studio: its goal and standing, the line of who works on what, its plan, thread and usage. The
     /// open task offers its menus and the box for the next words; another, read while an agent works, only shows.
     /// </summary>
     private void ShowRecord(AgentTaskRecord record, bool readOnly)
@@ -1770,6 +1775,7 @@ public partial class MainWindow
             panel.ShowFinish(false);
             panel.ShowPlanMode(false);
             panel.ShowReply(false, $"{AgentName(_runningTask?.Provider ?? provider)} works on another task: open this one again once it ends to go on with it.");
+            RefreshStudio();
             return;
         }
 
@@ -1783,6 +1789,7 @@ public partial class MainWindow
         else if (ResumableTask() is not null) panel.ShowReply(true);
         else panel.ShowReply(false, "This task has no session to go on with: hand it to an agent, or start it anew from its card.");
         UpdateAgentPill();
+        RefreshStudio();
     }
 
     /// <summary>
@@ -2062,7 +2069,7 @@ public partial class MainWindow
         return rows;
     }
 
-    /// <summary>The agent's pill in the card's header and the Tasks tab's dot: who works and how the task stands.</summary>
+    /// <summary>The agent's pill in the card's header and the side panel's Tasks button dot: who works and how the task stands.</summary>
     private void UpdateAgentPill()
     {
         if (_task is not { } task && !AgentRunning)
@@ -2085,7 +2092,7 @@ public partial class MainWindow
         var subject = _runningTask is { } busy && !IsUserWork(busy) ? $"Link writes {OwnWhat(busy)}" : _task?.Goal ?? "Agent";
         AgentPill.ToolTip = $"{subject}\n{text}" +
                             (_limits.Describe(provider) is { Length: > 0 } limits ? $"\nUsage: {limits}" : string.Empty) +
-                            "\nClick to see it in the Tasks tab";
+                            "\nClick to see it in the Studio";
         AgentPill.Visibility = Visibility.Visible;
         _panel?.ShowTaskDot(dot);
     }

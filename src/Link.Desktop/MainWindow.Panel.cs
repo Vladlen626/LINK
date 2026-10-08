@@ -7,9 +7,10 @@ using Link.Desktop.Models;
 
 namespace Link.Desktop;
 
-// The panel beside the card: Expand opens it, it follows the card and hides and shows with it. Three tabs, as in the
-// apps the user knows: the project's chats with ChatGPT, the agents' tasks, and the project itself (its note and
-// workspace). The card keeps chips of what goes with a request.
+// The panel beside the card: Expand opens it, it follows the card and hides and shows with it. Two tabs, as in the
+// apps the user knows: the project's chats with ChatGPT, and the project itself (its note and workspace). The agents'
+// tasks are the Studio, a window of its own that the panel's Tasks button opens. The card keeps chips of what goes with
+// a request.
 public partial class MainWindow
 {
     // How much of an answer the chat's thread shows; Show in Link has the whole of it.
@@ -23,7 +24,7 @@ public partial class MainWindow
     // The note's × in the card: the next question goes without it.
     private bool _noteLeftOut;
 
-    private bool IsLinkActive => IsActive || _panel?.IsActive == true;
+    private bool IsLinkActive => IsActive || _panel?.IsActive == true || _studio?.IsActive == true;
 
     private void Expand_OnClick(object sender, RoutedEventArgs e) => SetPanelOpen(!_settings.Current.SidePanel.IsOpen);
 
@@ -68,7 +69,7 @@ public partial class MainWindow
     {
         var open = _settings.Current.SidePanel.IsOpen;
         ExpandIcon.Stroke = (Brush)FindResource(open ? "AccentBrush" : "TextBrush");
-        ExpandButton.ToolTip = open ? "Close the panel" : "Open the panel: the project's chats, the agents' tasks and the project";
+        ExpandButton.ToolTip = open ? "Close the panel" : "Open the panel: the project's chats and the project itself";
     }
 
     private void ShowPanel()
@@ -84,18 +85,12 @@ public partial class MainWindow
         _panel.Show();
     }
 
-    /// <summary>One of the panel's tabs: the chats, the tasks (the list, a card or a task), or the project.</summary>
+    /// <summary>One of the panel's tabs: the chats, or the project.</summary>
     private void ShowPanelTab(PanelTab tab)
     {
         _panelTab = tab;
         if (_panel is null || _projectPanel is null || _chatsPanel is null) return;
-        FrameworkElement content = tab switch
-        {
-            PanelTab.Chats => _chatsPanel,
-            PanelTab.Tasks => _agentPanel ??= CreateAgentPanel(),
-            _ => _projectPanel
-        };
-        _panel.ShowTab(tab, _projects.ActiveProject.Name, content);
+        _panel.ShowTab(tab, _projects.ActiveProject.Name, tab == PanelTab.Chats ? _chatsPanel : _projectPanel);
         UpdateAgentPill();
     }
 
@@ -118,6 +113,7 @@ public partial class MainWindow
         };
         panel.DpiChanged += (_, _) => PlacePanel();
         panel.TabChosen += ShowPanelTab;
+        panel.StudioRequested += ShowAgentPanel;
 
         _chatsPanel = new ChatsPanel();
         _chatsPanel.ChatSelected += OnChatSelected;
@@ -139,15 +135,13 @@ public partial class MainWindow
     /// <summary>Shows the active project in the panel, when there is one.</summary>
     private void RefreshProjectPanel()
     {
+        RefreshStudioProject();
         if (_panel is null || _projectPanel is null || _chatsPanel is null) return;
         _projectPanel.ShowProject(_projects.ActiveProject);
         _shownChat = null;
         _chatsPanel.ShowListView();
         RefreshChats();
         _chatsPanel.SetBusy(_sending);
-        // Another project's tasks: the list, unless its own task is open.
-        if (_agentPanel is not null && _shownTask is not null && _taskProject?.Id != _projects.ActiveProject.Id) ShowTaskList();
-        else RefreshTaskList();
         ShowPanelTab(_panelTab);
         UpdateConnectionState();
     }
