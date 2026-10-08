@@ -322,9 +322,12 @@ public partial class MainWindow
             Roles = roles,
             RoleId = ProjectRoles.Suggest(goal, roles)?.Id,
             WorkspaceSkills = skills,
-            HarnessLine = HarnessView.CardLine(settings.ContextBudget, skills.Count, workspace is null ? [] : CliAgentProvider.McpServerNames(workspace))
+            HarnessLine = CardHarnessLine(workspace, skills.Count)
         };
     }
+
+    private string CardHarnessLine(string? workspace, int skills) =>
+        HarnessView.CardLine(_settings.Current.Agent.ContextBudget, skills, workspace is null ? [] : CliAgentProvider.McpServerNames(workspace));
 
     private static string ModelName(IAgentProvider agent, string model) =>
         agent.Models.FirstOrDefault(choice => choice.Value == model)?.Label ?? model;

@@ -201,6 +201,14 @@ public partial class AgentPanel : UserControl
         GoalBox.CaretIndex = GoalBox.Text.Length;
     }
 
+    /// <summary>Settings were saved while the card is open: its line of what goes with the run, such as the budget, follows.</summary>
+    public void UpdateHarnessLine(Func<AgentCardModel, string> line)
+    {
+        if (_card is null) return;
+        _card = _card with { HarnessLine = line(_card) };
+        HarnessLineText.Text = _card.HarnessLine;
+    }
+
     /// <summary>The card is gone: back to the open task, or to the list.</summary>
     public void HideCard()
     {

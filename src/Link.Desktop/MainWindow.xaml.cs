@@ -131,6 +131,7 @@ public partial class MainWindow : Window
         // The default agent or the access the card starts with may have changed.
         UpdateRouteButton();
         ApplyConversation();
+        _agentPanel?.UpdateHarnessLine(card => CardHarnessLine(card.Workspace, card.WorkspaceSkills.Count));
     }
 
     public void ToggleVisible()
