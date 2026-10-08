@@ -77,6 +77,8 @@ public partial class AgentPanel : UserControl
     private bool _fillingCard;
     // The specialist is the user's once they chose it (a hand-over starts so): the goal's words pick it no more.
     private bool _roleChosen;
+    // The goal's new words changed the pick as a press on Run took their focus: that Run shows the pick first.
+    private bool _pickChangedByRun;
     // The skills on the card as chips; those the user took off or added stay so when Link picks again.
     private IReadOnlyList<string> _skills = [];
     private readonly HashSet<string> _skillsOff = new(StringComparer.OrdinalIgnoreCase);
@@ -586,6 +588,7 @@ public partial class AgentPanel : UserControl
     private void ShowRoles(AgentCardModel card)
     {
         _roleChosen = card.FixedProvider;
+        _pickChangedByRun = false;
         _skillsOff.Clear();
         _skillsOn.Clear();
         RoleRow.Visibility = card.Roles.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -656,11 +659,15 @@ public partial class AgentPanel : UserControl
     private void Goal_OnLostFocus(object sender, RoutedEventArgs e)
     {
         if (_card is not { FixedProvider: false } card) return;
+        var role = SelectedRoleId;
         if (!_roleChosen && card.Roles.Count > 0) SelectRole(ProjectRoles.Suggest(GoalBox.Text, card.Roles)?.Id);
         // The chips stay as they are unless the pick changed: a click on one lost the focus of the goal, and a chip
         // drawn anew under the mouse would take that click.
         var skills = PickedSkills();
-        if (!skills.SequenceEqual(_skills)) ShowSkills(skills);
+        var changed = role != SelectedRoleId || !skills.SequenceEqual(_skills);
+        if (changed) ShowSkills(skills);
+        // A press on Run takes the focus before its click: that click is not to run a pick the card has not shown yet.
+        _pickChangedByRun = changed && RunButton.IsMouseOver;
     }
 
     private void Card_OnChanged(object sender, RoutedEventArgs e)
@@ -687,6 +694,13 @@ public partial class AgentPanel : UserControl
         if (string.IsNullOrWhiteSpace(GoalBox.Text))
         {
             ShowCardWarning("Write what the agent should do.");
+            return;
+        }
+
+        if (_pickChangedByRun)
+        {
+            _pickChangedByRun = false;
+            ShowCardWarning("The specialist or skills changed with the goal: check them, then press Run again.");
             return;
         }
 

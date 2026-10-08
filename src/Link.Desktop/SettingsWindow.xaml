@@ -242,7 +242,7 @@
                                     <TextBox x:Name="CustomAddressBox" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" TextChanged="CustomAddressBox_OnTextChanged"
                                              ToolTip="Where Claude Code sends its requests: https, or http on this PC" />
                                     <TextBlock Grid.Row="2" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Model" />
-                                    <ComboBox x:Name="CustomModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" IsEditable="True"
+                                    <ComboBox x:Name="CustomModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" IsEditable="True" IsTextSearchEnabled="False"
                                               ToolTip="One of the server's models, or the name of another" />
                                     <TextBlock x:Name="CustomKeyLabel" Grid.Row="3" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Key" />
                                     <Grid x:Name="CustomKeyRow" Grid.Row="3" Grid.Column="1" Margin="0,6,0,0">

@@ -1202,10 +1202,6 @@ public partial class MainWindow
     private async Task<string?> NumstatAsync() =>
         _lastRun is { } run ? await _agents.Changes.DiffAsync(run.Before, run.Changes, stat: true, 4000, CancellationToken.None) : null;
 
-    /// <summary>The open task's state as Compact shows it, for the inspector; null without an open task.</summary>
-    internal async Task<string?> TaskStateText() =>
-        _task is { } record ? TaskState.Build(record, await NumstatAsync(), record.Workspace, AgentName) : null;
-
     /// <summary>
     /// Compact: a fresh session of the same agent starts from the task's state rather than from the session that has
     /// grown. Link makes the state from the task's record, and it is shown on the card first, where it can be changed,
