@@ -189,10 +189,10 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
 
     private static HarnessSection Injected(HarnessInput input) =>
         input.Task is { Brief.Length: > 0 } task
-            ? new HarnessSection("Injected context", $"The brief Link gave: {task.Brief.Length.ToString("N0", CultureInfo.InvariantCulture)} characters")
+            ? new HarnessSection("Injected context", $"The brief Link gave: {task.BriefText.Length.ToString("N0", CultureInfo.InvariantCulture)} characters")
             {
                 Note = "The rules and the role go before it in a new session; the Console has the exact text",
-                Detail = task.Brief,
+                Detail = task.BriefText,
                 ShowsConsole = true
             }
             : new HarnessSection("Injected context", "Nothing yet") { ShowsConsole = true };

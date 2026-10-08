@@ -305,7 +305,8 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
 
         // The same on resume: a session keeps its tools, model and cached start. A bare value is read as a string.
         foreach (var feature in FeaturesOff) arguments.AddRange(["-c", $"features.{feature}=false"]);
-        var servers = McpServers(task.Workspace);
+        // Link's own answers get no server of the workspace either: one that the user's config lacks is not defined at all.
+        var servers = task.WithoutMcp ? [] : McpServers(task.Workspace);
         foreach (var setting in servers.SelectMany(server => server.Settings)) arguments.AddRange(["-c", setting]);
         // The workspace is the one source of servers, as --strict-mcp-config makes it for Claude Code: the user's own
         // (the desktop app's runtime, a DCC bridge for another project) stay off in Link's runs, their config untouched.

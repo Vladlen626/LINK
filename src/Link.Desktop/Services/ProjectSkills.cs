@@ -15,13 +15,7 @@ public static partial class ProjectSkills
     /// <summary>Where skills live in a workspace, as the agent's rules name it.</summary>
     public const string RelativeFolder = ".agents/skills";
 
-    /// <summary>The agent's task for Save as skill: a file beside Link.exe, to be changed without a new build.</summary>
-    public static string TaskFile => Path.Combine(AppContext.BaseDirectory, "harness", "skill-task.md");
-
     public static string FolderIn(string workspace) => Path.Combine(workspace, ".agents", "skills");
-
-    /// <summary>A skill's file relative to the workspace, as Link writes it.</summary>
-    public static string RelativePath(string name) => $"{RelativeFolder}/{name}/SKILL.md";
 
     /// <summary>The workspace's skills by name; a folder without a readable SKILL.md is not a skill.</summary>
     public static IReadOnlyList<ProjectSkill> In(string? workspace)
@@ -84,12 +78,6 @@ public static partial class ProjectSkills
         return (fields, string.Join('\n', lines.Skip(index + 1)).Trim());
     }
 
-    /// <summary>A skill's name as both agents accept it: lowercase Latin letters, digits and single hyphens, up to 64.</summary>
-    public static bool IsName(string name) => name.Length <= 64 && Name().IsMatch(name);
-
     [GeneratedRegex(@"^([A-Za-z][\w-]*):(.*)$")]
     private static partial Regex Field();
-
-    [GeneratedRegex(@"^[a-z0-9]+(-[a-z0-9]+)*$")]
-    private static partial Regex Name();
 }

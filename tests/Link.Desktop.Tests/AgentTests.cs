@@ -46,7 +46,6 @@ internal static class AgentTests
         }
         await CopyRestoreAsync();
         await MapAsync();
-        await SkillAsync();
         ProjectCheck();
         await CheckCommandAsync();
         await CheckRetriesAsync();
@@ -90,7 +89,6 @@ internal static class AgentTests
         StudioSettingsOdd();
         CheaperHints();
         FirstRunWords();
-        SkillUpdateRequest();
         TeamPackRoundTrip();
         TeamPackLinks();
         TeamPackReplace();
@@ -110,6 +108,11 @@ internal static class AgentTests
         RoleColorFiles();
         HarnessContextMeter();
         StudioSidebarKept();
+        LimitsHold();
+        StartAgentRule();
+        UsageSpentMeasured();
+        HandoversKeepTheBrief();
+        CompactAfterWait();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -210,6 +213,8 @@ internal static class AgentTests
         Program.Equal("start over: a new session with the original goal and images, and the note",
             (fresh.Task.ResumeSessionId, fresh.Task.Prompt, fresh.Task.Images.Count, fresh.Note),
             ((string?)null, "Fix the rounding\n\nA note from an earlier attempt at this task, which did not work out:\n" + Note, 1, Note));
+        Program.Equal("start over: the note is Link's own answer, without MCP servers; the new session is the user's work with them",
+            (ask.WithoutMcp, fresh.Task.WithoutMcp), (true, false));
         Program.Equal("start over: the access, folder, allowed tools and check of the run go on",
             (fresh.Task.Access, fresh.Task.Workspace, string.Join(",", fresh.Task.AllowedTools), fresh.Task.CheckCommand),
             (AgentAccess.Do, @"C:\Work\Sample", "Read,Bash(dotnet test)", "dotnet test"));
@@ -236,6 +241,10 @@ internal static class AgentTests
         var old = JsonSerializer.Deserialize<LinkProject>("""{"Name":"Nori","DataFolder":"C:\\Data"}""")!;
         old.Normalize();
         Program.Equal("project: older JSON loads without a check", old.CheckCommand, null);
+        // The agent an earlier Link kept per project is gone: its word in projects.json is skipped, the rest loads.
+        var kept = JsonSerializer.Deserialize<LinkProject>("""{"Name":"Nori","DataFolder":"C:\\Data","AgentProvider":1,"WorkspaceRoot":"C:\\Work"}""")!;
+        Program.Equal("project: an earlier Link's chosen agent is skipped when the project loads",
+            (kept.Name, kept.WorkspaceRoot, JsonSerializer.Serialize(kept).Contains("AgentProvider", StringComparison.Ordinal)), ("Nori", "C:\\Work", false));
         var blank = new LinkProject { Name = "a", DataFolder = "b", CheckCommand = "  " };
         blank.Normalize();
         Program.Equal("project: a blank check is none", blank.CheckCommand, null);
@@ -355,64 +364,6 @@ internal static class AgentTests
             var failed = await new AgentCoordinator([ScriptedProvider.Answering("# Half a map", succeeded: false)], agents.Changes, _ => { })
                 .RunAsync(task, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
             Program.Equal("map: a failed run writes nothing", (File.Exists(ProjectMap.PathIn(workspace)), failed.Changes.Count), (false, 0));
-        }
-        finally
-        {
-            DeleteFolder(root);
-        }
-    }
-
-    /// <summary>Save as skill: the session answers read only, Link writes the SKILL.md under its name, and only a good name, and a replace the user allowed.</summary>
-    private static async Task SkillAsync()
-    {
-        Program.Equal("skill: its task ships beside Link", File.Exists(ProjectSkills.TaskFile), true);
-        var root = TempFolder();
-        var workspace = Path.Combine(root, "work");
-        try
-        {
-            Directory.CreateDirectory(workspace);
-            await GitAsync(workspace, "init", "-q");
-            File.WriteAllText(Path.Combine(workspace, "a.txt"), "a");
-            await GitAsync(workspace, "add", ".");
-            await GitAsync(workspace, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "start");
-            var work = new AgentRun(
-                new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = workspace, Prompt = "Check the game", Access = AgentAccess.Do, CheckCommand = "check" },
-                new WorkspaceBefore(workspace, true, new Dictionary<string, string>(), null, DateTime.UtcNow),
-                new AgentResult { SessionId = "work", Succeeded = true },
-                []);
-            var task = AgentCoordinator.SkillTask(work, "Save it as a skill.\n")!;
-            Program.Equal("skill: the work's session is asked, read only, without its check",
-                (task.ResumeSessionId, task.Access, task.AnswerIsSkill, task.CheckCommand, task.Prompt),
-                ("work", AgentAccess.Analyze, true, (string?)null, "Save it as a skill.\n\nSkills of the workspace: none yet."));
-
-            const string answer = "---\nname: game-check\ndescription: Check the game in a browser.\n---\n\n1. Run tools/check.ps1.";
-            var changes = new AgentChanges(Path.Combine(root, "backups"));
-            var events = new List<AgentEvent>();
-            var run = await new AgentCoordinator([ScriptedProvider.Answering("```markdown\n" + answer + "\n```")], changes, _ => { })
-                .RunAsync(task, false, null, new SyncProgress(events.Add), CancellationToken.None);
-            var file = Path.Combine(ProjectSkills.FolderIn(workspace), "game-check", "SKILL.md");
-            Program.Equal("skill: Link writes it under its name, the run's one change",
-                (File.ReadAllText(file), string.Join(",", run.Changes.Select(change => Path.GetFileName(change.Path)))), (answer + "\n", "SKILL.md"));
-            Program.Equal("skill: the next ask names the skills there are", AgentCoordinator.SkillTask(work, "Save")!.Prompt.EndsWith("workspace: game-check."), true);
-
-            var asked = new List<string>();
-            var kept = await new AgentCoordinator([ScriptedProvider.Answering(answer.Replace("tools/check.ps1", "other"))], changes, _ => { })
-                .RunAsync(task, false, null, new SyncProgress(_ => { }), CancellationToken.None, name =>
-                {
-                    asked.Add(name);
-                    return false;
-                });
-            Program.Equal("skill: one of the same name stays unless the user says replace",
-                (string.Join(",", asked), File.ReadAllText(file).Contains("other"), kept.Changes.Count(change => change.Path == file)), ("game-check", false, 0));
-            await new AgentCoordinator([ScriptedProvider.Answering(answer.Replace("tools/check.ps1", "other"))], changes, _ => { })
-                .RunAsync(task, false, null, new SyncProgress(_ => { }), CancellationToken.None, _ => true);
-            Program.Equal("skill: replaced when the user says so", File.ReadAllText(file).Contains("other"), true);
-
-            var badEvents = new List<AgentEvent>();
-            var bad = await new AgentCoordinator([ScriptedProvider.Answering(answer.Replace("game-check", "../Game Check"))], changes, _ => { })
-                .RunAsync(task, false, null, new SyncProgress(badEvents.Add), CancellationToken.None, _ => true);
-            Program.Equal("skill: a bad name writes nothing and says why",
-                (Directory.GetDirectories(ProjectSkills.FolderIn(workspace)).Length, badEvents.Any(e => e.Kind == AgentEventKind.Error && e.Text.Contains("../Game Check"))), (1, true));
         }
         finally
         {
@@ -1384,14 +1335,14 @@ internal static class AgentTests
             var last = new AgentTask
             {
                 Provider = AgentProviderKind.Codex, Workspace = workspace, Prompt = "Continue", Access = AgentAccess.Do, AutoApprove = true, ResumeSessionId = "s1",
-                Model = "gpt-6-sol", Effort = "high", CheckCommand = "dotnet test", PlanOnly = true, AnswerFile = "docs/map.md", AnswerIsSkill = true,
+                Model = "gpt-6-sol", Effort = "high", CheckCommand = "dotnet test", PlanOnly = true, AnswerFile = "docs/map.md",
                 RoleId = "qa-playtest", Skills = ["old"], Images = [@"C:\old.png"]
             };
             var task = AgentCoordinator.CompactTask(last, record, "  # Task state, edited \n", [@"C:\shot.png"]);
             Program.Equal("compact: a new session of the same agent with its model, effort, access and check, the edited state as the prompt",
-                (task.Provider, task.ResumeSessionId, task.Prompt, task.Model, task.Effort, task.Access, task.AutoApprove, task.CheckCommand, task.PlanOnly, task.AnswerFile, task.AnswerIsSkill,
+                (task.Provider, task.ResumeSessionId, task.Prompt, task.Model, task.Effort, task.Access, task.AutoApprove, task.CheckCommand, task.PlanOnly, task.AnswerFile,
                     string.Join(",", task.Images)),
-                (AgentProviderKind.Codex, (string?)null, "# Task state, edited", "gpt-6-sol", "high", AgentAccess.Do, true, "dotnet test", false, (string?)null, false, @"C:\shot.png"));
+                (AgentProviderKind.Codex, (string?)null, "# Task state, edited", "gpt-6-sol", "high", AgentAccess.Do, true, "dotnet test", false, (string?)null, @"C:\shot.png"));
             Program.Equal("compact: the task's specialist and skills, not the last run's",
                 (task.RoleId, string.Join(",", task.Skills)), ("rigger-animator", "blender-anim"));
 
@@ -1898,6 +1849,15 @@ internal static class AgentTests
                 (servers.Contains($"--strict-mcp-config --mcp-config {Path.Combine(game, ".mcp.json")}"),
                     string.Join(' ', claude.Arguments(analyze)).Contains("--strict-mcp-config") && !claude.Arguments(analyze).Contains("--mcp-config")),
                 (true, true));
+
+            // Link's own answers (the map, the note) need no editor tools, whose schemas would be sent again on every call.
+            var ownCodex = string.Join(' ', codex.Arguments(analyze with { Provider = AgentProviderKind.Codex, Workspace = game, WithoutMcp = true }));
+            Program.Equal("Codex: Link's own answers get no server: the user's all disabled, the workspace's not defined at all",
+                ownCodex.Contains("-c mcp_servers.node_repl.enabled=false -c mcp_servers.blender.enabled=false -c mcp_servers.ue-mcp.enabled=false") &&
+                !ownCodex.Contains("mcp_servers.unreal-mcp") && !ownCodex.Contains("command='npx'"), true);
+            var ownClaude = claude.Arguments(analyze with { Workspace = game, WithoutMcp = true });
+            Program.Equal("Claude: Link's own answers get --strict-mcp-config and no server",
+                (ownClaude.Contains("--strict-mcp-config"), ownClaude.Contains("--mcp-config")), (true, false));
         }
         finally
         {
@@ -1955,10 +1915,6 @@ internal static class AgentTests
         {
             DeleteFolder(Path.GetDirectoryName(repository)!);
         }
-
-        Program.Equal("skills: names as both agents accept them",
-            string.Join(",", new[] { "browser-check", "a1", "Browser", "a--b", "-a", "a_b", "" }.Select(ProjectSkills.IsName)),
-            "True,True,False,False,False,False,False");
     }
 
     private static async Task StreamAsync()
@@ -2598,35 +2554,6 @@ internal static class AgentTests
         Program.Equal("cheaper hint: another role's or another agent's record is not this one's",
             Hint(claude, "Card", true, Row("General", "GLM", 5, 5, 5), Row("Rigger", "Codex", 5, 5, 5)), (string?)null);
         Program.Equal("cheaper hint: no stats, no hint", Hint(claude, "Card"), (string?)null);
-    }
-
-    /// <summary>Update skill after a finished task asks the same session to update a skill that fits, naming those the task read; plain Save as skill does not.</summary>
-    private static void SkillUpdateRequest()
-    {
-        var workspace = TempFolder();
-        try
-        {
-            WriteSkill(workspace, "game-check", "Check the game.");
-            WriteSkill(workspace, "ui-pass", "Walk the screens.");
-            var run = new AgentRun(
-                new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = workspace, Prompt = "Check the game", Access = AgentAccess.Do },
-                new WorkspaceBefore(workspace, true, new Dictionary<string, string>(), null, DateTime.UtcNow),
-                new AgentResult { SessionId = "work", Succeeded = true },
-                []);
-            const string Plain = "Save it as a skill.\n\nSkills of the workspace: game-check, ui-pass.";
-            Program.Equal("skill update: Save as skill asks nothing more", AgentCoordinator.SkillTask(run, "Save it as a skill.\n")!.Prompt, Plain);
-            var update = AgentCoordinator.SkillTask(run, "Save it as a skill.\n", ["ui-pass", "gone-skill"])!;
-            Program.Equal("skill update: it asks to update a skill that fits and names those the task read that the workspace has",
-                (update.Prompt.StartsWith(Plain + "\n\n", StringComparison.Ordinal), update.Prompt.Contains("Prefer updating a skill of the workspace that fits it over writing a new one (this task worked by ui-pass)."),
-                    update.Prompt.Contains("gone-skill"), update.ResumeSessionId, update.AnswerIsSkill),
-                (true, true, false, "work", true));
-            Program.Equal("skill update: a task that read no skill still asks to update one that fits",
-                AgentCoordinator.SkillTask(run, "Save it as a skill.\n", [])!.Prompt.Contains("fits it over writing a new one. Keep it true and short"), true);
-        }
-        finally
-        {
-            DeleteFolder(workspace);
-        }
     }
 
     /// <summary>The first-run window says whether each CLI is found and signed in, and where to install the missing one.</summary>
@@ -3297,6 +3224,250 @@ internal static class AgentTests
             (TaskMetrics.Of(failed, AgentProviderKind.ClaudeCode).CheckPassed, TaskMetrics.Of(failed, AgentProviderKind.ClaudeCode).Done, TaskMetrics.Of(open, AgentProviderKind.ClaudeCode).CheckPassed,
                 TaskMetrics.Of(open, AgentProviderKind.ClaudeCode).Done, TaskMetrics.Of(new AgentTaskRecord { Goal = "x", Workspace = "w" }, AgentProviderKind.ClaudeCode).Done),
             ((bool?)false, false, (bool?)null, false, false));
+    }
+
+    /// <summary>A reached window the CLI gave no reset for does not hold for ever: only for its own length after it was seen.</summary>
+    private static void LimitsHold()
+    {
+        var now = new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero);
+        var file = Path.Combine(Path.GetTempPath(), "link-limits-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            string Held(params AgentLimit[] limits)
+            {
+                File.Delete(file);
+                var store = new AgentLimits(file);
+                store.Update(limits);
+                return string.Join(",", store.For(AgentProviderKind.Codex, now).Select(limit => limit.Window));
+            }
+
+            AgentLimit Window(string window, TimeSpan seenAgo, DateTimeOffset? resets = null) =>
+                new(AgentProviderKind.Codex, window, 100, resets, true, now - seenAgo);
+            Program.Equal("limit holds: a 5 h window without a reset time holds for five hours",
+                (Held(Window("5 h", TimeSpan.FromHours(4))), Held(Window("5 h", TimeSpan.FromHours(6)))), ("5 h", string.Empty));
+            Program.Equal("limit holds: a week window, whatever it is called after the week, holds for seven days",
+                (Held(Window("week", TimeSpan.FromDays(6))), Held(Window("week", TimeSpan.FromDays(8))),
+                    Held(Window("week, Opus", TimeSpan.FromDays(6))), Held(Window("week, Opus", TimeSpan.FromDays(8)))),
+                ("week", string.Empty, "week, Opus", string.Empty));
+            Program.Equal("limit holds: any other window is taken as five hours",
+                (Held(Window("month", TimeSpan.FromHours(4))), Held(Window("month", TimeSpan.FromHours(6)))), ("month", string.Empty));
+            Program.Equal("limit holds: a window with a reset time holds until it, however long ago it was seen",
+                (Held(Window("5 h", TimeSpan.FromHours(10), now.AddHours(1))), Held(Window("5 h", TimeSpan.FromMinutes(1), now.AddMinutes(-1)))),
+                ("5 h", string.Empty));
+            Program.Equal("limit holds: the windows come 5 h first",
+                Held(Window("week", TimeSpan.Zero), Window("5 h", TimeSpan.Zero)), "5 h,week");
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+
+        // The agent is near its limit, or not, by the same rule.
+        var live = new AgentLimits(file);
+        live.Update([new AgentLimit(AgentProviderKind.Codex, "5 h", 100, null, true, DateTimeOffset.Now - TimeSpan.FromHours(1)),
+            new AgentLimit(AgentProviderKind.ClaudeCode, "5 h", 100, null, true, DateTimeOffset.Now - TimeSpan.FromHours(6))]);
+        Program.Equal("limit holds: a reached window without a reset is near for five hours, then the agent is free again; it has no time to wait for",
+            (live.IsNear(AgentProviderKind.Codex), live.IsNear(AgentProviderKind.ClaudeCode), live.ReachedUntil(AgentProviderKind.Codex)),
+            (true, false, (DateTimeOffset?)null));
+        File.Delete(file);
+    }
+
+    /// <summary>A new card, the map and a note start on Settings' agent; the other only while that one's limit is reached now.</summary>
+    private static void StartAgentRule()
+    {
+        var file = Path.Combine(Path.GetTempPath(), "link-limits-" + Guid.NewGuid().ToString("N") + ".json");
+        try
+        {
+            var store = new AgentLimits(file);
+            var (free, none) = store.StartsOn(AgentProviderKind.ClaudeCode, AgentProviderKind.Codex);
+            Program.Equal("start agent: nothing reached, the default agent", (free, none), (AgentProviderKind.ClaudeCode, (DateTimeOffset?)null));
+
+            var reset = DateTimeOffset.Now.AddHours(2);
+            store.Update([new AgentLimit(AgentProviderKind.ClaudeCode, "5 h", 100, reset, true, DateTimeOffset.Now)]);
+            var (taken, until) = store.StartsOn(AgentProviderKind.ClaudeCode, AgentProviderKind.Codex);
+            Program.Equal("start agent: while the default's limit is reached the other starts, and the reset is told",
+                (taken, until), (AgentProviderKind.Codex, (DateTimeOffset?)reset));
+            Program.Equal("start agent: the limit of the other agent is no reason to leave the default",
+                store.StartsOn(AgentProviderKind.Codex, AgentProviderKind.ClaudeCode).Provider, AgentProviderKind.Codex);
+
+            store.Update([new AgentLimit(AgentProviderKind.ClaudeCode, "5 h", 100, DateTimeOffset.Now.AddMinutes(-1), true, DateTimeOffset.Now.AddHours(-6))]);
+            Program.Equal("start agent: once the reset has passed the default starts again",
+                store.StartsOn(AgentProviderKind.ClaudeCode, AgentProviderKind.Codex).Provider, AgentProviderKind.ClaudeCode);
+            store.Update([new AgentLimit(AgentProviderKind.ClaudeCode, "5 h", 92, reset, false, DateTimeOffset.Now)]);
+            Program.Equal("start agent: near the limit is not reaching it",
+                store.StartsOn(AgentProviderKind.ClaudeCode, AgentProviderKind.Codex).Provider, AgentProviderKind.ClaudeCode);
+        }
+        finally
+        {
+            File.Delete(file);
+        }
+    }
+
+    /// <summary>What a run took of each usage window: the end less the start, with every case that must not be counted left out.</summary>
+    private static void UsageSpentMeasured()
+    {
+        var start = new DateTimeOffset(2026, 10, 8, 12, 0, 0, TimeSpan.Zero);
+        var reset = start.AddHours(3);
+        static AgentLimit Window(string name, double? used, DateTimeOffset seen, DateTimeOffset? resets) =>
+            new(AgentProviderKind.Codex, name, used, resets, false, seen);
+        static string Show(IEnumerable<UsageSpent> spent) =>
+            string.Join(", ", spent.Select(each => each.Window + " " + each.Percent.ToString(System.Globalization.CultureInfo.InvariantCulture)));
+        string Spent(AgentLimit[] before, AgentLimit[] after, AgentLimit[]? first = null) => Show(AgentLimits.Spent(before, after, start, first));
+
+        var earlier = start.AddMinutes(-1);
+        var during = start.AddMinutes(10);
+        Program.Equal("spent: the end less the start of the window",
+            Spent([Window("5 h", 10, earlier, reset)], [Window("5 h", 14, during, reset)]), "5 h 4");
+        Program.Equal("spent: each window apart, in the order the end reported them, rounded to a tenth",
+            Spent([Window("5 h", 10.04, earlier, reset), Window("week", 30, earlier, reset)], [Window("5 h", 12.34, during, reset), Window("week", 31.25, during, reset)]),
+            "5 h 2.3, week 1.3");
+        Program.Equal("spent: never below nothing, as when another app lowered it",
+            Spent([Window("5 h", 20, earlier, reset)], [Window("5 h", 18, during, reset)]), "5 h 0");
+        Program.Equal("spent: a window that reset during the run is left out, one that reset by a few minutes' difference of computing is the same",
+            (Spent([Window("5 h", 90, earlier, reset)], [Window("5 h", 3, during, reset.AddHours(5))]),
+                Spent([Window("5 h", 10, earlier, reset)], [Window("5 h", 12, during, reset.AddSeconds(90))]),
+                Spent([Window("5 h", 10, earlier, reset)], [Window("5 h", 12, during, reset.AddMinutes(3))])),
+            (string.Empty, "5 h 2", string.Empty));
+        Program.Equal("spent: no reset time on either side is the same window, one on only one side is not",
+            (Spent([Window("5 h", 10, earlier, null)], [Window("5 h", 12, during, null)]),
+                Spent([Window("5 h", 10, earlier, null)], [Window("5 h", 12, during, reset)])),
+            ("5 h 2", string.Empty));
+        Program.Equal("spent: a window not reported during the run is left out, and so is one without a number",
+            (Spent([Window("5 h", 10, earlier, reset)], [Window("5 h", 14, earlier, reset)]),
+                Spent([Window("5 h", 10, earlier, reset)], [Window("5 h", null, during, reset)]),
+                Spent([Window("5 h", null, earlier, reset)], [Window("5 h", 14, during, reset)])),
+            (string.Empty, string.Empty, string.Empty));
+
+        var stale = Window("5 h", 10, start.AddMinutes(-16), reset);
+        var firstReport = Window("5 h", 11, start.AddMinutes(1), reset);
+        Program.Equal("spent: a start older than 15 minutes is not trusted: the first report of the run is the start, or there is none",
+            (Spent([stale], [Window("5 h", 14, during, reset)]), Spent([stale], [Window("5 h", 14, during, reset)], [firstReport]),
+                Spent([Window("5 h", 10, start.AddMinutes(-15), reset)], [Window("5 h", 14, during, reset)], [firstReport])),
+            (string.Empty, "5 h 3", "5 h 4"));
+        Program.Equal("spent: a window the start did not know has the first report of the run as its start; one reported before the run does not",
+            (Spent([], [Window("week", 5, during, reset)], [Window("week", 4, start.AddMinutes(1), reset)]),
+                Spent([], [Window("week", 5, during, reset)]),
+                Spent([], [Window("week", 5, during, reset)], [Window("week", 4, earlier, reset)])),
+            ("week 1", string.Empty, string.Empty));
+
+        Program.Equal("spent: the runs of a task add up per window, the 5-hour one first",
+            Show(AgentLimits.Total([new UsageSpent("week", 1), new UsageSpent("5 h", 2), new UsageSpent("5 h", 2.5), new UsageSpent("week, Opus", 0.5)]).Select(each => new UsageSpent(each.Key, each.Value))),
+            "5 h 4.5, week 1, week, Opus 0.5");
+        Program.Equal("spent: said as the run's line, the agent named once, only what took a tenth of a point or more",
+            (AgentLimits.SpentWords("Codex", AgentLimits.Total([new UsageSpent("5 h", 4), new UsageSpent("week", 1)])),
+                AgentLimits.SpentWords("Codex", AgentLimits.Total([new UsageSpent("5 h", 0.04), new UsageSpent("week", 1.25)])),
+                AgentLimits.SpentWords("Claude", AgentLimits.Total([new UsageSpent("5 h", 0.4)])),
+                AgentLimits.SpentWords("Codex", AgentLimits.Total([new UsageSpent("5 h", 0.04)])),
+                AgentLimits.SpentWords("Codex", AgentLimits.Total([]))),
+            ("used 4% of Codex 5 h, 1% of week", "used 1.3% of Codex week", "used 0.4% of Claude 5 h", string.Empty, string.Empty));
+
+        var at = new DateTimeOffset(2026, 10, 8, 10, 0, 0, TimeSpan.Zero);
+        var task = new AgentTaskRecord
+        {
+            Goal = "Add the dash", Workspace = "C:\\Work",
+            Runs =
+            [
+                new AgentRunRecord { Provider = AgentProviderKind.Codex, StartedAt = at, Spent = [new UsageSpent("5 h", 3), new UsageSpent("week", 1)] },
+                new AgentRunRecord { Provider = AgentProviderKind.ClaudeCode, StartedAt = at },
+                new AgentRunRecord { Provider = AgentProviderKind.Codex, StartedAt = at, Spent = [new UsageSpent("5 h", 1.5)] }
+            ]
+        };
+        Program.Equal("metrics: what each agent took of each window, summed over its runs",
+            string.Join("; ", TaskMetrics.Of(task, AgentProviderKind.ClaudeCode).Agents.Select(agent => $"{agent.Provider}: {Show(agent.Spent.Select(each => new UsageSpent(each.Key, each.Value)))}")),
+            "ClaudeCode: ; Codex: 5 h 4.5, week 1");
+
+        var saved = JsonSerializer.Deserialize<AgentRunRecord>(JsonSerializer.Serialize(task.Runs[0]))!;
+        var old = JsonSerializer.Deserialize<AgentRunRecord>("""{"Provider":1,"Outcome":"Done in 1:00"}""")!;
+        Program.Equal("spent: kept with the run; a run of an older Link has none",
+            (Show(saved.Spent), old.Spent.Count), ("5 h 3, week 1", 0));
+    }
+
+    /// <summary>A hand-off's brief starts from the task's original brief; the hand-over texts are kept apart, so that none is repeated in the next.</summary>
+    private static void HandoversKeepTheBrief()
+    {
+        const string Original = "Make the landing animation";
+        static int Count(string text) => (text.Length - text.Replace(Original, string.Empty, StringComparison.Ordinal).Length) / Original.Length;
+        var record = new AgentTaskRecord { Goal = Original, Brief = Original, Workspace = @"C:\Work", ChangedFiles = ["tools/anim.py"] };
+        record.Add(AgentEntryKind.You, "keep the pose");
+
+        var first = AgentCoordinator.HandOffBrief(record, "Claude Code", numstat: null);
+        record.Handovers.Add($"── Handed over to Codex ──\n{first}");
+        var second = AgentCoordinator.HandOffBrief(record, "Codex", numstat: null);
+        record.Handovers.Add($"── Back to Claude Code ──\n{AgentCoordinator.ReturnBrief(record, "Codex", numstat: null)}");
+        record.Handovers.Add($"── Handed over to Codex ──\n{second}");
+        var third = AgentCoordinator.HandOffBrief(record, "Codex", numstat: null);
+        Program.Equal("hand-overs: the brief of every hand-off holds the original once, however many hand-overs there were",
+            (Count(first), Count(second), Count(third), record.Brief), (1, 1, 1, Original));
+        Program.Equal("hand-overs: what Link gave is the brief and then each hand-over under its mark",
+            (record.BriefText.StartsWith(Original + "\n\n── Handed over to Codex ──\n" + first, StringComparison.Ordinal),
+                record.BriefText.Contains("\n\n── Back to Claude Code ──\nWhile you were away, Codex", StringComparison.Ordinal),
+                new AgentTaskRecord { Goal = "g", Brief = "just the brief", Workspace = "w" }.BriefText),
+            (true, true, "just the brief"));
+
+        var saved = JsonSerializer.Serialize(record);
+        var again = JsonSerializer.Deserialize<AgentTaskRecord>(saved)!;
+        var old = JsonSerializer.Deserialize<AgentTaskRecord>("""{"Goal":"g","Brief":"b","Workspace":"w"}""")!;
+        Program.Equal("hand-overs: kept with the task, derived text is not saved, a task of an older Link has none",
+            (again.Handovers.Count, again.BriefText == record.BriefText, saved.Contains("BriefText", StringComparison.Ordinal), old.Handovers.Count, old.BriefText),
+            (3, true, false, 0, "b"));
+    }
+
+    /// <summary>After a limit's wait, or a long idle, a big or cold session starts afresh from the task's state when Settings allow it.</summary>
+    private static void CompactAfterWait()
+    {
+        var now = new DateTimeOffset(2026, 10, 8, 15, 0, 0, TimeSpan.Zero);
+        // The run ended `idle` ago, after ten minutes of work.
+        static AgentRunRecord Run(DateTimeOffset now, long? held, TimeSpan idle, long? window = null) => new()
+        {
+            Provider = AgentProviderKind.Codex, StartedAt = now - idle - TimeSpan.FromMinutes(10), Duration = TimeSpan.FromMinutes(10),
+            ContextTokens = held, ContextWindow = window
+        };
+        string? Why(AgentRunRecord? last, bool afterLimit, bool auto = true) => CompactRule.Why(last, auto, 450_000, now, afterLimit);
+        static TimeSpan minutes(int count) => TimeSpan.FromMinutes(count);
+
+        Program.Equal("compact after a wait: Settings' word comes first, and a task without a run has nothing to compact",
+            (Why(Run(now, 400_000, minutes(5)), afterLimit: true, auto: false), Why(null, afterLimit: true), Why(null, afterLimit: false)),
+            ((string?)null, (string?)null, (string?)null));
+        Program.Equal("compact after a wait: a reply to a run just ended is never taken from its session, big or not",
+            (Why(Run(now, 400_000, minutes(5)), afterLimit: false), Why(Run(now, 150_000, minutes(59)), afterLimit: false)),
+            ((string?)null, (string?)null));
+        Program.Equal("compact after a wait: a reply after an hour idle starts afresh where the session is big enough, the idle counted from the run's end",
+            (Why(Run(now, 150_000, minutes(60)), afterLimit: false)?.StartsWith("the session's cache has expired (60 min idle)", StringComparison.Ordinal),
+                Why(Run(now, 50_000, TimeSpan.FromHours(5)), afterLimit: false)),
+            ((bool?)true, (string?)null));
+        Program.Equal("compact after a wait: after a limit's wait the rule applies at once: a big session starts afresh, a small one resumes",
+            (Why(Run(now, 400_000, minutes(10)), afterLimit: true)?.StartsWith("the session holds 400k of 450k", StringComparison.Ordinal),
+                Why(Run(now, 50_000, TimeSpan.FromHours(3)), afterLimit: true), Why(Run(now, null, TimeSpan.FromHours(3)), afterLimit: true)),
+            ((bool?)true, (string?)null, (string?)null));
+        Program.Equal("compact after a wait: a model's smaller window caps the budget",
+            Why(Run(now, 170_000, minutes(10), window: 200_000), afterLimit: true),
+            "the session holds 170k of 200k: each step of the next run would re-send it; the task's state is far shorter");
+
+        var workspace = TempFolder();
+        try
+        {
+            var record = new AgentTaskRecord { Goal = "Add the dash", Brief = "Add the dash to the movement.", Workspace = workspace };
+            record.Add(AgentEntryKind.You, "keep it short");
+            var brief = TaskState.CompactContinue(record, null, workspace, "  Your usage limit has reset. Go on.  ");
+            Program.Equal("compact after a wait: the fresh session gets the task's state, how to go on from it, then the words the old session was to get",
+                (brief.StartsWith("# Task state\nGoal: Add the dash", StringComparison.Ordinal), brief.Contains("- keep it short", StringComparison.Ordinal),
+                    brief.Contains(TaskState.GoOn + "\n\nYour usage limit has reset. Go on.", StringComparison.Ordinal), brief.EndsWith("Go on.", StringComparison.Ordinal),
+                    brief.Split("Add the dash to the movement.").Length - 1),
+                (true, true, true, true, 1));
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+
+        // The wait is kept with the task, so that a restart of Link does not lose it.
+        var waiting = new AgentTaskRecord { Goal = "g", Workspace = "w", ContinueAt = new DateTimeOffset(2026, 10, 8, 18, 1, 0, TimeSpan.FromHours(3)) };
+        var saved = JsonSerializer.Deserialize<AgentTaskRecord>(JsonSerializer.Serialize(waiting))!;
+        waiting.ContinueAt = null;
+        Program.Equal("continue at: kept with the task and cleared by null; a task of an older Link waits for nothing",
+            (saved.ContinueAt, JsonSerializer.Deserialize<AgentTaskRecord>(JsonSerializer.Serialize(waiting))!.ContinueAt,
+                JsonSerializer.Deserialize<AgentTaskRecord>("""{"Goal":"g","Workspace":"w"}""")!.ContinueAt),
+            ((DateTimeOffset?)new DateTimeOffset(2026, 10, 8, 18, 1, 0, TimeSpan.FromHours(3)), (DateTimeOffset?)null, (DateTimeOffset?)null));
     }
 
     /// <summary>Every specialist a brief names, in the order the work flows: where their words first occur.</summary>

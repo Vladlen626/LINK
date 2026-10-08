@@ -62,6 +62,15 @@ public sealed record AgentCardModel(
 
     /// <summary>"Context budget 400k · 5 skills · MCP: unreal, blender": what else goes with the run, shown muted under the setup.</summary>
     public string HarnessLine { get; init; } = string.Empty;
+
+    /// <summary>The project the card was opened for: Run starts the task in it, whichever project the overlay shows by then.</summary>
+    public Guid ProjectId { get; init; }
+
+    /// <summary>Why the card is not on Settings' default agent (its limit is reached now); null when it is.</summary>
+    public string? Notice { get; init; }
+
+    /// <summary>Makes the card anew from Settings as they stand, for when they are saved while it is open; see <see cref="AgentPanel.RefreshSetup"/>.</summary>
+    public Func<AgentCardModel>? Renew { get; init; }
 }
 
 /// <summary>
@@ -136,12 +145,6 @@ public partial class AgentPanel : UserControl
 
     public event Action? FinishRequested;
 
-    /// <summary>Update skill on the offer after a finished task: the agent is asked to keep what the task taught.</summary>
-    public event Action? LearnRequested;
-
-    /// <summary>No on that offer.</summary>
-    public event Action? LearnDeclined;
-
     /// <summary>The button of the cheaper hint: the card of a hand-off to the custom model is wanted.</summary>
     public event Action? CheaperRequested;
 
@@ -172,14 +175,12 @@ public partial class AgentPanel : UserControl
     /// The sidebar's list of the project's tasks with the agents' usage at its foot, Link's own run (<paramref name="own"/>)
     /// first while there is one. The row of the task the panel shows is lit.
     /// </summary>
-    public void ShowList(IReadOnlyList<TaskRow> tasks, IReadOnlyList<LimitRow> limits, TaskRow? own, string? learn = null)
+    public void ShowList(IReadOnlyList<TaskRow> tasks, IReadOnlyList<LimitRow> limits, TaskRow? own)
     {
         _rows = own is null ? tasks : tasks.Prepend(own).ToArray();
         DrawRows();
         TasksEmptyText.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
         ShowLimits(limits);
-        LearnCard.Visibility = learn is null ? Visibility.Collapsed : Visibility.Visible;
-        LearnText.Text = learn ?? string.Empty;
     }
 
     /// <summary>The agents' usage windows at the foot of the sidebar; none hides the block.</summary>
@@ -214,6 +215,8 @@ public partial class AgentPanel : UserControl
         WorkspaceText.Text = card.Workspace ?? "Not chosen: choose it in the Project tab";
         WorkspaceText.Foreground = (Brush)FindResource(card.Workspace is null ? "ErrorBrush" : "MutedBrush");
         HarnessLineText.Text = card.HarnessLine;
+        CardNoticeText.Text = card.Notice ?? string.Empty;
+        CardNoticeText.Visibility = card.Notice is null ? Visibility.Collapsed : Visibility.Visible;
         AttachmentsText.Text = card.Attachments;
         AttachmentsText.Visibility = card.Attachments.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         ShowImages(card.Images);
@@ -228,12 +231,46 @@ public partial class AgentPanel : UserControl
         GoalBox.CaretIndex = GoalBox.Text.Length;
     }
 
-    /// <summary>Settings were saved while the card is open: its line of what goes with the run, such as the budget, follows.</summary>
-    public void UpdateHarnessLine(Func<AgentCardModel, string> line)
+    /// <summary>
+    /// Settings were saved while the card is open: its agents (their models and efforts, the defaults, Auto, whether the
+    /// custom model is offered), their usage and the line of what goes with the run are made anew. The goal, the
+    /// specialist and the skills stay, and so do the agent, model and effort the user picked here while they still exist;
+    /// a model or effort the user left alone follows the new default.
+    /// </summary>
+    public void RefreshSetup()
     {
-        if (_card is null) return;
-        _card = _card with { HarnessLine = line(_card) };
-        HarnessLineText.Text = _card.HarnessLine;
+        if (_card is not { Renew: { } renew } old || SelectedAgent is not { } was) return;
+        var (model, effort, auto) = (SelectedModel, SelectedEffort, SelectedAutoEffort);
+        var fresh = renew();
+        var card = _card = old with { Providers = fresh.Providers, AutoEffort = fresh.AutoEffort, HarnessLine = fresh.HarnessLine };
+        _fillingCard = true;
+        ProviderCombo.ItemsSource = card.Providers.Select(provider => provider.Name).ToArray();
+        var kinds = card.Providers.Select(provider => provider.Kind).ToList();
+        ProviderCombo.SelectedIndex = Math.Max(0, kinds.IndexOf(kinds.Contains(was.Kind) ? was.Kind : card.Provider));
+        HarnessLineText.Text = card.HarnessLine;
+        ShowAgentChoices();
+        if (SelectedAgent is { Kind: var kind } agent && kind == was.Kind)
+        {
+            var models = agent.Models.ToList();
+            if (model != was.Model && (model is null || models.Any(choice => choice.Value == model)))
+            {
+                ModelCombo.SelectedIndex = model is null ? 0 : models.FindIndex(choice => choice.Value == model) + 1;
+            }
+
+            // Auto was the default when the card offered it; otherwise the agent's own default effort.
+            var effortChanged = old.AutoEffort ? !auto : effort != was.Effort;
+            if (effortChanged && (effort is null || agent.EffortsOf(SelectedModel).Any(choice => choice.Value == effort)))
+            {
+                ShowEfforts(agent, effort, auto: false);
+            }
+            else
+            {
+                ShowEfforts(agent, agent.Effort, auto: true);
+            }
+        }
+
+        _fillingCard = false;
+        UpdateCard();
     }
 
     /// <summary>The card is gone: back to the open task, or to the empty middle.</summary>
@@ -844,7 +881,7 @@ public partial class AgentPanel : UserControl
 
     private void Run_OnClick(object sender, RoutedEventArgs e)
     {
-        if (_card?.Workspace is not { } workspace || SelectedAgent is not { } agent) return;
+        if (_card is not { Workspace: { } workspace } card || SelectedAgent is not { } agent) return;
         if (string.IsNullOrWhiteSpace(GoalBox.Text))
         {
             ShowCardWarning("Write what the agent should do.");
@@ -869,10 +906,11 @@ public partial class AgentPanel : UserControl
             Model = SelectedModel,
             Effort = SelectedEffort,
             // An agent with no effort levels (the custom model) leaves Auto as the card had it, for the agents the task may reach.
-            AutoEffort = SelectedAutoEffort || (!EffortCombo.IsEnabled && _card?.AutoEffort == true),
+            AutoEffort = SelectedAutoEffort || (!EffortCombo.IsEnabled && card.AutoEffort),
             AutoApprove = SelectedAuto,
             RoleId = SelectedRoleId,
-            Skills = _skills
+            Skills = _skills,
+            ProjectId = card.ProjectId
         };
         _card = null;
         RunRequested?.Invoke(plan);
@@ -993,8 +1031,6 @@ public partial class AgentPanel : UserControl
     private void RestartNotNow_OnClick(object sender, RoutedEventArgs e) => ShowRestart(false);
     private void Finish_OnClick(object sender, RoutedEventArgs e) => FinishRequested?.Invoke();
     private void Cheaper_OnClick(object sender, RoutedEventArgs e) => CheaperRequested?.Invoke();
-    private void Learn_OnClick(object sender, RoutedEventArgs e) => LearnRequested?.Invoke();
-    private void LearnNo_OnClick(object sender, RoutedEventArgs e) => LearnDeclined?.Invoke();
 
     private void PlanMode_OnClick(object sender, RoutedEventArgs e) => PlanModeOffRequested?.Invoke();
 

@@ -21,9 +21,6 @@ public sealed class LinkProject
     /// <summary>The folder the project's work lives in, chosen by the user; null until chosen.</summary>
     public string? WorkspaceRoot { get; set; }
 
-    /// <summary>The agent this project works with; null uses the default from Settings.</summary>
-    public AgentProviderKind? AgentProvider { get; set; }
-
     /// <summary>
     /// Tool rules Claude Code may use without asking here, in Analyze as well: tools that only look, such as a Blender
     /// scene summary. Nothing that runs code or changes files.

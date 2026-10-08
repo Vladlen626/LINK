@@ -47,7 +47,6 @@
     <Content Include="..\..\docs\harness\agent-rules.md" Link="harness\agent-rules.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\perforce.md" Link="harness\perforce.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\map-task.md" Link="harness\map-task.md" CopyToOutputDirectory="PreserveNewest" />
-    <Content Include="..\..\docs\harness\skill-task.md" Link="harness\skill-task.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\team-task.md" Link="harness\team-task.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\roles\*.md" Link="harness\roles\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>

@@ -112,12 +112,10 @@
   <text x="456" y="583.5" font-size="12" fill="#F2F5F8">↻ To chat</text>
   <rect x="534" y="566" width="160" height="26" rx="8" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
   <text x="546" y="583.5" font-size="12" fill="#F2F5F8">Undo agent changes (2)</text>
-  <rect x="444" y="598" width="104" height="26" rx="8" fill="#D95E0E" fill-opacity="0.30" stroke="#FF9F4A" stroke-opacity="0.8"/>
-  <text x="456" y="615.5" font-size="12" fill="#F2F5F8">Save as skill</text>
-  <rect x="554" y="598" width="44" height="26" rx="8" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
-  <text x="566" y="615.5" font-size="12" fill="#F2F5F8">Log</text>
-  <rect x="604" y="598" width="54" height="26" rx="8" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
-  <text x="616" y="615.5" font-size="12" fill="#F2F5F8">Done</text>
+  <rect x="444" y="598" width="44" height="26" rx="8" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <text x="456" y="615.5" font-size="12" fill="#F2F5F8">Log</text>
+  <rect x="494" y="598" width="54" height="26" rx="8" fill="#FFFFFF" fill-opacity="0.08" stroke="#FFFFFF" stroke-opacity="0.12"/>
+  <text x="506" y="615.5" font-size="12" fill="#F2F5F8">Done</text>
 
   <!-- callouts -->
   <g font-size="12.5" font-weight="700" text-anchor="middle" fill="#1B1B1B">

@@ -132,7 +132,10 @@ public partial class MainWindow : Window
         // The default agent or the access the card starts with may have changed.
         UpdateRouteButton();
         ApplyConversation();
-        _agentPanel?.UpdateHarnessLine(card => CardHarnessLine(card.Workspace, card.WorkspaceSkills.Count));
+        // The agents' models and levels, Auto, the context budget or the custom model may have changed: an open card and the
+        // Studio's header and inspector follow, without losing what the user typed or picked on the card.
+        _agentPanel?.RefreshSetup();
+        RefreshStudio();
     }
 
     public void ToggleVisible()
@@ -198,6 +201,8 @@ public partial class MainWindow : Window
         _connectionTimer.Start();
         // Conversation mode left on listens again from the start.
         ApplyConversation();
+        // A task left waiting for a usage limit's reset goes on waiting; its file is read once Link has nothing else to do.
+        Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(RearmContinue));
     }
 
     private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
@@ -389,6 +394,7 @@ public partial class MainWindow : Window
         _projects.SetActive(project);
         LoadProject(project);
         _projects.Save();
+        RearmContinue();
     }
 
     private void ProjectMenu_OnClick(object sender, RoutedEventArgs e)

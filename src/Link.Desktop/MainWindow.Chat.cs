@@ -556,22 +556,23 @@ public partial class MainWindow
     {
         var agent = _settings.Current.Route == RequestRoute.Agent;
         var open = agent && TaskTakesWords ? _task : null;
-        var provider = _runningTask?.Provider ?? open?.LastRun?.Provider ?? ProjectProvider;
+        var starting = StartProvider;
+        var provider = _runningTask?.Provider ?? open?.LastRun?.Provider ?? starting;
         var chat = _projects.ActiveProject.LinkedConversation;
         RouteText.Text = !agent ? $"ChatGPT · {Shorten(ChatName(chat), 30)}"
             : open is not null ? $"{ShortName(provider)} · {Shorten(open.Goal, 30)}"
-            : $"New {ShortName(ProjectProvider)} task";
+            : $"New {ShortName(starting)} task";
         RouteButton.ToolTip = (!agent
                 ? $"Send asks ChatGPT in {(chat is { IsNew: false } ? "the chat " + chat.Title : "a new chat")}, with the chips you see."
                 : open is not null
                     ? $"Send gives your words and chips to the task «{open.Goal}»: {(AgentRunning ? "steer now, the agent stops its step and goes on with them" : "it goes on in the same session")}. Ctrl+Enter opens a card for a new task instead."
-                    : $"Send opens a task card for {_agents.Provider(ProjectProvider).Name}; nothing runs before Run.") +
+                    : $"Send opens a task card for {_agents.Provider(starting).Name}; nothing runs before Run.") +
             "\nClick: ChatGPT or the agent · Ctrl+K: the chats";
         PromptPlaceholder.Text = !agent
             ? chat is { IsNew: false } ? $"Ask in «{Shorten(chat.Title, 40)}»…" : "Ask in a new chat…"
             : open is not null
                 ? AgentRunning ? $"Steer {ShortName(provider)} now: it stops the step and goes on with your words…" : $"Your words for {ShortName(provider)}: the task goes on…"
-                : $"A new task for {ShortName(ProjectProvider)}: Enter shows its card first…";
+                : $"A new task for {ShortName(starting)}: Enter shows its card first…";
         SendHintText.Text = !agent ? "sends to ChatGPT"
             : open is null ? "opens a task card"
             : AgentRunning ? "steers the agent now"
@@ -586,7 +587,7 @@ public partial class MainWindow
     private string DestinationName => _settings.Current.Route != RequestRoute.Agent
         ? _projects.ActiveProject.LinkedConversation is { IsNew: false } chat ? $"ChatGPT, the chat {chat.Title}" : "ChatGPT, a new chat"
         : TaskTakesWords && _task is { } open ? $"the task «{Shorten(open.Goal, 40)}»"
-        : $"a task card for {_agents.Provider(ProjectProvider).Name}";
+        : $"a task card for {_agents.Provider(StartProvider).Name}";
 
     private void Effort_OnClick(object sender, RoutedEventArgs e) =>
         ShowOptions(EffortButton, EffortOptions, _settings.Current.ResponseEffort, SetEffort);
@@ -839,7 +840,7 @@ public partial class MainWindow
         SendIcon.Fill = stop ? SendIcon.Stroke : Brushes.Transparent;
         SendButton.ToolTip = speaking ? "Stop reading aloud (Esc)"
             : _sending ? "Stop request (Esc)"
-            : _settings.Current.Route == RequestRoute.Agent ? $"Open the task card for {_agents.Provider(ProjectProvider).Name} (Enter)"
+            : _settings.Current.Route == RequestRoute.Agent ? $"Open the task card for {_agents.Provider(StartProvider).Name} (Enter)"
             : "Send to ChatGPT (Enter)";
     }
 

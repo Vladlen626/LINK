@@ -54,6 +54,13 @@ public static class TaskState
         $"{Build(record, numstat, workspace, agentName)}\n\n{GoOn}";
 
     /// <summary>
+    /// What a fresh session is told when Link compacts by itself: the task's state with the words to go on from it, then
+    /// the <paramref name="words"/> the old session was about to get (the user's reply, or that the limit has reset).
+    /// </summary>
+    public static string CompactContinue(AgentTaskRecord record, string? numstat, string workspace, string words, Func<AgentProviderKind, string>? agentName = null) =>
+        $"{CompactBrief(record, numstat, workspace, agentName)}\n\n{words.Trim()}";
+
+    /// <summary>
     /// What a worker's new session is told for its step of a team plan: the task's state, what the steps before handed
     /// over, then the step with the files the plan names. A step an earlier worker failed carries what that worker ended
     /// in, so that the next does not repeat it.

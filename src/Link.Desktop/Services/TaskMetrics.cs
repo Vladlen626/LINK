@@ -29,8 +29,11 @@ public readonly record struct TokenCount(long Uncached, long Cached, long Output
         new(first.Uncached + second.Uncached, first.Cached + second.Cached, first.Output + second.Output);
 }
 
-/// <summary>What one agent spent on a task.</summary>
-public sealed record AgentTokens(AgentProviderKind Provider, TokenCount Tokens);
+/// <summary>
+/// What one agent spent on a task: its tokens, and per usage window how many percentage points its runs used of the
+/// subscription (see <see cref="AgentLimits.Spent"/>; empty where the CLI reported none).
+/// </summary>
+public sealed record AgentTokens(AgentProviderKind Provider, TokenCount Tokens, IReadOnlyDictionary<string, double> Spent);
 
 /// <summary>
 /// One task measured: who did it, what it cost in tokens per agent, <see cref="Equivalent"/> over all agents and
@@ -64,7 +67,10 @@ public static class TaskMetrics
     {
         var agents = task.Runs
             .GroupBy(run => run.Provider)
-            .Select(runs => new AgentTokens(runs.Key, runs.Aggregate(default(TokenCount), (sum, run) => sum + TokenCount.Of(run))))
+            .Select(runs => new AgentTokens(
+                runs.Key,
+                runs.Aggregate(default(TokenCount), (sum, run) => sum + TokenCount.Of(run)),
+                AgentLimits.Total(runs.SelectMany(run => run.Spent))))
             .OrderBy(agent => agent.Provider)
             .ToArray();
         var last = task.LastRun;

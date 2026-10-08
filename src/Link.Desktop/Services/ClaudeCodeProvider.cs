@@ -51,9 +51,9 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
         arguments.AddRange(["--disallowedTools", "Agent", "Task", "AskUserQuestion"]);
         if (!edits) arguments.AddRange(AgentPermissions.EditTools);
         // MCP servers come only from the workspace's .mcp.json, as for Codex: otherwise the user's claude.ai
-        // connectors ride along too, such as a docs app in a game task.
+        // connectors ride along too, such as a docs app in a game task. Link's own answers get none.
         arguments.Add("--strict-mcp-config");
-        if (McpConfigIn(task.Workspace) is { } servers) arguments.AddRange(["--mcp-config", servers]);
+        if (!task.WithoutMcp && McpConfigIn(task.Workspace) is { } servers) arguments.AddRange(["--mcp-config", servers]);
         if (task.ResumeSessionId is { } session) arguments.AddRange(["--resume", session]);
         // Images live in Link's data, outside the workspace: their folders are opened for reading.
         foreach (var folder in task.Images.Select(Path.GetDirectoryName).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))

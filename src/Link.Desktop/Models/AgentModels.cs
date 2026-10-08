@@ -45,8 +45,19 @@ public sealed class AgentTaskRecord
     /// <summary>The task in a line: the brief's first.</summary>
     public required string Goal { get; set; }
 
-    /// <summary>What Link gave the first agent: the brief with the context that went along.</summary>
+    /// <summary>What Link gave the first agent: the brief with the context that went along. It stays the task's original.</summary>
     public string Brief { get; set; } = string.Empty;
+
+    /// <summary>
+    /// What the task was handed over with, oldest first, each under its mark: another agent's brief, or what the first one
+    /// is told on its return. They are no part of <see cref="Brief"/>, which a hand-off's own brief starts from: it would
+    /// repeat the original once more with each. Empty in a task of an older Link.
+    /// </summary>
+    public List<string> Handovers { get; set; } = [];
+
+    /// <summary>What Link gave the agents, as "What Link gave" shows it: the brief, then the hand-overs.</summary>
+    [JsonIgnore]
+    public string BriefText => Brief + string.Concat(Handovers.Select(handover => "\n\n" + handover));
 
     public required string Workspace { get; init; }
     public DateTimeOffset CreatedAt { get; init; } = DateTimeOffset.Now;
@@ -72,6 +83,12 @@ public sealed class AgentTaskRecord
 
     /// <summary>In Perforce: the pending changelist Link keeps the task's files in, as P4V shows it; null elsewhere.</summary>
     public int? Changelist { get; set; }
+
+    /// <summary>
+    /// When the task goes on by itself after its agent's usage limit (Continue at…); null when it waits for nothing. Kept
+    /// with the task, so that a restart of Link before then does not lose it; cleared when it fires or is cancelled.
+    /// </summary>
+    public DateTimeOffset? ContinueAt { get; set; }
 
     /// <summary>
     /// Link picks each run's effort (see <see cref="Services.AutoEffort"/>). An effort chosen by hand pins it, so a task
@@ -185,6 +202,9 @@ public sealed record AgentRunRecord
     /// <summary>The CLI's loop check named a kind of loop in the run.</summary>
     public bool Looped { get; init; }
 
+    /// <summary>How much of each usage window the run used, where the CLI reported it (see <see cref="Services.AgentLimits.Spent"/>); none for a run of an older Link.</summary>
+    public List<UsageSpent> Spent { get; init; } = [];
+
     /// <summary>The run's steps in Activity's words, the last of them: what the task's thread folds under the run.</summary>
     public List<string> Steps { get; init; } = [];
 
@@ -250,10 +270,16 @@ public sealed record AgentLimit(
     bool Reached,
     DateTimeOffset SeenAt);
 
+/// <summary>
+/// How much of a usage window a run used, in percentage points (4 means the window's share went from 10% to 14%): what a
+/// run costs of the subscription, which tokens alone do not tell. <see cref="Window"/> is the window's name, "5 h" or "week".
+/// </summary>
+public sealed record UsageSpent(string Window, double Percent);
+
 /// <summary>How much model a run gets: each agent's three levels are a model and an effort chosen in Settings.</summary>
 public enum AgentLevel
 {
-    /// <summary>Quick and cheap: small edits and Link's own answers (a map, a skill, a note).</summary>
+    /// <summary>Quick and cheap: small edits and Link's own answers (a map, a note).</summary>
     Light,
 
     /// <summary>The model and effort of everyday tasks.</summary>
@@ -306,7 +332,7 @@ public sealed record AgentChoice(string Value, string Label)
 
 /// <summary>
 /// What the task card offers first; Settings chooses it. The user's tasks always change things: read only is Link's
-/// own, for the answers it writes (a map, a skill). The numbers stay those of older settings.
+/// own, for the answers it writes (a map). The numbers stay those of older settings.
 /// </summary>
 public enum AgentAccessChoice
 {
@@ -396,11 +422,14 @@ public sealed record AgentTask
     /// </summary>
     public string? AnswerFile { get; init; }
 
-    /// <summary>The answer is a SKILL.md, which Link writes to the workspace's skills under the name it gives.</summary>
-    public bool AnswerIsSkill { get; init; }
-
     /// <summary>The project's check, run in the workspace after Do; while it fails, the agent gets its output to fix.</summary>
     public string? CheckCommand { get; init; }
+
+    /// <summary>
+    /// Link's own answer (the map, a note for Start over): no MCP servers at all. It needs no editor tools, and their
+    /// schemas would be sent again on every call.
+    /// </summary>
+    public bool WithoutMcp { get; init; }
 }
 
 public enum AgentEventKind
@@ -588,7 +617,7 @@ public sealed class AgentSettings
     /// <summary>Plan first runs on Deep, and the plan is carried out on Standard in the same session.</summary>
     public bool PlanOnDeep { get; set; } = true;
 
-    /// <summary>Link's own answers (a map, a skill, a note for Start over) run on Light.</summary>
+    /// <summary>Link's own answers (a map, a note for Start over) run on Light.</summary>
     public bool OwnAnswersOnLight { get; set; } = true;
 
     /// <summary>Link picks each run's effort for the tasks that start on Auto; the model and the agent stay the user's.</summary>
@@ -597,7 +626,7 @@ public sealed class AgentSettings
     /// <summary>The custom model: its server and model. It is the user's to pick on the card; it is never the default agent.</summary>
     public CustomModelSettings Custom { get; set; } = new();
 
-    /// <summary>Link's own answers (a map, a skill, a note) run on the custom model, not on the subscription agent.</summary>
+    /// <summary>Link's own answers (a map, a note) run on the custom model, not on the subscription agent.</summary>
     public bool OwnAnswersOnCustom { get; set; }
 
     public const int DefaultContextBudget = 450_000;
@@ -653,9 +682,9 @@ public sealed class AgentSettings
     }
 
     /// <summary>
-    /// Who writes Link's own answers (a map, a skill, a note) and on what: Light, unless Settings says otherwise, and the
+    /// Who writes Link's own answers (a map, a note) and on what: Light, unless Settings says otherwise, and the
     /// custom model when Settings asks for it and it is set up (<paramref name="customConfigured"/>). The custom model is
-    /// the user's choice for a task, so a project that last used it does not send its map there by itself. An answer
+    /// the user's choice for a task, so a map is not sent there by itself unless Settings asks for it. An answer
     /// that goes on in the task's session (<paramref name="inSession"/>) stays with the task's agent: another server is
     /// not trusted to read a session another model wrote (its thinking blocks are that model's).
     /// </summary>

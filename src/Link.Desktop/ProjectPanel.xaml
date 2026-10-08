@@ -72,7 +72,7 @@
                 </Grid>
                 <!-- The workspace's skills: repeated work written down once, which both agents pick by its description. -->
                 <TextBlock x:Name="SkillsEmptyText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" Text="No skills yet"
-                           ToolTip="After a task that went well, Save as skill in Activity keeps it in .agents/skills" />
+                           ToolTip="The agents keep a skill in .agents/skills themselves, when a task proves a way of working; the Studio's Harness column lists them" />
                 <ItemsControl x:Name="SkillsList" Margin="-8,3,0,0">
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>

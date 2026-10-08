@@ -137,7 +137,6 @@ public abstract class CliAgentProvider : IAgentProvider
         var first = firstEvent is { } elapsed ? Seconds(elapsed) : "none";
         var kind = task.PlanOnly ? ", plan"
             : task.AnswerFile is { } answer ? $", answer to {answer}"
-            : task.AnswerIsSkill ? ", skill"
             : task.AutoApprove ? ", auto"
             : string.Empty;
         // Runs compare only with the same model and effort.

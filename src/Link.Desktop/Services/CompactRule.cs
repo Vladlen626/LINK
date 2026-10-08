@@ -1,3 +1,5 @@
+using Link.Desktop.Models;
+
 namespace Link.Desktop.Services;
 
 /// <summary>
@@ -33,6 +35,21 @@ public static class CompactRule
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The reason to start fresh when words are about to resume the task's <paramref name="last"/> run's session, from its
+    /// own numbers: the context it left, the model's window and the time since it ended. Null: resume. Nothing when
+    /// Settings do not allow it (<paramref name="autoCompact"/>). <paramref name="afterLimit"/>: the words come after the wait
+    /// for a usage limit's reset, which is a wait by itself; a user's reply counts only after an idle as long as the cache
+    /// lasts, so that a reply to a run just ended is never taken away from its session.
+    /// </summary>
+    public static string? Why(AgentRunRecord? last, bool autoCompact, int budget, DateTimeOffset now, bool afterLimit)
+    {
+        if (!autoCompact || last is null) return null;
+        var idle = now - (last.StartedAt + last.Duration);
+        if (!afterLimit && idle < CacheLasts) return null;
+        return Why(last.ContextTokens, budget, idle, last.ContextWindow is { } window ? (int)Math.Min(window, int.MaxValue) : null);
     }
 
     private static string Idle(TimeSpan idle) =>

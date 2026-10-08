@@ -52,6 +52,9 @@ public partial class MainWindow
     // What the shown task changed in its header ("+181 −12"), counted once when a run ends or the task opens.
     private (Guid Task, string Text, string Hint) _changes;
     private AgentTask? _runningTask;
+    // The running agent's usage windows as they stood when the run began, and the first report of each during it: what
+    // a run took of the subscription is measured from them (see AgentLimits.Spent).
+    private (DateTimeOffset Start, IReadOnlyList<AgentLimit> Before, List<AgentLimit> First) _usageRun = (default, [], []);
     // The run under way in the thread: its steps arrive as the CLI writes them.
     private ThreadTurn? _liveTurn;
     // Link's own answer (the map), apart from the open task: the Studio shows it on its own, with Stop.
@@ -84,7 +87,7 @@ public partial class MainWindow
     private Action? _decision;
     private bool _rememberAllowance;
     private bool _limitOffered;
-    // The ⋯ menu's choices after the last run: undo and save as skill come and go with it.
+    // The ⋯ menu's choices after the last run: undo comes and goes with it.
     private IReadOnlyList<PanelAction> _afterRun = [];
     // Files the running agent reported changed, listed until git, Perforce or the copy tells the whole list.
     private readonly HashSet<string> _runningFiles = new(StringComparer.OrdinalIgnoreCase);
@@ -92,16 +95,24 @@ public partial class MainWindow
     private (string? Id, string? Workspace, string? Name) _roleName;
     // The project's stats for the inspector, which reads them again only after a task is saved.
     private (Guid Project, IReadOnlyList<StatsRow> Rows)? _stats;
-    // A finished task that ended well and changed files, whose skill Link offers to update: its last run asks, its skills go in the request.
-    private (Guid Project, string Goal, AgentRun Run, IReadOnlyList<string> Skills)? _learn;
 
     private bool AgentRunning => _agentCancellation is not null;
 
-    // The agent the project's last task chose; the custom model only while it is still set up.
-    private AgentProviderKind ProjectProvider =>
-        _projects.ActiveProject.AgentProvider is { } chosen && _agents.Provider(chosen).Configured
-            ? chosen
-            : _settings.Current.Agent.DefaultProvider;
+    /// <summary>
+    /// The agent a new card, the map and Link's own answers start on: Settings' default, or the other one only while the
+    /// default's limit is reached now. Nothing is remembered from the last task. The notice says why, for the card.
+    /// </summary>
+    private (AgentProviderKind Provider, string? Notice) StartingAgent()
+    {
+        var preferred = _settings.Current.Agent.DefaultProvider;
+        var other = Other(preferred);
+        var (provider, until) = _limits.StartsOn(preferred, other);
+        return (provider, until is { } reset
+            ? $"{ShortName(preferred)}'s limit is reached until {AgentLimits.Time(reset)}: {ShortName(other)} takes it; change the agent if you want"
+            : null);
+    }
+
+    private AgentProviderKind StartProvider => StartingAgent().Provider;
 
     private string ShortName(AgentProviderKind provider) => provider switch
     {
@@ -216,7 +227,7 @@ public partial class MainWindow
             return;
         }
 
-        var (provider, model, effort) = OwnAnswerSetup(ProjectProvider, inSession: false);
+        var (provider, model, effort) = OwnAnswerSetup(StartProvider, inSession: false);
         var map = new AgentTask
         {
             Provider = provider,
@@ -225,44 +236,16 @@ public partial class MainWindow
             AllowedTools = AgentCoordinator.Tools(project, workspace, AgentAccess.Analyze),
             AnswerFile = ProjectMap.RelativePath,
             Model = model,
-            Effort = effort
+            Effort = effort,
+            WithoutMcp = true
         };
         ShowAgentPanel();
         await StartAgentAsync(map, null);
     }
 
-    /// <summary>
-    /// Save as skill: the last run's session describes what it did as a skill, read only, and Link writes the SKILL.md
-    /// to the workspace's skills, the one change, shown and undone like any other.
-    /// </summary>
-    private async Task SaveSkillAsync(AgentRun? finished = null, IReadOnlyList<string>? taskSkills = null)
-    {
-        if ((finished ?? _lastRun) is not { } run || AgentRunning) return;
-        string request;
-        try
-        {
-            request = await File.ReadAllTextAsync(ProjectSkills.TaskFile);
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            SetError($"The skill's task is missing: {ProjectSkills.TaskFile}");
-            return;
-        }
-
-        if (AgentCoordinator.SkillTask(run, request, taskSkills) is not { } task) return;
-        var (provider, model, effort) = OwnAnswerSetup(task.Provider, inSession: true);
-        _task?.Add(AgentEntryKind.You, "Save as skill");
-        await StartAgentAsync(task with { Provider = provider, Model = model, Effort = effort }, null);
-    }
-
-    /// <summary>The agent and level of Link's own answers (a map, a skill, a note), as <see cref="AgentSettings.OwnAnswers"/> settles them.</summary>
+    /// <summary>The agent and level of Link's own answers (a map, a note), as <see cref="AgentSettings.OwnAnswers"/> settles them.</summary>
     private (AgentProviderKind Provider, string? Model, string? Effort) OwnAnswerSetup(AgentProviderKind provider, bool inSession) =>
         _settings.Current.Agent.OwnAnswers(provider, inSession, _agents.Provider(AgentProviderKind.Custom).Configured);
-
-    /// <summary>A skill of the same name is written over only when the user says so.</summary>
-    private bool ReplaceSkill(string name) =>
-        MessageBox.Show(this, $"The workspace has the skill {name} already. Replace it with the new one?",
-            "Link · save as skill", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
 
     /// <summary>The task card for a snapshot: <paramref name="brief"/> is what the agent is told, the question by default.</summary>
     private void OpenAgentCard(InputSnapshot snapshot, string? brief = null)
@@ -273,18 +256,23 @@ public partial class MainWindow
             .Where(item => item.FilePath is null || !images.Contains(item.FilePath))
             .Select(item => item.Label)
             .ToArray();
+        var (starting, notice) = StartingAgent();
         var card = CardModel(brief ?? snapshot.Text, others.Length == 0 ? string.Empty : "Goes along: " + string.Join(", ", others),
-            images, ProjectProvider);
+            images, starting) with { Notice = notice };
         _cardRun = RunAgentAsync;
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
         AgentStatus("Check the card and press Run: nothing runs before that");
     }
 
-    /// <summary>The card's agents, each with its own models and efforts, Settings' choice first, and its usage.</summary>
-    private AgentCardModel CardModel(string goal, string attachments, IReadOnlyList<string> images, AgentProviderKind provider)
+    /// <summary>
+    /// The card's agents, each with its own models and efforts, Settings' choice first, and its usage. The card keeps the
+    /// project it is made for (the active one unless <paramref name="forProject"/> says), whatever is active when it runs.
+    /// </summary>
+    private AgentCardModel CardModel(string goal, string attachments, IReadOnlyList<string> images, AgentProviderKind provider,
+        LinkProject? forProject = null)
     {
-        var project = _projects.ActiveProject;
+        var project = forProject ?? _projects.ActiveProject;
         var settings = _settings.Current.Agent;
         var workspace = project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null;
         var roles = ProjectRoles.In(workspace);
@@ -320,7 +308,9 @@ public partial class MainWindow
             Roles = roles,
             RoleId = ProjectRoles.Suggest(goal, roles)?.Id,
             WorkspaceSkills = skills,
-            HarnessLine = CardHarnessLine(workspace, skills.Count)
+            HarnessLine = CardHarnessLine(workspace, skills.Count),
+            ProjectId = project.Id,
+            Renew = () => CardModel(goal, attachments, images, provider, project)
         };
     }
 
@@ -429,14 +419,8 @@ public partial class MainWindow
         panel.EscalateRequested += Escalate;
         panel.ContinueRequested += words => ContinueAgent(words);
         panel.QueueRequested += QueueAfterRun;
-        panel.FinishRequested += FinishFromPanel;
-        panel.LearnRequested += LearnFromTask;
+        panel.FinishRequested += FinishTask;
         panel.CheaperRequested += () => _ = ShowHandOffCardAsync(AgentProviderKind.Custom);
-        panel.LearnDeclined += () =>
-        {
-            _learn = null;
-            RefreshTaskList();
-        };
         panel.PlanModeOffRequested += LeavePlanMode;
         panel.OpenFileRequested += ShowFile;
         panel.NewTaskRequested += () => _ = OpenNewTaskCardAsync();
@@ -468,13 +452,7 @@ public partial class MainWindow
         _agentPanel?.ShowListView();
     }
 
-    private void RefreshTaskList() => _agentPanel?.ShowList(TaskRows(), AllLimitRows(), OwnRow(), LearnOffer());
-
-    /// <summary>The line that offers to keep what a finished task taught, on the list of its project; null when there is no offer.</summary>
-    private string? LearnOffer() => _learn is { } learn && learn.Project == _projects.ActiveProject.Id
-        ? $"Keep what “{Shorten(learn.Goal, 60)}” taught? Link asks the agent to update " +
-          (learn.Skills.Count > 0 ? "the role's skill." : "a skill that fits.")
-        : null;
+    private void RefreshTaskList() => _agentPanel?.ShowList(TaskRows(), AllLimitRows(), OwnRow());
 
     /// <summary>Link's own run at the top of the list while it works, and after it until the next one: one click shows it.</summary>
     private TaskRow? OwnRow()
@@ -551,15 +529,14 @@ public partial class MainWindow
     private async Task RunAgentAsync(AgentPlan plan)
     {
         if (_agentSnapshot is not { } snapshot || AgentRunning) return;
-        _cardRun = null;
-        var project = _projects.ActiveProject;
-        if (project.AgentProvider != plan.Provider)
+        // The task belongs to the project the card was opened for, not to the one that is active by now.
+        if (_projects.Projects.FirstOrDefault(each => each.Id == plan.ProjectId) is not { } project)
         {
-            project.AgentProvider = plan.Provider;
-            _projects.Save();
+            _agentPanel?.ShowCardWarning("The project this card was opened for is gone: cancel the card and start the task again.");
+            return;
         }
 
-        _learn = null;
+        _cardRun = null;
         if (_task is { Status: not AgentTaskStatus.Finished }) FinishTask();
         _backupBeforeDo = plan.BackupBeforeDo;
         // The input went to the agent: like a sent message, it leaves the prompt.
@@ -594,7 +571,7 @@ public partial class MainWindow
     /// on with them. After a run they are a reply in the same session, maybe the answer to its question; a task from
     /// the list is taken up again in its folder, with a copy before edits where there is no version control.
     /// </summary>
-    private void ContinueAgent(string reply, IReadOnlyList<string>? images = null)
+    private void ContinueAgent(string reply, IReadOnlyList<string>? images = null, bool afterLimit = false)
     {
         if (reply.Trim() is not { Length: > 0 } text) return;
         images ??= [];
@@ -612,8 +589,17 @@ public partial class MainWindow
         }
 
         _question = null;
-        _task?.Add(AgentEntryKind.You, text + ImagesNote(images));
         var phase = _planLeft is not null && ReferenceEquals(_lastRun, _planLeft) ? EffortPhase.RunPlan : EffortPhase.Reply;
+        // After the wait for a limit, or a long idle, the session's cache is cold: a big one is re-read at full price, and
+        // re-sent at each step. Where Settings allow it, a fresh session from the task's state takes the words instead
+        // (never a plan's own run).
+        if (phase != EffortPhase.RunPlan && _lastRun is not { Task.PlanOnly: true } && WhyCompact(afterLimit) is { } why)
+        {
+            CompactAndContinue(text, images, why, phase);
+            return;
+        }
+
+        _task?.Add(AgentEntryKind.You, text + ImagesNote(images));
         if (_earlierSession is { } earlier)
         {
             _agentOrigin = earlier with { ResumeSessionId = null };
@@ -626,6 +612,42 @@ public partial class MainWindow
         {
             _ = StartAgentAsync(task with { Images = images }, run, phase: phase);
         }
+    }
+
+    /// <summary>
+    /// Why words that would resume the task's last session should start a fresh one instead (see <see cref="CompactRule"/>);
+    /// null: resume as it is, or Settings do not let Link compact by itself.
+    /// </summary>
+    private string? WhyCompact(bool afterLimit) =>
+        _task is { } record && ResumableTask() is not null
+            ? CompactRule.Why(record.LastRun, _settings.Current.Agent.AutoCompact, _settings.Current.Agent.ContextBudget, DateTimeOffset.Now, afterLimit)
+            : null;
+
+    /// <summary>
+    /// Compact by itself: a fresh session of the same agent takes the words from the task's state, as Compact does, but
+    /// without the card to look at first. The history says why. The state has no git lines per file: asking git would
+    /// leave a gap in which another reply could start a second session.
+    /// </summary>
+    private void CompactAndContinue(string words, IReadOnlyList<string> images, string why, EffortPhase phase)
+    {
+        if (_task is not { } record || (ResumableTask()?.Task ?? _agentOrigin) is not { } template) return;
+        var state = TaskState.CompactContinue(record, null, record.Workspace, words, AgentName);
+        var task = AgentCoordinator.CompactTask(template, record, state, images) with
+        {
+            Access = AgentAccess.Do,
+            AllowedTools = AgentCoordinator.Tools(_taskProject ?? _projects.ActiveProject, template.Workspace, AgentAccess.Do)
+        };
+        record.Add(AgentEntryKind.You, words + ImagesNote(images));
+        _ = StartCompactedAsync(task, record, why, phase);
+    }
+
+    /// <summary>A fresh session of the same agent starts from the task's state: the history says so, and Start over begins from it too.</summary>
+    private Task StartCompactedAsync(AgentTask task, AgentTaskRecord record, string? why, EffortPhase phase)
+    {
+        record.Add(AgentEntryKind.HandOff, TaskState.Compacted(record.LastRun?.ContextTokens) + (why is null ? string.Empty : " · " + why));
+        _agentOrigin = task;
+        if (_lastRun is null) _backupBeforeDo = true;
+        return StartAgentAsync(task, _lastRun, phase: phase);
     }
 
     /// <summary>Tab while the agent works: the words wait for the end of the run, then the same session goes on with them.</summary>
@@ -657,43 +679,12 @@ public partial class MainWindow
         AgentStatus("Plan mode is off: your next words go on with edits in the same session");
     }
 
-    /// <summary>
-    /// The Finish button: the task closes, and one that ended well (the check passed or there was none) and changed files
-    /// offers on the list to keep what it taught. Another way to close a task, such as a new one, offers nothing.
-    /// </summary>
-    private void FinishFromPanel()
-    {
-        if (!AgentRunning)
-        {
-            _learn = _task is { Status: AgentTaskStatus.Done, ChangedFiles.Count: > 0 } task && _lastRun is { Result.SessionId: not null } run &&
-                     !run.Task.AnswerIsSkill
-                ? ((_taskProject ?? _projects.ActiveProject).Id, task.Goal, run, task.Skills)
-                : null;
-        }
-
-        FinishTask();
-    }
-
-    /// <summary>Update skill: Save as skill for the finished task, asked to update a skill that fits rather than write a new one.</summary>
-    private void LearnFromTask()
-    {
-        if (_learn is not { } learn) return;
-        if (AgentRunning)
-        {
-            AgentStatus("An agent is working: ask again once it ends");
-            return;
-        }
-
-        _learn = null;
-        RefreshTaskList();
-        _ = SaveSkillAsync(learn.Run, learn.Skills);
-    }
-
     /// <summary>Finish: the task is closed and stays in the list, where it can be opened and taken up again.</summary>
     private void FinishTask()
     {
         if (AgentRunning || _task is not { } task) return;
         _continueAt?.Stop();
+        task.ContinueAt = null;
         if (task.Status != AgentTaskStatus.Finished)
         {
             task.Status = AgentTaskStatus.Finished;
@@ -720,7 +711,6 @@ public partial class MainWindow
     /// </summary>
     private void OpenAgentTask(AgentTaskRecord record)
     {
-        _learn = null;
         if (_task?.Id == record.Id)
         {
             ShowTaskInPanel();
@@ -741,7 +731,23 @@ public partial class MainWindow
             return;
         }
 
-        var project = _projects.ActiveProject;
+        // The wait for a limit's reset belongs to the task it was asked on: another task is no place for its words.
+        CancelContinue();
+        TakeUpTask(record, _projects.ActiveProject);
+        // A task that was left waiting for a reset (Link restarted meanwhile) goes on waiting.
+        ArmContinue(record);
+        _agentPanel?.ResetCards();
+        ShowTaskInPanel();
+        _ = ShowChangesAsync(record);
+        UpdateRouteButton();
+        AgentStatus(_earlierSession is null
+            ? "This task has no session to go on with"
+            : $"Your words go on with the task: in its thread, or with Enter on the Agent route");
+    }
+
+    /// <summary>The task becomes the open one in <paramref name="project"/>: its last session is what the next words take up.</summary>
+    private void TakeUpTask(AgentTaskRecord record, LinkProject project)
+    {
         _task = record;
         _taskProject = project;
         _lastRun = null;
@@ -770,13 +776,6 @@ public partial class MainWindow
         _taskSteps.Clear();
         _taskSteps.AddRange(record.Steps);
         _afterRun = [ConsoleAction()];
-        _agentPanel?.ResetCards();
-        ShowTaskInPanel();
-        _ = ShowChangesAsync(record);
-        UpdateRouteButton();
-        AgentStatus(_earlierSession is null
-            ? "This task has no session to go on with"
-            : $"Your words go on with the task: in its thread, or with Enter on the Agent route");
     }
 
     /// <summary>The open task in the Studio.</summary>
@@ -814,13 +813,14 @@ public partial class MainWindow
             _decision = null;
             _question = null;
             _earlierSession = null;
-            _continueAt?.Stop();
+            CancelContinue();
             _task!.Status = AgentTaskStatus.Running;
             // A session that goes on keeps its tasks; the parser follows the agent's TaskUpdate by their numbers.
             if (task.ResumeSessionId is not null && _task.LastRun?.Provider == task.Provider) task = task with { Plan = _task.Plan };
         }
 
         _runningTask = task;
+        _usageRun = (DateTimeOffset.Now, _limits.For(task.Provider), []);
         _limitOffered = false;
         _runSteps.Clear();
         // A session taken up again holds what its last run left, and the model's window stays until a run says otherwise.
@@ -864,7 +864,7 @@ public partial class MainWindow
         Exception? failure = null;
         try
         {
-            var run = await _agents.RunAsync(task, _backupBeforeDo, previous, progress, cancellation.Token, ReplaceSkill);
+            var run = await _agents.RunAsync(task, _backupBeforeDo, previous, progress, cancellation.Token);
             if (run.Before is { IsVersioned: false, Backup: null } && _backupBeforeDo && task.Access == AgentAccess.Do && previous is null)
             {
                 _pendingAgentEvents.Add(new AgentEvent(AgentEventKind.Error, "No copy was made: the workspace is over 2 GB."));
@@ -990,7 +990,7 @@ public partial class MainWindow
 
     /// <summary>What Link's own run writes, as the user reads it: "docs/map.md".</summary>
     private static string OwnWhat(AgentTask task) =>
-        task.AnswerFile is { } file ? file.Replace('\\', '/') : task.AnswerIsSkill ? "a skill" : Shorten(task.Prompt.Split('\n')[0], 80);
+        task.AnswerFile is { } file ? file.Replace('\\', '/') : Shorten(task.Prompt.Split('\n')[0], 80);
 
     /// <summary>The ⋯ menu of Link's own run: undo what it wrote, and the console.</summary>
     private IReadOnlyList<PanelAction> OwnActions(OwnRun own) =>
@@ -1011,7 +1011,7 @@ public partial class MainWindow
         turn.OutcomeBrush = OutcomeBrush(ending);
         turn.Said = AgentCoordinator.Unfenced(result.Summary);
         turn.Files = run.Changes.Select(ToChangeRow).ToArray();
-        turn.Stats = StatsLine(result.Stats);
+        turn.Stats = StatsLine(result.Stats) + SpentLine(run.Task.Provider, SpentByRun(run.Task.Provider));
         turn.StepsOpen = false;
         if (_ownShown) ShowOwnRun();
         _projectPanel?.ShowProject(_projects.ActiveProject);
@@ -1146,7 +1146,8 @@ public partial class MainWindow
         var fromProvider = record.LastRun?.Provider ?? Other(to);
         var brief = AgentCoordinator.HandOffBrief(record, AgentName(fromProvider), await NumstatAsync());
         // The images the task began with go along; a task from the list has kept none.
-        var card = CardModel(brief, string.Empty, _agentOrigin?.Images ?? [], to) with
+        var images = _agentOrigin?.Images ?? [];
+        AgentCardModel Build() => CardModel(brief, string.Empty, images, to, _taskProject) with
         {
             Title = $"Hand off to {AgentName(to)} · new session",
             RunLabel = $"Hand off to {AgentName(to)}",
@@ -1156,6 +1157,7 @@ public partial class MainWindow
             RoleId = record.RoleId,
             Skills = record.Skills
         };
+        var card = Build() with { Renew = Build };
         _cardRun = plan => HandOffAsync(plan, fromProvider);
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
@@ -1189,7 +1191,7 @@ public partial class MainWindow
         var setup = WithAutoEffort(task, EffortPhase.HandOff);
         record.Add(AgentEntryKind.HandOff,
             $"{AgentName(fromProvider)} → {AgentName(plan.Provider)} · {SetupWords(setup.Provider, setup.Model, setup.Effort)}, a new session{specialist}");
-        record.Brief += $"\n\n── Handed over to {AgentName(plan.Provider)} ──\n{plan.Goal}";
+        record.Handovers.Add($"── Handed over to {AgentName(plan.Provider)} ──\n{plan.Goal}");
         // Start over begins the new agent's brief again.
         _agentOrigin = task;
         if (_lastRun is null) _backupBeforeDo = true;
@@ -1214,19 +1216,25 @@ public partial class MainWindow
         var provider = resume.Task.Provider;
         var state = TaskState.CompactBrief(record, await NumstatAsync(), record.Workspace, AgentName);
         // The images the task began with go along; a task from the list has kept none.
-        var card = CardModel(state, string.Empty, _agentOrigin?.Images ?? [], provider);
-        card = card with
+        var images = _agentOrigin?.Images ?? [];
+        AgentCardModel Build()
         {
-            // The card starts on the model and effort of the last run: Settings' Standard could be a silent downgrade.
-            Providers = [.. card.Providers.Select(agent => agent.Kind == provider ? agent with { Model = resume.Task.Model, Effort = resume.Task.Effort } : agent)],
-            Access = resume.Task.AutoApprove ? AgentAccessChoice.Auto : AgentAccessChoice.Edit,
-            Title = $"Compact · new session of {AgentName(provider)}",
-            RunLabel = "Compact",
-            FixedProvider = true,
-            AutoEffort = record.AutoEffort && _settings.Current.Agent.AutoEffort,
-            RoleId = record.RoleId,
-            Skills = record.Skills
-        };
+            var plain = CardModel(state, string.Empty, images, provider, _taskProject);
+            return plain with
+            {
+                // The card starts on the model and effort of the last run: Settings' Standard could be a silent downgrade.
+                Providers = [.. plain.Providers.Select(agent => agent.Kind == provider ? agent with { Model = resume.Task.Model, Effort = resume.Task.Effort } : agent)],
+                Access = resume.Task.AutoApprove ? AgentAccessChoice.Auto : AgentAccessChoice.Edit,
+                Title = $"Compact · new session of {AgentName(provider)}",
+                RunLabel = "Compact",
+                FixedProvider = true,
+                AutoEffort = record.AutoEffort && _settings.Current.Agent.AutoEffort,
+                RoleId = record.RoleId,
+                Skills = record.Skills
+            };
+        }
+
+        var card = Build() with { Renew = Build };
         _cardRun = CompactAsync;
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
@@ -1251,11 +1259,8 @@ public partial class MainWindow
             AutoApprove = plan.AutoApprove,
             AllowedTools = AgentCoordinator.Tools(_taskProject ?? _projects.ActiveProject, template.Workspace, AgentAccess.Do)
         };
-        record.Add(AgentEntryKind.HandOff, TaskState.Compacted(record.LastRun?.ContextTokens));
         // Start over begins from the state, not from the session that has grown.
-        _agentOrigin = task;
-        if (_lastRun is null) _backupBeforeDo = true;
-        await StartAgentAsync(task, _lastRun, phase: EffortPhase.Reply);
+        await StartCompactedAsync(task, record, null, EffortPhase.Reply);
     }
 
     /// <summary>
@@ -1271,7 +1276,7 @@ public partial class MainWindow
         // Whoever worked last is who the first agent is told of.
         var prompt = AgentCoordinator.ReturnBrief(record, AgentName(record.LastRun?.Provider ?? Other(provider)), await NumstatAsync());
         record.Add(AgentEntryKind.HandOff, $"Back to {AgentName(provider)}, its own session");
-        record.Brief += $"\n\n── Back to {AgentName(provider)} ──\n{prompt}";
+        record.Handovers.Add($"── Back to {AgentName(provider)} ──\n{prompt}");
         if (_lastRun is null) _backupBeforeDo = true;
         await StartAgentAsync(template with
         {
@@ -1282,8 +1287,7 @@ public partial class MainWindow
             Effort = back.Effort,
             Images = [],
             PlanOnly = false,
-            AnswerFile = null,
-            AnswerIsSkill = false
+            AnswerFile = null
         }, _lastRun, phase: EffortPhase.HandOff);
     }
 
@@ -1396,7 +1400,16 @@ public partial class MainWindow
 
         if (events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Limit))
         {
-            foreach (var usage in events.Where(agentEvent => agentEvent.Kind == AgentEventKind.Limit)) _limits.Update(usage.Limits);
+            foreach (var usage in events.Where(agentEvent => agentEvent.Kind == AgentEventKind.Limit))
+            {
+                _limits.Update(usage.Limits);
+                // A window's first report during the run is what its use is measured from where the start is not to be trusted.
+                foreach (var limit in usage.Limits)
+                {
+                    if (!_usageRun.First.Any(each => each.Provider == limit.Provider && each.Window == limit.Window)) _usageRun.First.Add(limit);
+                }
+            }
+
             if (shown) _agentPanel.ShowLimits(AllLimitRows());
         }
 
@@ -1435,7 +1448,6 @@ public partial class MainWindow
     {
         var access = task.PlanOnly ? "plan"
             : task.AnswerFile is { } file ? $"read only, {Path.GetFileName(file)}"
-            : task.AnswerIsSkill ? "read only, SKILL.md"
             : task.Access == AgentAccess.Do ? task.AutoApprove ? "auto" : "edits"
             : "read only";
         var elapsed = _agentClock.Elapsed;
@@ -1506,7 +1518,9 @@ public partial class MainWindow
         _lastRun = run;
         var (task, result) = (run.Task, run.Result);
         var provider = _agents.Provider(task.Provider);
-        var project = _projects.ActiveProject;
+        var spent = SpentByRun(task.Provider);
+        // The notifications name the task's project, which the user may have left for another meanwhile.
+        var project = _taskProject ?? _projects.ActiveProject;
         var elapsed = $"{(int)_agentClock.Elapsed.TotalMinutes}:{_agentClock.Elapsed.Seconds:00}";
         var stopped = result.Stopped || run.Check is { Outcome: AgentCheckOutcome.Stopped };
         // A red check is not "done", whatever the agent's own summary says.
@@ -1520,7 +1534,7 @@ public partial class MainWindow
             : checkFailed ? $"Check failed after {elapsed}"
             : $"Done in {elapsed}";
         // An answer Link wrote to a file is shown as written.
-        var answer = task.AnswerFile is null && !task.AnswerIsSkill ? result.Summary : AgentCoordinator.Unfenced(result.Summary);
+        var answer = task.AnswerFile is null ? result.Summary : AgentCoordinator.Unfenced(result.Summary);
         var (answerText, question) = AgentQuestion.Split(answer);
         // The changelist's line is for P4V and the next step is for Link's Auto effort; the thread shows the answer without them.
         var said = AgentChanges.SplitChangelistLine(AgentNext.Split(answerText).Text).Text;
@@ -1531,17 +1545,11 @@ public partial class MainWindow
         // end got past its loop. A limit has its own card.
         var failed = !stopped && !limitReached && (!result.Succeeded || checkFailed);
         var undo = UndoAction(run);
-        var saveSkill = result.Succeeded && !stopped && !checkFailed && !task.PlanOnly && task.AnswerFile is null &&
-                        !task.AnswerIsSkill && result.SessionId is not null;
         _afterRun = new[]
         {
             new PanelAction("Discuss in chat", "The result, the changed files and their diff go with your next question to ChatGPT",
                 () => _ = DiscussInChatAsync()),
             undo,
-            saveSkill
-                ? new PanelAction("Save as skill", "The agent describes what it just did as a skill; Link writes it to .agents/skills in the workspace",
-                    () => _ = SaveSkillAsync())
-                : null,
             ConsoleAction()
         }.OfType<PanelAction>().ToArray();
 
@@ -1552,13 +1560,13 @@ public partial class MainWindow
             turn.OutcomeBrush = OutcomeBrush(ending);
             turn.Said = text;
             turn.Files = run.Changes.Select(ToChangeRow).ToArray();
-            turn.Stats = StatsLine(result.Stats);
+            turn.Stats = StatsLine(result.Stats) + SpentLine(task.Provider, spent);
             turn.StepsOpen = false;
         }
 
         var decision = OfferDecision(run);
         var needsYou = decision || _question is not null;
-        RecordRun(run, ending, text, checkFailed ? text : answer, needsYou, stopped, checkFailed);
+        RecordRun(run, ending, text, checkFailed ? text : answer, needsYou, stopped, checkFailed, spent);
         if (_task is not null && IsUserWork(task))
         {
             _ = ShowChangesAsync(_task);
@@ -1575,7 +1583,7 @@ public partial class MainWindow
         // a line of Activity.
         _agentPanel?.ShowRestart(_agentOrigin is not null && (failed || (stopped && result.Loops.Count > 0)), escalate: !IsStrongest(task));
         if (limitReached) OfferLimitReached(task.Provider);
-        if (_task is not null && IsUserWork(task) && !task.AnswerIsSkill) ShowResultInChat(run, diff: null);
+        if (_task is not null && IsUserWork(task)) ShowResultInChat(run, diff: null);
 
         var summary = text.Length > 0 ? text : ending;
         var name = ShortName(task.Provider);
@@ -1650,7 +1658,8 @@ public partial class MainWindow
     /// The run joins the task's record: its own tokens (a Codex session reports its total, so the runs before in that
     /// session are taken off), its steps, files and answer for the thread, the check, and how the task stands.
     /// </summary>
-    private void RecordRun(AgentRun run, string ending, string text, string answer, bool needsYou, bool stopped, bool checkFailed)
+    private void RecordRun(AgentRun run, string ending, string text, string answer, bool needsYou, bool stopped, bool checkFailed,
+        IReadOnlyList<UsageSpent> spent)
     {
         if (_task is not { } record || !IsUserWork(run.Task)) return;
         var (task, result) = (run.Task, run.Result);
@@ -1679,6 +1688,7 @@ public partial class MainWindow
             ContextTokens = stats.ContextTokens,
             ContextWindow = stats.ContextWindow,
             Looped = result.Loops.Count > 0,
+            Spent = [.. spent],
             Steps = [.. _runSteps.TakeLast(StepsKeptPerRun)],
             Files = files,
             Words = Shorten(answer, 12_000)
@@ -1738,7 +1748,8 @@ public partial class MainWindow
         if (until is { } at)
         {
             actions.Add(new PanelAction($"Continue at {AgentLimits.Time(at.AddMinutes(1))}",
-                "The same session goes on by itself a minute after the limit resets, while Link runs", () => ContinueAfterReset(at)));
+                "The task goes on by itself a minute after the limit resets, also if Link is restarted before then; a big session starts fresh from the task's state",
+                () => ContinueAfterReset(at)));
         }
 
         _agentPanel?.ShowLimit(until is { } time
@@ -1751,23 +1762,77 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>The session goes on by itself a minute after the limit resets; Finish, Hand off or a new run cancels it.</summary>
+    /// <summary>
+    /// The task goes on by itself a minute after the limit resets. The time is kept with the task, so that a restart of
+    /// Link does not lose it; Finish, another task or a new run cancels it.
+    /// </summary>
     private void ContinueAfterReset(DateTimeOffset reset)
     {
-        _continueAt?.Stop();
-        var wait = reset.AddMinutes(1) - DateTimeOffset.Now;
-        _continueAt = new DispatcherTimer { Interval = wait > TimeSpan.Zero ? wait : TimeSpan.FromSeconds(1) };
-        _continueAt.Tick += (_, _) =>
-        {
-            _continueAt?.Stop();
-            if (AgentRunning || _task is null) return;
-            _task.Add(AgentEntryKind.Limit, "The limit reset: the session goes on");
-            ContinueAgent("Your usage limit has reset. Go on with the task from where you stopped.");
-        };
-        _continueAt.Start();
-        _task?.Add(AgentEntryKind.You, $"Continue at {AgentLimits.Time(reset.AddMinutes(1))}");
+        if (_task is not { } record) return;
+        var at = reset.AddMinutes(1);
+        record.ContinueAt = at;
+        record.Add(AgentEntryKind.You, $"Continue at {AgentLimits.Time(at)}");
+        SaveTask(record);
+        ArmContinue(record);
         ShowTask();
-        AgentStatus($"The task goes on by itself at {AgentLimits.Time(reset.AddMinutes(1))} while Link runs");
+        AgentStatus($"The task goes on by itself at {AgentLimits.Time(at)}, also if Link is restarted before then");
+    }
+
+    /// <summary>
+    /// Starts the timer that sends the task on at its <see cref="AgentTaskRecord.ContinueAt"/>; a time already past is a
+    /// second away. It can only be of the open task: the words never reach another.
+    /// </summary>
+    private void ArmContinue(AgentTaskRecord record)
+    {
+        _continueAt?.Stop();
+        if (record.ContinueAt is not { } at) return;
+        var wait = at - DateTimeOffset.Now;
+        var timer = new DispatcherTimer { Interval = wait > TimeSpan.Zero ? wait : TimeSpan.FromSeconds(1) };
+        timer.Tick += (_, _) =>
+        {
+            timer.Stop();
+            if (!ReferenceEquals(_task, record)) return;
+            // Link's own answer (the map) is being written: a minute later.
+            if (AgentRunning)
+            {
+                timer.Interval = TimeSpan.FromMinutes(1);
+                timer.Start();
+                return;
+            }
+
+            record.ContinueAt = null;
+            record.Add(AgentEntryKind.Limit, "The limit reset: the session goes on");
+            SaveTask(record);
+            ContinueAgent("Your usage limit has reset. Go on with the task from where you stopped.", afterLimit: true);
+        };
+        _continueAt = timer;
+        timer.Start();
+    }
+
+    /// <summary>The wait for a limit's reset is over without firing: the timer stops and the task no longer remembers it.</summary>
+    private void CancelContinue()
+    {
+        _continueAt?.Stop();
+        if (_task is not { ContinueAt: not null } record) return;
+        record.ContinueAt = null;
+        SaveTask(record);
+    }
+
+    /// <summary>
+    /// Link started, or another project was loaded: the active project's task that waits for a limit's reset (its time was
+    /// kept with it) is taken up again, without opening the Studio, and its timer runs. Nothing when a task is open.
+    /// </summary>
+    private void RearmContinue()
+    {
+        if (_task is not null || AgentRunning) return;
+        var project = _projects.ActiveProject;
+        var waiting = _projects.ReadAgentTasks(project)
+            .FirstOrDefault(task => task.ContinueAt is not null && task.Status != AgentTaskStatus.Finished && Directory.Exists(task.Workspace));
+        if (waiting is null) return;
+        TakeUpTask(waiting, project);
+        ArmContinue(waiting);
+        UpdateAgentPill();
+        UpdateRouteButton();
     }
 
     /// <summary>
@@ -1813,10 +1878,10 @@ public partial class MainWindow
         var (changed, changedFiles) = _changes.Task == record.Id ? (_changes.Text, _changes.Hint) : TaskChanges.Describe(null, record.ChangedFiles);
         panel.ShowChanges(changed, changedFiles);
         panel.ShowThread(BuildThread(record, live));
-        panel.ShowBrief(record.Brief);
+        panel.ShowBrief(record.BriefText);
         var (usage, hint) = UsageText(record);
         panel.ShowUsage(usage, hint);
-        var provider = (live ? _runningTask?.Provider : null) ?? record.LastRun?.Provider ?? ProjectProvider;
+        var provider = (live ? _runningTask?.Provider : null) ?? record.LastRun?.Provider ?? StartProvider;
         panel.SetRunning(live);
         panel.SetReplyTarget(AgentName(provider));
         if (readOnly)
@@ -1920,7 +1985,7 @@ public partial class MainWindow
         var tokens = run.InputTokens is { } input
             ? $" · {AgentContext.Tokens(input)} in ({AgentContext.Tokens(run.CachedTokens ?? 0)} cached), {AgentContext.Tokens(run.OutputTokens ?? 0)} out"
             : string.Empty;
-        turn.Stats = $"{(int)run.Duration.TotalMinutes}:{run.Duration.Seconds:00}{tokens}";
+        turn.Stats = $"{(int)run.Duration.TotalMinutes}:{run.Duration.Seconds:00}{tokens}{SpentLine(run.Provider, run.Spent)}";
         return turn;
     }
 
@@ -2005,7 +2070,7 @@ public partial class MainWindow
         }, resume.Previous, phase: EffortPhase.Reply);
     }
 
-    /// <summary>The ⋯ menu: what the last run allows (chat, undo, a skill), starting over, and the console.</summary>
+    /// <summary>The ⋯ menu: what the last run allows (chat, undo), compacting, starting over, and the console.</summary>
     private IReadOnlyList<PanelAction> MoreActions()
     {
         var actions = _afterRun.Where(action => action.Label != "Console").ToList();
@@ -2038,7 +2103,8 @@ public partial class MainWindow
             var cached = runs.Sum(run => run.CachedTokens ?? 0);
             var output = runs.Sum(run => run.OutputTokens ?? 0);
             var tokens = input > 0 ? $", {AgentContext.Tokens(input)} tokens in ({AgentContext.Tokens(cached)} cached), {AgentContext.Tokens(output)} out" : string.Empty;
-            return $"This task, {AgentName(runs.Key)}: {Plural(runs.Count(), "run")}{tokens}";
+            var used = AgentLimits.SpentWords(ShortName(runs.Key), AgentLimits.Total(runs.SelectMany(run => run.Spent)));
+            return $"This task, {AgentName(runs.Key)}: {Plural(runs.Count(), "run")}{tokens}{(used.Length > 0 ? ", " + used : string.Empty)}";
         }).ToList();
         var cost = record.Runs.Sum(run => run.CostUsd ?? 0);
         var hint = cost > 0
@@ -2099,7 +2165,7 @@ public partial class MainWindow
         }
         else
         {
-            provider = ProjectProvider;
+            provider = StartProvider;
             (model, effort) = settings.Level(provider, AgentLevel.Standard);
             (reason, access, autoApprove) = (null, AgentAccess.Do, settings.DefaultAccess == AgentAccessChoice.Auto);
         }
@@ -2147,7 +2213,7 @@ public partial class MainWindow
             return;
         }
 
-        var provider = _runningTask?.Provider ?? _task?.LastRun?.Provider ?? ProjectProvider;
+        var provider = _runningTask?.Provider ?? _task?.LastRun?.Provider ?? StartProvider;
         var name = ShortName(provider);
         var elapsed = _agentClock.Elapsed;
         var what = _runningTask is { } running && !IsUserWork(running) ? "map " : string.Empty;
@@ -2199,10 +2265,10 @@ public partial class MainWindow
         _agentPanel!.HideDecision();
         if (result.Stopped || result.SessionId is not { } session) return false;
         // Changing files or running any command is never allowed in read only: it is a retry with edits, except for a
-        // task whose file Link writes itself (a map, a skill).
+        // task whose file Link writes itself (a map).
         var claude = task.Provider.RunsOnClaudeCode();
         var readOnly = task.Access == AgentAccess.Analyze;
-        var answersInFile = task.AnswerFile is not null || task.AnswerIsSkill;
+        var answersInFile = task.AnswerFile is not null;
         if (readOnly && !task.PlanOnly && !answersInFile && result.Denials.Count > 0 &&
             (!claude || result.Denials.Any(AgentPermissions.ChangesThings)))
         {
@@ -2297,7 +2363,8 @@ public partial class MainWindow
     /// </summary>
     private void RememberAllowance(AgentAccess access, IEnumerable<string> rules)
     {
-        var project = _projects.ActiveProject;
+        // The task's project, which the user may have left for another meanwhile.
+        var project = _taskProject ?? _projects.ActiveProject;
         foreach (var rule in rules)
         {
             var list = access == AgentAccess.Do || AgentPermissions.ChangesThings(rule) ? project.AgentDoTools : project.AgentReadTools;
@@ -2484,6 +2551,14 @@ public partial class MainWindow
 
         return string.Join(" · ", parts);
     }
+
+    /// <summary>What the run that just ended took of its agent's usage windows; nothing where its CLI told no numbers.</summary>
+    private IReadOnlyList<UsageSpent> SpentByRun(AgentProviderKind provider) =>
+        AgentLimits.Spent(_usageRun.Before, _limits.For(provider), _usageRun.Start, _usageRun.First);
+
+    /// <summary>" · used 4% of Codex 5 h, 1% of week" for a run's stats line; empty when it took nothing worth saying.</summary>
+    private string SpentLine(AgentProviderKind provider, IEnumerable<UsageSpent> spent) =>
+        AgentLimits.SpentWords(ShortName(provider), AgentLimits.Total(spent)) is { Length: > 0 } words ? " · " + words : string.Empty;
 
     private static string Plural(int number, string one, string? many = null) => $"{number} {(number == 1 ? one : many ?? one + "s")}";
 

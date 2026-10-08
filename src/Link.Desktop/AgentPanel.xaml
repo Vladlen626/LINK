@@ -218,8 +218,7 @@
         <Border x:Name="Sidebar" Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,1,0">
             <Grid>
                 <Grid.RowDefinitions>
-                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" />
-                    <RowDefinition Height="Auto" />
+                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" />
                 </Grid.RowDefinitions>
                 <Button x:Name="NewTaskButton" Margin="10,10,10,0" Height="34" Padding="10,0" HorizontalContentAlignment="Left"
                         Style="{StaticResource GhostButtonStyle}" Click="NewTask_OnClick"
@@ -231,20 +230,8 @@
                     </StackPanel>
                 </Button>
 
-                <!-- A task that ended well and changed files was finished: keep what it taught, only when asked. -->
-                <Border x:Name="LearnCard" Grid.Row="1" Style="{StaticResource NoticeCardStyle}" Margin="10,8,10,0" Padding="12,10" Visibility="Collapsed">
-                    <StackPanel>
-                        <TextBlock x:Name="LearnText" FontSize="12.5" Style="{StaticResource RowTextStyle}" />
-                        <WrapPanel Margin="0,2,0,0">
-                            <Button Style="{StaticResource SmallChipStyle}" Click="Learn_OnClick" Content="Update skill"
-                                    ToolTip="The agent that did the task describes what it learned as a skill; Link writes it to .agents/skills in the workspace, and asks before it replaces one" />
-                            <Button Style="{StaticResource SmallChipStyle}" Click="LearnNo_OnClick" Content="No" />
-                        </WrapPanel>
-                    </StackPanel>
-                </Border>
-
-                <TextBlock Grid.Row="2" Margin="18,14,10,4" Style="{StaticResource SectionLabelStyle}" FontSize="11.5" Text="Tasks" />
-                <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                <TextBlock Grid.Row="1" Margin="18,14,10,4" Style="{StaticResource SectionLabelStyle}" FontSize="11.5" Text="Tasks" />
+                <ScrollViewer Grid.Row="2" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                     <StackPanel Margin="8,0,4,8">
                         <TextBlock x:Name="TasksEmptyText" Margin="10,4,6,0" FontSize="12" Style="{StaticResource RowTextStyle}" Foreground="{StaticResource MutedBrush}"
                                    Text="No tasks yet. Write one in Link and press Ctrl+Enter, or choose To ▾ Agent task: a card shows what goes to the agent, and nothing runs before Run." />
@@ -281,7 +268,7 @@
                 </ScrollViewer>
 
                 <!-- The agents' usage, as the account area at the foot of a chat app's sidebar. -->
-                <Border x:Name="LimitsBlock" Grid.Row="4" Padding="12,6,12,8" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,1,0,0"
+                <Border x:Name="LimitsBlock" Grid.Row="3" Padding="12,6,12,8" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,1,0,0"
                         Visibility="Collapsed">
                     <ItemsControl x:Name="LimitsList" ItemTemplate="{StaticResource LimitRowTemplate}" />
                 </Border>
@@ -342,6 +329,9 @@
                         </ComboBox>
                     </StackPanel>
                 </WrapPanel>
+                <!-- Why the card starts on the other agent: the default one has reached its limit. -->
+                <TextBlock x:Name="CardNoticeText" Margin="0,0,0,8" FontSize="12.5" Foreground="{StaticResource AccentBrush}"
+                           TextWrapping="Wrap" Visibility="Collapsed" />
                 <ItemsControl x:Name="CardLimitsList" Margin="0,0,0,4" ItemTemplate="{StaticResource LimitRowTemplate}" />
 
                 <!-- The specialist Link picks from the goal, and the skills that go with it: both can be changed. -->

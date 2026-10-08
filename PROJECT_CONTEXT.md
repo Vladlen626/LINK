@@ -61,7 +61,7 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
   правила агента в каждой новой сессии, цифры задачи, карта, skills, проверка после Do, метки петель.
 - **Agent Studio** — сделано, ждёт проверки (2026-10-08): окно Studio с колонкой Harness, бюджет контекста и Compact,
   Effort Auto, специалисты и skills, своя модель (GLM, DeepSeek, OpenRouter, Ollama), план агента со статусами,
-  статистика ролей и моделей, Update skill после удачной задачи, First Run, Team pack. Дальше — Remote.
+  статистика ролей и моделей, First Run, Team pack. Дальше — Remote.
 
 ## Стек
 
@@ -168,8 +168,9 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   без диалога, режим чтения, карта, skills, среда Windows), каждая строка — от поведения, замеченного в прогонах.
 - Skills (2026-09-30): один источник — `.agents/skills/<имя>/SKILL.md` в рабочей папке. Codex читает его сам; Claude
   Code ищет только `.claude/skills`, поэтому Link перечисляет skills папки (путь и описание) в его правилах — без
-  копий и симлинков. Skill появляется из работы: «Save as skill» после удачной задачи, та же сессия в режиме чтения
-  отвечает текстом `SKILL.md`, Link пишет файл (имя — строчная латиница, цифры, дефис; замена — только после «да»).
+  копий и симлинков. Skill появляется из работы (2026-10-08): кнопок «Save as skill» и «Update skill» нет — харнесс сам
+  учится, агент по правилам («Get stronger with each task») ведёт skill или карту, когда задача что-то доказала, и называет
+  в ответе, что сохранил; Link выбирает skills для задачи по роли и словам, колонка Harness в Studio их показывает.
 - Codex из Link (2026-09-30, по разбору 14 прогонов): без добавок десктопного Codex — `features.plugins`, `apps`,
   `tool_suggest`, `computer_use`, `browser_use` выключены через `-c` и при resume тоже (сессия не меняет инструменты
   и кэш). Они шли в каждый запрос, а агент в 12 из 14 прогонов читал руководство computer-use (~10k токенов), однажды
@@ -247,6 +248,15 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   (primary/secondary: `usedPercent`, `windowDurationMins`, `resetsAt` в секундах). Проценты Codex — всегда проценты
   (1.0 — один процент, не всё окно). У 90 % окна — тихое предложение остановиться и передать; на лимите — передача или «Continue at» (та же
   сессия сама после сброса, пока Link запущен). Сам Link не передаёт и не понижает уровень.
+  2026-10-08 (старая проводка агента): агент новой карточки — `DefaultProvider` Settings, проект его не помнит
+  (`LinkProject.AgentProvider` убран; старый projects.json грузится); другой — только пока лимит умолчания достигнут сейчас
+  (`AgentLimits.StartsOn`), с пометкой на карточке. Достигнутое окно без времени сброса держится длину окна от `SeenAt`
+  (5 ч / неделя). Бриф задачи не растёт от передач: `Brief` остаётся первым, передачи — в `Handovers`. Карточка помнит
+  проект (`AgentPlan.ProjectId`). Settings обновляют открытую карточку (`AgentPanel.RefreshSetup`). Свои ответы Link
+  (карта, заметка Start over) идут без MCP (`AgentTask.WithoutMcp`). Расход подписки за прогон — `AgentRunRecord.Spent`
+  (`AgentLimits.Spent`: разница окон; окно без свежего замера до/после не считается), в строках прогона и задачи и в
+  `TaskMetrics`. После ожидания лимита и долгой паузы при Auto compact — свежая сессия из состояния задачи
+  (`CompactRule.Why`, не для Steer, плана и своих ответов); `ContinueAt` лежит в записи задачи и взводится при старте.
 - Chat ↔ Agent (2026-10-03, этап 4). `→ Agent task` берёт в бриф выделенное в ответе, иначе блок `link-task`, иначе
   весь ответ, и вопрос; ChatGPT по инструкциям проекта завершает договорённость блоком `link-task` — он рисуется
   карточкой с `Give to agent`. Итог задачи после каждого прогона — чип `Task result` в следующий вопрос; `Discuss in
@@ -288,7 +298,7 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
 - Agent Studio (2026-10-07/08, концепт и ответы пользователя; план — [docs/STUDIO_PLAN.md](docs/STUDIO_PLAN.md)).
   Задачи агентов — отдельное окно Studio (AgentPanel посередине, колонка Harness справа), панель оверлея — Chats и
   проект, её кнопка Tasks открывает Studio. Бюджет контекста задаёт Link: одно число в `settings.json` для всех
-  агентов (550k по умолчанию; Claude Code и своя модель — `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, Codex —
+  агентов (450k по умолчанию; Claude Code и своя модель — `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, Codex —
   `model_auto_compact_token_limit` = 90 %), дальше автокомпакт CLI; Compact Link — новая сессия из состояния задачи,
   которое Link собирает сам, без модели. Effort Auto меняет только effort, никогда модель или агента; выше Extra high —
   только вручную; лимит — не провал. Специалисты — встроенные роли (`docs/harness/roles`, копируются к Link.exe) и
