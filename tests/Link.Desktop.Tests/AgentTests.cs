@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 using System.Threading;
@@ -87,6 +88,13 @@ internal static class AgentTests
         HarnessCardLine();
         StudioSettingsKept();
         StudioSettingsOdd();
+        CheaperHints();
+        FirstRunWords();
+        SkillUpdateRequest();
+        TeamPackRoundTrip();
+        TeamPackLinks();
+        TeamPackReplace();
+        TeamPackRefusals();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -2530,6 +2538,316 @@ internal static class AgentTests
         var studio = new StudioSettings();
         studio.Remember(left, top, width, height, maximized);
         return studio;
+    }
+
+    /// <summary>The cheaper hint: a plan to carry out, or the custom model's own record for the role; never for the custom model itself or when it is not set up.</summary>
+    private static void CheaperHints()
+    {
+        static AgentTaskRecord TaskOf(AgentProviderKind? provider) => new()
+        {
+            Goal = "Goal",
+            Workspace = "w",
+            Runs = provider is { } kind ? [new AgentRunRecord { Provider = kind }] : []
+        };
+        static StatsRow Row(string role, string agent, int tasks, int runs, int done) =>
+            new(role, agent, null, tasks, runs, done, 0, TimeSpan.Zero, null, 0);
+        string? Hint(AgentTaskRecord record, string phase, bool configured = true, params StatsRow[] stats) =>
+            CheaperHint.For(record, configured, "GLM", "Rigger", stats, phase);
+
+        var claude = TaskOf(AgentProviderKind.ClaudeCode);
+        Program.Equal("cheaper hint: a plan to carry out says the custom model could do it",
+            Hint(claude, CheaperHint.RunPlan), "GLM could carry out this plan: it is written; hand it over to save your subscription");
+        Program.Equal("cheaper hint: no hint when the custom model is not set up",
+            Hint(claude, CheaperHint.RunPlan, configured: false), (string?)null);
+        Program.Equal("cheaper hint: none for a task the custom model already works on",
+            Hint(TaskOf(AgentProviderKind.Custom), CheaperHint.RunPlan), (string?)null);
+        Program.Equal("cheaper hint: none for a task that has not run",
+            Hint(TaskOf(null), CheaperHint.RunPlan), (string?)null);
+
+        Program.Equal("cheaper hint: the stats speak at three runs with two thirds of the tasks done",
+            Hint(claude, "Card", true, Row("Rigger", "GLM", 3, 3, 2)), "GLM: 2 of 3 done for Rigger here");
+        Program.Equal("cheaper hint: the rows of the role's models add up",
+            Hint(claude, "Card", true, Row("Rigger", "glm", 2, 2, 2), Row("Rigger", "GLM", 2, 2, 1), Row("Rigger", "Codex", 5, 5, 0)),
+            "GLM: 3 of 4 done for Rigger here");
+        Program.Equal("cheaper hint: two runs are too few",
+            Hint(claude, "Card", true, Row("Rigger", "GLM", 2, 2, 2)), (string?)null);
+        Program.Equal("cheaper hint: less than two thirds done is no reason",
+            Hint(claude, "Card", true, Row("Rigger", "GLM", 4, 4, 2)), (string?)null);
+        Program.Equal("cheaper hint: another role's or another agent's record is not this one's",
+            Hint(claude, "Card", true, Row("General", "GLM", 5, 5, 5), Row("Rigger", "Codex", 5, 5, 5)), (string?)null);
+        Program.Equal("cheaper hint: no stats, no hint", Hint(claude, "Card"), (string?)null);
+    }
+
+    /// <summary>Update skill after a finished task asks the same session to update a skill that fits, naming those the task read; plain Save as skill does not.</summary>
+    private static void SkillUpdateRequest()
+    {
+        var workspace = TempFolder();
+        try
+        {
+            WriteSkill(workspace, "game-check", "Check the game.");
+            WriteSkill(workspace, "ui-pass", "Walk the screens.");
+            var run = new AgentRun(
+                new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = workspace, Prompt = "Check the game", Access = AgentAccess.Do },
+                new WorkspaceBefore(workspace, true, new Dictionary<string, string>(), null, DateTime.UtcNow),
+                new AgentResult { SessionId = "work", Succeeded = true },
+                []);
+            const string Plain = "Save it as a skill.\n\nSkills of the workspace: game-check, ui-pass.";
+            Program.Equal("skill update: Save as skill asks nothing more", AgentCoordinator.SkillTask(run, "Save it as a skill.\n")!.Prompt, Plain);
+            var update = AgentCoordinator.SkillTask(run, "Save it as a skill.\n", ["ui-pass", "gone-skill"])!;
+            Program.Equal("skill update: it asks to update a skill that fits and names those the task read that the workspace has",
+                (update.Prompt.StartsWith(Plain + "\n\n", StringComparison.Ordinal), update.Prompt.Contains("Prefer updating a skill of the workspace that fits it over writing a new one (this task worked by ui-pass)."),
+                    update.Prompt.Contains("gone-skill"), update.ResumeSessionId, update.AnswerIsSkill),
+                (true, true, false, "work", true));
+            Program.Equal("skill update: a task that read no skill still asks to update one that fits",
+                AgentCoordinator.SkillTask(run, "Save it as a skill.\n", [])!.Prompt.Contains("fits it over writing a new one. Keep it true and short"), true);
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+    }
+
+    /// <summary>The first-run window says whether each CLI is found and signed in, and where to install the missing one.</summary>
+    private static void FirstRunWords()
+    {
+        const AgentProviderKind Claude = AgentProviderKind.ClaudeCode;
+        Program.Equal("first run: found and signed in",
+            FirstRun.Status(Claude, new AgentProviderStatus("claude.exe", "2.1", true)), "Found, signed in");
+        Program.Equal("first run: found, not signed in names the agent's own command",
+            (FirstRun.Status(Claude, new AgentProviderStatus("claude.exe", null, false)),
+                FirstRun.Status(AgentProviderKind.Codex, new AgentProviderStatus("codex.exe", null, false))),
+            ("Found, not signed in: run 'claude auth login' once", "Found, not signed in: run 'codex login' once"));
+        Program.Equal("first run: found, sign-in unknown",
+            FirstRun.Status(Claude, new AgentProviderStatus("claude.exe", null, null)), "Found, sign-in unknown");
+        Program.Equal("first run: not found", FirstRun.Status(Claude, new AgentProviderStatus(null, null, null)), "Not found");
+        Program.Equal("first run: each agent has its own https install page",
+            (FirstRun.InstallAddress(Claude).StartsWith("https://", StringComparison.Ordinal),
+                FirstRun.InstallAddress(AgentProviderKind.Codex).StartsWith("https://", StringComparison.Ordinal),
+                FirstRun.InstallAddress(Claude) != FirstRun.InstallAddress(AgentProviderKind.Codex)),
+            (true, true, true));
+    }
+
+    /// <summary>A workspace with roles and skills of its own, and the things around them that a pack must never hold.</summary>
+    private static string TeamWorkspace()
+    {
+        var workspace = TempFolder();
+        var agents = Path.Combine(workspace, ".agents");
+        Directory.CreateDirectory(ProjectRoles.FolderIn(workspace));
+        File.WriteAllText(Path.Combine(ProjectRoles.FolderIn(workspace), "qa.md"), "---\nname: QA\n---\nCheck it.");
+        File.WriteAllText(Path.Combine(ProjectRoles.FolderIn(workspace), "audio.md"), "---\nname: Audio\n---\nMix it.");
+        File.WriteAllText(Path.Combine(ProjectRoles.FolderIn(workspace), "notes.txt"), "not a role");
+        WriteSkill(workspace, "game-check", "Run the game's check.");
+        WriteSkill(workspace, "ui-pass", "Walk the screens.");
+        Directory.CreateDirectory(Path.Combine(ProjectSkills.FolderIn(workspace), "game-check", "scripts"));
+        File.WriteAllText(Path.Combine(ProjectSkills.FolderIn(workspace), "game-check", "scripts", "check.ps1"), "echo ok");
+        // Not skills, not roles: settings, a key, a log, a folder without a SKILL.md.
+        File.WriteAllText(Path.Combine(agents, "settings.json"), "{\"token\":\"secret\"}");
+        File.WriteAllText(Path.Combine(agents, "my.key"), "secret");
+        File.WriteAllText(Path.Combine(workspace, "link.log"), "log");
+        Directory.CreateDirectory(Path.Combine(ProjectSkills.FolderIn(workspace), "drafts"));
+        File.WriteAllText(Path.Combine(ProjectSkills.FolderIn(workspace), "drafts", "idea.txt"), "idea");
+        return workspace;
+    }
+
+    private static string[] PackEntries(string file)
+    {
+        using var zip = ZipFile.OpenRead(file);
+        return [.. zip.Entries.Select(entry => entry.FullName).Order(StringComparer.Ordinal)];
+    }
+
+    private static void MakeZip(string file, params (string Name, string Text)[] entries)
+    {
+        using var zip = ZipFile.Open(file, ZipArchiveMode.Create);
+        foreach (var (name, text) in entries)
+        {
+            var entry = zip.CreateEntry(name);
+            if (name.EndsWith('/')) continue;
+            using var writer = new StreamWriter(entry.Open());
+            writer.Write(text);
+        }
+    }
+
+    /// <summary>A pack holds the roles and skills and pack.json, nothing else, and goes into another workspace as it was.</summary>
+    private static void TeamPackRoundTrip()
+    {
+        var source = TeamWorkspace();
+        var target = TempFolder();
+        var packs = TempFolder();
+        var file = Path.Combine(packs, "team" + TeamPack.Extension);
+        try
+        {
+            Program.Equal("team pack: the counts of roles and skills", TeamPack.Export(source, file), (2, 2));
+            Program.Equal("team pack: only roles/*.md, skills/<name>/** and pack.json",
+                string.Join("|", PackEntries(file)),
+                "pack.json|roles/audio.md|roles/qa.md|skills/game-check/SKILL.md|skills/game-check/scripts/check.ps1|skills/ui-pass/SKILL.md");
+            using (var zip = ZipFile.OpenRead(file))
+            using (var manifest = JsonDocument.Parse(zip.GetEntry("pack.json")!.Open()))
+            {
+                var root = manifest.RootElement;
+                Program.Equal("team pack: pack.json has the format, the time, the role ids and the skill names",
+                    (root.GetProperty("format").GetInt32(), DateTimeOffset.TryParse(root.GetProperty("created").GetString(), out _),
+                        string.Join("+", root.GetProperty("roles").EnumerateArray().Select(each => each.GetString())),
+                        string.Join("+", root.GetProperty("skills").EnumerateArray().Select(each => each.GetString()))),
+                    (1, true, "audio+qa", "game-check+ui-pass"));
+            }
+
+            var imported = TeamPack.Import(file, target, _ => throw new InvalidOperationException("nothing there to replace"));
+            Program.Equal("team pack: into an empty workspace everything is added",
+                (string.Join("|", imported.Added), imported.Replaced.Count, imported.Skipped.Count),
+                ("roles/audio.md|roles/qa.md|skills/game-check|skills/ui-pass", 0, 0));
+            Program.Equal("team pack: the files come as they were",
+                (File.ReadAllText(Path.Combine(ProjectRoles.FolderIn(target), "qa.md")),
+                    File.ReadAllText(Path.Combine(ProjectSkills.FolderIn(target), "game-check", "scripts", "check.ps1")),
+                    ProjectSkills.In(target).Count, ProjectRoles.Find("qa", target)?.Name),
+                ("---\nname: QA\n---\nCheck it.", "echo ok", 2, "QA"));
+            Program.Equal("team pack: nothing else lands in the workspace",
+                (File.Exists(Path.Combine(target, ".agents", "settings.json")), File.Exists(Path.Combine(target, ".agents", "my.key")),
+                    File.Exists(Path.Combine(target, "link.log")), Directory.Exists(Path.Combine(ProjectSkills.FolderIn(target), "drafts"))),
+                (false, false, false, false));
+
+            var none = Path.Combine(packs, "none" + TeamPack.Extension);
+            Program.Equal("team pack: a workspace with neither roles nor skills gives no file", (TeamPack.Export(Directory.CreateDirectory(Path.Combine(packs, "empty")).FullName, none), File.Exists(none)), ((0, 0), false));
+        }
+        finally
+        {
+            DeleteFolder(source);
+            DeleteFolder(target);
+            DeleteFolder(packs);
+        }
+    }
+
+    /// <summary>A link in a skill's folder may lead to anything: the pack leaves it out, so it cannot carry a file from elsewhere.</summary>
+    private static void TeamPackLinks()
+    {
+        var workspace = TempFolder();
+        var outside = TempFolder();
+        var packs = TempFolder();
+        try
+        {
+            WriteSkill(workspace, "x", "A skill.");
+            File.WriteAllText(Path.Combine(outside, "secret.txt"), "secret");
+            File.WriteAllText(Path.Combine(outside, "SKILL.md"), "---\nname: stolen\n---\n");
+            try
+            {
+                File.CreateSymbolicLink(Path.Combine(ProjectSkills.FolderIn(workspace), "x", "leak.txt"), Path.Combine(outside, "secret.txt"));
+                Directory.CreateSymbolicLink(Path.Combine(ProjectSkills.FolderIn(workspace), "linked"), outside);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                return; // Windows lets only an administrator or developer mode make a symbolic link.
+            }
+
+            var file = Path.Combine(packs, "team" + TeamPack.Extension);
+            Program.Equal("team pack: links are left out", (TeamPack.Export(workspace, file), string.Join("|", PackEntries(file))), ((0, 1), "pack.json|skills/x/SKILL.md"));
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+            DeleteFolder(outside);
+            DeleteFolder(packs);
+        }
+    }
+
+    /// <summary>An existing role or skill is replaced only when the callback says yes to its name; a skill keeps the files of its own.</summary>
+    private static void TeamPackReplace()
+    {
+        var source = TeamWorkspace();
+        var target = TeamWorkspace();
+        var packs = TempFolder();
+        var file = Path.Combine(packs, "team" + TeamPack.Extension);
+        try
+        {
+            File.WriteAllText(Path.Combine(source, ".agents", "roles", "qa.md"), "---\nname: QA\n---\nNew text.");
+            File.WriteAllText(Path.Combine(source, ".agents", "roles", "level.md"), "---\nname: Level\n---\nA new role.");
+            File.WriteAllText(Path.Combine(ProjectSkills.FolderIn(source), "ui-pass", "SKILL.md"), "---\nname: ui-pass\ndescription: New.\n---\n");
+            File.WriteAllText(Path.Combine(ProjectSkills.FolderIn(target), "ui-pass", "local.txt"), "mine");
+            TeamPack.Export(source, file);
+
+            var asked = new List<string>();
+            var imported = TeamPack.Import(file, target, name =>
+            {
+                asked.Add(name);
+                return name is "roles/qa.md" or "skills/ui-pass";
+            });
+            Program.Equal("team pack: the callback is asked once for each item that exists, by name",
+                string.Join("|", asked.Order(StringComparer.Ordinal)), "roles/audio.md|roles/qa.md|skills/game-check|skills/ui-pass");
+            Program.Equal("team pack: added, replaced and kept are told apart",
+                (string.Join("|", imported.Added), string.Join("|", imported.Replaced), string.Join("|", imported.Skipped)),
+                ("roles/level.md", "roles/qa.md|skills/ui-pass", "roles/audio.md|skills/game-check"));
+            Program.Equal("team pack: a yes replaces the file, a no keeps it, a replaced skill keeps its other files",
+                (File.ReadAllText(Path.Combine(target, ".agents", "roles", "qa.md")).EndsWith("New text.", StringComparison.Ordinal),
+                    File.ReadAllText(Path.Combine(target, ".agents", "roles", "audio.md")),
+                    ProjectSkills.In(target).First(skill => skill.Name == "ui-pass").Description,
+                    File.ReadAllText(Path.Combine(ProjectSkills.FolderIn(target), "ui-pass", "local.txt"))),
+                (true, "---\nname: Audio\n---\nMix it.", "New.", "mine"));
+        }
+        finally
+        {
+            DeleteFolder(source);
+            DeleteFolder(target);
+            DeleteFolder(packs);
+        }
+    }
+
+    /// <summary>A file that is no pack, a pack of another format, and every way out of .agents are refused before anything is written.</summary>
+    private static void TeamPackRefusals()
+    {
+        var workspace = TempFolder();
+        var folder = TempFolder();
+        try
+        {
+            string Import(params (string Name, string Text)[] entries)
+            {
+                var file = Path.Combine(folder, Guid.NewGuid().ToString("N") + TeamPack.Extension);
+                MakeZip(file, entries);
+                return Outcome(file);
+            }
+
+            string Outcome(string file)
+            {
+                try
+                {
+                    TeamPack.Import(file, workspace, _ => true);
+                    return "imported";
+                }
+                catch (InvalidDataException)
+                {
+                    return "refused";
+                }
+            }
+
+            const string Manifest = "{\"format\":1}";
+            Program.Equal("team pack: a zip without pack.json is refused", Import(("roles/qa.md", "---\nname: QA\n---\n")), "refused");
+            Program.Equal("team pack: a pack of another format is refused", Import(("pack.json", "{\"format\":2}"), ("roles/qa.md", "x")), "refused");
+            Program.Equal("team pack: a pack.json that is no JSON is refused", Import(("pack.json", "<xml/>"), ("roles/qa.md", "x")), "refused");
+            var text = Path.Combine(folder, "not-a-zip" + TeamPack.Extension);
+            File.WriteAllText(text, "plain text");
+            Program.Equal("team pack: a file that is no zip is refused", Outcome(text), "refused");
+
+            foreach (var bad in new[]
+                     {
+                         "../evil.md", "roles/../../evil.md", "skills/x/../../../evil.md", "/rooted/evil.md", "C:/evil.md", "roles/C:evil.md",
+                         "roles\\..\\..\\evil.md", "skills//x/SKILL.md", "skills/./x/SKILL.md"
+                     })
+            {
+                Program.Equal($"team pack: the entry {bad} is refused", Import(("pack.json", Manifest), ("roles/qa.md", "fine"), (bad, "evil")), "refused");
+            }
+
+            Program.Equal("team pack: nothing was written by any refused pack",
+                (Directory.Exists(Path.Combine(workspace, ".agents")), File.Exists(Path.Combine(folder, "evil.md")), File.Exists(Path.Combine(workspace, "evil.md"))),
+                (false, false, false));
+            Program.Equal("team pack: a folder entry, the manifest and files outside roles and skills are not taken",
+                Import(("pack.json", Manifest), ("roles/", string.Empty), ("readme.txt", "x"), ("settings.json", "{}"), ("roles/sub/deep.md", "x"), ("roles/qa.txt", "x"), ("skills/stray.md", "x")),
+                "imported");
+            Program.Equal("team pack: and none of them lands",
+                Directory.Exists(Path.Combine(workspace, ".agents")) ? string.Join("|", Directory.GetFiles(Path.Combine(workspace, ".agents"), "*", SearchOption.AllDirectories)) : string.Empty,
+                string.Empty);
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+            DeleteFolder(folder);
+        }
     }
 
     /// <summary>An agent whose runs do what the check says, for what Link does around a run; it keeps the tasks it got.</summary>

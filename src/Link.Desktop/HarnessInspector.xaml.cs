@@ -76,6 +76,19 @@ public partial class HarnessInspector : UserControl
     /// <summary>The Console, the raw view of what the agent's CLI got and wrote back, is to be opened.</summary>
     public event Action? ConsoleRequested;
 
+    /// <summary>Export team pack…: the window asks for a file and writes the workspace's roles and skills to it.</summary>
+    public event Action? TeamPackExportRequested;
+
+    /// <summary>Import team pack…: the window asks for a file and takes its roles and skills in.</summary>
+    public event Action? TeamPackImportRequested;
+
+    /// <summary>What the last export or import did, or why it could not.</summary>
+    public void ShowTeamPackStatus(string text)
+    {
+        PackStatusText.Text = text;
+        PackStatusText.Visibility = Visibility.Visible;
+    }
+
     /// <summary>Draws the view. The same sections again change nothing; a changed one is changed in its place.</summary>
     public void Show(HarnessView view)
     {
@@ -96,6 +109,10 @@ public partial class HarnessInspector : UserControl
     }
 
     private void Console_OnClick(object sender, RoutedEventArgs e) => ConsoleRequested?.Invoke();
+
+    private void ExportPack_OnClick(object sender, RoutedEventArgs e) => TeamPackExportRequested?.Invoke();
+
+    private void ImportPack_OnClick(object sender, RoutedEventArgs e) => TeamPackImportRequested?.Invoke();
 
     private void Detail_OnClick(object sender, RoutedEventArgs e)
     {

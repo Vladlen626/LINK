@@ -148,6 +148,18 @@
             <ItemsControl x:Name="LimitsList" Grid.Row="1" Margin="0,8,0,4" ItemTemplate="{StaticResource LimitRowTemplate}" />
             <ScrollViewer Grid.Row="2" Margin="0,6,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                 <StackPanel Margin="0,0,4,0">
+                    <!-- A task that ended well and changed files was finished: keep what it taught, only when asked. -->
+                    <Border x:Name="LearnCard" Style="{StaticResource FieldStyle}" Margin="0,6,0,4" Padding="10,8"
+                            BorderBrush="{StaticResource AccentBorderBrush}" Visibility="Collapsed">
+                        <StackPanel>
+                            <TextBlock x:Name="LearnText" Style="{StaticResource RowTextStyle}" />
+                            <WrapPanel Margin="0,2,0,0">
+                                <Button Style="{StaticResource SmallChipStyle}" Click="Learn_OnClick" Content="Update skill"
+                                        ToolTip="The agent that did the task describes what it learned as a skill; Link writes it to .agents/skills in the workspace, and asks before it replaces one" />
+                                <Button Style="{StaticResource SmallChipStyle}" Click="LearnNo_OnClick" Content="No" />
+                            </WrapPanel>
+                        </StackPanel>
+                    </Border>
                     <TextBlock x:Name="TasksEmptyText" Margin="0,6,0,0" Style="{StaticResource RowTextStyle}" Foreground="{StaticResource MutedBrush}"
                                Text="No tasks yet. Write one in Link and press Ctrl+Enter, or choose To ▾ Agent task: a card shows what goes to the agent, and nothing runs before Run." />
                     <ItemsControl x:Name="TaskList" Margin="-8,0,0,0">
@@ -352,6 +364,16 @@
                                     Padding="14,0" HorizontalAlignment="Left" Click="Decision_OnClick" />
                         </StackPanel>
                     </Border>
+
+                    <!-- A cheaper agent could do what is left: a hint with its reason; the hand-over is the button's, never by itself. -->
+                    <Grid x:Name="CheaperRow" Margin="0,8,0,0" Visibility="Collapsed">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <TextBlock x:Name="CheaperText" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" FontSize="11" TextWrapping="Wrap" />
+                        <Button Grid.Column="1" Margin="8,0,-4,0" Padding="8,2" VerticalAlignment="Center" Style="{StaticResource GhostButtonStyle}"
+                                Click="Cheaper_OnClick" ToolTip="The custom model takes the task over with a brief you see first; nothing is handed over before that">
+                            <TextBlock x:Name="CheaperButtonText" FontSize="11" Foreground="{StaticResource TextBrush}" />
+                        </Button>
+                    </Grid>
 
                     <!-- After a failed run or a Stop on a loop: start over with a note, or the same session on Deep. -->
                     <Border x:Name="RestartCard" Style="{StaticResource FieldStyle}" Margin="0,10,0,0" Padding="10,8" Visibility="Collapsed">

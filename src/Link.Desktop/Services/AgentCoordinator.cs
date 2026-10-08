@@ -325,18 +325,26 @@ public sealed class AgentCoordinator
     /// <summary>
     /// Save as skill: the run's session, read only, answers with a SKILL.md of what it has just done, and Link writes it
     /// (see <see cref="SkillFile"/>). The request is the task file with the workspace's skills, so that the same work
-    /// keeps its name. Null without a session to ask.
+    /// keeps its name. Null without a session to ask. <paramref name="taskSkills"/> is set when a task that ended well
+    /// is finished (Update skill): the request then also asks to update a skill that fits, those the task read first,
+    /// rather than write a new one.
     /// </summary>
-    public static AgentTask? SkillTask(AgentRun run, string request)
+    public static AgentTask? SkillTask(AgentRun run, string request, IReadOnlyList<string>? taskSkills = null)
     {
         if (run.Result.SessionId is not { } session) return null;
         var skills = ProjectSkills.In(run.Task.Workspace).Select(skill => skill.Name).ToArray();
+        var read = taskSkills?.Where(name => skills.Contains(name, StringComparer.OrdinalIgnoreCase)).ToArray() ?? [];
+        var update = taskSkills is null
+            ? string.Empty
+            : "\n\nThe task is done and checked. Prefer updating a skill of the workspace that fits it over writing a new one" +
+              (read.Length == 0 ? string.Empty : $" (this task worked by {string.Join(", ", read)})") +
+              ". Keep it true and short: rewrite what changed where it stands, no history.";
         return run.Task with
         {
             ResumeSessionId = session,
             Access = AgentAccess.Analyze,
             PlanOnly = false,
-            Prompt = $"{request.Trim()}\n\nSkills of the workspace: {(skills.Length == 0 ? "none yet" : string.Join(", ", skills))}.",
+            Prompt = $"{request.Trim()}\n\nSkills of the workspace: {(skills.Length == 0 ? "none yet" : string.Join(", ", skills))}.{update}",
             Images = [],
             AllowedTools = [],
             AnswerFile = null,

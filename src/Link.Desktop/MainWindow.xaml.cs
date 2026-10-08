@@ -441,6 +441,16 @@ public partial class MainWindow : Window
         _projectPanel?.FocusNote();
     }
 
+    /// <summary>A project for a folder, named by it and working there; it becomes the current one. Returns its name.</summary>
+    public string AddProjectForFolder(string folder)
+    {
+        var project = _projects.Create(Path.GetFileName(Path.TrimEndingDirectorySeparator(folder)));
+        project.WorkspaceRoot = folder;
+        _projects.Save();
+        LoadProject(project);
+        return project.Name;
+    }
+
     private void RenameCurrentProject()
     {
         var dialog = new CreateProjectWindow(_projects.ActiveProject.Name, isRename: true) { Owner = this };

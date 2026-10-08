@@ -23,6 +23,8 @@ public partial class StudioWindow : Window
         TasksHost.Child = tasks;
         Inspector.OpenFileRequested += path => OpenFileRequested?.Invoke(path);
         Inspector.ConsoleRequested += () => ConsoleRequested?.Invoke();
+        Inspector.TeamPackExportRequested += () => TeamPackExportRequested?.Invoke();
+        Inspector.TeamPackImportRequested += () => TeamPackImportRequested?.Invoke();
         Width = settings.Width;
         Height = settings.Height;
         if (settings.Left is { } left && settings.Top is { } top)
@@ -57,6 +59,12 @@ public partial class StudioWindow : Window
     /// <summary>The Console is to be opened.</summary>
     public event Action? ConsoleRequested;
 
+    /// <summary>The inspector's Export team pack…</summary>
+    public event Action? TeamPackExportRequested;
+
+    /// <summary>The inspector's Import team pack…</summary>
+    public event Action? TeamPackImportRequested;
+
     public bool InspectorOpen => _settings.InspectorOpen;
 
     /// <summary>The project, the open task's context line (null: no task is open) and whether Compact is offered.</summary>
@@ -70,6 +78,8 @@ public partial class StudioWindow : Window
     }
 
     public void ShowHarness(HarnessView view) => Inspector.Show(view);
+
+    public void ShowTeamPackStatus(string text) => Inspector.ShowTeamPackStatus(text);
 
     /// <summary>Opens or folds the inspector column, and keeps the choice.</summary>
     public void ShowInspector(bool open)

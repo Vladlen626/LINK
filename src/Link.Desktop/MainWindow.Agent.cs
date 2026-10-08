@@ -94,6 +94,8 @@ public partial class MainWindow
     private (string? Id, string? Workspace, string? Name) _roleName;
     // The project's stats for the inspector, which reads them again only after a task is saved.
     private (Guid Project, IReadOnlyList<StatsRow> Rows)? _stats;
+    // A finished task that ended well and changed files, whose skill Link offers to update: its last run asks, its skills go in the request.
+    private (Guid Project, string Goal, AgentRun Run, IReadOnlyList<string> Skills)? _learn;
 
     private bool AgentRunning => _agentCancellation is not null;
 
@@ -235,9 +237,9 @@ public partial class MainWindow
     /// Save as skill: the last run's session describes what it did as a skill, read only, and Link writes the SKILL.md
     /// to the workspace's skills, the one change, shown and undone like any other.
     /// </summary>
-    private async Task SaveSkillAsync()
+    private async Task SaveSkillAsync(AgentRun? finished = null, IReadOnlyList<string>? taskSkills = null)
     {
-        if (_lastRun is not { } run || AgentRunning) return;
+        if ((finished ?? _lastRun) is not { } run || AgentRunning) return;
         string request;
         try
         {
@@ -249,7 +251,7 @@ public partial class MainWindow
             return;
         }
 
-        if (AgentCoordinator.SkillTask(run, request) is not { } task) return;
+        if (AgentCoordinator.SkillTask(run, request, taskSkills) is not { } task) return;
         var (provider, model, effort) = OwnAnswerSetup(task.Provider, inSession: true);
         _task?.Add(AgentEntryKind.You, "Save as skill");
         await StartAgentAsync(task with { Provider = provider, Model = model, Effort = effort }, null);
@@ -427,7 +429,14 @@ public partial class MainWindow
         panel.EscalateRequested += Escalate;
         panel.ContinueRequested += words => ContinueAgent(words);
         panel.QueueRequested += QueueAfterRun;
-        panel.FinishRequested += FinishTask;
+        panel.FinishRequested += FinishFromPanel;
+        panel.LearnRequested += LearnFromTask;
+        panel.CheaperRequested += () => _ = ShowHandOffCardAsync(AgentProviderKind.Custom);
+        panel.LearnDeclined += () =>
+        {
+            _learn = null;
+            RefreshTaskList();
+        };
         panel.PlanModeOffRequested += LeavePlanMode;
         panel.OpenFileRequested += ShowFile;
         panel.BackRequested += ShowTaskList;
@@ -460,7 +469,13 @@ public partial class MainWindow
         _agentPanel?.ShowListView();
     }
 
-    private void RefreshTaskList() => _agentPanel?.ShowList(TaskRows(), AllLimitRows(), OwnRow());
+    private void RefreshTaskList() => _agentPanel?.ShowList(TaskRows(), AllLimitRows(), OwnRow(), LearnOffer());
+
+    /// <summary>The line that offers to keep what a finished task taught, on the list of its project; null when there is no offer.</summary>
+    private string? LearnOffer() => _learn is { } learn && learn.Project == _projects.ActiveProject.Id
+        ? $"Keep what “{Shorten(learn.Goal, 60)}” taught? Link asks the agent to update " +
+          (learn.Skills.Count > 0 ? "the role's skill." : "a skill that fits.")
+        : null;
 
     /// <summary>Link's own run at the top of the list while it works, and after it until the next one: one click shows it.</summary>
     private TaskRow? OwnRow()
@@ -541,6 +556,7 @@ public partial class MainWindow
             _projects.Save();
         }
 
+        _learn = null;
         if (_task is { Status: not AgentTaskStatus.Finished }) FinishTask();
         _backupBeforeDo = plan.BackupBeforeDo;
         // The input went to the agent: like a sent message, it leaves the prompt.
@@ -638,6 +654,38 @@ public partial class MainWindow
         AgentStatus("Plan mode is off: your next words go on with edits in the same session");
     }
 
+    /// <summary>
+    /// The Finish button: the task closes, and one that ended well (the check passed or there was none) and changed files
+    /// offers on the list to keep what it taught. Another way to close a task, such as a new one, offers nothing.
+    /// </summary>
+    private void FinishFromPanel()
+    {
+        if (!AgentRunning)
+        {
+            _learn = _task is { Status: AgentTaskStatus.Done, ChangedFiles.Count: > 0 } task && _lastRun is { Result.SessionId: not null } run &&
+                     !run.Task.AnswerIsSkill
+                ? ((_taskProject ?? _projects.ActiveProject).Id, task.Goal, run, task.Skills)
+                : null;
+        }
+
+        FinishTask();
+    }
+
+    /// <summary>Update skill: Save as skill for the finished task, asked to update a skill that fits rather than write a new one.</summary>
+    private void LearnFromTask()
+    {
+        if (_learn is not { } learn) return;
+        if (AgentRunning)
+        {
+            AgentStatus("An agent is working: ask again once it ends");
+            return;
+        }
+
+        _learn = null;
+        RefreshTaskList();
+        _ = SaveSkillAsync(learn.Run, learn.Skills);
+    }
+
     /// <summary>Finish: the task is closed and stays in the list, where it can be opened and taken up again.</summary>
     private void FinishTask()
     {
@@ -669,6 +717,7 @@ public partial class MainWindow
     /// </summary>
     private void OpenAgentTask(AgentTaskRecord record)
     {
+        _learn = null;
         if (_task?.Id == record.Id)
         {
             ShowTaskInPanel();
@@ -940,7 +989,7 @@ public partial class MainWindow
 
     /// <summary>What Link's own run writes, as the user reads it: "docs/map.md".</summary>
     private static string OwnWhat(AgentTask task) =>
-        task.AnswerFile is { } file ? file.Replace('\\', '/') : Shorten(task.Prompt.Split('\n')[0], 80);
+        task.AnswerFile is { } file ? file.Replace('\\', '/') : task.AnswerIsSkill ? "a skill" : Shorten(task.Prompt.Split('\n')[0], 80);
 
     /// <summary>The ⋯ menu of Link's own run: undo what it wrote, and the console.</summary>
     private IReadOnlyList<PanelAction> OwnActions(OwnRun own) =>
@@ -1781,6 +1830,7 @@ public partial class MainWindow
 
         panel.ShowQuestion(_question);
         panel.ShowMenus(HandOffActions(record), MoreActions());
+        panel.ShowCheaper(live || AgentRunning ? null : CheaperHintFor(record), AgentName(AgentProviderKind.Custom));
         panel.ShowFinish(true);
         panel.ShowPlanMode(!live && !AgentRunning && _lastRun is { Task.PlanOnly: true });
         if (live) panel.ShowReply(true);
@@ -1790,6 +1840,20 @@ public partial class MainWindow
         else panel.ShowReply(false, "This task has no session to go on with: hand it to an agent, or start it anew from its card.");
         UpdateAgentPill();
         RefreshStudio();
+    }
+
+    /// <summary>
+    /// The hint that the custom model could do what is left of the open task, with its reason: the plan waiting to be
+    /// carried out, or the project's own record of the model for the task's specialist. Null when there is none, or
+    /// nothing left, or the task cannot be handed over.
+    /// </summary>
+    private string? CheaperHintFor(AgentTaskRecord record)
+    {
+        if (record.Status is AgentTaskStatus.Done or AgentTaskStatus.Finished || ResumableTask() is null) return null;
+        var custom = _agents.Provider(AgentProviderKind.Custom);
+        var planWaits = _decision is not null && _lastRun is { Task.PlanOnly: true };
+        return CheaperHint.For(record, custom.Configured, custom.Name, RoleName(record.RoleId, record.Workspace) ?? "General",
+            ProjectStats(_taskProject ?? _projects.ActiveProject, record.Workspace), planWaits ? CheaperHint.RunPlan : "Task");
     }
 
     /// <summary>
@@ -2014,7 +2078,7 @@ public partial class MainWindow
         var record = _task;
         var project = record is null ? _projects.ActiveProject : _taskProject ?? _projects.ActiveProject;
         var settings = _settings.Current.Agent;
-        var workspace = record?.Workspace ?? (project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null);
+        var workspace = StudioWorkspace();
 
         // What the agent has now: the run under way, else the last run, else what the card would start from.
         AgentProviderKind provider;

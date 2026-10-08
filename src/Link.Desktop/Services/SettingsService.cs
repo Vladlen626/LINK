@@ -15,12 +15,17 @@ public sealed class SettingsService
     public SettingsService(StoragePaths paths)
     {
         _paths = paths;
+        // A damaged file is not a first start: its owner has been here.
+        FirstStart = !File.Exists(paths.SettingsFile);
         Current = Load();
         _savedLaunchWithWindows = Current.LaunchWithWindows;
     }
 
     /// <summary>The live settings: one instance for the app's lifetime, edited in place and saved.</summary>
     public AppSettings Current { get; }
+
+    /// <summary>This is the very first start: there was no settings file when Link began.</summary>
+    public bool FirstStart { get; }
 
     public void Save()
     {

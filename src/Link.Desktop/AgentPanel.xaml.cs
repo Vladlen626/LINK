@@ -120,6 +120,15 @@ public partial class AgentPanel : UserControl
 
     public event Action? FinishRequested;
 
+    /// <summary>Update skill on the offer after a finished task: the agent is asked to keep what the task taught.</summary>
+    public event Action? LearnRequested;
+
+    /// <summary>No on that offer.</summary>
+    public event Action? LearnDeclined;
+
+    /// <summary>The button of the cheaper hint: the card of a hand-off to the custom model is wanted.</summary>
+    public event Action? CheaperRequested;
+
     /// <summary>Plan mode off: the session's next words go on with edits.</summary>
     public event Action? PlanModeOffRequested;
     public event Action<string>? OpenFileRequested;
@@ -143,11 +152,13 @@ public partial class AgentPanel : UserControl
     /// The list of the project's tasks with the agents' usage, Link's own run (<paramref name="own"/>) first while there
     /// is one; the view shows when nothing else is open.
     /// </summary>
-    public void ShowList(IReadOnlyList<TaskRow> tasks, IReadOnlyList<LimitRow> limits, TaskRow? own)
+    public void ShowList(IReadOnlyList<TaskRow> tasks, IReadOnlyList<LimitRow> limits, TaskRow? own, string? learn = null)
     {
         TaskList.ItemsSource = own is null ? tasks : tasks.Prepend(own).ToArray();
         TasksEmptyText.Visibility = tasks.Count == 0 && own is null ? Visibility.Visible : Visibility.Collapsed;
         LimitsList.ItemsSource = limits;
+        LearnCard.Visibility = learn is null ? Visibility.Collapsed : Visibility.Visible;
+        LearnText.Text = learn ?? string.Empty;
     }
 
     /// <summary>Back to the list: no task is open in the panel.</summary>
@@ -217,6 +228,7 @@ public partial class AgentPanel : UserControl
     {
         QuestionCard.Visibility = Visibility.Collapsed;
         DecisionCard.Visibility = Visibility.Collapsed;
+        CheaperRow.Visibility = Visibility.Collapsed;
         RestartCard.Visibility = Visibility.Collapsed;
         LimitCard.Visibility = Visibility.Collapsed;
     }
@@ -414,6 +426,14 @@ public partial class AgentPanel : UserControl
     }
 
     public void HideDecision() => DecisionCard.Visibility = Visibility.Collapsed;
+
+    /// <summary>A hint that the custom model could do what is left, with the button that hands the task over; null hides it.</summary>
+    public void ShowCheaper(string? hint, string customName)
+    {
+        CheaperRow.Visibility = hint is null ? Visibility.Collapsed : Visibility.Visible;
+        CheaperText.Text = hint ?? string.Empty;
+        CheaperButtonText.Text = $"Hand off to {customName}";
+    }
 
     /// <summary>Start over, and Escalate when the task is not already on the strongest model.</summary>
     public void ShowRestart(bool show, bool escalate = false)
@@ -802,6 +822,9 @@ public partial class AgentPanel : UserControl
     private void Escalate_OnClick(object sender, RoutedEventArgs e) => EscalateRequested?.Invoke();
     private void RestartNotNow_OnClick(object sender, RoutedEventArgs e) => ShowRestart(false);
     private void Finish_OnClick(object sender, RoutedEventArgs e) => FinishRequested?.Invoke();
+    private void Cheaper_OnClick(object sender, RoutedEventArgs e) => CheaperRequested?.Invoke();
+    private void Learn_OnClick(object sender, RoutedEventArgs e) => LearnRequested?.Invoke();
+    private void LearnNo_OnClick(object sender, RoutedEventArgs e) => LearnDeclined?.Invoke();
 
     private void PlanMode_OnClick(object sender, RoutedEventArgs e) => PlanModeOffRequested?.Invoke();
 

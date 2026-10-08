@@ -1,0 +1,63 @@
+<Window x:Class="Link.Desktop.FirstRunWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Welcome to LINK" Width="500" SizeToContent="Height" ResizeMode="NoResize"
+        WindowStartupLocation="CenterScreen" Style="{StaticResource LinkWindowStyle}">
+    <Grid>
+        <Border Style="{StaticResource DialogTintStyle}" />
+        <Grid Margin="26,20,26,20">
+            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+
+            <StackPanel Orientation="Horizontal">
+                <Control Width="30" Height="30" Focusable="False" Foreground="{StaticResource BrandBrush}"
+                         Template="{StaticResource LinkGlyphTemplate}" />
+                <StackPanel Margin="12,-1,0,0">
+                    <TextBlock FontSize="19" FontWeight="SemiBold" Text="Welcome to LINK" />
+                    <TextBlock Style="{StaticResource SecondaryTextStyle}" Text="Nothing to sign in to here; all of it can change in Settings" />
+                </StackPanel>
+            </StackPanel>
+
+            <StackPanel Grid.Row="1" Margin="0,18,0,0">
+                <TextBlock Margin="2,0,0,6" Style="{StaticResource SectionLabelStyle}" Text="AGENTS" />
+                <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
+                    <Grid>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="110" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                        <TextBlock Margin="0,6" Text="Claude Code" />
+                        <StackPanel Grid.Column="1" Margin="0,6" Orientation="Horizontal">
+                            <TextBlock x:Name="ClaudeStatusText" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Checking…" />
+                            <Button x:Name="InstallClaudeButton" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="10,0,0,0" Tag="ClaudeCode"
+                                    Visibility="Collapsed" Click="Install_OnClick" Content="Install" />
+                        </StackPanel>
+                        <TextBlock Grid.Row="1" Margin="0,6" Text="Codex" />
+                        <StackPanel Grid.Row="1" Grid.Column="1" Margin="0,6" Orientation="Horizontal">
+                            <TextBlock x:Name="CodexStatusText" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Checking…" />
+                            <Button x:Name="InstallCodexButton" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="10,0,0,0" Tag="Codex"
+                                    Visibility="Collapsed" Click="Install_OnClick" Content="Install" />
+                        </StackPanel>
+                        <TextBlock Grid.Row="2" Margin="0,6" Text="Custom model" />
+                        <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,6">
+                            <TextBlock x:Name="CustomStatusText" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                            <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="0,4,0,0" HorizontalAlignment="Left"
+                                    Click="Settings_OnClick" Content="Set up in Settings → Agents (optional)" />
+                        </StackPanel>
+                    </Grid>
+                </Border>
+
+                <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="PROJECT" />
+                <Border Style="{StaticResource GlassCardStyle}" Padding="16,10">
+                    <StackPanel>
+                        <TextBlock Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                                   Text="A project is a folder your work lives in. Choose one and LINK makes a project for it, for tasks, a map and skills." />
+                        <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="0,8,0,0" HorizontalAlignment="Left"
+                                Click="AddFolder_OnClick" Content="Add folder…" />
+                        <TextBlock x:Name="ProjectText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+
+            <Button Grid.Row="2" Margin="0,16,0,0" HorizontalAlignment="Right" Style="{StaticResource PrimaryButtonStyle}" IsDefault="True"
+                    Click="Continue_OnClick" Content="Continue" />
+        </Grid>
+    </Grid>
+</Window>

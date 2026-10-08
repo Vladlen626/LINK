@@ -138,6 +138,21 @@ public partial class App : System.Windows.Application
             () => Dispatcher.Invoke(ShowSettings),
             () => Dispatcher.Invoke(ExitApplication));
         _started = true;
+
+        if (_settings.FirstStart)
+        {
+            // Saved now, the settings file is there at the next start: the welcome comes once.
+            _settings.Save();
+            Dispatcher.InvokeAsync(ShowFirstRun, DispatcherPriority.ApplicationIdle);
+        }
+    }
+
+    private void ShowFirstRun()
+    {
+        if (_settings is null || _mainWindow is null || _agents is null) return;
+        var window = new FirstRunWindow(_agents.Providers, _settings.Current.Agent, ShowSettings, _mainWindow.AddProjectForFolder);
+        if (_mainWindow.IsVisible) window.Owner = _mainWindow;
+        window.Show();
     }
 
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
