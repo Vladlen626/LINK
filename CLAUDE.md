@@ -47,10 +47,12 @@ The same harness Link gives its agents, for work on this repo.
 - `Windows/` Win32 only: `NativeMethods`, hotkeys (RegisterHotKey, low-level hook for held keys), capture (WGC, GDI),
   waveIn audio, tray, window styles, `CurrentApplicationService` (latched work target).
 - Agents: `AgentCoordinator` runs a task (check after Do, answer files such as the map or a skill, Start over);
-  `CliAgentProvider` → `ClaudeCodeProvider` / `CodexProvider` over `AgentProcess`; `AgentChanges` finds and undoes
-  changes; `AgentRules`, `ProjectMap`, `ProjectSkills` are the harness. The agent's rules and tasks are
-  `docs/harness/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel` in the side panel.
-- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat, Capture, Voice, Sizing, Panel, Agent.
+  `CliAgentProvider` → `ClaudeCodeProvider` (→ `CustomModelProvider`, any Anthropic-compatible model) / `CodexProvider`
+  over `AgentProcess`; `AgentChanges` finds and undoes changes; `AgentRules`, `ProjectMap`, `ProjectSkills`,
+  `ProjectRoles` are the harness; `AutoEffort`, `TaskState` (Compact), `HarnessView` (the inspector). The agent's rules,
+  tasks and roles are `docs/harness/**/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel`
+  in `StudioWindow`, beside `HarnessInspector`.
+- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat, Capture, Voice, Sizing, Panel, Agent, Studio.
 - `ChatPageWindow` the embedded ChatGPT page (WebView2). Never hide or minimize the window — it waits off screen, or
   ChatGPT is throttled to a few characters a second. Only the page inside rests, out of its engine's sight, while
   LINK does not need it (`IChatPage.Rest`); it is awake for every request.

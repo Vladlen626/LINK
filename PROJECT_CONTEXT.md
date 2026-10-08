@@ -59,6 +59,9 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
   Stop, Hand off ▾ (другой агент с брифом, другой уровень в той же сессии, возврат первого), Start over, Escalate,
   Finish; уровни Light / Standard / Deep; итог чипом в следующий вопрос, Discuss in chat с diff. Харнесс — всегда:
   правила агента в каждой новой сессии, цифры задачи, карта, skills, проверка после Do, метки петель.
+- **Agent Studio** — сделано, ждёт проверки (2026-10-08): окно Studio с колонкой Harness, бюджет контекста и Compact,
+  Effort Auto, специалисты и skills, своя модель (GLM, DeepSeek, OpenRouter, Ollama), план агента со статусами,
+  статистика ролей и моделей, Update skill после удачной задачи, First Run, Team pack. Дальше — Remote.
 
 ## Стек
 
@@ -282,6 +285,17 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   `AskUserQuestion` в `--disallowedTools`: в `-p` нет диалога, а протокол `can_use_tool` (stream-json) без живых
   прогонов не проверить. Картинки Codex: `--image` теперь перед опциями — раньше `-` (stdin) после списка `--image`
   читался как ещё одна картинка.
+- Agent Studio (2026-10-07/08, концепт и ответы пользователя; план — [docs/STUDIO_PLAN.md](docs/STUDIO_PLAN.md)).
+  Задачи агентов — отдельное окно Studio (AgentPanel посередине, колонка Harness справа), панель оверлея — Chats и
+  проект, её кнопка Tasks открывает Studio. Бюджет контекста задаёт Link: одно число в `settings.json` для всех
+  агентов (550k по умолчанию; Claude Code и своя модель — `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, Codex —
+  `model_auto_compact_token_limit` = 90 %), дальше автокомпакт CLI; Compact Link — новая сессия из состояния задачи,
+  которое Link собирает сам, без модели. Effort Auto меняет только effort, никогда модель или агента; выше Extra high —
+  только вручную; лимит — не провал. Специалисты — встроенные роли (`docs/harness/roles`, копируются к Link.exe) и
+  роли папки, подбираются по брифу вместе с skills, меняются на карточке. Своя модель — третий агент через Claude Code
+  (Anthropic-совместимый адрес), GLM-4.7-Flash (Z.ai) по умолчанию; никогда не выбирается сама — только карточка,
+  Hand off, галочка для ответов Link и подсказка с кнопкой. Ключ — DPAPI, не в логах, аргументах и Console.
+  Remote (телефон через свой VPS пользователя) — после проверки приложения.
 - Fast / Normal / Deep: provider-neutral подсказка в запросе плюс переключение режима ChatGPT с проверкой; Normal
   возвращает режим, который был до LINK.
 - ChatGPT — только встроенная страница WebView2 (2026-09-26). Расширение и loopback HTTP-мост удалены, когда
@@ -369,7 +383,11 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    проекта (решения отдельно от summaries), context router, command palette и локальные команды.
 8. **Agent Studio** (концепт пользователя, 07.10): два режима — Chat и Studio; счётчик контекста и бюджет, Auto
    Effort, роли-специалисты, Compact из состояния задачи, Custom-модели (GLM, DeepSeek, OpenRouter, Ollama) через
-   Claude Code, статистика, Harness Inspector — [docs/STUDIO_PLAN.md](docs/STUDIO_PLAN.md).
+   Claude Code, статистика, Harness Inspector — [docs/STUDIO_PLAN.md](docs/STUDIO_PLAN.md). S.1–S.13 сделаны в ночь
+   на 08.10 и ждут проверки пользователем: WPF, живые CLI и сервер Z.ai здесь не запускались (проверки — на Linux,
+   без Windows-тестов). Вживую не сверены: поля `TaskCreate`/`TaskUpdate` и `rate_limit_event` Claude Code, режим
+   Auto Claude Code на чужом сервере (его классификатор ходит в ту же модель), бесплатный ключ GLM. Дальше: Remote
+   через VPS пользователя, Steer now без остановки шага (stream-json на входе).
 
 ## Для AI-агентов
 
