@@ -1,5 +1,5 @@
 ---
-skills: unreal-blueprint, unreal-mcp, unreal-verify
+skills: unreal-blueprint, unreal-mcp, unreal-verify, ue-mcp-native-cpp
 ---
 - Blueprints and C++: follow the project's split between C++ base classes and Blueprint children.
 - Input is Enhanced Input only: an Input Action plus an Input Mapping Context added through the Enhanced Input Local Player Subsystem; no legacy axis or action mappings.

@@ -102,8 +102,9 @@ DeepSeek, OpenRouter, локальная Ollama) через тот же Claude C
    `.agents/roles/<id>.md` (заменяют встроенные с тем же id). Роли не знают движка: что делать в Unreal, Unity,
    Godot, Blender, Cascadeur, им добавляют **пакеты инструментов** в `%USERPROFILE%\LinkPacks\<pack>` (`pack.md`,
    `rules.md` — правила для любой задачи в таком проекте, `roles/`, `skills/`; у Unity — `unity-verify`, сборка без
-   редактора, и `unity-editor`, мост к живому редактору через Unity CLI), общие для всех игр; Link берёт пакеты, чьи файлы есть в папке (`*.uproject`, `*.blend`…),
-   а skill проекта с тем же именем перекрывает пакетный. Урок агента идёт в копию skill в проекте; после задачи Link
+   редактора, и `unity-editor`, мост к живому редактору через Unity CLI; у Blender — `blender-live`, `blender-model`,
+   `blender-anim`), общие для всех игр; Link берёт пакеты, чьи файлы есть в папке (`*.uproject`, `*.blend`…),
+   Blender и Cascadeur — в любой папке Unreal, Unity или Godot (`with:` в `pack.md`), а skill проекта с тем же именем перекрывает пакетный. Урок агента идёт в копию skill в проекте; после задачи Link
    предлагает **Share with all games**.
    **Team** (галка, когда бриф называет двух специалистов и больше): ведущий (Strong) только планирует шаги, Link
    раздаёт их по уровням — Haiku, Codex, Opus — с причиной в Plan, после провала повторяет и поднимает уровень,

@@ -3883,14 +3883,22 @@ internal static class AgentTests
             var copy = Path.Combine(ProjectSkills.FolderIn(workspace), "ue-own");
             Directory.CreateDirectory(copy);
             File.WriteAllText(Path.Combine(copy, "SKILL.md"), "---\nname: ue-own\ndescription: Build the Unreal project\n---\nRun the build with -NoHotReload.");
-            Program.Equal("tool packs: a .uproject at the top and a .blend two levels down show their packs",
-                ToolPacks.Names(workspace), "Blender + Unreal");
+            Program.Equal("tool packs: a .uproject at the top and a .blend two levels down show their packs, with the tools every game brings",
+                ToolPacks.Names(workspace), "Blender + Cascadeur + Unreal");
+            var unity = TempFolder();
+            Directory.CreateDirectory(Path.Combine(unity, "ProjectSettings"));
+            File.WriteAllText(Path.Combine(unity, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.0.1f1");
+            Program.Equal("tool packs: a Unity project with no .blend yet still has Blender, which comes with the engine",
+                ToolPacks.Names(unity), "Blender + Cascadeur + Unity");
+            DeleteFolder(unity);
 
             var skills = ProjectSkills.In(workspace);
+            var ueOther = skills.Single(skill => skill.Name == "ue-other");
             Program.Equal("tool packs: the workspace's own skill overrides the pack's of its name, the pack's others join with their pack",
-                string.Join("|", skills.Select(skill => $"{skill.Name}/{skill.Pack ?? "own"}")), "ue-own/own|ue-other/Unreal");
+                (skills[0].Name, skills[0].Pack, skills.Count(skill => skill.Name == "ue-own"), ueOther.Pack, skills.Any(skill => skill is { Name: "blender-model", Pack: "Blender" })),
+                ("ue-own", (string?)null, 1, "Unreal", true));
             Program.Equal("tool packs: a pack's skill is told in full, the workspace's from its root",
-                (ProjectSkills.PathFor(workspace, skills[0]), ProjectSkills.PathFor(workspace, skills[1])),
+                (ProjectSkills.PathFor(workspace, skills[0]), ProjectSkills.PathFor(workspace, ueOther)),
                 (".agents/skills/ue-own/SKILL.md", Path.Combine(other, "SKILL.md").Replace('\\', '/')));
 
             var developer = ProjectRoles.Find("unreal-developer", workspace)!;
@@ -3899,7 +3907,7 @@ internal static class AgentTests
                 ("gameplay-developer", true, "unreal-blueprint,ue-own", true));
             var artist = ProjectRoles.Find("3d-artist", workspace)!;
             Program.Equal("tool packs: a role takes each of the workspace's packs in turn",
-                (artist.Body.Contains("## In Blender"), artist.Body.Contains("## In Unreal"), artist.Skills.Contains("blender-export")), (true, true, true));
+                (artist.Body.Contains("## In Blender"), artist.Body.Contains("## In Unreal"), artist.Skills.Contains("blender-model")), (true, true, true));
             Program.Equal("tool packs: without the packs the role is the engine's-free one",
                 ProjectRoles.Find("3d-artist", null)!.Body.Contains("## In "), false);
 

@@ -1,5 +1,5 @@
 ---
-skills: blender-model, blender-export
+skills: blender-live, blender-model
 ---
 - Drive Blender headless: `blender -b <file>.blend --python <script>`.
 - Model in metres at unit scale 1; apply transforms (Ctrl+A). Blender bakes OpenGL normals.

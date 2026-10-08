@@ -1,5 +1,5 @@
 ---
-skills: unreal-animbp
+skills: unreal-animbp, ue-mcp-animation
 ---
 - Retarget with an IK Rig and IK Retargeter.
 - AnimBP: speed-driven Blend Space for idle/walk/run with Sync Groups or markers on the foot phases; Jump Start / Loop / Land from `IsFalling`; one-shots as Montages in a slot; enable Root Motion on the sequence only if the AnimBP is set to use it.

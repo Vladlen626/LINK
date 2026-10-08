@@ -1,7 +1,11 @@
 namespace Link.Desktop.Services;
 
 /// <summary>A tool pack: what Link knows of an engine or a tool (Unreal, Unity, Blender…) for every project that uses it.</summary>
-public sealed record ToolPack(string Id, string Name, string Description, IReadOnlyList<string> Detect, string Folder);
+public sealed record ToolPack(string Id, string Name, string Description, IReadOnlyList<string> Detect, string Folder)
+{
+    /// <summary>Packs that bring this one along: a tool used in every game of these engines (Blender with Unity and Unreal).</summary>
+    public IReadOnlyList<string> With { get; init; } = [];
+}
 
 /// <summary>
 /// Tool packs: one folder per engine or tool in the packs folder, shared by all projects. A pack holds <c>pack.md</c>
@@ -44,8 +48,8 @@ public static class ToolPacks
                 if (!File.Exists(file)) continue;
                 var (fields, _) = ProjectSkills.FrontMatter(AgentRules.WithoutNotes(File.ReadAllText(file)));
                 if (!fields.TryGetValue("name", out var name)) continue;
-                var detect = fields.GetValueOrDefault("detect")?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
-                packs.Add(new ToolPack(Path.GetFileName(directory), name, fields.GetValueOrDefault("description") ?? string.Empty, detect, directory));
+                packs.Add(new ToolPack(Path.GetFileName(directory), name, fields.GetValueOrDefault("description") ?? string.Empty,
+                    List(fields.GetValueOrDefault("detect")), directory) { With = List(fields.GetValueOrDefault("with")) });
             }
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -56,7 +60,10 @@ public static class ToolPacks
         return packs;
     }
 
-    /// <summary>The packs a workspace uses, as its files show (see <see cref="Shows"/>); none for no workspace.</summary>
+    /// <summary>
+    /// The packs a workspace uses: those its files show (see <see cref="Shows"/>), and those that come <see cref="ToolPack.With"/>
+    /// one of them; none for no workspace.
+    /// </summary>
     public static IReadOnlyList<ToolPack> For(string? workspace)
     {
         if (workspace is null || !Directory.Exists(workspace)) return [];
@@ -65,7 +72,9 @@ public static class ToolPacks
             if (Seen.TryGetValue(workspace, out var seen) && DateTimeOffset.Now - seen.At < Kept) return seen.Packs;
         }
 
-        IReadOnlyList<ToolPack> packs = [.. All(Folder).Where(pack => pack.Detect.Any(marker => Shows(workspace, marker)))];
+        var all = All(Folder);
+        var shown = all.Where(pack => pack.Detect.Any(marker => Shows(workspace, marker))).Select(pack => pack.Id).ToHashSet(StringComparer.OrdinalIgnoreCase);
+        IReadOnlyList<ToolPack> packs = [.. all.Where(pack => shown.Contains(pack.Id) || pack.With.Any(shown.Contains))];
         lock (Gate) Seen[workspace] = (DateTimeOffset.Now, packs);
         return packs;
     }
@@ -92,6 +101,8 @@ public static class ToolPacks
             return false;
         }
     }
+
+    private static string[] List(string? value) => value?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries) ?? [];
 
     /// <summary>The packs a workspace uses, by name: "Unreal + Blender + Perforce"; empty for none.</summary>
     public static string Names(string? workspace) => string.Join(" + ", For(workspace).Select(pack => pack.Name));
