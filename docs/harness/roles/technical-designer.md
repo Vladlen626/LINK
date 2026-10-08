@@ -5,6 +5,7 @@ description: Game-system design and specs with numbered acceptance criteria; spl
 keywords: specification, design doc, gdd, acceptance, mechanic, gameplay system, game design, architecture, requirement, balanc, progression, data table, спецификац, дизайн-док, геймдизайн, механик, архитектур, требовани, критери, баланс, продума, проектир
 skills: unreal-blueprint, unreal-verify
 effort: high
+color: #FBBF24
 ---
 ## Duties
 - Turn the goal into a spec: player-facing behaviour, rules with numbers, states, edge cases, assets and tools needed, what is out of scope.

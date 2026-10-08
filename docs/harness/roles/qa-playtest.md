@@ -5,6 +5,7 @@ description: Independent verification against acceptance criteria and playtest b
 keywords: playtest, play test, test plan, test case, smoke test, regression, reproduc, repro steps, bug report, crash, softlock, soft lock, edge case, qa, плейтест, тестирован, тест-кейс, регресс, воспроизвед, баг, краш, вылет, зависани, застрева, провалива
 skills: unreal-verify
 effort: medium
+color: #F87171
 ---
 ## Duties
 - Verify finished work against its acceptance criteria and playtest around it; report defects with evidence.

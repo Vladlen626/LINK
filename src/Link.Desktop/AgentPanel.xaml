@@ -3,27 +3,87 @@
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
              xmlns:local="clr-namespace:Link.Desktop">
     <UserControl.Resources>
-        <Style x:Key="FieldStyle" TargetType="Border">
-            <Setter Property="Margin" Value="0,5,0,0" />
+        <!-- A card that wants an answer or a decision: the agent's question, a limit, a choice, a start over. -->
+        <Style x:Key="NoticeCardStyle" TargetType="Border">
+            <Setter Property="Margin" Value="0,14,0,0" />
+            <Setter Property="Padding" Value="14,12" />
             <Setter Property="Background" Value="{StaticResource CardBrush}" />
-            <Setter Property="BorderBrush" Value="{StaticResource GlassBorderSoftBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="{StaticResource SurfaceRadius}" />
+            <Setter Property="CornerRadius" Value="12" />
+        </Style>
+        <!-- The rounded box words are written in: the task's goal and the reply. -->
+        <Style x:Key="ComposerStyle" TargetType="Border">
+            <Setter Property="Padding" Value="12,10" />
+            <Setter Property="Background" Value="{StaticResource CardBrush}" />
+            <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
+            <Setter Property="BorderThickness" Value="1" />
+            <Setter Property="CornerRadius" Value="14" />
         </Style>
         <Style x:Key="RowTextStyle" TargetType="TextBlock">
-            <Setter Property="FontSize" Value="12" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="FieldLabelStyle" TargetType="TextBlock" BasedOn="{StaticResource SecondaryTextStyle}">
+            <Setter Property="Margin" Value="0,0,0,4" />
         </Style>
         <Style x:Key="SmallChipStyle" TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
             <Setter Property="Height" Value="26" />
             <Setter Property="Margin" Value="0,6,6,0" />
         </Style>
+        <Style x:Key="GhostChipStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
+            <Setter Property="Height" Value="26" />
+            <Setter Property="Margin" Value="0,0,4,0" />
+            <Setter Property="Padding" Value="8,2" />
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        </Style>
+        <Style x:Key="FileChipStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Height" Value="24" />
+            <Setter Property="Margin" Value="0,0,6,6" />
+            <Setter Property="Padding" Value="8,0" />
+            <Setter Property="FontFamily" Value="Consolas" />
+            <Setter Property="FontSize" Value="11.5" />
+        </Style>
         <Style x:Key="ReadTextStyle" TargetType="TextBox" BasedOn="{StaticResource BareTextBoxStyle}">
             <Setter Property="IsReadOnly" Value="True" />
             <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontSize" Value="13.5" />
             <Setter Property="Padding" Value="0" />
+            <Setter Property="TextBlock.LineHeight" Value="20" />
+            <Setter Property="TextBlock.LineStackingStrategy" Value="BlockLineHeight" />
+        </Style>
+
+        <!-- A task in the sidebar: a row with soft corners, lit while the task is the open one. -->
+        <Style x:Key="SidebarRowStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
+            <Setter Property="Margin" Value="0,0,0,2" />
+            <Setter Property="Padding" Value="8,7" />
+            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+            <Setter Property="VerticalContentAlignment" Value="Top" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="1" CornerRadius="8">
+                            <Grid>
+                                <Border x:Name="HoverLight" CornerRadius="8" Background="{StaticResource HoverBrush}" Opacity="0" />
+                                <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                            </Grid>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="HoverLight" Property="Opacity" Value="1" /></Trigger>
+                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="HoverLight" Property="Background" Value="{StaticResource PressedBrush}" /></Trigger>
+                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" /></Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding IsOpen}" Value="True">
+                    <Setter Property="Background" Value="{StaticResource ActiveContextBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <!-- A usage window: who and which, the bar, how much and when it resets. A click asks the agent anew. -->
@@ -44,24 +104,29 @@
             </Button>
         </DataTemplate>
 
-        <!-- The thread of a task: the user's words on the right, each run of an agent on the left, notes between. -->
+        <!-- The thread of a task: the user's words on the right in a bubble, each run of an agent as plain text under its
+             name, notes between. -->
         <DataTemplate DataType="{x:Type local:ThreadUser}">
-            <Border Margin="36,10,0,0" HorizontalAlignment="Right" Padding="10,7" CornerRadius="10,10,3,10"
-                    Background="{StaticResource ActiveContextBrush}">
-                <StackPanel>
-                    <TextBox Style="{StaticResource ReadTextStyle}" Text="{Binding Text, Mode=OneWay}" />
-                    <TextBlock Margin="0,3,0,0" FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Carried}"
-                               TextWrapping="Wrap" Visibility="{Binding CarriedVisibility}" />
-                    <TextBlock Margin="0,3,0,0" HorizontalAlignment="Right" FontSize="10.5" Foreground="{StaticResource MutedBrush}"
+            <Grid Margin="0,18,0,0">
+                <Grid.ColumnDefinitions><ColumnDefinition Width="0.15*" /><ColumnDefinition Width="0.85*" /></Grid.ColumnDefinitions>
+                <StackPanel Grid.Column="1" HorizontalAlignment="Right">
+                    <Border Padding="14,10" CornerRadius="14,14,4,14" Background="{StaticResource ActiveContextBrush}">
+                        <StackPanel>
+                            <TextBox Style="{StaticResource ReadTextStyle}" Text="{Binding Text, Mode=OneWay}" />
+                            <TextBlock Margin="0,4,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Carried}"
+                                       TextWrapping="Wrap" Visibility="{Binding CarriedVisibility}" />
+                        </StackPanel>
+                    </Border>
+                    <TextBlock Margin="0,4,4,0" HorizontalAlignment="Right" FontSize="11" Foreground="{StaticResource MutedBrush}"
                                Text="{Binding Time}" />
                 </StackPanel>
-            </Border>
+            </Grid>
         </DataTemplate>
         <DataTemplate DataType="{x:Type local:ThreadNote}">
-            <Grid Margin="0,10,0,0">
+            <Grid Margin="0,18,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                 <Border Height="1" Margin="0,0,8,0" VerticalAlignment="Center" Background="{StaticResource HairlineBrush}" />
-                <TextBlock Grid.Column="1" MaxWidth="260" FontSize="11" Foreground="{StaticResource MutedBrush}" TextAlignment="Center"
+                <TextBlock Grid.Column="1" MaxWidth="380" FontSize="11.5" Foreground="{StaticResource MutedBrush}" TextAlignment="Center"
                            TextWrapping="Wrap">
                     <Run Text="{Binding Text, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Time, Mode=OneWay}" />
                 </TextBlock>
@@ -69,285 +134,361 @@
             </Grid>
         </DataTemplate>
         <DataTemplate DataType="{x:Type local:ThreadTurn}">
-            <Border Margin="0,10,20,0" Padding="10,8" CornerRadius="10,10,10,3" Background="{StaticResource CardBrush}"
-                    BorderBrush="{StaticResource GlassBorderSoftBrush}" BorderThickness="1">
-                <StackPanel>
-                    <TextBlock FontSize="11.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Who}"
-                               TextTrimming="CharacterEllipsis" ToolTip="{Binding Who}" />
-                    <StackPanel Margin="0,2,0,0" Orientation="Horizontal">
-                        <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{Binding OutcomeBrush}" Text="{Binding Outcome}" />
-                        <Button Margin="6,0,0,0" Padding="6,1" VerticalAlignment="Center" Style="{StaticResource GhostButtonStyle}"
-                                Click="TurnSteps_OnClick" Visibility="{Binding StepsToggleVisibility}" ToolTip="What the agent did, step by step">
-                            <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding StepsLabel}" />
-                        </Button>
-                    </StackPanel>
-                    <!-- The agent's words as rows; the tool steps between them folded into a line each, as its own app does. -->
-                    <ItemsControl Margin="0,1,0,2" ItemsSource="{Binding Steps}" Visibility="{Binding StepsVisibility}">
-                        <ItemsControl.Resources>
-                            <DataTemplate DataType="{x:Type local:AgentStepRow}">
-                                <TextBlock Margin="0,1" FontSize="11.5" Foreground="{Binding Brush}" Text="{Binding Text}" TextWrapping="Wrap" />
-                            </DataTemplate>
-                            <DataTemplate DataType="{x:Type local:StepGroup}">
-                                <StackPanel>
-                                    <Button Margin="-6,0,0,0" Padding="6,1" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
-                                            Click="StepGroup_OnClick" ToolTip="The tool calls between the agent's words">
-                                        <TextBlock FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Label}" TextWrapping="Wrap" />
-                                    </Button>
-                                    <ItemsControl Margin="8,0,0,0" ItemsSource="{Binding Rows}" Visibility="{Binding RowsVisibility}">
-                                        <ItemsControl.ItemTemplate>
-                                            <DataTemplate>
-                                                <TextBlock Margin="0,1" FontSize="11.5" Foreground="{Binding Brush}" Text="{Binding Text}" TextWrapping="Wrap" />
-                                            </DataTemplate>
-                                        </ItemsControl.ItemTemplate>
-                                    </ItemsControl>
-                                </StackPanel>
-                            </DataTemplate>
-                        </ItemsControl.Resources>
-                    </ItemsControl>
-                    <TextBlock Margin="0,3,0,0" FontSize="12" Foreground="{StaticResource AccentBrush}" Text="{Binding Current}"
-                               TextTrimming="CharacterEllipsis" Visibility="{Binding CurrentVisibility}" />
-                    <TextBox Margin="0,5,0,0" Style="{StaticResource ReadTextStyle}" Text="{Binding Said, Mode=OneWay}"
-                             Visibility="{Binding SaidVisibility}" />
-                    <ItemsControl Margin="-6,5,0,0" ItemsSource="{Binding Files}" Visibility="{Binding FilesVisibility}">
-                        <ItemsControl.ItemsPanel>
-                            <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
-                        </ItemsControl.ItemsPanel>
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Button Padding="6,2" Style="{StaticResource GhostButtonStyle}" Click="OpenFile_OnClick" ToolTip="{Binding Path}">
-                                    <TextBlock MaxWidth="240" FontFamily="Consolas" FontSize="11" Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+            <StackPanel Margin="0,18,0,0">
+                <!-- Who worked, in the colour of the specialist's jellyfish; how it ended; the steps a click away. -->
+                <WrapPanel>
+                    <Control Width="16" Height="16" Margin="0,0,8,0" VerticalAlignment="Center" Focusable="False"
+                             Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" />
+                    <TextBlock VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"
+                               Text="{Binding Who}" TextWrapping="Wrap" ToolTip="{Binding Who}" />
+                    <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12" Foreground="{Binding OutcomeBrush}" Text="{Binding Outcome}" />
+                    <Button Margin="2,0,0,0" Padding="6,1" VerticalAlignment="Center" Style="{StaticResource GhostButtonStyle}"
+                            Click="TurnSteps_OnClick" Visibility="{Binding StepsToggleVisibility}" ToolTip="What the agent did, step by step">
+                        <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding StepsLabel}" />
+                    </Button>
+                </WrapPanel>
+                <!-- The agent's words as rows; the tool steps between them folded into a line each, as its own app does. -->
+                <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding Steps}" Visibility="{Binding StepsVisibility}">
+                    <ItemsControl.Resources>
+                        <DataTemplate DataType="{x:Type local:AgentStepRow}">
+                            <TextBlock Margin="0,3" FontSize="13.5" LineHeight="20" LineStackingStrategy="BlockLineHeight"
+                                       Foreground="{Binding Brush}" Text="{Binding Text}" TextWrapping="Wrap" />
+                        </DataTemplate>
+                        <DataTemplate DataType="{x:Type local:StepGroup}">
+                            <StackPanel>
+                                <Button Margin="-6,2,0,2" Padding="6,2" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
+                                        Click="StepGroup_OnClick" ToolTip="The tool calls between the agent's words">
+                                    <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding Label}" TextWrapping="Wrap" />
                                 </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                    <TextBlock Margin="0,4,0,0" FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Next}"
-                               TextWrapping="Wrap" Visibility="{Binding NextVisibility}" />
-                    <TextBlock Margin="0,4,0,0" FontSize="10.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Stats}"
-                               TextWrapping="Wrap" Visibility="{Binding StatsVisibility}" />
-                </StackPanel>
-            </Border>
+                                <Border Margin="0,2,0,8" CornerRadius="8" Background="{StaticResource InnerGlassBrush}"
+                                        Visibility="{Binding RowsVisibility}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="2" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <Border Margin="0,6" Background="{StaticResource HairlineBrush}" CornerRadius="1" />
+                                        <ItemsControl Grid.Column="1" Margin="10,8" ItemsSource="{Binding Rows}">
+                                            <ItemsControl.ItemTemplate>
+                                                <DataTemplate>
+                                                    <TextBlock Margin="0,1" FontFamily="Consolas" FontSize="11.5" Foreground="{Binding Brush}"
+                                                               Text="{Binding Text}" TextWrapping="Wrap" />
+                                                </DataTemplate>
+                                            </ItemsControl.ItemTemplate>
+                                        </ItemsControl>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.Resources>
+                </ItemsControl>
+                <!-- What the agent does now, while it works. -->
+                <Grid Margin="0,8,0,0" Visibility="{Binding CurrentVisibility}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Ellipse Width="6" Height="6" Margin="1,1,9,0" VerticalAlignment="Center" Fill="{StaticResource AccentBrush}" />
+                    <TextBlock Grid.Column="1" FontSize="12.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Current}"
+                               TextTrimming="CharacterEllipsis" />
+                </Grid>
+                <TextBox Margin="0,8,0,0" Style="{StaticResource ReadTextStyle}" Text="{Binding Said, Mode=OneWay}"
+                         Visibility="{Binding SaidVisibility}" />
+                <ItemsControl Margin="0,10,0,0" ItemsSource="{Binding Files}" Visibility="{Binding FilesVisibility}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Style="{StaticResource FileChipStyle}" Click="OpenFile_OnClick" ToolTip="{Binding Path}">
+                                <TextBlock MaxWidth="300" Text="{Binding Label}" TextTrimming="CharacterEllipsis" />
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+                <TextBlock Margin="0,6,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Next}"
+                           TextWrapping="Wrap" Visibility="{Binding NextVisibility}" />
+                <TextBlock Margin="0,4,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Stats}"
+                           TextWrapping="Wrap" Visibility="{Binding StatsVisibility}" />
+            </StackPanel>
         </DataTemplate>
     </UserControl.Resources>
 
     <Grid>
-        <!-- The project's tasks, newest first, with the agents' usage on top. -->
-        <Grid x:Name="ListView">
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
+        <Grid.ColumnDefinitions>
+            <ColumnDefinition x:Name="SidebarColumn" Width="264" />
+            <ColumnDefinition Width="*" />
+        </Grid.ColumnDefinitions>
+
+        <!-- The sidebar: the project's tasks, newest first, always at hand; the agents' usage pinned at its foot. -->
+        <Border x:Name="Sidebar" Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,1,0">
             <Grid>
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionLabelStyle}" Text="TASKS" />
-                <Button x:Name="NewTaskButton" Grid.Column="1" Style="{StaticResource ChipButtonStyle}" Height="26" Click="NewTask_OnClick"
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" />
+                    <RowDefinition Height="Auto" />
+                </Grid.RowDefinitions>
+                <Button x:Name="NewTaskButton" Margin="10,10,10,0" Height="34" Padding="10,0" HorizontalContentAlignment="Left"
+                        Style="{StaticResource GhostButtonStyle}" Click="NewTask_OnClick"
                         ToolTip="A card for a new task, with what is in Link's input and its chips; nothing runs before Run (Ctrl+Enter in Link)">
                     <StackPanel Orientation="Horizontal">
-                        <Path Width="9" Height="9" Margin="0,0,5,0" VerticalAlignment="Center" Stretch="Uniform" Data="{StaticResource PlusIconGeometry}"
+                        <Path Width="12" Height="12" Margin="0,0,9,0" VerticalAlignment="Center" Stretch="Uniform" Data="{StaticResource PlusIconGeometry}"
                               Stroke="{StaticResource TextBrush}" StrokeThickness="1.7" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                        <TextBlock VerticalAlignment="Center" Text="New task" />
+                        <TextBlock VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Text="New task" />
                     </StackPanel>
                 </Button>
-            </Grid>
-            <ItemsControl x:Name="LimitsList" Grid.Row="1" Margin="0,8,0,4" ItemTemplate="{StaticResource LimitRowTemplate}" />
-            <ScrollViewer Grid.Row="2" Margin="0,6,0,0" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Margin="0,0,4,0">
-                    <!-- A task that ended well and changed files was finished: keep what it taught, only when asked. -->
-                    <Border x:Name="LearnCard" Style="{StaticResource FieldStyle}" Margin="0,6,0,4" Padding="10,8"
-                            BorderBrush="{StaticResource AccentBorderBrush}" Visibility="Collapsed">
-                        <StackPanel>
-                            <TextBlock x:Name="LearnText" Style="{StaticResource RowTextStyle}" />
-                            <WrapPanel Margin="0,2,0,0">
-                                <Button Style="{StaticResource SmallChipStyle}" Click="Learn_OnClick" Content="Update skill"
-                                        ToolTip="The agent that did the task describes what it learned as a skill; Link writes it to .agents/skills in the workspace, and asks before it replaces one" />
-                                <Button Style="{StaticResource SmallChipStyle}" Click="LearnNo_OnClick" Content="No" />
-                            </WrapPanel>
-                        </StackPanel>
-                    </Border>
-                    <TextBlock x:Name="TasksEmptyText" Margin="0,6,0,0" Style="{StaticResource RowTextStyle}" Foreground="{StaticResource MutedBrush}"
-                               Text="No tasks yet. Write one in Link and press Ctrl+Enter, or choose To ▾ Agent task: a card shows what goes to the agent, and nothing runs before Run." />
-                    <ItemsControl x:Name="TaskList" Margin="-8,0,0,0">
-                        <ItemsControl.ItemTemplate>
-                            <DataTemplate>
-                                <Button Margin="0,0,0,2" Padding="8,6" HorizontalContentAlignment="Stretch" Style="{StaticResource GhostButtonStyle}"
-                                        Click="TaskRow_OnClick" ToolTip="Open the task: its thread; your words go on with it">
-                                    <Grid>
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                        <Ellipse Width="7" Height="7" Margin="0,5,9,0" VerticalAlignment="Top" Fill="{Binding StatusBrush}" />
-                                        <StackPanel Grid.Column="1">
-                                            <Grid>
-                                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                                <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11" Text="{Binding Time}" />
+
+                <!-- A task that ended well and changed files was finished: keep what it taught, only when asked. -->
+                <Border x:Name="LearnCard" Grid.Row="1" Style="{StaticResource NoticeCardStyle}" Margin="10,8,10,0" Padding="12,10" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock x:Name="LearnText" FontSize="12.5" Style="{StaticResource RowTextStyle}" />
+                        <WrapPanel Margin="0,2,0,0">
+                            <Button Style="{StaticResource SmallChipStyle}" Click="Learn_OnClick" Content="Update skill"
+                                    ToolTip="The agent that did the task describes what it learned as a skill; Link writes it to .agents/skills in the workspace, and asks before it replaces one" />
+                            <Button Style="{StaticResource SmallChipStyle}" Click="LearnNo_OnClick" Content="No" />
+                        </WrapPanel>
+                    </StackPanel>
+                </Border>
+
+                <TextBlock Grid.Row="2" Margin="18,14,10,4" Style="{StaticResource SectionLabelStyle}" FontSize="11.5" Text="Tasks" />
+                <ScrollViewer Grid.Row="3" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                    <StackPanel Margin="8,0,4,8">
+                        <TextBlock x:Name="TasksEmptyText" Margin="10,4,6,0" FontSize="12" Style="{StaticResource RowTextStyle}" Foreground="{StaticResource MutedBrush}"
+                                   Text="No tasks yet. Write one in Link and press Ctrl+Enter, or choose To ▾ Agent task: a card shows what goes to the agent, and nothing runs before Run." />
+                        <ItemsControl x:Name="TaskList">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate>
+                                    <Button Style="{StaticResource SidebarRowStyle}" Click="TaskRow_OnClick" ToolTip="Open the task: its thread; your words go on with it">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                            <!-- The specialist's jellyfish, with the task's standing as a dot on its corner. -->
+                                            <Grid Width="20" Height="20" Margin="0,0,9,0" VerticalAlignment="Top">
+                                                <Control Width="14" Height="14" HorizontalAlignment="Left" VerticalAlignment="Top" Focusable="False"
+                                                         Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" />
+                                                <Ellipse Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Fill="{Binding StatusBrush}"
+                                                         Stroke="{StaticResource WindowSurfaceBrush}" StrokeThickness="1.5" />
                                             </Grid>
-                                            <TextBlock Margin="0,1,0,0" FontSize="11" Foreground="{Binding StatusBrush}" Text="{Binding Status}" />
-                                            <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="11.5" LineHeight="16" LineStackingStrategy="BlockLineHeight"
-                                                       Foreground="{StaticResource MutedBrush}" Text="{Binding Preview}" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" />
-                                        </StackPanel>
-                                    </Grid>
-                                </Button>
-                            </DataTemplate>
-                        </ItemsControl.ItemTemplate>
-                    </ItemsControl>
-                </StackPanel>
-            </ScrollViewer>
+                                            <StackPanel Grid.Column="1">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                                    <TextBlock FontSize="12.5" FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Grid.Column="1" Margin="8,1,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Time}" />
+                                                </Grid>
+                                                <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Status}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                                <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Preview}"
+                                                           TextTrimming="CharacterEllipsis" />
+                                            </StackPanel>
+                                        </Grid>
+                                    </Button>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                    </StackPanel>
+                </ScrollViewer>
+
+                <!-- The agents' usage, as the account area at the foot of a chat app's sidebar. -->
+                <Border x:Name="LimitsBlock" Grid.Row="4" Padding="12,6,12,8" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,1,0,0"
+                        Visibility="Collapsed">
+                    <ItemsControl x:Name="LimitsList" ItemTemplate="{StaticResource LimitRowTemplate}" />
+                </Border>
+            </Grid>
+        </Border>
+
+        <!-- Nothing open: the way to a task. -->
+        <Grid x:Name="EmptyView" Grid.Column="1">
+            <StackPanel MaxWidth="360" HorizontalAlignment="Center" VerticalAlignment="Center">
+                <Control Width="48" Height="48" HorizontalAlignment="Center" Focusable="False" Opacity="0.8"
+                         Foreground="{StaticResource BrandBrush}" Template="{StaticResource LinkGlyphTemplate}" />
+                <TextBlock Margin="0,16,0,0" HorizontalAlignment="Center" FontSize="15" FontWeight="SemiBold" Text="No task open" />
+                <TextBlock Margin="0,6,0,0" HorizontalAlignment="Center" FontSize="13" Style="{StaticResource SecondaryTextStyle}"
+                           TextAlignment="Center" TextWrapping="Wrap" Text="Pick a task on the left, or start a new one" />
+                <Button Margin="0,18,0,0" Padding="18,0" Height="32" HorizontalAlignment="Center" Style="{StaticResource PrimaryButtonStyle}"
+                        Click="NewTask_OnClick" Content="New task" />
+            </StackPanel>
         </Grid>
 
         <!-- The task card: nothing runs before Run. Also the card a hand-over shows its brief on. -->
-        <ScrollViewer x:Name="CardView" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
-            <StackPanel Margin="0,0,4,0">
-                <TextBlock x:Name="CardTitleText" Style="{StaticResource SectionLabelStyle}" Text="NEW TASK" />
-                <Border Style="{StaticResource FieldStyle}">
-                    <TextBox x:Name="GoalBox" Style="{StaticResource BareTextBoxStyle}" Padding="4,4" FontSize="12.5" MinHeight="60"
-                             MaxHeight="260" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                             LostFocus="Goal_OnLostFocus"
-                             ToolTip="What the agent is told, word for word: its first line names the task. Edit it before Run" />
+        <ScrollViewer x:Name="CardView" Grid.Column="1" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled"
+                      Visibility="Collapsed">
+            <StackPanel MaxWidth="780" Margin="24,22,24,28">
+                <TextBlock x:Name="CardTitleText" FontSize="15" FontWeight="SemiBold" Text="New task" TextWrapping="Wrap" />
+                <Border Style="{StaticResource ComposerStyle}" Margin="0,12,0,0" Padding="14,10">
+                    <TextBox x:Name="GoalBox" Style="{StaticResource BareTextBoxStyle}" Padding="0,2" FontSize="13.5" MinHeight="96"
+                             MaxHeight="300" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                             LostFocus="Goal_OnLostFocus" PreviewKeyDown="Goal_OnPreviewKeyDown"
+                             ToolTip="What the agent is told, word for word: its first line names the task. Edit it before Run (Ctrl+Enter runs)" />
                 </Border>
                 <!-- The images that go along: the screen and pictures from the chips. -->
-                <WrapPanel x:Name="ImagesPanel" Margin="0,6,0,0" />
-                <TextBlock x:Name="AttachmentsText" Margin="0,4,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                <WrapPanel x:Name="ImagesPanel" Margin="0,8,0,0" />
+                <TextBlock x:Name="AttachmentsText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
 
-                <Grid Margin="0,12,0,0">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="72" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                    <Grid.RowDefinitions>
-                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                    </Grid.RowDefinitions>
-                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Agent" />
-                    <ComboBox x:Name="ProviderCombo" Grid.Column="1" SelectionChanged="Provider_OnChanged" />
-                    <ItemsControl x:Name="CardLimitsList" Grid.Row="1" Grid.Column="1" Margin="0,2,0,0" ItemTemplate="{StaticResource LimitRowTemplate}" />
-                    <TextBlock Grid.Row="2" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Model" />
-                    <ComboBox x:Name="ModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Model_OnChanged"
-                              ToolTip="The agent's own models: its default from its settings, or one for this task" />
-                    <TextBlock Grid.Row="3" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Effort" />
-                    <ComboBox x:Name="EffortCombo" Grid.Row="3" Grid.Column="1" Margin="0,8,0,0" ToolTipService.ShowOnDisabled="True"
-                              ToolTip="How long the model thinks: the levels this model takes. Higher spends more of the usage limits. Auto: Link picks it for each run and says why" />
-                    <TextBlock Grid.Row="4" Margin="0,8,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Access" />
-                    <ComboBox x:Name="AccessCombo" Grid.Row="4" Grid.Column="1" Margin="0,8,0,0" SelectionChanged="Card_OnChanged">
-                        <ComboBoxItem Content="Edit — changes files, asks for commands" />
-                        <ComboBoxItem Content="Auto — edits and runs commands, asks nothing"
-                                      ToolTip="The agent's own review stops risky actions: Claude Code's auto mode, Codex's automatic review" />
-                    </ComboBox>
-                    <!-- The specialist Link picks from the goal, and the skills that go with it: both can be changed. -->
-                    <Grid x:Name="RoleRow" Grid.Row="5" Grid.ColumnSpan="2" Margin="0,8,0,0" Visibility="Collapsed">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="72" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                        <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Specialist" />
-                        <ComboBox x:Name="RoleCombo" Grid.Column="1" SelectionChanged="Role_OnChanged" />
-                        <TextBlock x:Name="RolePickText" Grid.Row="1" Grid.Column="1" Margin="0,2,0,0" Style="{StaticResource SecondaryTextStyle}"
-                                   FontSize="11" TextWrapping="Wrap" Text="Picked by Link from your words: change it if it does not fit" />
-                    </Grid>
-                    <Grid x:Name="SkillsRow" Grid.Row="6" Grid.ColumnSpan="2" Visibility="Collapsed">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="72" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <TextBlock Margin="0,12,0,0" VerticalAlignment="Top" Style="{StaticResource SecondaryTextStyle}" Text="Skills"
-                                   ToolTip="Skills of the workspace the agent is told to read first" />
-                        <WrapPanel x:Name="SkillsPanel" Grid.Column="1" />
-                    </Grid>
-                    <TextBlock Grid.Row="7" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Project" />
-                    <TextBlock x:Name="ProjectText" Grid.Row="7" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
-                    <TextBlock Grid.Row="8" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" Text="Workspace" />
-                    <TextBlock x:Name="WorkspaceText" Grid.Row="8" Grid.Column="1" Margin="0,8,0,0" Style="{StaticResource RowTextStyle}" />
-                    <!-- What else goes with the run, and the way to the Studio's inspector, which lists it all. -->
-                    <Grid Grid.Row="9" Grid.ColumnSpan="2" Margin="0,8,0,0">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBlock x:Name="HarnessLineText" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
-                                   TextWrapping="Wrap" />
-                        <Button x:Name="CardHarnessButton" Grid.Column="1" Margin="8,0,-4,0" Padding="8,2" VerticalAlignment="Center"
-                                Style="{StaticResource GhostButtonStyle}" Click="CardHarness_OnClick"
-                                ToolTip="Open the Harness column of the Studio: the rules, role, memory, skills, tools and check this run gets">
-                            <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Harness" />
-                        </Button>
-                    </Grid>
-                </Grid>
-
-                <CheckBox x:Name="PlanFirstBox" Margin="0,10,0,0" Checked="Card_OnChanged" Unchecked="Card_OnChanged" />
-                <CheckBox x:Name="BackupBox" Margin="0,6,0,0" IsChecked="True" Content="Copy the folder before edits"
-                          ToolTip="The workspace has no Git or Perforce: undo puts the files back from this copy" />
-                <TextBlock x:Name="CheckText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                           Visibility="Collapsed" />
-                <TextBlock x:Name="CardWarningText" Margin="0,8,0,0" FontSize="12" Foreground="{StaticResource ErrorBrush}"
-                           TextWrapping="Wrap" Visibility="Collapsed" />
-
-                <WrapPanel Margin="0,8,0,0">
-                    <Button x:Name="RunButton" Style="{StaticResource PrimaryButtonStyle}" Height="28" Margin="0,6,6,0" Padding="14,0"
-                            Click="Run_OnClick" Content="Run" />
-                    <Button Style="{StaticResource SmallChipStyle}" Click="CancelCard_OnClick" Content="Cancel" />
+                <!-- The setup: who works, on what, how hard, with what leave. -->
+                <WrapPanel Margin="0,18,0,0">
+                    <StackPanel Width="170" Margin="0,0,10,10">
+                        <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Agent" />
+                        <ComboBox x:Name="ProviderCombo" SelectionChanged="Provider_OnChanged" />
+                    </StackPanel>
+                    <StackPanel Width="190" Margin="0,0,10,10">
+                        <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Model" />
+                        <ComboBox x:Name="ModelCombo" SelectionChanged="Model_OnChanged"
+                                  ToolTip="The agent's own models: its default from its settings, or one for this task" />
+                    </StackPanel>
+                    <StackPanel Width="170" Margin="0,0,10,10">
+                        <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Effort" />
+                        <ComboBox x:Name="EffortCombo" ToolTipService.ShowOnDisabled="True"
+                                  ToolTip="How long the model thinks: the levels this model takes. Higher spends more of the usage limits. Auto: Link picks it for each run and says why" />
+                    </StackPanel>
+                    <StackPanel Width="200" Margin="0,0,0,10">
+                        <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Access" />
+                        <ComboBox x:Name="AccessCombo" SelectionChanged="Card_OnChanged">
+                            <ComboBoxItem Content="Edit — asks for commands"
+                                          ToolTip="The agent changes files and asks before it runs a command" />
+                            <ComboBoxItem Content="Auto — asks nothing"
+                                          ToolTip="Edits and runs commands without asking; the agent's own review stops risky actions: Claude Code's auto mode, Codex's automatic review" />
+                        </ComboBox>
+                    </StackPanel>
                 </WrapPanel>
+                <ItemsControl x:Name="CardLimitsList" Margin="0,0,0,4" ItemTemplate="{StaticResource LimitRowTemplate}" />
+
+                <!-- The specialist Link picks from the goal, and the skills that go with it: both can be changed. -->
+                <StackPanel x:Name="RoleRow" Margin="0,10,0,0" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Specialist" />
+                    <WrapPanel x:Name="RolesPanel" Margin="0,-6,0,0" />
+                    <TextBlock x:Name="RolePickText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                               Text="Picked by Link from your words: change it if it does not fit" />
+                </StackPanel>
+                <StackPanel x:Name="SkillsRow" Margin="0,12,0,0" Visibility="Collapsed">
+                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Skills" ToolTip="Skills of the workspace the agent is told to read first" />
+                    <WrapPanel x:Name="SkillsPanel" Margin="0,-6,0,0" />
+                </StackPanel>
+
+                <!-- Where, with what else, and the two choices about safety: muted, below the setup. -->
+                <Border Margin="0,18,0,0" Padding="0,12,0,0" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,1,0,0">
+                    <StackPanel>
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="84" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                            <TextBlock Style="{StaticResource SecondaryTextStyle}" FontSize="12" Text="Project" />
+                            <TextBlock x:Name="ProjectText" Grid.Column="1" FontSize="12" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                            <TextBlock Grid.Row="1" Margin="0,4,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="12" Text="Workspace" />
+                            <TextBlock x:Name="WorkspaceText" Grid.Row="1" Grid.Column="1" Margin="0,4,0,0" FontSize="12"
+                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                        </Grid>
+                        <!-- What else goes with the run, and the way to the Studio's inspector, which lists it all. -->
+                        <Grid Margin="0,6,0,0">
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock x:Name="HarnessLineText" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" FontSize="12"
+                                       TextWrapping="Wrap" />
+                            <Button x:Name="CardHarnessButton" Grid.Column="1" Margin="8,0,-6,0" Padding="8,2" VerticalAlignment="Center"
+                                    Style="{StaticResource GhostButtonStyle}" Click="CardHarness_OnClick"
+                                    ToolTip="Open the Harness column of the Studio: the rules, role, memory, skills, tools and check this run gets (Ctrl+Shift+H)">
+                                <TextBlock FontSize="12" Foreground="{StaticResource LinkTextBrush}" Text="Harness ›" />
+                            </Button>
+                        </Grid>
+                        <CheckBox x:Name="PlanFirstBox" Margin="0,12,0,0" FontSize="12.5" Checked="Card_OnChanged" Unchecked="Card_OnChanged" />
+                        <CheckBox x:Name="BackupBox" Margin="0,8,0,0" FontSize="12.5" IsChecked="True" Content="Copy the folder before edits"
+                                  ToolTip="The workspace has no Git or Perforce: undo puts the files back from this copy" />
+                        <TextBlock x:Name="CheckText" Margin="0,10,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="12" TextWrapping="Wrap"
+                                   Visibility="Collapsed" />
+                        <TextBlock x:Name="CardWarningText" Margin="0,10,0,0" FontSize="12.5" Foreground="{StaticResource ErrorBrush}"
+                                   TextWrapping="Wrap" Visibility="Collapsed" />
+                    </StackPanel>
+                </Border>
+
+                <StackPanel Margin="0,18,0,0" HorizontalAlignment="Right" Orientation="Horizontal">
+                    <Button Height="32" Padding="14,0" VerticalAlignment="Center" Style="{StaticResource GhostButtonStyle}" Click="CancelCard_OnClick"
+                            Content="Cancel" />
+                    <TextBlock Margin="8,0,10,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Ctrl+Enter" />
+                    <Button x:Name="RunButton" Height="32" Padding="18,0" VerticalAlignment="Center" Style="{StaticResource PrimaryButtonStyle}"
+                            Click="Run_OnClick" Content="Run" />
+                </StackPanel>
             </StackPanel>
         </ScrollViewer>
 
         <!-- A task: its header, its thread, and the box for the next words to the agent. -->
-        <Grid x:Name="TaskView" Visibility="Collapsed">
+        <Grid x:Name="TaskView" Grid.Column="1" Visibility="Collapsed">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
             </Grid.RowDefinitions>
-            <StackPanel>
+            <StackPanel MaxWidth="780" Margin="24,16,24,0">
                 <Grid>
                     <Grid.ColumnDefinitions>
-                        <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
-                        <ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
-                    <Button Style="{StaticResource HeaderIconButtonStyle}" Margin="-6,0,2,0" VerticalAlignment="Center" Click="Back_OnClick"
-                            ToolTip="All tasks of the project">
-                        <Path Width="9" Height="12" Stretch="Uniform" Data="{StaticResource BackIconGeometry}" Stroke="{StaticResource TextBrush}"
-                              StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                    </Button>
-                    <TextBlock x:Name="GoalText" Grid.Column="1" VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold"
+                    <TextBlock x:Name="GoalText" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold"
                                Foreground="{StaticResource TextBrush}" TextTrimming="CharacterEllipsis" />
-                    <Border Grid.Column="2" Margin="6,0,0,0" Padding="7,2" VerticalAlignment="Center" CornerRadius="9"
+                    <Border Grid.Column="1" Margin="10,0,0,0" Padding="9,3" VerticalAlignment="Center" CornerRadius="11"
                             Background="{StaticResource SubtleGlassBrush}">
                         <StackPanel Orientation="Horizontal">
-                            <Ellipse x:Name="StatusDot" Width="6" Height="6" Margin="0,0,5,0" VerticalAlignment="Center" />
-                            <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource TextBrush}" />
-                            <TextBlock x:Name="ChangesText" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11"
+                            <Ellipse x:Name="StatusDot" Width="7" Height="7" Margin="0,0,6,0" VerticalAlignment="Center" />
+                            <TextBlock x:Name="StatusText" VerticalAlignment="Center" FontSize="12" Foreground="{StaticResource TextBrush}" />
+                            <TextBlock x:Name="ChangesText" Margin="7,0,0,0" VerticalAlignment="Center" FontSize="12"
                                        Foreground="{StaticResource MutedBrush}" Visibility="Collapsed" />
                         </StackPanel>
                     </Border>
-                    <Button x:Name="StopButton" Grid.Column="3" Style="{StaticResource ChipButtonStyle}" Height="24" Margin="6,0,0,0"
+                    <Button x:Name="StopButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="28" Margin="8,0,0,0"
                             Click="Stop_OnClick" Content="■ Stop" ToolTip="Stop the agent now; what it changed so far stays, and the task stays open" />
-                    <Button x:Name="MoreButton" Grid.Column="4" Style="{StaticResource HeaderIconButtonStyle}" Margin="4,0,-4,0"
+                    <Button x:Name="MoreButton" Grid.Column="3" Style="{StaticResource HeaderIconButtonStyle}" Margin="4,0,-4,0"
                             VerticalAlignment="Center" Click="More_OnClick" ToolTip="More: discuss in chat, undo, start over, console…">
                         <TextBlock Margin="0,-4,0,0" FontSize="15" FontWeight="Bold" Foreground="{StaticResource TextBrush}" Text="⋯" />
                     </Button>
                 </Grid>
-                <TextBlock x:Name="HeaderText" Margin="0,3,0,0" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
-                <TextBlock x:Name="WhereText" Margin="0,1,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11" TextTrimming="CharacterEllipsis" />
-                <!-- The agent's own plan, as it last wrote it. -->
-                <Button x:Name="PlanToggle" Margin="-8,6,0,0" Padding="8,2" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
-                        Click="PlanToggle_OnClick" Visibility="Collapsed">
-                    <TextBlock x:Name="PlanLabel" Style="{StaticResource SectionLabelStyle}" />
-                </Button>
-                <ItemsControl x:Name="PlanList" Margin="0,1,0,0">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate>
-                            <Grid Margin="0,1">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="16" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <TextBlock FontSize="12" Foreground="{Binding Brush}" Text="{Binding Mark}" />
-                                <TextBlock Grid.Column="1" FontSize="12" Foreground="{Binding Brush}" Text="{Binding Text}" TextWrapping="Wrap" />
-                            </Grid>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
+                <!-- Who works, on what, with what access and for how long; and where. -->
+                <TextBlock x:Name="HeaderText" Margin="0,4,0,0" FontSize="12" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
+                <TextBlock x:Name="WhereText" Margin="0,1,0,0" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
+                <!-- The agent's own plan, or the team's, as it last stood. -->
+                <Border x:Name="PlanCard" Margin="0,12,0,0" Padding="12,5,12,8" CornerRadius="10" Background="{StaticResource CardBrush}"
+                        BorderBrush="{StaticResource GlassBorderSoftBrush}" BorderThickness="1" Visibility="Collapsed">
+                    <StackPanel>
+                        <Button x:Name="PlanToggle" Margin="-6,0,0,0" Padding="6,3" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
+                                Click="PlanToggle_OnClick">
+                            <TextBlock x:Name="PlanLabel" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+                        </Button>
+                        <ScrollViewer MaxHeight="190" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <ItemsControl x:Name="PlanList" Margin="0,2,4,0">
+                                <ItemsControl.ItemTemplate>
+                                    <DataTemplate>
+                                        <Grid Margin="0,2">
+                                            <Grid.ColumnDefinitions>
+                                                <ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" />
+                                            </Grid.ColumnDefinitions>
+                                            <TextBlock FontSize="13" Foreground="{Binding MarkBrush}" Text="{Binding Mark}" />
+                                            <TextBlock Grid.Column="1" FontSize="13" LineHeight="19" LineStackingStrategy="BlockLineHeight"
+                                                       Foreground="{Binding Brush}" Text="{Binding Text}" TextWrapping="Wrap" />
+                                            <!-- A team's step: who does it, and as which specialist. -->
+                                            <StackPanel Grid.Column="2" Margin="10,1,0,0" VerticalAlignment="Top" Orientation="Horizontal">
+                                                <Border Margin="0,0,8,0" Padding="6,1" VerticalAlignment="Center" CornerRadius="6"
+                                                        Background="{StaticResource SubtleGlassBrush}" Visibility="{Binding WorkerVisibility}">
+                                                    <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Worker}" />
+                                                </Border>
+                                                <StackPanel Orientation="Horizontal" Visibility="{Binding RoleVisibility}">
+                                                    <Control Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center" Focusable="False"
+                                                             Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" />
+                                                    <TextBlock VerticalAlignment="Center" FontSize="11.5" Foreground="{Binding RoleBrush}" Text="{Binding RoleName}" />
+                                                </StackPanel>
+                                            </StackPanel>
+                                        </Grid>
+                                    </DataTemplate>
+                                </ItemsControl.ItemTemplate>
+                            </ItemsControl>
+                        </ScrollViewer>
+                    </StackPanel>
+                </Border>
             </StackPanel>
 
-            <ScrollViewer x:Name="ThreadScroll" Grid.Row="1" Margin="0,4,0,0" VerticalScrollBarVisibility="Auto"
+            <ScrollViewer x:Name="ThreadScroll" Grid.Row="1" Margin="0,6,0,0" VerticalScrollBarVisibility="Auto"
                           HorizontalScrollBarVisibility="Disabled">
-                <StackPanel Margin="0,0,4,8">
+                <StackPanel MaxWidth="780" Margin="24,0,24,12">
                     <ItemsControl x:Name="ThreadList" />
 
                     <!-- The agent asks: its options as buttons, as its own app shows them; words of your own go below. -->
-                    <Border x:Name="QuestionCard" Style="{StaticResource FieldStyle}" Margin="0,10,0,0" Padding="10,9"
-                            BorderBrush="{StaticResource AccentBorderBrush}" Visibility="Collapsed">
+                    <Border x:Name="QuestionCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
                         <StackPanel>
                             <TextBlock x:Name="QuestionText" Style="{StaticResource RowTextStyle}" FontWeight="SemiBold" />
-                            <StackPanel x:Name="OptionsPanel" Margin="0,6,0,0" />
-                            <Button x:Name="SendChoicesButton" Style="{StaticResource PrimaryButtonStyle}" Height="26" Margin="0,8,0,0" Padding="12,0"
+                            <StackPanel x:Name="OptionsPanel" Margin="0,8,0,0" />
+                            <Button x:Name="SendChoicesButton" Style="{StaticResource PrimaryButtonStyle}" Height="30" Margin="0,10,0,0" Padding="14,0"
                                     HorizontalAlignment="Left" Click="SendChoices_OnClick" Content="Send" Visibility="Collapsed" />
-                            <TextBlock Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
+                            <TextBlock Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}"
                                        Text="Or answer in your own words below." />
                         </StackPanel>
                     </Border>
 
                     <!-- A usage limit near or reached: the ways on are offered, nothing is done by itself. -->
-                    <Border x:Name="LimitCard" Style="{StaticResource FieldStyle}" Margin="0,10,0,0" Padding="10,8"
-                            BorderBrush="{StaticResource AccentBorderBrush}" Visibility="Collapsed">
+                    <Border x:Name="LimitCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
                         <StackPanel>
                             <TextBlock x:Name="LimitText" Style="{StaticResource RowTextStyle}" />
                             <WrapPanel x:Name="LimitActions" Margin="0,2,0,0" />
@@ -355,82 +496,90 @@
                     </Border>
 
                     <!-- A decision only the user can make: allow and retry, retry with edits, or carry out the plan. -->
-                    <Border x:Name="DecisionCard" Style="{StaticResource FieldStyle}" Margin="0,10,0,0" Padding="10,8"
-                            BorderBrush="{StaticResource AccentBorderBrush}" Visibility="Collapsed">
+                    <Border x:Name="DecisionCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
                         <StackPanel>
                             <TextBlock x:Name="DecisionText" Style="{StaticResource RowTextStyle}" />
-                            <CheckBox x:Name="AlwaysBox" Margin="0,6,0,0" Content="Always allow for this project" />
-                            <Button x:Name="DecisionButton" Style="{StaticResource PrimaryButtonStyle}" Height="28" Margin="0,8,0,0"
+                            <CheckBox x:Name="AlwaysBox" Margin="0,8,0,0" FontSize="12.5" Content="Always allow for this project" />
+                            <Button x:Name="DecisionButton" Style="{StaticResource PrimaryButtonStyle}" Height="30" Margin="0,10,0,0"
                                     Padding="14,0" HorizontalAlignment="Left" Click="Decision_OnClick" />
                         </StackPanel>
                     </Border>
 
                     <!-- A cheaper agent could do what is left: a hint with its reason; the hand-over is the button's, never by itself. -->
-                    <Grid x:Name="CheaperRow" Margin="0,8,0,0" Visibility="Collapsed">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBlock x:Name="CheaperText" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" FontSize="11" TextWrapping="Wrap" />
-                        <Button Grid.Column="1" Margin="8,0,-4,0" Padding="8,2" VerticalAlignment="Center" Style="{StaticResource GhostButtonStyle}"
-                                Click="Cheaper_OnClick" ToolTip="The custom model takes the task over with a brief you see first; nothing is handed over before that">
-                            <TextBlock x:Name="CheaperButtonText" FontSize="11" Foreground="{StaticResource TextBrush}" />
-                        </Button>
-                    </Grid>
+                    <Border x:Name="CheaperRow" Style="{StaticResource NoticeCardStyle}" Padding="14,10" Visibility="Collapsed">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <TextBlock x:Name="CheaperText" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" FontSize="12" TextWrapping="Wrap" />
+                            <Button Grid.Column="1" Margin="10,0,0,0" Padding="10,3" VerticalAlignment="Center" Style="{StaticResource ChipButtonStyle}"
+                                    Click="Cheaper_OnClick" ToolTip="The custom model takes the task over with a brief you see first; nothing is handed over before that">
+                                <TextBlock x:Name="CheaperButtonText" FontSize="12" Foreground="{StaticResource TextBrush}" />
+                            </Button>
+                        </Grid>
+                    </Border>
 
                     <!-- After a failed run or a Stop on a loop: start over with a note, or the same session on Deep. -->
-                    <Border x:Name="RestartCard" Style="{StaticResource FieldStyle}" Margin="0,10,0,0" Padding="10,8" Visibility="Collapsed">
+                    <Border x:Name="RestartCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource RowTextStyle}" Foreground="{StaticResource MutedBrush}"
+                            <TextBlock Style="{StaticResource RowTextStyle}" FontSize="12.5" Foreground="{StaticResource MutedBrush}"
                                        Text="Start over: the agent writes in five lines what it tried and why it did not work, and a new session takes the task with that note. Escalate: the same session goes on with the strongest model of Settings." />
                             <WrapPanel Margin="0,2,0,0">
                                 <Button Style="{StaticResource PrimaryButtonStyle}" Height="28" Margin="0,6,6,0" Padding="14,0"
                                         Click="Restart_OnClick" Content="Start over with a note" />
-                                <Button x:Name="EscalateButton" Style="{StaticResource SmallChipStyle}" Click="Escalate_OnClick" Content="Escalate" />
-                                <Button Style="{StaticResource SmallChipStyle}" Click="RestartNotNow_OnClick" Content="Not now"
+                                <Button x:Name="EscalateButton" Style="{StaticResource SmallChipStyle}" Height="28" Click="Escalate_OnClick" Content="Escalate" />
+                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Click="RestartNotNow_OnClick" Content="Not now"
                                         ToolTip="The agent goes on as it is; both stay possible after the run" />
                             </WrapPanel>
                         </StackPanel>
                     </Border>
 
                     <!-- What Link gave the agent, word for word; the Console has the rest. -->
-                    <Button x:Name="BriefToggle" Margin="-8,12,0,0" Padding="8,2" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
+                    <Button x:Name="BriefToggle" Margin="-8,16,0,0" Padding="8,3" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
                             Click="BriefToggle_OnClick" Visibility="Collapsed"
                             ToolTip="The text Link gave the agent for this task: the brief, and each hand-over after it">
-                        <TextBlock x:Name="BriefToggleText" Style="{StaticResource SectionLabelStyle}" Text="WHAT LINK GAVE ▸" />
+                        <TextBlock x:Name="BriefToggleText" FontSize="12" Foreground="{StaticResource MutedBrush}" Text="What Link gave ▸" />
                     </Button>
-                    <TextBox x:Name="BriefText" Margin="0,2,0,0" Style="{StaticResource BareTextBoxStyle}" FontFamily="Consolas" FontSize="11.5"
-                             IsReadOnly="True" TextWrapping="Wrap" MaxHeight="260" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" />
-                    <TextBlock x:Name="UsageText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11" TextWrapping="Wrap"
+                    <TextBox x:Name="BriefText" Margin="0,4,0,0" FontFamily="Consolas" FontSize="11.5" IsReadOnly="True" TextWrapping="Wrap"
+                             MaxHeight="260" VerticalScrollBarVisibility="Auto" Visibility="Collapsed" />
+                    <TextBlock x:Name="UsageText" Margin="0,10,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
                                Visibility="Collapsed" />
                 </StackPanel>
             </ScrollViewer>
 
-            <!-- Words for the agent. While it works: Steer now (Enter) or words for after this step (Tab); after it: a reply. -->
-            <Border x:Name="ReplyPanel" Grid.Row="2" Style="{StaticResource FieldStyle}" Margin="0,6,0,0" Visibility="Collapsed">
+            <!-- Words for the agent. While it works: Steer now (Enter) or words for after this step (Tab); after it: a reply.
+                 The task's buttons sit in the box, under the words, when the task is at rest. -->
+            <Border x:Name="ReplyPanel" Grid.Row="2" MaxWidth="780" Margin="24,6,24,16" Style="{StaticResource ComposerStyle}" Visibility="Collapsed">
                 <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBox x:Name="ReplyBox" Style="{StaticResource BareTextBoxStyle}" Padding="4,4" FontSize="12.5" MaxHeight="120"
-                             AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                             TextChanged="ReplyBox_OnTextChanged" PreviewKeyDown="ReplyBox_OnPreviewKeyDown" />
-                    <TextBlock x:Name="ReplyPlaceholder" Margin="6,5,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="12"
-                               IsHitTestVisible="False" TextWrapping="Wrap" />
-                    <Button x:Name="ContinueButton" Grid.Column="1" Style="{StaticResource SmallChipStyle}" Margin="6,3,3,3"
-                            VerticalAlignment="Bottom" Click="Continue_OnClick" />
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <Grid x:Name="ReplyEditor">
+                        <TextBox x:Name="ReplyBox" Style="{StaticResource BareTextBoxStyle}" Padding="0,2" FontSize="13.5" MinHeight="44" MaxHeight="180"
+                                 AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
+                                 TextChanged="ReplyBox_OnTextChanged" PreviewKeyDown="ReplyBox_OnPreviewKeyDown" />
+                        <TextBlock x:Name="ReplyPlaceholder" Margin="2,2,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="13"
+                                   IsHitTestVisible="False" TextWrapping="Wrap" />
+                    </Grid>
+                    <Grid x:Name="ComposerFooter" Grid.Row="1" Margin="0,6,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <WrapPanel x:Name="TaskButtons" VerticalAlignment="Center">
+                            <Button x:Name="PlanModeButton" Style="{StaticResource GhostChipStyle}" Click="PlanMode_OnClick" Content="Plan mode ✕"
+                                    Visibility="Collapsed"
+                                    ToolTip="The session only reads and plans: edits, editor calls and commands are refused in it, whatever is allowed. Turn it off: your next words go on with edits, in the same session" />
+                            <Button x:Name="HandOffButton" Style="{StaticResource GhostChipStyle}" Click="HandOff_OnClick" Content="Hand off ▾"
+                                    ToolTip="The other agent in a new session with a brief you see first, another model or another specialist in the same session, or the first agent back" />
+                            <Button x:Name="FinishButton" Style="{StaticResource GhostChipStyle}" Click="Finish_OnClick" Content="Finish"
+                                    ToolTip="Close the task; it stays in the list, where it can be opened and taken up again" />
+                        </WrapPanel>
+                        <Button x:Name="ContinueButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource RoundAccentButtonStyle}"
+                                VerticalAlignment="Bottom" Click="Continue_OnClick">
+                            <Viewbox Width="14" Height="14">
+                                <Path Data="{StaticResource SendIconGeometry}" Fill="Transparent" Stroke="{StaticResource AccentForegroundBrush}"
+                                      StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                            </Viewbox>
+                        </Button>
+                    </Grid>
                 </Grid>
             </Border>
-            <TextBlock x:Name="ReplyNoteText" Grid.Row="2" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11"
+            <TextBlock x:Name="ReplyNoteText" Grid.Row="3" MaxWidth="780" Margin="24,0,24,14" Style="{StaticResource SecondaryTextStyle}"
                        TextWrapping="Wrap" Visibility="Collapsed" />
-
-            <StackPanel Grid.Row="3">
-                <WrapPanel x:Name="TaskButtons">
-                    <Button x:Name="PlanModeButton" Style="{StaticResource SmallChipStyle}" Click="PlanMode_OnClick" Content="Plan mode ✕"
-                            Visibility="Collapsed"
-                            ToolTip="The session only reads and plans: edits, editor calls and commands are refused in it, whatever is allowed. Turn it off: your next words go on with edits, in the same session" />
-                    <Button x:Name="HandOffButton" Style="{StaticResource SmallChipStyle}" Click="HandOff_OnClick" Content="Hand off ▾"
-                            ToolTip="The other agent in a new session with a brief you see first, another model or another specialist in the same session, or the first agent back" />
-                    <Button x:Name="FinishButton" Style="{StaticResource SmallChipStyle}" Click="Finish_OnClick" Content="Finish"
-                            ToolTip="Close the task; it stays in the list, where it can be opened and taken up again" />
-                </WrapPanel>
-                <ItemsControl x:Name="TaskLimitsList" Margin="0,4,0,0" ItemTemplate="{StaticResource LimitRowTemplate}" />
-            </StackPanel>
         </Grid>
     </Grid>
 </UserControl>

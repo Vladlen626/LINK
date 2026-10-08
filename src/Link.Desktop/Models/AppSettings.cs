@@ -128,7 +128,7 @@ public sealed class SidePanelSettings
         Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, MinWidth, MaxWidth) : DefaultWidth;
 }
 
-/// <summary>The Studio window: where it was left, how big, and whether its inspector column is open.</summary>
+/// <summary>The Studio window: where it was left, how big, and whether its tasks sidebar and its inspector column are open.</summary>
 public sealed class StudioSettings
 {
     public const double MinWidth = 760;
@@ -147,6 +147,7 @@ public sealed class StudioSettings
     public double Height { get; set; } = DefaultHeight;
     public bool Maximized { get; set; }
     public bool InspectorOpen { get; set; } = true;
+    public bool SidebarOpen { get; set; } = true;
 
     /// <summary>Keeps where the window stands, its normal bounds when it is maximized.</summary>
     public void Remember(double left, double top, double width, double height, bool maximized)

@@ -5,6 +5,7 @@ description: HUD, menus and prompts: design in Figma terms and build the frames 
 keywords: figma, фигма, umg, widget, hud, menu, button, ui design, ui/ux, ux design, mockup, wireframe, typography, icon, font, виджет, интерфейс, меню, кнопк, шрифт, иконк, макет, верстк
 skills: figma-ui, unreal-umg
 effort: high
+color: #38BDF8
 ---
 ## Duties
 - Design or refine screens and flows (HUD, menus, prompts, dialogs): hierarchy, layout, states, text, icons.

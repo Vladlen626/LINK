@@ -7,6 +7,7 @@ namespace Link.Desktop.Services;
 /// A specialist a task can run as: duties, how to work, what done means and what to hand over, as a markdown file.
 /// <see cref="Keywords"/> are word stems of a brief it suits, English or Russian; <see cref="Skills"/> are names of
 /// workspace skills it works by; <see cref="Effort"/> is its usual effort, null when the file names none.
+/// <see cref="Color"/> is the colour of its jellyfish, "#RRGGBB", null when the file names none (see <see cref="ProjectRoles.ColorOf"/>).
 /// </summary>
 public sealed record AgentRole(
     string Id,
@@ -16,7 +17,8 @@ public sealed record AgentRole(
     IReadOnlyList<string> Skills,
     string? Effort,
     string Body,
-    string FilePath);
+    string FilePath,
+    string? Color = null);
 
 /// <summary>
 /// The specialists: eight ship beside Link.exe and are edited without a rebuild; a workspace adds its own or replaces a
@@ -25,6 +27,16 @@ public sealed record AgentRole(
 /// </summary>
 public static partial class ProjectRoles
 {
+    /// <summary>Link's own orange: the jellyfish of General, the work with no specialist.</summary>
+    public const string LinkColor = "#F5843F";
+
+    /// <summary>
+    /// The colours a specialist's jellyfish is given when its file names none, tuned for dark glass and none of them
+    /// near <see cref="LinkColor"/>, so that General stays the only orange one.
+    /// </summary>
+    public static readonly IReadOnlyList<string> Colors =
+        ["#4ACFDF", "#6C9EF8", "#A78BFA", "#F472B6", "#F87171", "#FBBF24", "#A3E635", "#34D399", "#38BDF8", "#C084FC"];
+
     // So many skills go to one task: more is a reading list, not a pick.
     private const int MostSkills = 4;
 
@@ -61,6 +73,23 @@ public static partial class ProjectRoles
     /// <summary>The role of that file name; null for General and for a role whose file is gone.</summary>
     public static AgentRole? Find(string? id, string? workspace) =>
         id is null ? null : In(workspace).FirstOrDefault(role => string.Equals(role.Id, id, StringComparison.OrdinalIgnoreCase));
+
+    /// <summary>
+    /// The colour of a specialist's jellyfish: Link's orange for General (<c>null</c>), the file's own colour when it names
+    /// one, else one of <see cref="Colors"/> that no role of <paramref name="roles"/> names itself, handed out to the roles
+    /// with no colour in the order of their file names, and again from the first when they are more than the colours left.
+    /// The same roles give the same colours.
+    /// </summary>
+    public static string ColorOf(AgentRole? role, IReadOnlyList<AgentRole> roles)
+    {
+        if (role is null) return LinkColor;
+        if (Hex(role.Color) is { } own) return own;
+        var free = Colors.Where(color => !roles.Any(each => Hex(each.Color) == color)).ToArray();
+        if (free.Length == 0) free = [.. Colors];
+        var plain = roles.Where(each => Hex(each.Color) is null).Select(each => each.Id).Order(StringComparer.Ordinal).ToList();
+        var index = plain.IndexOf(role.Id);
+        return free[(index < 0 ? plain.Count : index) % free.Length];
+    }
 
     /// <summary>
     /// The role whose keywords the brief has the most of (a keyword counts once, as a word that begins with it); the
@@ -189,8 +218,12 @@ public static partial class ProjectRoles
             List(fields.GetValueOrDefault("skills")),
             fields.GetValueOrDefault("effort"),
             body,
-            file);
+            file,
+            Hex(fields.GetValueOrDefault("color")));
     }
+
+    /// <summary>A colour as "#RRGGBB" in capitals; null when the text is not one.</summary>
+    private static string? Hex(string? value) => value is not null && ColorText().IsMatch(value) ? value.ToUpperInvariant() : null;
 
     private static string[] List(string? value) =>
         value?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
@@ -206,6 +239,9 @@ public static partial class ProjectRoles
         return stems.Count(stem => Stems.Found(brief, stem)) +
                (role?.Keywords.Count(keyword => Stems.Found(skill.Description, keyword)) ?? 0);
     }
+
+    [GeneratedRegex(@"^#[0-9A-Fa-f]{6}\z")]
+    private static partial Regex ColorText();
 
     // The words of a description that tell something: five letters or more.
     [GeneratedRegex(@"\p{L}{5,}")]

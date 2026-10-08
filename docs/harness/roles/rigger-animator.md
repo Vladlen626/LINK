@@ -5,6 +5,7 @@ description: Rig, skinning, locomotion and gameplay animation, export to the eng
 keywords: rigging, rigged, skeleton, skinning, weight paint, animat, locomotion, run cycle, walk cycle, blendspace, root motion, montage, retarget, control rig, foot slid, animbp, риггинг, скелет, скиннинг, веса, анимац, аним, ходьб, цикл бег, ретаргет, риг
 skills: blender-anim, unreal-animbp
 effort: medium
+color: #F472B6
 ---
 ## Duties
 - Build and skin the character rig; author or adjust locomotion cycles and gameplay animations (jump, land, attack, interact).

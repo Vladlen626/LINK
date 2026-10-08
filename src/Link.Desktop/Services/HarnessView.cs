@@ -6,7 +6,8 @@ namespace Link.Desktop.Services;
 /// <summary>
 /// One part of what the agent really gets, for the inspector: a title, a line of what it is, short notes that always
 /// show, a longer <see cref="Detail"/> behind a toggle, a <see cref="FilePath"/> to show in Explorer, and whether the
-/// Console has the raw text.
+/// Console has the raw text. <see cref="Meter"/> (0..1) draws a bar under the value, <see cref="Color"/> ("#RRGGBB")
+/// a jellyfish beside it.
 /// </summary>
 public sealed record HarnessSection(string Title, string Value)
 {
@@ -14,6 +15,8 @@ public sealed record HarnessSection(string Title, string Value)
     public string? Detail { get; init; }
     public string? FilePath { get; init; }
     public bool ShowsConsole { get; init; }
+    public double? Meter { get; init; }
+    public string? Color { get; init; }
 }
 
 /// <summary>
@@ -110,8 +113,14 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
         var note = $"Budget {AgentContext.Tokens(input.ContextBudget)}: the agent's CLI compacts its session near it, or at the model's window if that is smaller";
         var compacted = input.Task is null ? 0 : TaskState.CompactCount(input.Task);
         if (compacted > 0) note += $"\nCompacted {(compacted == 1 ? "once" : $"{compacted} times")}";
-        return new HarnessSection("Context",
-            input.ContextUsed is { } used ? AgentContext.Usage(used, input.ContextWindow, input.ContextBudget) : "Not told yet") { Note = note };
+        if (input.ContextUsed is not { } used) return new HarnessSection("Context", "Not told yet") { Note = note };
+        // The same limit the line says: the budget, or the model's window if that is smaller.
+        var limit = Math.Min(input.ContextBudget, input.ContextWindow ?? input.ContextBudget);
+        return new HarnessSection("Context", AgentContext.Usage(used, input.ContextWindow, input.ContextBudget))
+        {
+            Note = note,
+            Meter = limit > 0 ? Math.Clamp((double)used / limit, 0, 1) : null
+        };
     }
 
     private static HarnessSection Rules()
@@ -127,10 +136,19 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
 
     private static HarnessSection RoleSection(HarnessInput input, AgentRole? role)
     {
-        if (role is not null) return new HarnessSection("Role", role.Name) { Note = role.Description.Length > 0 ? role.Description : null, FilePath = role.FilePath };
+        if (role is not null)
+        {
+            return new HarnessSection("Role", role.Name)
+            {
+                Note = role.Description.Length > 0 ? role.Description : null,
+                FilePath = role.FilePath,
+                Color = ProjectRoles.ColorOf(role, ProjectRoles.In(input.Workspace))
+            };
+        }
+
         return input.Task?.RoleId is { } id
             ? new HarnessSection("Role", $"{id} (its file is gone)") { Note = "The agent gets no role text" }
-            : new HarnessSection("Role", "General — no role") { Note = "No specialist text goes with the rules" };
+            : new HarnessSection("Role", "General — no role") { Note = "No specialist text goes with the rules", Color = ProjectRoles.LinkColor };
     }
 
     private static HarnessSection Memory(string? workspace)

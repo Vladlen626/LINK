@@ -5,6 +5,7 @@ description: Level blockout, set dressing, lighting and navigation, built to the
 keywords: level design, level layout, blockout, greybox, graybox, whitebox, lumen, nanite, world partition, landscape, foliage, sublevel, navmesh, set dressing, skybox, post process, локаци, освещени, ландшафт, блокаут, расстановк, левел, навмеш, дизайн уровн
 skills: unreal-mcp, unreal-level, unreal-verify
 effort: medium
+color: #34D399
 ---
 ## Duties
 - Block out levels with simple geometry, then dress them with the finished assets; set lighting, atmosphere and navigation.

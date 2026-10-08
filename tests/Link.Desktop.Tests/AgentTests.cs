@@ -106,6 +106,10 @@ internal static class AgentTests
         TaskMetricsCounted();
         RoleSuggestAll();
         StepBriefBuilt();
+        RoleColors();
+        RoleColorFiles();
+        HarnessContextMeter();
+        StudioSidebarKept();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -3316,6 +3320,126 @@ internal static class AgentTests
         Program.Equal("suggest all: Suggest still picks the one with the most words",
             ProjectRoles.Suggest("Make a mesh in Blender, then the run cycle animation and locomotion", roles)?.Id, "rigger-animator");
         Program.Equal("stems: where a stem starts, or -1", (Stems.IndexOf("a Jump", "jump"), Stems.IndexOf("inanimate", "animat"), Stems.IndexOf("x", string.Empty)), (2, -1, -1));
+    }
+
+    /// <summary>
+    /// The colour of a specialist's jellyfish: Link's orange for General, a file's own colour, else a colour of the palette that
+    /// no file names, handed out in the order of the ids, again from the first when they run out; the same every time.
+    /// </summary>
+    private static void RoleColors()
+    {
+        static AgentRole Role(string id, string? color = null) => new(id, id, string.Empty, [], [], null, string.Empty, string.Empty, color);
+        static string Of(IReadOnlyList<AgentRole> roles) => string.Join(",", roles.Select(role => ProjectRoles.ColorOf(role, roles)));
+
+        Program.Equal("role colors: General is Link's orange, whatever roles there are",
+            (ProjectRoles.ColorOf(null, []), ProjectRoles.ColorOf(null, [Role("a")])), ("#F5843F", "#F5843F"));
+        Program.Equal("role colors: the palette has Link's orange in no shade, and no color twice",
+            (ProjectRoles.Colors.Contains(ProjectRoles.LinkColor), ProjectRoles.Colors.Contains("#FB923C"), ProjectRoles.Colors.Distinct().Count() == ProjectRoles.Colors.Count),
+            (false, false, true));
+        Program.Equal("role colors: a file's own color wins, in capitals",
+            Of([Role("a", "#112233"), Role("b", "#abcdef")]), "#112233,#ABCDEF");
+
+        // The roles without a color take the palette without the colors the files name, by id, wherever they stand in the list.
+        var roles = new[] { Role("a", "#4ACFDF"), Role("c"), Role("b"), Role("d") };
+        Program.Equal("role colors: the others take the free colors of the palette, in the order of their ids",
+            Of(roles), "#4ACFDF,#A78BFA,#6C9EF8,#F472B6");
+        Program.Equal("role colors: the same roles in another order give the same colors",
+            Of([.. roles.Reverse()]), "#F472B6,#6C9EF8,#A78BFA,#4ACFDF");
+        Program.Equal("role colors: ids are put in order by their letters as they are, capitals first",
+            Of([Role("a"), Role("B")]), ProjectRoles.Colors[1] + "," + ProjectRoles.Colors[0]);
+
+        var many = Enumerable.Range(1, 12).Select(number => Role($"r{number:00}")).ToArray();
+        Program.Equal("role colors: more roles than colors go round the palette again",
+            Of(many), string.Join(",", ProjectRoles.Colors.Concat(ProjectRoles.Colors.Take(2))));
+        var taken = ProjectRoles.Colors.Select((color, index) => Role($"n{index}", color)).Append(Role("z")).ToArray();
+        Program.Equal("role colors: when the files name every color, a role without one takes the palette from its start",
+            ProjectRoles.ColorOf(taken[^1], taken), ProjectRoles.Colors[0]);
+
+        var odd = new[] { Role("a", "orange"), Role("b", "#12345"), Role("c", "#GGGGGG"), Role("d", "123456"), Role("e", "#1234567") };
+        Program.Equal("role colors: a color that is not #RRGGBB is none",
+            Of(odd), string.Join(",", ProjectRoles.Colors.Take(5)));
+    }
+
+    /// <summary>A role file's <c>color:</c> line is read ("#RRGGBB" or none); the eight roles that ship keep theirs; a workspace role is given a free one.</summary>
+    private static void RoleColorFiles()
+    {
+        var builtIn = ProjectRoles.In(null);
+        Program.Equal("role color files: each built-in role names its own color in its file",
+            string.Join(",", builtIn.Select(role => role.Id + "=" + role.Color)),
+            "3d-artist=#A78BFA,build-engineer=#A3E635,level-artist=#34D399,qa-playtest=#F87171,rigger-animator=#F472B6,technical-designer=#FBBF24,ui-ux-designer=#38BDF8,unreal-developer=#6C9EF8");
+        var colors = builtIn.Select(role => ProjectRoles.ColorOf(role, builtIn)).ToArray();
+        Program.Equal("role color files: the eight colors differ, and none is Link's orange",
+            (colors.Distinct().Count(), colors.Contains(ProjectRoles.LinkColor)), (8, false));
+
+        var workspace = TempFolder();
+        try
+        {
+            var folder = ProjectRoles.FolderIn(workspace);
+            Directory.CreateDirectory(folder);
+            File.WriteAllText(Path.Combine(folder, "audio.md"), "---\nname: Audio\ndescription: Sound.\nkeywords: sound\n---\nMix the sound.");
+            File.WriteAllText(Path.Combine(folder, "zeta.md"), "---\nname: Zeta\ndescription: Last.\nkeywords: zeta\ncolor: orange\n---\nBody");
+            File.WriteAllText(Path.Combine(folder, "loud.md"), "---\nname: Loud\ndescription: Own color.\nkeywords: loud\ncolor: #ff8800\n---\nBody");
+            var roles = ProjectRoles.In(workspace);
+            string Color(string id) => ProjectRoles.ColorOf(roles.First(role => role.Id == id), roles);
+            Program.Equal("role color files: a color is read in capitals, one that is not a color is none",
+                (roles.First(role => role.Id == "loud").Color, roles.First(role => role.Id == "zeta").Color, roles.First(role => role.Id == "audio").Color),
+                ("#FF8800", (string?)null, (string?)null));
+            Program.Equal("role color files: workspace roles without a color take the two the built-in ones leave, and the built-in ones do not move",
+                (Color("loud"), Color("audio"), Color("zeta"), Color("3d-artist"), Color("build-engineer")),
+                ("#FF8800", "#4ACFDF", "#C084FC", "#A78BFA", "#A3E635"));
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+    }
+
+    /// <summary>The inspector's Context meter is what the session holds over the limit its line names: the budget, or the model's window if that is smaller; none when unknown.</summary>
+    private static void HarnessContextMeter()
+    {
+        var caps = new AgentCapabilities(true, true, true, "Anthropic");
+        HarnessSection Context(long? used, long? window, int budget = 400_000) =>
+            HarnessView.Build(new HarnessInput(null, "Claude Code", "Opus 5.5 · Medium", "a usual task", caps, budget) { ContextUsed = used, ContextWindow = window })
+                .Sections.Single(section => section.Title == "Context");
+
+        Program.Equal("harness meter: used over the budget while the window is wider",
+            Context(182_000, 1_000_000).Meter, (double?)(182_000 / 400_000.0));
+        Program.Equal("harness meter: used over the window when it is smaller than the budget",
+            Context(150_000, 200_000).Meter, (double?)0.75);
+        Program.Equal("harness meter: no window told, the budget is the limit",
+            Context(300_000, null).Meter, (double?)0.75);
+        Program.Equal("harness meter: nothing told yet, no meter; nothing held, an empty one",
+            (Context(null, 1_000_000).Meter, Context(0, 1_000_000).Meter), ((double?)null, (double?)0.0));
+        Program.Equal("harness meter: over the limit it is full, not more",
+            Context(500_000, 1_000_000).Meter, (double?)1.0);
+        Program.Equal("harness meter: the other sections have none",
+            HarnessView.Build(new HarnessInput(null, "Claude Code", "Opus 5.5", "x", caps, 400_000) { ContextUsed = 1000 }).Sections.Count(section => section.Meter is not null), 1);
+
+        HarnessSection Role(string? roleId) =>
+            HarnessView.Build(new HarnessInput(null, "Claude Code", "Opus 5.5", "x", caps, 400_000)
+            {
+                Task = roleId is null ? null : new AgentTaskRecord { Goal = "Goal", Workspace = "w", RoleId = roleId }
+            }).Sections.Single(section => section.Title == "Role");
+        Program.Equal("harness role: its jellyfish is the role's color, Link's orange for General, none for a role whose file is gone",
+            (Role("rigger-animator").Color, Role(null).Color, Role("gone").Color), ("#F472B6", "#F5843F", (string?)null));
+    }
+
+    /// <summary>The Studio's tasks sidebar is open unless it was folded; an older settings.json, and one with a Studio section from before, open it.</summary>
+    private static void StudioSidebarKept()
+    {
+        var older = JsonSerializer.Deserialize<AppSettings>("""{"Opacity":0.7}""")!;
+        older.Normalize();
+        var before = JsonSerializer.Deserialize<AppSettings>("""{"Studio":{"Width":900,"Height":600,"InspectorOpen":false}}""")!;
+        before.Normalize();
+        Program.Equal("studio sidebar: open by default, and in a section written before it was there",
+            (new StudioSettings().SidebarOpen, older.Studio.SidebarOpen, before.Studio.SidebarOpen, before.Studio.InspectorOpen, before.Studio.Width), (true, true, true, false, 900.0));
+
+        var folded = new AppSettings();
+        folded.Studio.SidebarOpen = false;
+        var back = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(folded))!;
+        back.Normalize();
+        Program.Equal("studio sidebar: a folded sidebar is saved, and so is the inspector's choice apart from it",
+            (back.Studio.SidebarOpen, back.Studio.InspectorOpen), (false, true));
     }
 
     /// <summary>A worker's new session is told the task's state and its step; the one that takes over a failed step is told what failed.</summary>

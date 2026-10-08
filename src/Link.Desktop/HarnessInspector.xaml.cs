@@ -2,6 +2,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Media;
 using Link.Desktop.Services;
 
 namespace Link.Desktop;
@@ -12,13 +13,14 @@ namespace Link.Desktop;
 /// </summary>
 public sealed class HarnessRow(HarnessSection section) : INotifyPropertyChanged
 {
+    private const double MeterWarning = 0.8;
     private bool _detailOpen;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
     public HarnessSection Section { get; private set; } = section;
 
-    public string Heading => Section.Title.ToUpperInvariant();
+    public string Heading => Section.Title;
     public string Value => Section.Value;
     public string? Note => Section.Note;
     public string? Detail => Section.Detail;
@@ -28,6 +30,17 @@ public sealed class HarnessRow(HarnessSection section) : INotifyPropertyChanged
     public Visibility DetailToggleVisibility => Section.Detail is null ? Visibility.Collapsed : Visibility.Visible;
     public Visibility DetailVisibility => _detailOpen && Section.Detail is not null ? Visibility.Visible : Visibility.Collapsed;
     public string DetailLabel => _detailOpen ? "Hide ▾" : "View ▸";
+
+    /// <summary>The context's bar: how much of the limit is used, in percent for the bar; none for a section with no meter.</summary>
+    public double MeterPercent => (Section.Meter ?? 0) * 100;
+    public Visibility MeterVisibility => Section.Meter is null ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>The bar turns to a warning near the limit, where the agent's CLI compacts.</summary>
+    public bool MeterHigh => Section.Meter >= MeterWarning;
+
+    /// <summary>The jellyfish beside a role in the colour of the role; none for a section with no colour.</summary>
+    public Brush? RoleBrush => Section.Color is { } color ? RoleBrushes.Of(color) : null;
+    public Visibility RoleVisibility => Section.Color is null ? Visibility.Collapsed : Visibility.Visible;
 
     public bool DetailOpen
     {
@@ -45,7 +58,8 @@ public sealed class HarnessRow(HarnessSection section) : INotifyPropertyChanged
         if (now == Section) return;
         Section = now;
         Raise(nameof(Value), nameof(Note), nameof(Detail), nameof(NoteVisibility), nameof(OpenVisibility), nameof(ConsoleVisibility),
-            nameof(DetailToggleVisibility), nameof(DetailVisibility));
+            nameof(DetailToggleVisibility), nameof(DetailVisibility), nameof(MeterPercent), nameof(MeterVisibility), nameof(MeterHigh),
+            nameof(RoleBrush), nameof(RoleVisibility));
     }
 
     private void Raise(params string[] names)

@@ -20,27 +20,43 @@
                     <RowDefinition Height="*" />
                 </Grid.RowDefinitions>
 
-                <!-- The chats with ChatGPT and the project itself are tabs; the agents' tasks are the Studio, a button away. -->
+                <!-- The chats with ChatGPT and the project itself are tabs. The agents' tasks are the Studio, a window of its own:
+                     a button on the right, before Close, not a tab. -->
                 <Grid Margin="9,0,8,0">
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <StackPanel VerticalAlignment="Center" Orientation="Horizontal">
+                    <Grid.ColumnDefinitions>
+                        <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                    </Grid.ColumnDefinitions>
+                    <!-- A narrow panel trims the project's name rather than push the Studio button out. -->
+                    <Grid VerticalAlignment="Center">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                         <Button x:Name="ChatsTabButton" Style="{StaticResource GhostButtonStyle}" Height="28" Padding="9,2"
                                 Click="ChatsTab_OnClick" ToolTip="The project's chats with ChatGPT: open one to see it and go on in it; New chat starts one (Ctrl+K)">
                             <TextBlock x:Name="ChatsTabText" FontSize="12.5" FontWeight="SemiBold" Text="Chats" />
                         </Button>
-                        <Button x:Name="TaskTabButton" Style="{StaticResource GhostButtonStyle}" Height="28" Margin="2,0,0,0" Padding="9,2"
-                                Click="TaskTab_OnClick" ToolTip="Open Link Studio: the agents' tasks, their threads, and the Harness Inspector">
-                            <StackPanel Orientation="Horizontal">
-                                <Ellipse x:Name="TaskTabDot" Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center" Visibility="Collapsed" />
-                                <TextBlock x:Name="TaskTabText" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Tasks" />
-                            </StackPanel>
-                        </Button>
-                        <Button x:Name="ProjectTabButton" Style="{StaticResource GhostButtonStyle}" Height="28" Margin="2,0,0,0" Padding="9,2"
-                                Click="ProjectTab_OnClick">
+                        <Button x:Name="ProjectTabButton" Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Height="28" Margin="2,0,0,0" Padding="9,2"
+                                HorizontalAlignment="Left" Click="ProjectTab_OnClick">
                             <TextBlock x:Name="ProjectTabText" MaxWidth="120" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                         </Button>
-                    </StackPanel>
-                    <Button Grid.Column="1" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
+                    </Grid>
+                    <Button x:Name="StudioButton" Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Height="28" Margin="6,0,2,0" Padding="9,2"
+                            VerticalAlignment="Center" Click="Studio_OnClick"
+                            ToolTip="Open Link Studio: the agents' tasks, their threads and the Harness">
+                        <StackPanel Orientation="Horizontal">
+                            <!-- The jellyfish, with the task's standing as a dot on its corner. -->
+                            <Grid Width="19" Height="17" Margin="0,0,6,0" VerticalAlignment="Center">
+                                <Control Width="14" Height="14" HorizontalAlignment="Left" VerticalAlignment="Top" Focusable="False"
+                                         Foreground="{StaticResource BrandBrush}" Template="{StaticResource LinkGlyphTemplate}" />
+                                <Ellipse x:Name="TaskTabDot" Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                         Stroke="{StaticResource WindowSurfaceBrush}" StrokeThickness="1.5" Visibility="Collapsed" />
+                            </Grid>
+                            <TextBlock VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" Text="Studio" />
+                            <Viewbox Width="12" Height="12" Margin="7,0,0,0" VerticalAlignment="Center">
+                                <Path Data="{StaticResource OpenWindowIconGeometry}" Fill="Transparent" Stroke="{StaticResource MutedBrush}"
+                                      StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                            </Viewbox>
+                        </StackPanel>
+                    </Button>
+                    <Button Grid.Column="2" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
                             Click="Close_OnClick" ToolTip="Close the panel (Esc)">
                         <Path Width="9" Height="9" Stretch="Uniform" Data="{StaticResource CloseIconGeometry}"
                               Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />

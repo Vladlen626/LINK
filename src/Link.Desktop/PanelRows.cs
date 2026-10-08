@@ -1,3 +1,4 @@
+using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
@@ -23,9 +24,10 @@ public sealed record ThreadAnswer(string Text, string Time, ProjectExchange Exch
 
 /// <summary>
 /// An agent's run in its task's thread: who worked and on what, its steps folded, its answer, the files it changed and
-/// what it cost. The running one fills as the events come.
+/// what it cost. The running one fills as the events come. <see cref="RoleBrush"/> is the colour of the jellyfish of the
+/// specialist the run worked as.
 /// </summary>
-public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush) : INotifyPropertyChanged
+public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, Brush roleBrush) : INotifyPropertyChanged
 {
     private const int StepsKept = StepGroup.RowsKept;
     private string _outcome = outcome;
@@ -41,6 +43,8 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush) :
 
     /// <summary>"Claude Code · Opus 5.5 · Extra high".</summary>
     public string Who { get; } = who;
+
+    public Brush RoleBrush { get; } = roleBrush;
 
     /// <summary>The run's steps in order: the agent's words as rows, the tool steps between them as <see cref="StepGroup"/>s.</summary>
     public ObservableCollection<object> Steps { get; } = [];
@@ -170,8 +174,19 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush) :
 /// <summary>A row of a task's steps: its text in its colour.</summary>
 public sealed record AgentStepRow(string Text, Brush Brush);
 
-/// <summary>A step of the agent's plan: its mark (✓ done, ◐ under way, ○ to do), its words and their colour.</summary>
-public sealed record PlanRow(string Mark, string Text, Brush Brush);
+/// <summary>
+/// A step of the agent's plan: its mark (✓ done, ● under way, ○ to do) and the mark's colour, its words and their colour.
+/// A team's step also names who does it (<see cref="Worker"/>) and the specialist, with the colour of its jellyfish; an
+/// agent's own plan has neither.
+/// </summary>
+public sealed record PlanRow(string Mark, Brush MarkBrush, string Text, Brush Brush)
+{
+    public string Worker { get; init; } = string.Empty;
+    public string RoleName { get; init; } = string.Empty;
+    public Brush? RoleBrush { get; init; }
+    public Visibility WorkerVisibility => Worker.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility RoleVisibility => RoleName.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+}
 
 /// <summary>
 /// The tool steps between two pieces of the agent's words, folded into the line that sums them up ("Ran 3 commands, read
@@ -219,8 +234,41 @@ public sealed record AgentChangeRow(string Label, string Path);
 /// <summary>A choice the panel offers in a menu or on a card; the window does the work behind it.</summary>
 public sealed record PanelAction(string Label, string Hint, Action Run);
 
-/// <summary>A task in the Tasks list: its goal, how it stands and its last words; no record: Link's own run (the map).</summary>
-public sealed record TaskRow(string Title, string Preview, string Time, string Status, Brush StatusBrush, AgentTaskRecord? Record);
+/// <summary>
+/// A task in the Studio's sidebar: its goal, how it stands and its last words; no record: Link's own run (the map).
+/// <see cref="RoleBrush"/> is the colour of its specialist's jellyfish; <see cref="IsOpen"/> lights the row of the task the
+/// Studio shows.
+/// </summary>
+public sealed record TaskRow(string Title, string Preview, string Time, string Status, Brush StatusBrush, Brush RoleBrush, AgentTaskRecord? Record)
+{
+    public bool IsOpen { get; init; }
+}
+
+/// <summary>The jellyfish's brushes: one frozen brush for each colour, shared by every row that has it.</summary>
+public static class RoleBrushes
+{
+    private static readonly ConcurrentDictionary<string, Brush> Cache = new(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Link's own orange: General, the work with no specialist.</summary>
+    public static Brush Link => Of(ProjectRoles.LinkColor);
+
+    /// <summary>The brush of a "#RRGGBB" colour, as <see cref="ProjectRoles.ColorOf"/> gives it.</summary>
+    public static Brush Of(string hex) => Cache.GetOrAdd(hex, text =>
+    {
+        var brush = new SolidColorBrush((Color)ColorConverter.ConvertFromString(text));
+        brush.Freeze();
+        return brush;
+    });
+
+    /// <summary>
+    /// The brush of the specialist <paramref name="roleId"/>, found among <paramref name="roles"/>, which are read only when
+    /// there is one to find; Link's orange for General and for a role whose file is gone.
+    /// </summary>
+    public static Brush For(string? roleId, Lazy<IReadOnlyList<AgentRole>> roles) =>
+        roleId is null || roles.Value.FirstOrDefault(role => string.Equals(role.Id, roleId, StringComparison.OrdinalIgnoreCase)) is not { } found
+            ? Link
+            : Of(ProjectRoles.ColorOf(found, roles.Value));
+}
 
 /// <summary>
 /// A chat in the Chats list. <see cref="ConversationId"/> is null for the answers an earlier Link kept without their

@@ -9,7 +9,7 @@ namespace Link.Desktop;
 
 // The panel beside the card: Expand opens it, it follows the card and hides and shows with it. Two tabs, as in the
 // apps the user knows: the project's chats with ChatGPT, and the project itself (its note and workspace). The agents'
-// tasks are the Studio, a window of its own that the panel's Tasks button opens. The card keeps chips of what goes with
+// tasks are the Studio, a window of its own that the panel's Studio button opens. The card keeps chips of what goes with
 // a request.
 public partial class MainWindow
 {

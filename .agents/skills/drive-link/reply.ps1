@@ -43,9 +43,9 @@ $name = (Wait-Id 'ProjectNameText').Current.Name
 "project: $name"
 if ($name -ne $Project) { throw "Link shows the project '$name', not '$Project': switch it first" }
 
-# The side panel open, its Tasks button pressed (it opens the Studio): the task Link shows there (it opens the last one), or else the newest of the list.
-if (-not (Find-Id 'TaskTabButton')) { Invoke-Element (Wait-Id 'ExpandButton'); Start-Sleep -Milliseconds 800 }
-Invoke-Element (Wait-Id 'TaskTabButton'); Start-Sleep -Milliseconds 800
+# The side panel open, its Studio button pressed (it opens the Studio): the task Link shows there (it opens the last one), or else the newest of the list.
+if (-not (Find-Id 'StudioButton')) { Invoke-Element (Wait-Id 'ExpandButton'); Start-Sleep -Milliseconds 800 }
+Invoke-Element (Wait-Id 'StudioButton'); Start-Sleep -Milliseconds 800
 if (-not (Find-Id 'GoalText')) {
   $list = Wait-Id 'TaskList'
   $isButton = New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)

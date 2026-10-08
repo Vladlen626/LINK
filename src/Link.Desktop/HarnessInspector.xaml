@@ -4,16 +4,41 @@
              xmlns:local="clr-namespace:Link.Desktop">
     <UserControl.Resources>
         <Style x:Key="SectionCardStyle" TargetType="Border">
-            <Setter Property="Margin" Value="0,0,0,8" />
-            <Setter Property="Padding" Value="10,8" />
+            <Setter Property="Margin" Value="0,0,0,10" />
+            <Setter Property="Padding" Value="14,12" />
             <Setter Property="Background" Value="{StaticResource CardBrush}" />
             <Setter Property="BorderBrush" Value="{StaticResource GlassBorderSoftBrush}" />
             <Setter Property="BorderThickness" Value="1" />
-            <Setter Property="CornerRadius" Value="{StaticResource SurfaceRadius}" />
+            <Setter Property="CornerRadius" Value="10" />
         </Style>
+        <Style x:Key="SectionHeadingStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        </Style>
+        <Style x:Key="SectionNoteStyle" TargetType="TextBlock" BasedOn="{StaticResource SecondaryTextStyle}">
+            <Setter Property="Margin" Value="0,4,0,0" />
+            <Setter Property="LineHeight" Value="17" />
+            <Setter Property="LineStackingStrategy" Value="BlockLineHeight" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <!-- Open, View, Console and the team pack's two: text that looks like what it is, a link. -->
         <Style x:Key="SectionButtonStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
-            <Setter Property="Margin" Value="2,-3,-4,-3" />
+            <Setter Property="Margin" Value="2,-3,-6,-3" />
             <Setter Property="Padding" Value="6,2" />
+        </Style>
+        <Style x:Key="SectionLinkTextStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12" />
+            <Setter Property="Foreground" Value="{StaticResource LinkTextBrush}" />
+        </Style>
+        <!-- The context's bar turns to a warning near the limit. -->
+        <Style x:Key="ContextMeterStyle" TargetType="ProgressBar" BasedOn="{StaticResource UsageBarStyle}">
+            <Setter Property="Margin" Value="0,9,0,0" />
+            <Style.Triggers>
+                <DataTrigger Binding="{Binding MeterHigh}" Value="True">
+                    <Setter Property="Foreground" Value="{StaticResource BusyOrbBrush}" />
+                </DataTrigger>
+            </Style.Triggers>
         </Style>
 
         <!-- A part of the harness: what it is, a note or two, and a longer text behind a toggle. -->
@@ -22,28 +47,41 @@
                 <StackPanel>
                     <Grid>
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionLabelStyle}" Text="{Binding Heading}" />
+                        <TextBlock VerticalAlignment="Center" Style="{StaticResource SectionHeadingStyle}" Text="{Binding Heading}" />
                         <StackPanel Grid.Column="1" Orientation="Horizontal">
                             <Button Style="{StaticResource SectionButtonStyle}" Click="Open_OnClick" Visibility="{Binding OpenVisibility}"
                                     ToolTip="Show the file in Explorer">
-                                <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Open" />
+                                <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Open" />
                             </Button>
                             <Button Style="{StaticResource SectionButtonStyle}" Click="Console_OnClick" Visibility="{Binding ConsoleVisibility}"
                                     ToolTip="What Link gave the agent's CLI and every line it wrote back">
-                                <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="Console" />
+                                <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Console" />
                             </Button>
                             <Button Style="{StaticResource SectionButtonStyle}" Click="Detail_OnClick" Visibility="{Binding DetailToggleVisibility}"
                                     ToolTip="The whole text">
-                                <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding DetailLabel}" />
+                                <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="{Binding DetailLabel}" />
                             </Button>
                         </StackPanel>
                     </Grid>
-                    <TextBlock Margin="0,3,0,0" FontSize="12.5" Foreground="{StaticResource TextBrush}" Text="{Binding Value}" TextWrapping="Wrap" />
-                    <TextBlock Margin="0,3,0,0" FontSize="11" Style="{StaticResource SecondaryTextStyle}" Text="{Binding Note}"
-                               TextWrapping="Wrap" Visibility="{Binding NoteVisibility}" />
-                    <TextBox Margin="0,6,0,0" Style="{StaticResource BareTextBoxStyle}" FontFamily="Consolas" FontSize="11.5" IsReadOnly="True"
-                             MaxHeight="220" Text="{Binding Detail, Mode=OneWay}" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                             Visibility="{Binding DetailVisibility}" />
+                    <!-- The value; a role's jellyfish in its colour stands before it. -->
+                    <Grid Margin="0,5,0,0">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                        <Control Width="15" Height="15" Margin="0,1,8,0" VerticalAlignment="Top" Focusable="False"
+                                 Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" Visibility="{Binding RoleVisibility}" />
+                        <TextBlock Grid.Column="1" FontSize="13" Foreground="{StaticResource TextBrush}" Text="{Binding Value}" TextWrapping="Wrap" />
+                    </Grid>
+                    <ProgressBar Style="{StaticResource ContextMeterStyle}" Value="{Binding MeterPercent, Mode=OneWay}"
+                                 Visibility="{Binding MeterVisibility}" />
+                    <TextBlock Style="{StaticResource SectionNoteStyle}" Text="{Binding Note}" Visibility="{Binding NoteVisibility}" />
+                    <Border Margin="0,8,0,0" CornerRadius="8" Background="{StaticResource InnerGlassBrush}" Visibility="{Binding DetailVisibility}">
+                        <Grid>
+                            <Grid.ColumnDefinitions><ColumnDefinition Width="2" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                            <Border Margin="0,6" Background="{StaticResource HairlineBrush}" CornerRadius="1" />
+                            <TextBox Grid.Column="1" Margin="10,8" Padding="0" Style="{StaticResource BareTextBoxStyle}" FontFamily="Consolas" FontSize="11.5"
+                                     IsReadOnly="True" MaxHeight="220" Text="{Binding Detail, Mode=OneWay}" TextWrapping="Wrap"
+                                     VerticalScrollBarVisibility="Auto" />
+                        </Grid>
+                    </Border>
                 </StackPanel>
             </Border>
         </DataTemplate>
@@ -55,21 +93,20 @@
         <!-- The workspace's roles and skills in one file for a teammate; never settings, keys or the user's data. -->
         <Border Style="{StaticResource SectionCardStyle}">
             <StackPanel>
-                <TextBlock Style="{StaticResource SectionLabelStyle}" Text="TEAM PACK" />
-                <TextBlock Margin="0,3,0,0" FontSize="11" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                <TextBlock Style="{StaticResource SectionHeadingStyle}" Text="Team pack" />
+                <TextBlock Style="{StaticResource SectionNoteStyle}"
                            Text="The roles and skills of this workspace in one file, for a teammate's workspace. Settings, keys and your data never go in." />
-                <WrapPanel Margin="-8,4,0,0">
-                    <Button Padding="8,3" Style="{StaticResource GhostButtonStyle}" Click="ExportPack_OnClick"
+                <WrapPanel Margin="-6,6,0,0">
+                    <Button Margin="0,0,6,0" Style="{StaticResource SectionButtonStyle}" Click="ExportPack_OnClick"
                             ToolTip="Write .agents/roles and .agents/skills of the workspace to a .linkpack file">
-                        <TextBlock FontSize="12" Foreground="{StaticResource TextBrush}" Text="Export team pack…" />
+                        <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Export team pack…" />
                     </Button>
-                    <Button Padding="8,3" Style="{StaticResource GhostButtonStyle}" Click="ImportPack_OnClick"
+                    <Button Margin="0" Style="{StaticResource SectionButtonStyle}" Click="ImportPack_OnClick"
                             ToolTip="Put the roles and skills of a .linkpack file into the workspace; one it has already is replaced only if you say so">
-                        <TextBlock FontSize="12" Foreground="{StaticResource TextBrush}" Text="Import team pack…" />
+                        <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Import team pack…" />
                     </Button>
                 </WrapPanel>
-                <TextBlock x:Name="PackStatusText" Margin="0,2,0,0" FontSize="11" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                           Visibility="Collapsed" />
+                <TextBlock x:Name="PackStatusText" Style="{StaticResource SectionNoteStyle}" Margin="0,4,0,0" Visibility="Collapsed" />
             </StackPanel>
         </Border>
     </StackPanel>

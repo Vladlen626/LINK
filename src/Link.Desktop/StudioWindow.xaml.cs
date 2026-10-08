@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Input;
 using System.Windows.Media;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
@@ -7,18 +8,24 @@ using Link.Desktop.Windows;
 namespace Link.Desktop;
 
 /// <summary>
-/// Link Studio: the agents' tasks in the middle (the <see cref="AgentPanel"/> it is given), the Harness Inspector on the
-/// right, and in the header the open task's context with Compact. A normal window, made when it is first opened and gone
-/// when it is closed: it keeps no timer, and gives the tasks back so that the next Studio can host them.
+/// Link Studio: the tasks on the left (the sidebar of the <see cref="AgentPanel"/> it is given), the open task in the
+/// middle, the Harness Inspector on the right, and in the header the open task's context with Compact. It wears Link's
+/// glass and draws its own caption. A normal window, made when it is first opened and gone when it is closed: it keeps no
+/// timer, and gives the tasks back so that the next Studio can host them.
 /// </summary>
 public partial class StudioWindow : Window
 {
-    private const double InspectorWidth = 320;
+    private const double InspectorWidth = 340;
+
+    // A window narrower than this has room for one side only: opening one folds the other.
+    private const double NarrowWidth = 980;
     private readonly StudioSettings _settings;
+    private readonly AgentPanel _tasks;
 
     public StudioWindow(StudioSettings settings, AgentPanel tasks)
     {
         _settings = settings;
+        _tasks = tasks;
         InitializeComponent();
         TasksHost.Child = tasks;
         Inspector.OpenFileRequested += path => OpenFileRequested?.Invoke(path);
@@ -38,6 +45,10 @@ public partial class StudioWindow : Window
 
         if (settings.Maximized) WindowState = WindowState.Maximized;
         ShowInspector(settings.InspectorOpen);
+        ShowSidebar(settings.SidebarOpen);
+        ApplyState();
+        PreviewKeyDown += OnPreviewKeyDown;
+        StateChanged += (_, _) => ApplyState();
         SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
         Closing += (_, _) =>
         {
@@ -67,6 +78,8 @@ public partial class StudioWindow : Window
 
     public bool InspectorOpen => _settings.InspectorOpen;
 
+    private bool Narrow => ActualWidth is > 0 and < NarrowWidth;
+
     /// <summary>The project, the open task's context line (null: no task is open) and whether Compact is offered.</summary>
     public void ShowHeader(string project, string? context, bool canCompact)
     {
@@ -81,15 +94,35 @@ public partial class StudioWindow : Window
 
     public void ShowTeamPackStatus(string text) => Inspector.ShowTeamPackStatus(text);
 
+    /// <summary>
+    /// The glass: the tint over the backdrop follows Link's Glass setting (0.2..1) as the overlay's does, but never gets
+    /// thinner than the text needs for long reading. With Windows' transparency effects off it is solid.
+    /// </summary>
+    public void ApplyGlass(double glass) =>
+        Tint.Opacity = ThemeService.IsTransparencyEnabled ? Math.Clamp(0.25 + (glass - 0.2) * 0.875, 0.45, 1) : 1;
+
     /// <summary>Opens or folds the inspector column, and keeps the choice.</summary>
     public void ShowInspector(bool open)
     {
         _settings.InspectorOpen = open;
         InspectorColumn.Width = new GridLength(open ? InspectorWidth : 0);
-        InspectorScroll.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        HarnessButtonText.Foreground = (Brush)FindResource(open ? "AccentBrush" : "TextBrush");
-        HarnessButton.ToolTip = open ? "Fold the Harness column" : "Show the Harness column: what the agent really gets, and why it behaves so";
+        InspectorHost.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+        HarnessButton.Foreground = (Brush)FindResource(open ? "AccentBrush" : "TextBrush");
+        HarnessButton.ToolTip = open
+            ? "Fold the Harness column (Ctrl+Shift+H)"
+            : "Show the Harness column: what the agent really gets, and why it behaves so (Ctrl+Shift+H)";
+        if (open && Narrow && _settings.SidebarOpen) ShowSidebar(false);
         if (open) InspectorOpened?.Invoke();
+    }
+
+    /// <summary>Opens or folds the tasks' sidebar, and keeps the choice.</summary>
+    public void ShowSidebar(bool open)
+    {
+        _settings.SidebarOpen = open;
+        _tasks.ShowSidebar(open);
+        SidebarButton.Foreground = (Brush)FindResource(open ? "AccentBrush" : "TextBrush");
+        SidebarButton.ToolTip = open ? "Fold the tasks (Ctrl+B)" : "Show the tasks (Ctrl+B)";
+        if (open && Narrow && _settings.InspectorOpen) ShowInspector(false);
     }
 
     /// <summary>Writes where the window stands to its settings, its normal bounds when it is maximized; the owner saves them.</summary>
@@ -100,7 +133,40 @@ public partial class StudioWindow : Window
         _settings.Remember(bounds.Left, bounds.Top, bounds.Width, bounds.Height, WindowState == WindowState.Maximized);
     }
 
+    /// <summary>
+    /// A maximized window with its own chrome reaches past the screen by the frame: the content is pulled back by it. The
+    /// button shows what a press does.
+    /// </summary>
+    private void ApplyState()
+    {
+        var maximized = WindowState == WindowState.Maximized;
+        Root.Padding = maximized ? SystemParameters.WindowResizeBorderThickness : new Thickness(0);
+        MaximizeIcon.Data = (Geometry)FindResource(maximized ? "RestoreIconGeometry" : "MaximizeIconGeometry");
+        MaximizeButton.ToolTip = maximized ? "Restore" : "Maximize";
+    }
+
+    private void OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        // Ctrl+B for the tasks and Ctrl+Shift+H for the Harness, wherever the focus is in the Studio.
+        if (e.Key == Key.B && Keyboard.Modifiers == ModifierKeys.Control) ShowSidebar(!_settings.SidebarOpen);
+        else if (e.Key == Key.H && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) ShowInspector(!_settings.InspectorOpen);
+        else return;
+        e.Handled = true;
+    }
+
     private void Compact_OnClick(object sender, RoutedEventArgs e) => CompactRequested?.Invoke();
 
     private void Harness_OnClick(object sender, RoutedEventArgs e) => ShowInspector(!_settings.InspectorOpen);
+
+    private void Sidebar_OnClick(object sender, RoutedEventArgs e) => ShowSidebar(!_settings.SidebarOpen);
+
+    private void Minimize_OnClick(object sender, RoutedEventArgs e) => SystemCommands.MinimizeWindow(this);
+
+    private void Maximize_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (WindowState == WindowState.Maximized) SystemCommands.RestoreWindow(this);
+        else SystemCommands.MaximizeWindow(this);
+    }
+
+    private void Close_OnClick(object sender, RoutedEventArgs e) => SystemCommands.CloseWindow(this);
 }

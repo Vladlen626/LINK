@@ -5,6 +5,7 @@ description: Packaging, cook errors, profiling and optimisation with measured nu
 keywords: packaging, packaged build, cook, shipping build, runuat, buildcookrun, profiler, profiling, optimiz, performance, fps, frame time, hitch, memory leak, unreal insights, draw call, упаковк, оптимиз, производительн, профилиров, просадк, фпс, тормоз, утечк
 skills: unreal-package, unreal-profiling
 effort: low
+color: #A3E635
 ---
 ## Duties
 - Package the game for Windows, fix cook and packaging failures, and confirm the packaged build runs.

@@ -58,8 +58,6 @@ public partial class MainWindow
     private OwnRun? _own;
     // Whether the Studio shows Link's own answer rather than a task or the list.
     private bool _ownShown;
-    // The agent whose usage the shown task or run lists under its buttons.
-    private AgentProviderKind? _limitsProvider;
     // Agents whose usage is being asked for now.
     private readonly HashSet<AgentProviderKind> _askingLimits = [];
     // The task as the card or the Map button started it: what Start over starts again.
@@ -403,12 +401,11 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>The bars wherever they are: the list, the task shown and an open card.</summary>
+    /// <summary>The bars wherever they are: the sidebar's foot and an open card.</summary>
     private void ShowLimitRows()
     {
         RefreshTaskList();
         if (_agentPanel is null) return;
-        if (_limitsProvider is { } shown) _agentPanel.ShowTaskLimits(LimitRows(shown));
         foreach (var agent in _agents.Providers) _agentPanel.ShowCardLimits(agent.Kind, LimitRows(agent.Kind));
     }
 
@@ -442,7 +439,6 @@ public partial class MainWindow
         };
         panel.PlanModeOffRequested += LeavePlanMode;
         panel.OpenFileRequested += ShowFile;
-        panel.BackRequested += ShowTaskList;
         panel.NewTaskRequested += () => _ = OpenNewTaskCardAsync();
         panel.TaskSelected += OpenAgentTask;
         panel.OwnRunRequested += ShowOwnRun;
@@ -453,7 +449,7 @@ public partial class MainWindow
         return panel;
     }
 
-    /// <summary>Cancel on the card: back to the task it was opened from, or to the list.</summary>
+    /// <summary>Cancel on the card: back to the task it was opened from, or to the middle with no task open.</summary>
     private void CancelCard()
     {
         _cardRun = null;
@@ -463,7 +459,7 @@ public partial class MainWindow
         else ShowTaskList();
     }
 
-    /// <summary>Back to the project's tasks; an agent at work goes on, its row says so.</summary>
+    /// <summary>No task is shown: the sidebar lists the project's, and an agent at work goes on, its row says so.</summary>
     private void ShowTaskList()
     {
         _shownTask = null;
@@ -487,7 +483,7 @@ public partial class MainWindow
         var running = AgentRunning && _runningTask == own.Task;
         var status = running ? "working" : own.Status;
         return new TaskRow($"Link writes {OwnWhat(own.Task)}", "Link's own answer, apart from the tasks",
-            string.Empty, $"{AgentName(own.Task.Provider)} · {status}", (Brush)FindResource(running ? "BusyOrbBrush" : own.Dot), null);
+            string.Empty, $"{AgentName(own.Task.Provider)} · {status}", (Brush)FindResource(running ? "BusyOrbBrush" : own.Dot), RoleBrushes.Link, null);
     }
 
     /// <summary>The project's tasks, newest first; the open one leads while it is open, saved yet or not.</summary>
@@ -501,13 +497,17 @@ public partial class MainWindow
             tasks.Insert(0, open);
         }
 
+        // Each workspace's role files are read once per drawing, and only for a task that has a specialist.
+        var roles = new Dictionary<string, Lazy<IReadOnlyList<AgentRole>>>(StringComparer.OrdinalIgnoreCase);
         return tasks.Select(record =>
         {
             // The list is drawn now and then: its running row says so, the time is in the pill and the task.
             var live = AgentRunning && record.Id == _task?.Id && _runningTask is { } running && IsUserWork(running);
             var (status, brush) = live ? ("working", (Brush)FindResource("BusyOrbBrush")) : Standing(record, live: false);
             var who = record.LastRun is { } last ? AgentName(last.Provider) + " · " : string.Empty;
-            return new TaskRow(record.Goal, ToPreviewText(record.LastWords), ShortTime(record.UpdatedAt), who + status, brush, record);
+            if (!roles.TryGetValue(record.Workspace, out var inWorkspace)) roles[record.Workspace] = inWorkspace = WorkspaceRoles(record.Workspace);
+            return new TaskRow(record.Goal, ToPreviewText(record.LastWords), ShortTime(record.UpdatedAt), who + status, brush,
+                RoleBrushes.For(record.RoleId, inWorkspace), record);
         }).ToArray();
     }
 
@@ -829,7 +829,7 @@ public partial class MainWindow
             : default;
         _runningFiles.Clear();
         _liveTurn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason)}", "Starting…",
-            (Brush)FindResource("AccentBrush")) { StepsOpen = true };
+            (Brush)FindResource("AccentBrush"), RoleBrushes.For(task.RoleId, WorkspaceRoles(task.Workspace))) { StepsOpen = true };
         if (own) _own = new OwnRun(task, _liveTurn);
         var cancellation = new CancellationTokenSource();
         _agentCancellation = cancellation;
@@ -970,7 +970,7 @@ public partial class MainWindow
         _ownShown = true;
         var task = own.Task;
         var running = AgentRunning && _runningTask == task;
-        panel.ShowTaskView($"Link writes {OwnWhat(task)}", $"{_projects.ActiveProject.Name} · {task.Workspace}");
+        panel.ShowTaskView($"Link writes {OwnWhat(task)}", $"{_projects.ActiveProject.Name} · {task.Workspace}", null);
         panel.SetStatus(running ? "working" : own.Status, (Brush)FindResource(running ? "BusyOrbBrush" : own.Dot));
         panel.SetHeader(running ? AgentHeader(task) : $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort)} · read only");
         panel.ShowPlan([]);
@@ -978,8 +978,6 @@ public partial class MainWindow
         panel.ShowThread([own.Turn]);
         panel.ShowBrief(string.Empty);
         panel.ShowUsage(string.Empty, string.Empty);
-        _limitsProvider = task.Provider;
-        panel.ShowTaskLimits(LimitRows(task.Provider));
         panel.ResetCards();
         panel.ShowQuestion(null);
         panel.ShowMenus([], OwnActions(own));
@@ -987,7 +985,7 @@ public partial class MainWindow
         panel.ShowPlanMode(false);
         panel.SetRunning(running);
         // Link's own answer takes no words.
-        panel.ShowReply(false, running ? null : "Link's own answer: the file is written. ‹ goes back to the tasks.");
+        panel.ShowReply(false, running ? null : "Link's own answer: the file is written. The tasks are on the left.");
     }
 
     /// <summary>What Link's own run writes, as the user reads it: "docs/map.md".</summary>
@@ -1150,7 +1148,7 @@ public partial class MainWindow
         // The images the task began with go along; a task from the list has kept none.
         var card = CardModel(brief, string.Empty, _agentOrigin?.Images ?? [], to) with
         {
-            Title = $"HAND OFF TO {AgentName(to).ToUpperInvariant()} · NEW SESSION",
+            Title = $"Hand off to {AgentName(to)} · new session",
             RunLabel = $"Hand off to {AgentName(to)}",
             FixedProvider = true,
             AutoEffort = record.AutoEffort && _settings.Current.Agent.AutoEffort,
@@ -1222,7 +1220,7 @@ public partial class MainWindow
             // The card starts on the model and effort of the last run: Settings' Standard could be a silent downgrade.
             Providers = [.. card.Providers.Select(agent => agent.Kind == provider ? agent with { Model = resume.Task.Model, Effort = resume.Task.Effort } : agent)],
             Access = resume.Task.AutoApprove ? AgentAccessChoice.Auto : AgentAccessChoice.Edit,
-            Title = $"COMPACT · NEW SESSION OF {AgentName(provider).ToUpperInvariant()}",
+            Title = $"Compact · new session of {AgentName(provider)}",
             RunLabel = "Compact",
             FixedProvider = true,
             AutoEffort = record.AutoEffort && _settings.Current.Agent.AutoEffort,
@@ -1381,7 +1379,7 @@ public partial class MainWindow
         if (events.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Plan) is { } plan)
         {
             if (userWork) _task!.Plan = [.. plan.Plan];
-            if (shown && userWork) _agentPanel.ShowPlan(plan.Plan);
+            if (shown && userWork) _agentPanel.ShowPlan(plan.Plan, PlanRoles(plan.Plan, _task!.Workspace));
         }
 
         if (userWork && events.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Context) is { } context)
@@ -1399,7 +1397,7 @@ public partial class MainWindow
         if (events.Any(agentEvent => agentEvent.Kind == AgentEventKind.Limit))
         {
             foreach (var usage in events.Where(agentEvent => agentEvent.Kind == AgentEventKind.Limit)) _limits.Update(usage.Limits);
-            if (shown && _runningTask is { } reporting) _agentPanel.ShowTaskLimits(LimitRows(reporting.Provider));
+            if (shown) _agentPanel.ShowLimits(AllLimitRows());
         }
 
         if (userWork && _runningTask is { } running && !_limitOffered && _limits.IsNear(running.Provider)) OfferLimitAhead(running.Provider);
@@ -1444,6 +1442,13 @@ public partial class MainWindow
         return $"{RoleWords(task.RoleId, task.Workspace)}{_agents.Provider(task.Provider).Name} · " +
                $"{SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason)} · {access} · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
     }
+
+    /// <summary>The workspace's specialists, read when the first one is wanted: for the colours of their jellyfish.</summary>
+    private static Lazy<IReadOnlyList<AgentRole>> WorkspaceRoles(string workspace) => new(() => ProjectRoles.In(workspace));
+
+    /// <summary>The roles that colour a plan's jellyfish: read only when a step of the plan names its specialist.</summary>
+    private static IReadOnlyList<AgentRole>? PlanRoles(IReadOnlyList<AgentPlanItem> plan, string workspace) =>
+        plan.Any(item => !string.IsNullOrEmpty(item.Role)) ? ProjectRoles.In(workspace) : null;
 
     /// <summary>The specialist's name for a header; null for General. A role whose file is gone shows its file name.</summary>
     private string? RoleName(string? id, string workspace)
@@ -1800,11 +1805,11 @@ public partial class MainWindow
         var panel = _agentPanel!;
         _ownShown = false;
         var live = !readOnly && AgentRunning && _runningTask is { } running && IsUserWork(running);
-        panel.ShowTaskView(record.Goal, WhereLine(record));
+        panel.ShowTaskView(record.Goal, WhereLine(record), record.Id);
         var (status, dot) = Standing(record, live);
         panel.SetStatus(status, dot);
         panel.SetHeader(live ? AgentHeader(_runningTask!) : record.LastRun is { } last ? RunLine(last, record.Workspace) : "No run yet");
-        panel.ShowPlan(record.Plan);
+        panel.ShowPlan(record.Plan, PlanRoles(record.Plan, record.Workspace));
         var (changed, changedFiles) = _changes.Task == record.Id ? (_changes.Text, _changes.Hint) : TaskChanges.Describe(null, record.ChangedFiles);
         panel.ShowChanges(changed, changedFiles);
         panel.ShowThread(BuildThread(record, live));
@@ -1812,8 +1817,6 @@ public partial class MainWindow
         var (usage, hint) = UsageText(record);
         panel.ShowUsage(usage, hint);
         var provider = (live ? _runningTask?.Provider : null) ?? record.LastRun?.Provider ?? ProjectProvider;
-        _limitsProvider = provider;
-        panel.ShowTaskLimits(LimitRows(provider));
         panel.SetRunning(live);
         panel.SetReplyTarget(AgentName(provider));
         if (readOnly)
@@ -1864,6 +1867,8 @@ public partial class MainWindow
         var items = new List<object>();
         var runs = 0;
         ThreadTurn? turn = null;
+        // The workspace's role files are read once for the whole thread, and only if a run worked as a specialist.
+        var roles = WorkspaceRoles(record.Workspace);
         foreach (var entry in record.Entries)
         {
             var time = AgentLimits.Time(entry.At);
@@ -1876,7 +1881,7 @@ public partial class MainWindow
                 case AgentEntryKind.Run:
                     var run = runs < record.Runs.Count ? record.Runs[runs] : null;
                     // The next step the agent named is ahead only for the last run, and not while another runs.
-                    turn = TurnOf(record, run, entry.Text, showNext: !live && run is not null && ReferenceEquals(run, record.LastRun));
+                    turn = TurnOf(record, run, entry.Text, showNext: !live && run is not null && ReferenceEquals(run, record.LastRun), roles);
                     runs++;
                     items.Add(turn);
                     break;
@@ -1898,14 +1903,14 @@ public partial class MainWindow
     }
 
     /// <summary>A recorded run as a turn of the thread; an earlier Link's run has only its line.</summary>
-    private ThreadTurn TurnOf(AgentTaskRecord record, AgentRunRecord? run, string line, bool showNext)
+    private ThreadTurn TurnOf(AgentTaskRecord record, AgentRunRecord? run, string line, bool showNext, Lazy<IReadOnlyList<AgentRole>> roles)
     {
         // "Claude Code · Opus 5.5: done in 3:12, 2 files changed".
         var colon = line.IndexOf(": ", StringComparison.Ordinal);
         var who = run is not null ? $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason)}"
             : colon > 0 ? line[..colon] : line;
         var outcome = run?.Outcome ?? (colon > 0 ? line[(colon + 2)..] : string.Empty);
-        var turn = new ThreadTurn(who, outcome, OutcomeBrush(outcome));
+        var turn = new ThreadTurn(who, outcome, OutcomeBrush(outcome), RoleBrushes.For(run?.RoleId, roles));
         if (run is null) return turn;
         turn.AddSteps(run.Steps.Select(StepRow));
         var (said, next) = AgentNext.Split(AgentQuestion.Split(run.Words).Text);
@@ -2132,7 +2137,7 @@ public partial class MainWindow
         return rows;
     }
 
-    /// <summary>The agent's pill in the card's header and the side panel's Tasks button dot: who works and how the task stands.</summary>
+    /// <summary>The agent's pill in the card's header and the side panel's Studio button dot: who works and how the task stands.</summary>
     private void UpdateAgentPill()
     {
         if (_task is not { } task && !AgentRunning)

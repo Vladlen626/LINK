@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Automation;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
@@ -41,7 +42,7 @@ public sealed record AgentCardModel(
     string? CheckCommand,
     AgentAccessChoice Access)
 {
-    public string Title { get; init; } = "NEW TASK";
+    public string Title { get; init; } = "New task";
     public string? RunLabel { get; init; }
     public bool FixedProvider { get; init; }
 
@@ -64,19 +65,28 @@ public sealed record AgentCardModel(
 }
 
 /// <summary>
-/// The agents' tasks in the Studio: the project's tasks, the card before a run, and a task as one thread (the user's words,
-/// each run of an agent, notes between) with the box for the next words. It only shows and asks; the window does the
-/// work behind each button.
+/// The agents' tasks in the Studio: the sidebar with the project's tasks and the agents' usage, and beside it the card
+/// before a run, or a task as one thread (the user's words, each run of an agent, notes between) with the box for the
+/// next words, or nothing when no task is open. It only shows and asks; the window does the work behind each button.
 /// </summary>
 public partial class AgentPanel : UserControl
 {
+    private const double SidebarWidth = 264;
     private const double ThumbnailHeight = 54;
     private static readonly AgentChoice AutoChoice = new("auto", "Auto — Link picks");
-    private static readonly AgentChoice GeneralChoice = new(string.Empty, "General");
     private AgentCardModel? _card;
     private bool _fillingCard;
     // The specialist is the user's once they chose it (a hand-over starts so): the goal's words pick it no more.
     private bool _roleChosen;
+    // The picked specialist (null: General) and its chips; a pick changes the chips in place, so that a click on one
+    // that took the goal's focus is not lost to a chip drawn anew.
+    private string? _roleId;
+    private readonly List<RoleChip> _roleChips = [];
+    // The sidebar's rows; the task the panel was given (null: Link's own run); and the row that is lit as drawn, by the
+    // task's id (Guid.Empty: Link's own run, null: none), so that the rows are drawn again only when this changes.
+    private IReadOnlyList<TaskRow> _rows = [];
+    private Guid? _openTask;
+    private Guid? _lit;
     // The goal's new words changed the pick as a press on Run took their focus: that Run shows the pick first.
     private bool _pickChangedByRun;
     // The skills on the card as chips; those the user took off or added stay so when Link picks again.
@@ -86,7 +96,10 @@ public partial class AgentPanel : UserControl
     private bool _running;
     private bool _planning;
     private bool _hasTask;
+    private bool _replyShown;
     private bool _planOpen = true;
+    private int _planDone;
+    private int _planCount;
     private string _replyTarget = "the agent";
     private IReadOnlyList<PanelAction> _handOff = [];
     private IReadOnlyList<PanelAction> _more = [];
@@ -99,6 +112,7 @@ public partial class AgentPanel : UserControl
     {
         InitializeComponent();
         _effortTip = EffortCombo.ToolTip;
+        UpdateReplyHint();
     }
 
     public event Action<AgentPlan>? RunRequested;
@@ -135,9 +149,6 @@ public partial class AgentPanel : UserControl
     public event Action? PlanModeOffRequested;
     public event Action<string>? OpenFileRequested;
 
-    /// <summary>Back from a task to the list.</summary>
-    public event Action? BackRequested;
-
     public event Action? NewTaskRequested;
     public event Action<AgentTaskRecord>? TaskSelected;
 
@@ -150,24 +161,40 @@ public partial class AgentPanel : UserControl
     /// <summary>The card's Harness button: the Studio's inspector column is to open.</summary>
     public event Action? HarnessRequested;
 
+    /// <summary>Opens or folds the sidebar; the window keeps the choice.</summary>
+    public void ShowSidebar(bool open)
+    {
+        SidebarColumn.Width = new GridLength(open ? SidebarWidth : 0);
+        Sidebar.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+    }
+
     /// <summary>
-    /// The list of the project's tasks with the agents' usage, Link's own run (<paramref name="own"/>) first while there
-    /// is one; the view shows when nothing else is open.
+    /// The sidebar's list of the project's tasks with the agents' usage at its foot, Link's own run (<paramref name="own"/>)
+    /// first while there is one. The row of the task the panel shows is lit.
     /// </summary>
     public void ShowList(IReadOnlyList<TaskRow> tasks, IReadOnlyList<LimitRow> limits, TaskRow? own, string? learn = null)
     {
-        TaskList.ItemsSource = own is null ? tasks : tasks.Prepend(own).ToArray();
-        TasksEmptyText.Visibility = tasks.Count == 0 && own is null ? Visibility.Visible : Visibility.Collapsed;
-        LimitsList.ItemsSource = limits;
+        _rows = own is null ? tasks : tasks.Prepend(own).ToArray();
+        DrawRows();
+        TasksEmptyText.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        ShowLimits(limits);
         LearnCard.Visibility = learn is null ? Visibility.Collapsed : Visibility.Visible;
         LearnText.Text = learn ?? string.Empty;
     }
 
-    /// <summary>Back to the list: no task is open in the panel.</summary>
+    /// <summary>The agents' usage windows at the foot of the sidebar; none hides the block.</summary>
+    public void ShowLimits(IReadOnlyList<LimitRow> limits)
+    {
+        LimitsList.ItemsSource = limits;
+        LimitsBlock.Visibility = limits.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>No task is open in the panel: the middle offers the way to one.</summary>
     public void ShowListView()
     {
         _hasTask = false;
-        ShowView(ListView);
+        _openTask = null;
+        ShowView(EmptyView);
     }
 
     public void ShowCard(AgentCardModel card)
@@ -185,7 +212,7 @@ public partial class AgentPanel : UserControl
         GoalBox.Text = card.Goal;
         ProjectText.Text = card.ProjectName;
         WorkspaceText.Text = card.Workspace ?? "Not chosen: choose it in the Project tab";
-        WorkspaceText.Foreground = (Brush)FindResource(card.Workspace is null ? "ErrorBrush" : "TextBrush");
+        WorkspaceText.Foreground = (Brush)FindResource(card.Workspace is null ? "ErrorBrush" : "MutedBrush");
         HarnessLineText.Text = card.HarnessLine;
         AttachmentsText.Text = card.Attachments;
         AttachmentsText.Visibility = card.Attachments.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
@@ -209,11 +236,11 @@ public partial class AgentPanel : UserControl
         HarnessLineText.Text = _card.HarnessLine;
     }
 
-    /// <summary>The card is gone: back to the open task, or to the list.</summary>
+    /// <summary>The card is gone: back to the open task, or to the empty middle.</summary>
     public void HideCard()
     {
         _card = null;
-        ShowView(_hasTask ? TaskView : ListView);
+        ShowView(_hasTask ? TaskView : EmptyView);
     }
 
     public void ShowCardWarning(string message)
@@ -222,10 +249,14 @@ public partial class AgentPanel : UserControl
         CardWarningText.Visibility = Visibility.Visible;
     }
 
-    /// <summary>A task opens in the panel: its goal and where it works; its thread comes with <see cref="ShowThread"/>.</summary>
-    public void ShowTaskView(string goal, string where)
+    /// <summary>
+    /// A task opens in the panel: its goal and where it works, and its id, by which its row in the sidebar is lit (null:
+    /// Link's own run); its thread comes with <see cref="ShowThread"/>.
+    /// </summary>
+    public void ShowTaskView(string goal, string where, Guid? taskId)
     {
         _hasTask = true;
+        _openTask = taskId;
         GoalText.Text = goal;
         GoalText.ToolTip = goal;
         WhereText.Text = where;
@@ -241,6 +272,7 @@ public partial class AgentPanel : UserControl
         CheaperRow.Visibility = Visibility.Collapsed;
         RestartCard.Visibility = Visibility.Collapsed;
         LimitCard.Visibility = Visibility.Collapsed;
+        UpdateReplyHint();
     }
 
     /// <summary>The line under the goal: who works, on what model, with what access, and for how long.</summary>
@@ -260,6 +292,7 @@ public partial class AgentPanel : UserControl
         TaskButtons.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         UpdateReplyHint();
         if (running) ShowReply(true);
+        else UpdateComposer();
     }
 
     /// <summary>The task's thread, oldest first, scrolled to its end: the latest is what counts.</summary>
@@ -278,9 +311,10 @@ public partial class AgentPanel : UserControl
     /// <summary>The reply box, offered while a session can go on; <paramref name="note"/> says why it is not, if so.</summary>
     public void ShowReply(bool show, string? note = null)
     {
-        ReplyPanel.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
+        _replyShown = show;
         ReplyNoteText.Text = note ?? string.Empty;
         ReplyNoteText.Visibility = !show && note is not null ? Visibility.Visible : Visibility.Collapsed;
+        UpdateComposer();
     }
 
     /// <summary>The choices of the Hand off ▾ and ⋯ menus; an empty list hides the button.</summary>
@@ -290,10 +324,15 @@ public partial class AgentPanel : UserControl
         _more = more;
         HandOffButton.Visibility = handOff.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
         MoreButton.Visibility = more.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        UpdateComposer();
     }
 
     /// <summary>Whether Finish is offered: not for Link's own answer, such as a map, nor for a task shown only to be read.</summary>
-    public void ShowFinish(bool finish) => FinishButton.Visibility = finish ? Visibility.Visible : Visibility.Collapsed;
+    public void ShowFinish(bool finish)
+    {
+        FinishButton.Visibility = finish ? Visibility.Visible : Visibility.Collapsed;
+        UpdateComposer();
+    }
 
     /// <summary>Whether the task's session goes on in plan mode, where only reading and planning work: its chip turns it off.</summary>
     public void ShowPlanMode(bool planning)
@@ -301,21 +340,40 @@ public partial class AgentPanel : UserControl
         _planning = planning;
         PlanModeButton.Visibility = planning ? Visibility.Visible : Visibility.Collapsed;
         UpdateReplyHint();
+        UpdateComposer();
     }
 
     /// <summary>
-    /// The agent's plan as it last wrote it, as its own app shows it: ✓ done, ◐ under way (in the agent's words for it,
-    /// when it gave any), ○ to do.
+    /// The agent's plan as it last wrote it, as its own app shows it: ✓ done, ● under way (in the agent's words for it,
+    /// when it gave any), ○ to do. A team's step also names who does it and as which specialist, in the colour of that
+    /// specialist's jellyfish, found by name among <paramref name="roles"/>.
     /// </summary>
-    public void ShowPlan(IReadOnlyList<AgentPlanItem> plan)
+    public void ShowPlan(IReadOnlyList<AgentPlanItem> plan, IReadOnlyList<AgentRole>? roles = null)
     {
-        PlanList.ItemsSource = plan.Select(item => item.Done ? new PlanRow("✓", item.Text, (Brush)FindResource("MutedBrush"))
-            : item.Active ? new PlanRow("◐", item.Doing ?? item.Text, (Brush)FindResource("AccentBrush"))
-            : new PlanRow("○", item.Text, (Brush)FindResource("TextBrush"))).ToArray();
-        PlanToggle.Visibility = plan.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
-        PlanList.Visibility = plan.Count > 0 && _planOpen ? Visibility.Visible : Visibility.Collapsed;
-        PlanLabel.Text = $"PLAN · {plan.Count(item => item.Done)}/{plan.Count} {(_planOpen ? "▾" : "▸")}";
+        var done = (Brush)FindResource("SuccessBrush");
+        var muted = (Brush)FindResource("MutedBrush");
+        var accent = (Brush)FindResource("AccentBrush");
+        var text = (Brush)FindResource("TextBrush");
+        PlanList.ItemsSource = plan.Select(item =>
+        {
+            var row = item.Done ? new PlanRow("✓", done, item.Text, muted)
+                : item.Active ? new PlanRow("●", accent, item.Doing ?? item.Text, text)
+                : new PlanRow("○", muted, item.Text, text);
+            // The agent's own plan names neither.
+            if (string.IsNullOrEmpty(item.Worker) && string.IsNullOrEmpty(item.Role)) return row;
+            var color = roles?.FirstOrDefault(each => string.Equals(each.Name, item.Role, StringComparison.OrdinalIgnoreCase)) is { } role
+                ? RoleBrushes.Of(ProjectRoles.ColorOf(role, roles))
+                : RoleBrushes.Link;
+            return row with { Worker = item.Worker ?? string.Empty, RoleName = item.Role ?? string.Empty, RoleBrush = color };
+        }).ToArray();
+        _planDone = plan.Count(item => item.Done);
+        _planCount = plan.Count;
+        PlanCard.Visibility = plan.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        PlanList.Visibility = _planOpen ? Visibility.Visible : Visibility.Collapsed;
+        ShowPlanLabel();
     }
+
+    private void ShowPlanLabel() => PlanLabel.Text = $"Plan · {_planDone} of {_planCount} {(_planOpen ? "▾" : "▸")}";
 
     /// <summary>What the task changed, beside its standing: "+181 −12" or "5 files", the files as its hint; empty hides it.</summary>
     public void ShowChanges(string text, string files)
@@ -340,9 +398,6 @@ public partial class AgentPanel : UserControl
         UsageText.ToolTip = hint;
         UsageText.Visibility = usage.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
-
-    /// <summary>The usage windows of the agent on the task, under its buttons.</summary>
-    public void ShowTaskLimits(IReadOnlyList<LimitRow> limits) => TaskLimitsList.ItemsSource = limits;
 
     /// <summary>An agent's windows anew on an open card, as they are once asked again.</summary>
     public void ShowCardLimits(AgentProviderKind provider, IReadOnlyList<LimitRow> limits)
@@ -369,13 +424,13 @@ public partial class AgentPanel : UserControl
         foreach (var option in question.Options)
         {
             var content = new StackPanel();
-            content.Children.Add(new TextBlock { Text = option.Label, FontSize = 12, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
+            content.Children.Add(new TextBlock { Text = option.Label, FontSize = 13, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap });
             if (option.Description.Length > 0)
             {
                 content.Children.Add(new TextBlock
                 {
                     Text = option.Description,
-                    FontSize = 11.5,
+                    FontSize = 12,
                     Margin = new Thickness(0, 1, 0, 0),
                     Foreground = (Brush)FindResource("MutedBrush"),
                     TextWrapping = TextWrapping.Wrap
@@ -472,22 +527,51 @@ public partial class AgentPanel : UserControl
 
     private void UpdateReplyHint()
     {
+        var answering = !_running && QuestionCard.Visibility == Visibility.Visible;
         ReplyPlaceholder.Text = _running
             ? $"Steer {_replyTarget} now: Enter stops the step and goes on with your words · Tab: after this step"
-            : QuestionCard.Visibility == Visibility.Visible
+            : answering
                 ? $"Answer {_replyTarget} in your own words"
                 : _planning
                     ? $"Reply to {_replyTarget}: the session stays in plan mode, reading and planning only"
                     : $"Reply to {_replyTarget}: the same session goes on with your words";
-        ContinueButton.Content = _running ? "Steer now" : "Send";
+        // The send button is a round icon: its tooltip carries the label, and so does its name for UI Automation.
+        var label = _running ? "Steer now" : answering ? "Answer" : "Send";
+        AutomationProperties.SetName(ContinueButton, label);
         ContinueButton.ToolTip = _running
-            ? "Stops the current step and goes on in the same session with your words; nothing is read again (Enter) · Tab: After this step, your words wait for it to end"
-            : "The same session goes on with your words, with the same access and folder (Enter)";
+            ? "Steer now: stops the current step and goes on in the same session with your words; nothing is read again (Enter) · Tab: After this step, your words wait for it to end"
+            : answering
+                ? "Answer: the same session goes on with your words as the answer (Enter)"
+                : "Send: the same session goes on with your words, with the same access and folder (Enter)";
+    }
+
+    /// <summary>
+    /// The box at the foot of a task: the words and the send button while a session can go on, the task's chips (Plan
+    /// mode, Hand off, Finish) in it while the agent rests. A task that takes no words and offers no chip has no box.
+    /// </summary>
+    private void UpdateComposer()
+    {
+        var chips = !_running && (PlanModeButton.Visibility == Visibility.Visible || HandOffButton.Visibility == Visibility.Visible
+            || FinishButton.Visibility == Visibility.Visible);
+        ReplyEditor.Visibility = _replyShown ? Visibility.Visible : Visibility.Collapsed;
+        ContinueButton.Visibility = _replyShown ? Visibility.Visible : Visibility.Collapsed;
+        ComposerFooter.Margin = new Thickness(0, _replyShown ? 6 : 0, 0, 0);
+        ReplyPanel.Visibility = _replyShown || chips ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void ShowView(FrameworkElement view)
     {
-        foreach (var each in new FrameworkElement[] { ListView, CardView, TaskView }) each.Visibility = each == view ? Visibility.Visible : Visibility.Collapsed;
+        foreach (var each in new FrameworkElement[] { EmptyView, CardView, TaskView }) each.Visibility = each == view ? Visibility.Visible : Visibility.Collapsed;
+        // The sidebar lights the task the middle shows, none while it shows a card or nothing.
+        if (LitKey != _lit) DrawRows();
+    }
+
+    private Guid? LitKey => TaskView.Visibility == Visibility.Visible ? _openTask ?? Guid.Empty : null;
+
+    private void DrawRows()
+    {
+        _lit = LitKey;
+        TaskList.ItemsSource = _rows.Select(row => row with { IsOpen = _lit == (row.Record?.Id ?? Guid.Empty) }).ToArray();
     }
 
     /// <summary>Small pictures of the images that go along; a click shows the file.</summary>
@@ -567,9 +651,9 @@ public partial class AgentPanel : UserControl
         EffortCombo.SelectedIndex = offered && auto ? 0 : (offered ? 1 : 0) + Math.Max(0, efforts.ToList().FindIndex(choice => choice.Value == effort) + 1);
     }
 
-    // The first item of the specialists is General, no role.
-    private string? SelectedRoleId => RoleCombo.SelectedItem is AgentChoice { Value.Length: > 0 } role ? role.Value : null;
-    private AgentRole? SelectedRole => _card?.Roles.FirstOrDefault(role => role.Id == SelectedRoleId);
+    // General, no role, is null.
+    private string? SelectedRoleId => _roleId;
+    private AgentRole? SelectedRole => _card?.Roles.FirstOrDefault(role => role.Id == _roleId);
 
     // The first item of each list is the CLI's own choice, sent as none; Auto, when offered, is before it.
     private string? SelectedModel => ModelCombo.SelectedItem is AgentChoice { Value.Length: > 0 } model ? model.Value : null;
@@ -600,22 +684,77 @@ public partial class AgentPanel : UserControl
         _skillsOff.Clear();
         _skillsOn.Clear();
         RoleRow.Visibility = card.Roles.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        RoleCombo.ItemsSource = card.Roles.Select(role => new AgentChoice(role.Id, role.Name)).Prepend(GeneralChoice).ToArray();
+        ShowRoleChips(card);
         SelectRole(card.RoleId);
         SkillsRow.Visibility = card.WorkspaceSkills.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         ShowSkills(card.Skills ?? PickedSkills());
     }
 
+    /// <summary>One chip for General and one for each specialist, each with its jellyfish in the specialist's colour.</summary>
+    private void ShowRoleChips(AgentCardModel card)
+    {
+        RolesPanel.Children.Clear();
+        _roleChips.Clear();
+        if (card.Roles.Count == 0) return;
+        AddRoleChip(null, "General", RoleBrushes.Link, "No specialist: the agent works as its rules say");
+        foreach (var role in card.Roles) AddRoleChip(role.Id, role.Name, RoleBrushes.Of(ProjectRoles.ColorOf(role, card.Roles)), role.Description);
+    }
+
+    private void AddRoleChip(string? id, string name, Brush color, string tip)
+    {
+        var look = new Border
+        {
+            Height = 28,
+            Padding = new Thickness(9, 0, 11, 0),
+            CornerRadius = new CornerRadius(6),
+            BorderThickness = new Thickness(1),
+            Child = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Children =
+                {
+                    new Control { Width = 13, Height = 13, Margin = new Thickness(0, 0, 7, 0), Focusable = false, Foreground = color, Template = (ControlTemplate)FindResource("LinkGlyphTemplate") },
+                    new TextBlock { VerticalAlignment = VerticalAlignment.Center, FontSize = 12.5, Text = name }
+                }
+            }
+        };
+        var button = new Button
+        {
+            Style = (Style)FindResource("GhostButtonStyle"),
+            Padding = new Thickness(0),
+            Margin = new Thickness(0, 6, 6, 0),
+            ToolTip = tip,
+            Content = look
+        };
+        AutomationProperties.SetName(button, name);
+        button.Click += (_, _) => PickRole(id);
+        RolesPanel.Children.Add(button);
+        _roleChips.Add(new RoleChip(id, look, color));
+    }
+
+    /// <summary>The user's pick of a specialist: it is theirs from now on, and the skills follow it.</summary>
+    private void PickRole(string? id)
+    {
+        _roleChosen = true;
+        SelectRole(id);
+        ShowSkills(PickedSkills());
+    }
+
     private void SelectRole(string? id)
     {
-        var filling = _fillingCard;
-        _fillingCard = true;
-        RoleCombo.SelectedIndex = Math.Max(0, (_card?.Roles.ToList().FindIndex(role => role.Id == id) ?? -1) + 1);
-        _fillingCard = filling;
-        var role = SelectedRole;
-        RoleCombo.ToolTip = role?.Description ?? "No specialist: the agent works as its rules say";
-        RolePickText.Visibility = role is not null && !_roleChosen ? Visibility.Visible : Visibility.Collapsed;
+        _roleId = _card?.Roles.Any(role => role.Id == id) == true ? id : null;
+        // The picked chip is filled and rimmed in its specialist's colour; the others are quiet. They change in place.
+        foreach (var chip in _roleChips)
+        {
+            var picked = chip.Id == _roleId;
+            chip.Look.BorderBrush = picked ? chip.Color : (Brush)FindResource("GlassBorderSoftBrush");
+            chip.Look.Background = picked ? (Brush)FindResource("ActiveContextBrush") : Brushes.Transparent;
+        }
+
+        RolePickText.Visibility = _roleId is not null && !_roleChosen ? Visibility.Visible : Visibility.Collapsed;
     }
+
+    private sealed record RoleChip(string? Id, Border Look, Brush Color);
 
     /// <summary>The skills for the goal and the specialist as they stand: Link's picks without those taken off, and those added.</summary>
     private IReadOnlyList<string> PickedSkills() =>
@@ -652,21 +791,20 @@ public partial class AgentPanel : UserControl
         SkillsPanel.Children.Add(add);
     }
 
-    private void Role_OnChanged(object sender, SelectionChangedEventArgs e)
-    {
-        if (_fillingCard) return;
-        _roleChosen = true;
-        SelectRole(SelectedRoleId);
-        ShowSkills(PickedSkills());
-    }
-
     /// <summary>
     /// The goal as the user left it: the specialist is picked from the new words while it is still Link's pick, and the
     /// skills are, whoever chose the specialist. A hand-over keeps the task's.
     /// </summary>
     private void Goal_OnLostFocus(object sender, RoutedEventArgs e)
     {
-        if (_card is not { FixedProvider: false } card) return;
+        // A press on Run takes the focus before its click: that click is not to run a pick the card has not shown yet.
+        _pickChangedByRun = PickFromGoal() && RunButton.IsMouseOver;
+    }
+
+    /// <summary>Picks the specialist and the skills from the goal as it stands; whether the pick changed.</summary>
+    private bool PickFromGoal()
+    {
+        if (_card is not { FixedProvider: false } card) return false;
         var role = SelectedRoleId;
         if (!_roleChosen && card.Roles.Count > 0) SelectRole(ProjectRoles.Suggest(GoalBox.Text, card.Roles)?.Id);
         // The chips stay as they are unless the pick changed: a click on one lost the focus of the goal, and a chip
@@ -674,8 +812,16 @@ public partial class AgentPanel : UserControl
         var skills = PickedSkills();
         var changed = role != SelectedRoleId || !skills.SequenceEqual(_skills);
         if (changed) ShowSkills(skills);
-        // A press on Run takes the focus before its click: that click is not to run a pick the card has not shown yet.
-        _pickChangedByRun = changed && RunButton.IsMouseOver;
+        return changed;
+    }
+
+    /// <summary>Ctrl+Enter in the goal runs the task as the Run button does, with the same guard against a pick not yet seen.</summary>
+    private void Goal_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.Control) return;
+        e.Handled = true;
+        _pickChangedByRun = PickFromGoal();
+        Run_OnClick(RunButton, e);
     }
 
     private void Card_OnChanged(object sender, RoutedEventArgs e)
@@ -765,6 +911,7 @@ public partial class AgentPanel : UserControl
     private void Answer(string words)
     {
         QuestionCard.Visibility = Visibility.Collapsed;
+        UpdateReplyHint();
         ContinueRequested?.Invoke(words);
     }
 
@@ -795,14 +942,14 @@ public partial class AgentPanel : UserControl
     {
         _planOpen = !_planOpen;
         PlanList.Visibility = _planOpen ? Visibility.Visible : Visibility.Collapsed;
-        if (PlanLabel.Text.Length > 0) PlanLabel.Text = PlanLabel.Text[..^1] + (_planOpen ? "▾" : "▸");
+        ShowPlanLabel();
     }
 
     private void BriefToggle_OnClick(object sender, RoutedEventArgs e)
     {
         var open = BriefText.Visibility != Visibility.Visible;
         BriefText.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        BriefToggleText.Text = open ? "WHAT LINK GAVE ▾" : "WHAT LINK GAVE ▸";
+        BriefToggleText.Text = open ? "What Link gave ▾" : "What Link gave ▸";
     }
 
     private void TurnSteps_OnClick(object sender, RoutedEventArgs e)
@@ -818,6 +965,8 @@ public partial class AgentPanel : UserControl
     private void TaskRow_OnClick(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { DataContext: TaskRow row }) return;
+        // The sidebar stays beside a card: the card gives way to the task picked, as its Cancel would.
+        if (_card is not null) CancelCard_OnClick(sender, e);
         if (row.Record is { } record) TaskSelected?.Invoke(record);
         else OwnRunRequested?.Invoke();
     }
@@ -830,7 +979,6 @@ public partial class AgentPanel : UserControl
     {
         if (sender is FrameworkElement { DataContext: LimitRow row }) LimitRefreshRequested?.Invoke(row.Provider);
     }
-    private void Back_OnClick(object sender, RoutedEventArgs e) => BackRequested?.Invoke();
 
     private void CancelCard_OnClick(object sender, RoutedEventArgs e)
     {

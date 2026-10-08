@@ -124,6 +124,7 @@ public partial class MainWindow : Window
             ApplyGlass(_panel, _panel.ShellBorder);
         }
 
+        _studio?.ApplyGlass(_settings.Current.Opacity);
         UpdateSees();
         // Voice replies may have been switched off or on.
         UpdateReadAloudButton();

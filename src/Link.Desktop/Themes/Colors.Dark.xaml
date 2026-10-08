@@ -38,6 +38,8 @@
 
     <!-- Content surfaces stay denser than the shell so text keeps its contrast on any backdrop. -->
     <SolidColorBrush x:Key="CardBrush" Color="#14FFFFFF" />
+    <!-- The Studio's tasks sidebar: a little deeper than the glass beside it. -->
+    <SolidColorBrush x:Key="SidebarBrush" Color="#26000000" />
     <SolidColorBrush x:Key="InnerGlassBrush" Color="#47000000" />
     <SolidColorBrush x:Key="ResponseSurfaceBrush" Color="#D9121619" />
     <SolidColorBrush x:Key="ResponseCodeBrush" Color="#FF262D36" />

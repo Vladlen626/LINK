@@ -28,6 +28,7 @@ public partial class MainWindow
     private StudioWindow CreateStudio(AgentPanel tasks)
     {
         var studio = new StudioWindow(_settings.Current.Studio, tasks);
+        studio.ApplyGlass(_settings.Current.Opacity);
         studio.CompactRequested += () => _ = CompactTask();
         studio.InspectorOpened += () => RefreshStudio();
         studio.OpenFileRequested += ShowFile;

@@ -5,6 +5,7 @@ description: Modeling, UV, textures and materials in Blender, FBX export and imp
 keywords: blender, 3d model, 3d модел, 3д модел, modeling, mesh, topology, retopo, uv unwrap, texture, sculpt, polycount, lods, normal map, low-poly, блендер, моделинг, топологи, текстур, скульпт, полигон, ретопо, развертк, развёртк, модел, модельк
 skills: blender-model, blender-export
 effort: medium
+color: #A78BFA
 ---
 ## Duties
 - Model, unwrap and texture static meshes, props, environment pieces and character base meshes; set up materials and collision.
