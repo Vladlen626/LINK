@@ -22,14 +22,23 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
     public override IReadOnlyList<AgentChoice> Efforts =>
         [new("low", "Low"), new("medium", "Medium"), new("high", "High"), new("xhigh", "Extra high"), new("max", "Max — the highest")];
 
-    // Full names: an alias (opus) would move to the next version without the user's choice.
+    // Families first: Claude Code takes its newest model of the family, so a new release needs no new Link; the run
+    // shows the model it got, and the task tells when that changes (see Families). Full names pin a version; Haiku 5.5
+    // only so, while Claude Code 2.1.286 still takes Haiku 4.5 for haiku.
     public override IReadOnlyList<AgentChoice> Models =>
     [
+        new("opus", "Opus · latest"),
+        new("sonnet", "Sonnet · latest"),
+        new("haiku", "Haiku · latest"),
+        new("fable", "Fable · latest"),
         new("claude-opus-5-5", "Opus 5.5"),
         new("claude-fable-5-1", "Fable 5.1"),
         new("claude-sonnet-5-5", "Sonnet 5.5"),
-        new("claude-haiku-4-5-20251001", "Haiku 4.5")
+        new("claude-haiku-5-5", "Haiku 5.5")
     ];
+
+    /// <summary>The families Claude Code resolves to its newest model, by the alias it takes.</summary>
+    public static readonly IReadOnlyList<string> Families = ["opus", "sonnet", "haiku", "fable"];
 
     protected override IReadOnlyList<string> SignInCheck => ["auth", "status"];
 
@@ -59,6 +68,12 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
         foreach (var folder in task.Images.Select(Path.GetDirectoryName).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
         {
             arguments.AddRange(["--add-dir", folder]);
+        }
+
+        // So do the skills of the workspace's tool packs, which every project shares.
+        foreach (var pack in ToolPacks.For(task.Workspace))
+        {
+            if (Path.Combine(pack.Folder, "skills") is var skills && Directory.Exists(skills)) arguments.AddRange(["--add-dir", skills]);
         }
 
         // Last: the option takes every argument after it.
@@ -177,6 +192,7 @@ public sealed class ClaudeEventParser(bool priced = true, IReadOnlyList<AgentPla
         {
             case "system" when Text(root, "subtype") == "init":
                 SessionId = Text(root, "session_id");
+                if (Text(root, "model") is { Length: > 0 } model) Model = model;
                 events.Add(new AgentEvent(AgentEventKind.Status, Describe(root)));
                 break;
             // Claude Code compacted the session by itself, near the budget or at the model's window.

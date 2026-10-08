@@ -14,6 +14,8 @@ public partial class MainWindow
     private StudioWindow? _studio;
     private long _inspectorBuiltAt;
 
+    private void StudioHeader_OnClick(object sender, RoutedEventArgs e) => ShowAgentPanel();
+
     /// <summary>The Studio, opened or brought forward, with the tasks as they stand: the card, the open task, or the list.</summary>
     public void ShowAgentPanel()
     {

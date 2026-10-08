@@ -1,0 +1,4 @@
+- GDScript with static types (or the project's C#); behaviour on nodes in scenes, data in Resources (`.tres`).
+- Signals over polling; physics in `_physics_process`, visuals in `_process`; input through the Input Map's actions.
+- `.tscn` and `.tres` are text: keep changes small and list each one.
+- Run headless checks with `godot --headless --path . --quit` (or the project's test runner, such as GUT) and play the scene in the editor.

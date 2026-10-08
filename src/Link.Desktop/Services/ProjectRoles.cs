@@ -59,20 +59,62 @@ public static partial class ProjectRoles
 
     public static string FolderIn(string workspace) => Path.Combine(workspace, ".agents", "roles");
 
+    /// <summary>Built-in roles that had another file name: older tasks name them by it.</summary>
+    private static readonly Dictionary<string, string> Renamed = new(StringComparer.OrdinalIgnoreCase) { ["unreal-developer"] = "gameplay-developer" };
+
     /// <summary>
-    /// The built-in roles, then the workspace's; a workspace file of the same name as a built-in one replaces it. By name.
-    /// A file that cannot be read, or has no name, is not a role.
+    /// The built-in roles with what the workspace's tool packs add to them (<see cref="WithPack"/>), then the workspace's;
+    /// a workspace file of the same name as a built-in one replaces it. By name. A file that cannot be read, or has no
+    /// name, is not a role.
     /// </summary>
     public static IReadOnlyList<AgentRole> In(string? workspace)
     {
         var roles = new Dictionary<string, AgentRole>(StringComparer.OrdinalIgnoreCase);
-        foreach (var role in ReadFolder(BuiltInFolder).Concat(workspace is null ? [] : ReadFolder(FolderIn(workspace)))) roles[role.Id] = role;
+        foreach (var role in ReadFolder(BuiltInFolder)) roles[role.Id] = role;
+        foreach (var pack in ToolPacks.For(workspace))
+        {
+            foreach (var role in roles.Values.ToArray()) roles[role.Id] = WithPack(role, pack);
+        }
+
+        foreach (var role in workspace is null ? [] : ReadFolder(FolderIn(workspace))) roles[role.Id] = role;
         return [.. roles.Values.OrderBy(role => role.Name, StringComparer.OrdinalIgnoreCase).ThenBy(role => role.Id, StringComparer.OrdinalIgnoreCase)];
     }
 
-    /// <summary>The role of that file name; null for General and for a role whose file is gone.</summary>
-    public static AgentRole? Find(string? id, string? workspace) =>
-        id is null ? null : In(workspace).FirstOrDefault(role => string.Equals(role.Id, id, StringComparison.OrdinalIgnoreCase));
+    /// <summary>The role of that file name, or of the name it had; null for General and for a role whose file is gone.</summary>
+    public static AgentRole? Find(string? id, string? workspace)
+    {
+        if (id is null) return null;
+        var roles = In(workspace);
+        return roles.FirstOrDefault(role => string.Equals(role.Id, id, StringComparison.OrdinalIgnoreCase)) ??
+               (Renamed.TryGetValue(id, out var now) ? roles.FirstOrDefault(role => string.Equals(role.Id, now, StringComparison.OrdinalIgnoreCase)) : null);
+    }
+
+    /// <summary>
+    /// A built-in role as a tool pack has it: the pack's <c>roles/&lt;id&gt;.md</c> adds its text under "In &lt;pack&gt;"
+    /// and its <c>skills:</c> and <c>keywords:</c> to the role's. A pack with no file for the role leaves it as it is.
+    /// </summary>
+    private static AgentRole WithPack(AgentRole role, ToolPack pack)
+    {
+        var file = Path.Combine(pack.Folder, "roles", role.Id + ".md");
+        if (!File.Exists(file)) return role;
+        string text;
+        try
+        {
+            text = File.ReadAllText(file);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return role;
+        }
+
+        var (fields, body) = ProjectSkills.FrontMatter(AgentRules.WithoutNotes(text));
+        return role with
+        {
+            Keywords = [.. role.Keywords.Concat(List(fields.GetValueOrDefault("keywords"))).Distinct(StringComparer.OrdinalIgnoreCase)],
+            Skills = [.. role.Skills.Concat(List(fields.GetValueOrDefault("skills"))).Distinct(StringComparer.OrdinalIgnoreCase)],
+            Body = body.Length == 0 ? role.Body : $"{role.Body}\n## In {pack.Name}\n{body}"
+        };
+    }
 
     /// <summary>
     /// The colour of a specialist's jellyfish: Link's orange for General (<c>null</c>), the file's own colour when it names
@@ -155,7 +197,7 @@ public static partial class ProjectRoles
         var files = skills
             .Select(name => all.FirstOrDefault(skill => string.Equals(skill.Name, name, StringComparison.OrdinalIgnoreCase)))
             .OfType<ProjectSkill>()
-            .Select(skill => Path.GetRelativePath(workspace, skill.FilePath).Replace('\\', '/'))
+            .Select(skill => ProjectSkills.PathFor(workspace, skill))
             .ToArray();
         if (files.Length > 0) text.Append(text.Length > 0 ? "\n\n" : string.Empty).Append("Read first: ").AppendJoin(", ", files);
         return text.ToString();

@@ -1,6 +1,6 @@
 ---
 name: drive-link
-description: Give the user's own Link a command when the user asks for it - hand the latest task of a project to Claude Code with words added to its brief, through UI Automation. Only on the user's explicit request; never start agents unasked.
+description: Give the user's own Link a command when the user asks for it - a new task, the latest task handed to Claude Code, or words to a task's session, through UI Automation. Only on the user's explicit request; never start agents unasked.
 ---
 
 # Drive the user's Link
@@ -23,6 +23,15 @@ unasked is refused, and Link's agents spend the user's limits.
    `RunButton`. The pill (`AgentPillText`) shows "Claude · 0:10" once it runs; its `[Agent]` line comes to link.log at
    the end.
 
+## Give a new task
+
+```powershell
+& .agents\skills\drive-link\newtask.ps1 -Project Bigsteps -Goal <goal.txt> [-Agent 'Claude Code'|Codex] [-NoRun]
+```
+It waits for 15 s without typing, opens the Studio (the side panel's Studio button), New task, picks the agent if
+asked, puts the goal from the UTF-8 file into `GoalBox`, prints the card (agent, model, effort, access, plan first,
+what goes along) and presses Run. After `-NoRun` the card stays open: invoke `RunButton` once it is right.
+
 ## Send words to a task's session
 
 ```powershell
@@ -35,5 +44,9 @@ chip shows: while it does, the session only plans, so a reply that should do the
 ## Pitfalls
 
 - PowerShell 5.1 reads the script as ANSI: it stays ASCII, the words come from the file.
+- Link in the tray is not in the UIA tree: its show/hide hotkey (`Hotkeys.ShowHide` in settings.json, Ctrl+` here,
+  sent with `keybd_event`) brings it back; a second Link.exe only shows a message box.
+- Watch the run in the agent's own session log (`agent-token-review`), not in the editor or the workspace: the agent
+  owns them while it works.
 - The newest task is the list's first row only when no Link-own run (a map) is shown above it.
 - Pictures of the screen show whatever is on top; read texts through UIA instead.

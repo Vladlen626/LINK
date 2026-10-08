@@ -40,6 +40,7 @@
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
                         <ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
 
                     <StackPanel VerticalAlignment="Center" Orientation="Horizontal" IsHitTestVisible="False">
@@ -78,7 +79,13 @@
                         </StackPanel>
                     </Button>
 
-                    <Button x:Name="ExpandButton" Grid.Column="4" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
+                    <!-- Link Studio, where the agents' tasks are: its own icon, as on the taskbar. -->
+                    <Button x:Name="StudioHeaderButton" Grid.Column="4" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
+                            Click="StudioHeader_OnClick" ToolTip="Open Link Studio: the agents' tasks, their threads and the Harness">
+                        <Image Width="16" Height="16" Source="{StaticResource StudioIconImage}" />
+                    </Button>
+
+                    <Button x:Name="ExpandButton" Grid.Column="5" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
                             Click="Expand_OnClick">
                         <Viewbox Width="14" Height="14">
                             <Path x:Name="ExpandIcon" Data="{StaticResource PanelIconGeometry}" Fill="Transparent"
@@ -86,13 +93,13 @@
                         </Viewbox>
                     </Button>
 
-                    <Button x:Name="HideButton" Grid.Column="5" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
+                    <Button x:Name="HideButton" Grid.Column="6" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
                             Click="Hide_OnClick" ToolTip="Hide Link">
                         <Path Width="10" VerticalAlignment="Center" Stretch="Uniform" Data="{StaticResource HideIconGeometry}"
                               Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                     </Button>
 
-                    <Button Grid.Column="6" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
+                    <Button Grid.Column="7" Style="{StaticResource HeaderIconButtonStyle}" VerticalAlignment="Center"
                             Click="Settings_OnClick" ToolTip="Settings">
                         <Viewbox Width="15" Height="15">
                             <Path Data="{StaticResource SettingsIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}"

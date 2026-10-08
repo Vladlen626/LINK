@@ -114,6 +114,7 @@ public abstract class CliAgentProvider : IAgentProvider
         var result = new AgentResult
         {
             SessionId = parser.SessionId,
+            Model = parser.Model,
             Summary = summary,
             Succeeded = succeeded,
             Stopped = process.Stopped,
@@ -140,7 +141,8 @@ public abstract class CliAgentProvider : IAgentProvider
             : task.AutoApprove ? ", auto"
             : string.Empty;
         // Runs compare only with the same model and effort.
-        var setup = (task.Model is { } model ? $", {model}" : string.Empty) + (task.Effort is { } effort ? $", effort {effort}" : string.Empty);
+        var setup = (task.Model is { } model ? $", {model}" : string.Empty) +
+                    (result.Model is { } ran && ran != task.Model ? $" ({ran})" : string.Empty) + (task.Effort is { } effort ? $", effort {effort}" : string.Empty);
         _log($"[Agent] {Name}, {task.Access}{kind}{setup}: {outcome}; " +
              $"session {result.SessionId ?? "none"}, first event {first}, {Seconds(clock.Elapsed)}, " +
              $"{result.ChangedFiles.Count} files, denials: {(result.Denials.Count == 0 ? "none" : string.Join(", ", result.Denials))}; " +
@@ -280,6 +282,10 @@ public abstract partial class AgentEventParser
     private long? _contextWindow;
 
     public string? SessionId { get; protected set; }
+
+    /// <summary>The model the CLI says the session runs on: a family the task asked for, resolved; null when it does not say.</summary>
+    public string? Model { get; protected set; }
+
     public string Summary { get; protected set; } = string.Empty;
     public bool Failed { get; protected set; }
     public IReadOnlyList<string> Denials => _denials;

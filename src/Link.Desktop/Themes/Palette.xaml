@@ -8,6 +8,7 @@
     <Geometry x:Key="MicrophoneIconGeometry">M12,3 A3,3 0 0 0 9,6 L9,11 A3,3 0 0 0 15,11 L15,6 A3,3 0 0 0 12,3 M6.5,11 A5.5,5.5 0 0 0 17.5,11 M12,16.5 L12,21 M9,21 L15,21</Geometry>
     <Geometry x:Key="ClipboardIconGeometry">M9,5 L6,5 A2,2 0 0 0 4,7 L4,20 L20,20 L20,7 A2,2 0 0 0 18,5 L15,5 M9,3 L15,3 L15,7 L9,7 Z</Geometry>
     <Geometry x:Key="SendIconGeometry">M4,12 L20,4 L16,20 L12,13 Z M12,13 L20,4</Geometry>
+    <Geometry x:Key="ArrowUpIconGeometry">M12,19 L12,5 M6,11 L12,5 L18,11</Geometry>
     <Geometry x:Key="CloseIconGeometry">M7,7 L17,17 M17,7 L7,17</Geometry>
     <Geometry x:Key="ChevronIconGeometry">M7,9 L12,14 L17,9</Geometry>
     <Geometry x:Key="BackIconGeometry">M14,6 L8,12 L14,18</Geometry>

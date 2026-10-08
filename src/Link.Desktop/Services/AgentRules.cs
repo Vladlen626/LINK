@@ -37,7 +37,9 @@ public static partial class AgentRules
             input.Append("\n\n## Skills of this workspace\n");
             foreach (var skill in skills)
             {
-                input.Append("\n- `").Append(Path.GetRelativePath(workspace, skill.FilePath).Replace('\\', '/')).Append("`: ").Append(skill.Description);
+                input.Append("\n- `").Append(ProjectSkills.PathFor(workspace, skill)).Append("`: ").Append(skill.Description);
+                // A pack's skill serves every project: a lesson for this one goes into a copy of it (see the rules).
+                if (skill.Pack is { } pack) input.Append(" (").Append(pack).Append(" pack, shared)");
             }
         }
 

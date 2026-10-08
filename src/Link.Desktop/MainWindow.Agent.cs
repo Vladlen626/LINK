@@ -305,6 +305,7 @@ public partial class MainWindow
             settings.DefaultAccess)
         {
             AutoEffort = settings.AutoEffort,
+            TeamOffered = settings.Team.Enabled,
             Roles = roles,
             RoleId = ProjectRoles.Suggest(goal, roles)?.Id,
             WorkspaceSkills = skills,
@@ -413,7 +414,11 @@ public partial class MainWindow
         panel.DecisionTaken += always =>
         {
             _rememberAllowance = always;
-            _decision?.Invoke();
+            // A decision is taken once: one that starts no run (a share, the team's last OK) leaves the panel too.
+            var decide = _decision;
+            _decision = null;
+            panel.HideDecision();
+            decide?.Invoke();
         };
         panel.RestartRequested += RequestRestart;
         panel.EscalateRequested += Escalate;
@@ -542,25 +547,40 @@ public partial class MainWindow
         // The input went to the agent: like a sent message, it leaves the prompt.
         if (PromptBox.Text.Trim() == snapshot.Text) ClearSentInput(PromptBox.Text);
         var agent = _settings.Current.Agent;
+        // A team is planned by its lead, the Strong worker on its Deep level, read only (OfferTeam routes the plan).
+        var lead = plan.Team ? WorkerRouting.Workers(agent, WorkerStateOf)[WorkerTier.Strong] : null;
+        if (lead is not null) plan = plan with { Provider = lead.Provider, PlanFirst = true, RoleId = null, Skills = [] };
         // A plan is made on the strongest model and carried out with the card's, in the same session.
         _planSetup = (plan.Model, plan.Effort);
-        var (model, effort) = plan.PlanFirst && agent.PlanOnDeep ? agent.Level(plan.Provider, AgentLevel.Deep) : _planSetup;
+        var (model, effort) = lead is not null ? agent.Level(lead.Provider, lead.Level)
+            : plan.PlanFirst && agent.PlanOnDeep ? agent.Level(plan.Provider, AgentLevel.Deep) : _planSetup;
         _agentOrigin = AgentCoordinator.BuildTask(plan with { Model = model, Effort = effort }, snapshot, project);
+        var brief = _agentOrigin.Prompt;
+        if (lead is not null)
+        {
+            var request = File.Exists(TeamPlan.TaskFile) ? await File.ReadAllTextAsync(TeamPlan.TaskFile) : string.Empty;
+            var evidence = _projects.ReadWorkerEvidence(project).Summary(ShortName);
+            _agentOrigin = _agentOrigin with { Prompt = TeamPlan.Prompt(brief, request, evidence, ProjectRoles.In(plan.Workspace)) };
+        }
+
         _taskProject = project;
         _task = new AgentTaskRecord
         {
             Goal = Shorten(plan.Goal.Split('\n')[0].Trim(), 200),
-            Brief = _agentOrigin.Prompt,
+            Brief = brief,
             Workspace = plan.Workspace,
             AutoEffort = plan.AutoEffort,
             RoleId = plan.RoleId,
-            Skills = [.. plan.Skills]
+            Skills = [.. plan.Skills],
+            Mode = lead is null ? TaskMode.Solo : TaskMode.Team
         };
-        _task.Add(AgentEntryKind.Brief, plan.Goal.Trim() + ImagesNote(_agentOrigin.Images) + (plan.PlanFirst ? "\n(plan first)" : string.Empty));
+        var how = lead is not null ? $"\n(team: {WorkerLabel(lead)} plans the steps)" : plan.PlanFirst ? "\n(plan first)" : string.Empty;
+        _task.Add(AgentEntryKind.Brief, plan.Goal.Trim() + ImagesNote(_agentOrigin.Images) + how);
         _earlierSession = null;
         _lastRun = null;
         _shownTask = _task;
-        await StartAgentAsync(_agentOrigin, null, phase: EffortPhase.New);
+        // The lead's effort is its Deep level's: planning the whole team is no task to save on.
+        await StartAgentAsync(_agentOrigin, null, phase: lead is null ? EffortPhase.New : null);
     }
 
     private static string ImagesNote(IReadOnlyCollection<string> images) =>
@@ -738,6 +758,8 @@ public partial class MainWindow
         ArmContinue(record);
         _agentPanel?.ResetCards();
         ShowTaskInPanel();
+        // A team left mid-way goes on from the step it is on; a question it ended on is answered first.
+        if (record.Team.Count > 0 && _question is null) OfferTeamGoOn(record);
         _ = ShowChangesAsync(record);
         UpdateRouteButton();
         AgentStatus(_earlierSession is null
@@ -953,8 +975,12 @@ public partial class MainWindow
         var efforts = _agents.Provider(task.Provider).EffortsOf(task.Model).Select(choice => choice.Value).ToArray();
         // An agent with no effort levels (the custom model) has nothing to pick, and no reason to show.
         if (efforts.Length == 0) return task;
-        var (effort, reason) = AutoEffort.Choose(phase, BriefOf(record), efforts, last?.Effort, AutoEffort.Failures(record.Runs),
-            last is null ? null : AgentNext.Split(last.Words).Next, ProjectRoles.Find(record.RoleId, record.Workspace)?.Effort);
+        var role = ProjectRoles.Find(record.RoleId, record.Workspace)?.Effort;
+        // A team's step is a new session of its own worker: its effort follows the step's words and its own failures.
+        var (effort, reason) = TeamRunner.Current(record) is { Status: TeamStepStatus.Running } step
+            ? AutoEffort.Choose(phase, step.Text, efforts, null, step.Failures, null, role)
+            : AutoEffort.Choose(phase, BriefOf(record), efforts, last?.Effort, AutoEffort.Failures(record.Runs),
+                last is null ? null : AgentNext.Split(last.Words).Next, role);
         return task with { Effort = effort, EffortReason = reason };
     }
 
@@ -1383,7 +1409,7 @@ public partial class MainWindow
         if (events.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Plan) is { } plan)
         {
             if (userWork) _task!.Plan = [.. plan.Plan];
-            if (shown && userWork) _agentPanel.ShowPlan(plan.Plan, PlanRoles(plan.Plan, _task!.Workspace));
+            if (shown && userWork) ShowPlanOf(_task!);
         }
 
         if (userWork && events.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Context) is { } context)
@@ -1459,6 +1485,13 @@ public partial class MainWindow
     private static Lazy<IReadOnlyList<AgentRole>> WorkspaceRoles(string workspace) => new(() => ProjectRoles.In(workspace));
 
     /// <summary>The roles that colour a plan's jellyfish: read only when a step of the plan names its specialist.</summary>
+    /// <summary>The task's plan card: a team's steps with their workers, else the agent's own plan.</summary>
+    private void ShowPlanOf(AgentTaskRecord record)
+    {
+        var plan = record.Team.Count > 0 ? TeamPlanItems(record) : record.Plan;
+        _agentPanel?.ShowPlan(plan, PlanRoles(plan, record.Workspace));
+    }
+
     private static IReadOnlyList<AgentRole>? PlanRoles(IReadOnlyList<AgentPlanItem> plan, string workspace) =>
         plan.Any(item => !string.IsNullOrEmpty(item.Role)) ? ProjectRoles.In(workspace) : null;
 
@@ -1475,25 +1508,59 @@ public partial class MainWindow
 
     /// <summary>
     /// A run's model and effort as the user reads them, "Opus 5.5 · Extra high"; the CLI's own as its config names it.
-    /// Where Link chose the effort, <paramref name="autoReason"/> says why: "Opus 5.5 · Medium · auto: a usual task".
+    /// Where Link chose the effort, <paramref name="autoReason"/> says why: "Opus 5.5 · Medium · auto: a usual task". The
+    /// model the CLI said it ran (<paramref name="ranModel"/>) follows a family: "Haiku · latest (claude-haiku-4-5)".
     /// </summary>
-    private string SetupWords(AgentProviderKind provider, string? model, string? effort, string? autoReason = null)
+    private string SetupWords(AgentProviderKind provider, string? model, string? effort, string? autoReason = null, string? ranModel = null)
     {
         var agent = _agents.Provider(provider);
         var own = agent.OwnSetup;
         var modelName = (model ?? own.Model) is { } chosen ? ModelName(agent, chosen) : "its own model";
+        if (ranModel is not null) modelName += $" ({ranModel})";
         var words = (effort ?? own.Effort) is { } level ? $"{modelName} · {EffortName(agent, level)}" : modelName;
         return autoReason is null ? words : $"{words} · auto: {autoReason}";
     }
 
     private string RunLine(AgentRunRecord run, string workspace) =>
-        $"{RoleWords(run.RoleId, workspace)}{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason)} · " +
+        $"{RoleWords(run.RoleId, workspace)}{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason, run.RanModel)} · " +
         $"{(run.Access != AgentAccess.Do ? "read only" : run.AutoApprove ? "auto" : "edits")}";
 
     /// <summary>Where the task works: the project, the folder and, in Perforce, its changelist.</summary>
     private string WhereLine(AgentTaskRecord record) =>
-        $"{(_taskProject ?? _projects.ActiveProject).Name} · {record.Workspace}" +
+        $"{(_taskProject ?? _projects.ActiveProject).Name}{Stack(record.Workspace)} · {record.Workspace}" +
         (record.Changelist is { } changelist ? $" · P4 changelist {changelist}" : string.Empty);
+
+    /// <summary>The tool packs a workspace uses, after the project's name: " · Unreal + Blender + Perforce"; empty for none.</summary>
+    private static string Stack(string workspace) => ToolPacks.Names(workspace) is { Length: > 0 } names ? " · " + names : string.Empty;
+
+    /// <summary>
+    /// After a task that is done: a lesson the agent kept in the project's copy of a pack's skill may go to every
+    /// project, on the user's word. One at a time; the next task's end offers the next.
+    /// </summary>
+    private void OfferShare(AgentTaskRecord record)
+    {
+        if (record.Runs.FirstOrDefault() is not { } first || ToolPacks.Lessons(record.Workspace, first.StartedAt).FirstOrDefault() is not ({ } copy, { } shared)) return;
+        _agentPanel!.ShowDecision(
+            $"The task changed this project's copy of the {shared.Pack} pack's skill {copy.Name}. Share it with all games? " +
+            $"The pack's skill takes it, and the copy leaves {ProjectSkills.RelativeFolder}.",
+            "Share with all games",
+            canRemember: false);
+        _decision = () =>
+        {
+            try
+            {
+                ToolPacks.Share(copy, shared);
+                record.Add(AgentEntryKind.HandOff, $"Shared skill {copy.Name} with all games ({shared.Pack} pack)");
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                record.Add(AgentEntryKind.HandOff, $"Could not share skill {copy.Name}: {exception.Message}");
+            }
+
+            SaveTask(record);
+            ShowTask();
+        };
+    }
 
     /// <summary>In Perforce the task's files wait in a pending changelist of its own, which P4V shows; its number stays with the task.</summary>
     private async Task KeepInChangelistAsync(AgentRun run)
@@ -1538,6 +1605,8 @@ public partial class MainWindow
         var (answerText, question) = AgentQuestion.Split(answer);
         // The changelist's line is for P4V and the next step is for Link's Auto effort; the thread shows the answer without them.
         var said = AgentChanges.SplitChangelistLine(AgentNext.Split(answerText).Text).Text;
+        // The lead's link-plan block is the team's plan card, not words to read.
+        if (task.PlanOnly && _task is { Mode: TaskMode.Team }) said = TeamPlan.Split(said).Text;
         // A question is asked by a run that ended well; one cut short asks nothing.
         _question = !stopped && result.Succeeded && !checkFailed ? question : null;
         var text = checkFailed ? CheckReport(task, run.Check!) + (said.Length > 0 ? "\n\n" + said : string.Empty) : said;
@@ -1571,6 +1640,8 @@ public partial class MainWindow
         {
             _ = ShowChangesAsync(_task);
             ShowTask();
+            if (_task.Team.Count > 0) AfterTeamStep(_task, run, needsYou: _question is not null || decision || limitReached);
+            if (!needsYou && _decision is null && _task.LastRun is { } done && WorkerEvidence.Verdict(done) == true && TeamRunner.Current(_task) is null) OfferShare(_task);
         }
         else if (_agentPanel is not null)
         {
@@ -1672,6 +1743,7 @@ public partial class MainWindow
         {
             Provider = task.Provider,
             Model = task.Model,
+            RanModel = result.Model != task.Model ? result.Model : null,
             Effort = task.Effort,
             EffortReason = task.EffortReason,
             RoleId = task.RoleId,
@@ -1694,7 +1766,14 @@ public partial class MainWindow
             Words = Shorten(answer, 12_000)
         });
         record.Add(AgentEntryKind.Run,
-            $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort)}: {ending.ToLowerInvariant()}, {Plural(run.Changes.Count, "file")} changed");
+            $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort, ranModel: record.Runs[^1].RanModel)}: " +
+            $"{ending.ToLowerInvariant()}, {Plural(run.Changes.Count, "file")} changed");
+        // A family the task asked for (haiku) got a newer model than last time: never a silent change of behaviour.
+        if (task.Provider == AgentProviderKind.ClaudeCode && _settings.Current.Agent.NoteResolved(task.Model, result.Model) is { } resolved)
+        {
+            if (resolved.Changed is { } change) record.Add(AgentEntryKind.Model, $"Claude Code takes a newer model now: {change}");
+            _settings.Save();
+        }
         if (run.Check is { } check)
         {
             record.LastCheck = $"{task.CheckCommand}: {check}" + (check.Tail.Length > 0 ? "\n" + string.Join('\n', check.Tail.Split('\n').TakeLast(20)) : string.Empty);
@@ -1874,7 +1953,7 @@ public partial class MainWindow
         var (status, dot) = Standing(record, live);
         panel.SetStatus(status, dot);
         panel.SetHeader(live ? AgentHeader(_runningTask!) : record.LastRun is { } last ? RunLine(last, record.Workspace) : "No run yet");
-        panel.ShowPlan(record.Plan, PlanRoles(record.Plan, record.Workspace));
+        ShowPlanOf(record);
         var (changed, changedFiles) = _changes.Task == record.Id ? (_changes.Text, _changes.Hint) : TaskChanges.Describe(null, record.ChangedFiles);
         panel.ShowChanges(changed, changedFiles);
         panel.ShowThread(BuildThread(record, live));
@@ -1972,7 +2051,7 @@ public partial class MainWindow
     {
         // "Claude Code · Opus 5.5: done in 3:12, 2 files changed".
         var colon = line.IndexOf(": ", StringComparison.Ordinal);
-        var who = run is not null ? $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason)}"
+        var who = run is not null ? $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason, run.RanModel)}"
             : colon > 0 ? line[..colon] : line;
         var outcome = run?.Outcome ?? (colon > 0 ? line[(colon + 2)..] : string.Empty);
         var turn = new ThreadTurn(who, outcome, OutcomeBrush(outcome), RoleBrushes.For(run?.RoleId, roles));
@@ -2172,10 +2251,14 @@ public partial class MainWindow
 
         var agent = _agents.Provider(provider);
         var (used, window) = record is null ? (null, null) : ContextOf(record);
+        // The model behind a family: as the last run on it said, else as Claude Code resolved it last time.
+        var ran = record?.LastRun is { } ranLast && ranLast.Provider == provider && ranLast.Model == model
+            ? ranLast.RanModel
+            : provider == AgentProviderKind.ClaudeCode && model is not null ? settings.LatestModels.GetValueOrDefault(model) : null;
         return HarnessView.Build(new HarnessInput(
             workspace,
             agent.Name,
-            SetupWords(provider, model, effort),
+            SetupWords(provider, model, effort, ranModel: ran),
             HarnessView.EffortWhy(agent.Capabilities.Effort, (record?.AutoEffort ?? true) && settings.AutoEffort, reason, effort),
             agent.Capabilities,
             settings.ContextBudget)
@@ -2299,6 +2382,7 @@ public partial class MainWindow
 
         // A plan's run is refused whatever changes things: that is plan mode, not a missing permission, and allowing a
         // tool would only repeat the refusal. What the user decides is whether to carry the plan out.
+        if (task.PlanOnly && result.Succeeded && _task is { Mode: TaskMode.Team } team && OfferTeam(team, run)) return true;
         if (task.PlanOnly && result.Succeeded)
         {
             var edits = task.Access == AgentAccess.Do;

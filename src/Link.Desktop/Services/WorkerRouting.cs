@@ -35,23 +35,23 @@ public static class WorkerRouting
     /// <summary>
     /// The worker of each tier. A tier the user chose in Settings is served by that choice if its agent is set up; the
     /// others by default, only among agents that are set up: Strong is the default agent at Deep; Standard is Codex if
-    /// it is set up, else Claude Code; Light is the custom model if set up, else Codex, else Claude Code.
+    /// it is set up, else Claude Code; Light is Claude Code (Haiku), else Codex (its lightest model). The two
+    /// subscriptions share the work; the custom model serves a tier only when the user chose it.
     /// </summary>
     public static IReadOnlyDictionary<WorkerTier, Worker> Workers(AgentSettings settings, Func<AgentProviderKind, WorkerState> state)
     {
         bool Set(AgentProviderKind provider) => state(provider) != WorkerState.NotSet;
-        Worker Of(AgentProviderKind provider, AgentLevel level) => new(provider, level, settings.Level(provider, level).Model);
         Worker Pick(WorkerTier tier, AgentLevel level, params AgentProviderKind[] preferred) =>
             settings.Team.For(tier) is { } chosen && Set(chosen.Provider)
-                ? Of(chosen.Provider, chosen.Level)
-                : Of(preferred.FirstOrDefault(Set, preferred[^1]), level);
+                ? Of(settings, chosen.Provider, chosen.Level)
+                : Of(settings, preferred.FirstOrDefault(Set, preferred[^1]), level);
 
         var lead = settings.DefaultProvider;
         return new Dictionary<WorkerTier, Worker>
         {
             [WorkerTier.Strong] = Pick(WorkerTier.Strong, AgentLevel.Deep, lead, AgentProviderKind.ClaudeCode),
             [WorkerTier.Standard] = Pick(WorkerTier.Standard, AgentLevel.Standard, AgentProviderKind.Codex, AgentProviderKind.ClaudeCode),
-            [WorkerTier.Light] = Pick(WorkerTier.Light, AgentLevel.Light, AgentProviderKind.Custom, AgentProviderKind.Codex, AgentProviderKind.ClaudeCode)
+            [WorkerTier.Light] = Pick(WorkerTier.Light, AgentLevel.Light, AgentProviderKind.ClaudeCode, AgentProviderKind.Codex)
         };
     }
 
@@ -60,13 +60,14 @@ public static class WorkerRouting
 
     /// <summary>
     /// The tier and worker for a step, and why. The tier is the one the plan asked for (<paramref name="asked"/>; an
-    /// escalated step asks for the next tier up), else the kind's own, lowered by one if the worker of the tier below is
-    /// ready and proven for the kind here. Design and Asset never go below Standard, and an Asset step only to an agent
-    /// that sees images (<paramref name="seesImages"/>; default: all but the custom model). Then it rises while the
-    /// tier's worker is blocked for the kind here or cannot work now (not set up, at its limit). At Strong, a worker that
-    /// cannot work is replaced by the other subscription agent at Deep (Claude Code and Codex stand in for each other);
-    /// if neither can, the worker is null and the reason says so. <paramref name="agentName"/> names an agent in the
-    /// reason (default <see cref="ShortName"/>).
+    /// escalated step asks for the next tier up), else the kind's own. Design and Asset never go below Standard, and an
+    /// Asset step goes only to an agent that sees images (<paramref name="seesImages"/>; default: all but the custom
+    /// model). Quality first: a cheaper worker the project has proven for the kind is only suggested in the reason,
+    /// unless Settings let Link lower the tier by itself (<see cref="TeamSettings.AutoLower"/>). A worker that cannot
+    /// work now (not set up, at its limit) is replaced by the other subscription agent at the same level (Claude Code
+    /// and Codex stand in for each other); the step rises a tier only where the worker failed the kind here, or neither
+    /// can work. Above Strong there is no worker, and the reason says why. <paramref name="agentName"/> names an agent
+    /// in the reason (default <see cref="ShortName"/>).
     /// </summary>
     public static (WorkerTier Tier, Worker? Worker, string Reason) Route(
         StepKind kind,
@@ -81,6 +82,7 @@ public static class WorkerRouting
         seesImages ??= provider => provider != AgentProviderKind.Custom;
         var workers = Workers(settings, state);
         var parts = new List<string>();
+        string? hint = null;
         var floor = kind is StepKind.Design or StepKind.Asset ? WorkerTier.Standard : WorkerTier.Light;
         var tier = asked ?? StepKinds.TierOf(kind);
         var below = tier > floor ? workers[tier - 1] : null;
@@ -93,37 +95,65 @@ public static class WorkerRouting
         else if (asked is null && below is not null && Cannot(kind, below, state, seesImages, agentName) is null && evidence.Proven(kind, below))
         {
             var (done, failed) = evidence.Counts(kind, below);
-            parts.Add($"{agentName(below.Provider)} did {done} of {done + failed} here");
-            tier--;
-        }
-
-        while ((Cannot(kind, workers[tier], state, seesImages, agentName) ?? FailedHere(kind, workers[tier], evidence, agentName)) is { } problem)
-        {
-            parts.Add(problem);
-            if (Escalate(tier) is not { } up) break;
-            tier = up;
-        }
-
-        var worker = workers[tier];
-        if (tier == WorkerTier.Strong && Cannot(kind, worker, state, seesImages, agentName) is not null)
-        {
-            foreach (var other in new[] { AgentProviderKind.ClaudeCode, AgentProviderKind.Codex }.Where(provider => provider != worker.Provider))
+            var proof = $"{agentName(below.Provider)} did {done} of {done + failed} here";
+            if (settings.Team.AutoLower)
             {
-                var stand = new Worker(other, AgentLevel.Deep, settings.Level(other, AgentLevel.Deep).Model);
-                if ((Cannot(kind, stand, state, seesImages, agentName) ?? FailedHere(kind, stand, evidence, agentName)) is { } why)
-                {
-                    if (!parts.Contains(why)) parts.Add(why);
-                    continue;
-                }
+                parts.Add(proof);
+                tier--;
+            }
+            else
+            {
+                hint = $"{proof}: {tier - 1} could take it";
+            }
+        }
 
-                return (tier, stand, $"{kind}: {string.Join(", ", parts)} → {agentName(other)} (Strong)");
+        while (true)
+        {
+            var worker = workers[tier];
+            var away = Cannot(kind, worker, state, seesImages, agentName);
+            var failedHere = away is null ? FailedHere(kind, worker, evidence, agentName) : null;
+            if (away is null && failedHere is null) return (tier, worker, Reason(kind, parts, agentName(worker.Provider), hint));
+            if (!parts.Contains(away ?? failedHere!)) parts.Add(away ?? failedHere!);
+            if (away is not null && StandIn(kind, worker, settings, state, evidence, seesImages, agentName, parts) is { } stand)
+            {
+                return (tier, stand, Reason(kind, parts, $"{agentName(stand.Provider)} ({tier})", hint));
             }
 
-            return (tier, null, $"{kind}: {string.Join(", ", parts)} → no agent can take it now");
+            if (Escalate(tier) is { } up)
+            {
+                tier = up;
+                continue;
+            }
+
+            // Failing the kind is no reason to leave Strong without a worker: it stays, with the reason.
+            return away is null
+                ? (tier, worker, Reason(kind, parts, agentName(worker.Provider), hint))
+                : (tier, null, $"{kind}: {string.Join(", ", parts)} → no agent can take it now");
+        }
+    }
+
+    private static Worker Of(AgentSettings settings, AgentProviderKind provider, AgentLevel level) =>
+        new(provider, level, settings.Level(provider, level).Model);
+
+    /// <summary>
+    /// The other subscription agent at the worker's level, if it can work now and has not failed the kind here; why each
+    /// cannot joins <paramref name="parts"/>.
+    /// </summary>
+    private static Worker? StandIn(StepKind kind, Worker worker, AgentSettings settings, Func<AgentProviderKind, WorkerState> state,
+        WorkerEvidence evidence, Func<AgentProviderKind, bool> seesImages, Func<AgentProviderKind, string> agentName, List<string> parts)
+    {
+        foreach (var other in new[] { AgentProviderKind.ClaudeCode, AgentProviderKind.Codex }.Where(provider => provider != worker.Provider))
+        {
+            var stand = Of(settings, other, worker.Level);
+            if ((Cannot(kind, stand, state, seesImages, agentName) ?? FailedHere(kind, stand, evidence, agentName)) is not { } why) return stand;
+            if (!parts.Contains(why)) parts.Add(why);
         }
 
-        return (tier, worker, parts.Count == 0 ? $"{kind} → {agentName(worker.Provider)}" : $"{kind}: {string.Join(", ", parts)} → {agentName(worker.Provider)}");
+        return null;
     }
+
+    private static string Reason(StepKind kind, List<string> parts, string to, string? hint) =>
+        (parts.Count == 0 ? $"{kind} → {to}" : $"{kind}: {string.Join(", ", parts)} → {to}") + (hint is null ? string.Empty : $" ({hint})");
 
     /// <summary>Why a worker cannot take a step now whatever it did before, in words: not set up, at its limit, no eyes for an Asset; null if it can.</summary>
     private static string? Cannot(

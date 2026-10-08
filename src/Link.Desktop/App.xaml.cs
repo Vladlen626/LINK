@@ -85,6 +85,8 @@ public partial class App : System.Windows.Application
             TimeProvider.System,
             Log);
         var cues = new SoundCues(speaker, _settings.Current, () => voice.Phase == VoicePhase.Speaking);
+        // Link's own tool packs reach the packs folder where it lacks them, off the startup path.
+        _ = Task.Run(() => ToolPacks.Seed(ToolPacks.BuiltInFolder, ToolPacks.Folder));
         // The agents' CLIs start only for a task or a check in Settings, never with Link.
         var settings = _settings;
         var console = new AgentConsole();

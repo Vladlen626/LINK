@@ -48,6 +48,12 @@ public sealed class TeamSettings
     /// <summary>An "Auto — team" task that would plan goes, by turns per kind, to the team or to the strong agent alone: to measure which is cheaper.</summary>
     public bool Alternate { get; set; }
 
+    /// <summary>
+    /// Off (quality first): a cheaper worker the project has proven for a kind of step is only suggested. On: Link
+    /// gives it the step by itself.
+    /// </summary>
+    public bool AutoLower { get; set; }
+
     /// <summary>The worker chosen for a tier; null: the default one.</summary>
     public WorkerChoice? For(WorkerTier tier) => tier switch
     {
@@ -64,7 +70,7 @@ public sealed class TeamSettings
         Strong = Known(Strong);
     }
 
-    public TeamSettings Clone() => new() { Enabled = Enabled, Light = Light, Standard = Standard, Strong = Strong, Alternate = Alternate };
+    public TeamSettings Clone() => new() { Enabled = Enabled, Light = Light, Standard = Standard, Strong = Strong, Alternate = Alternate, AutoLower = AutoLower };
 
     private static WorkerChoice? Known(WorkerChoice? choice) =>
         choice is not null && Enum.IsDefined(choice.Provider) && Enum.IsDefined(choice.Level) ? choice : null;
@@ -99,8 +105,19 @@ public sealed class TeamStep
     public StepKind Kind { get; set; } = StepKind.Code;
     public WorkerTier Tier { get; set; } = WorkerTier.Standard;
 
-    /// <summary>The worker as the panel names it, such as "GLM" or "Codex".</summary>
+    /// <summary>The worker as the panel names it, such as "Haiku 5.5" or "Codex".</summary>
     public string Worker { get; set; } = string.Empty;
+
+    /// <summary>The agent that works on the step and at which level; null when no agent could take it (see <see cref="Reason"/>).</summary>
+    public AgentProviderKind? Provider { get; set; }
+
+    public AgentLevel Level { get; set; } = AgentLevel.Standard;
+
+    /// <summary>The model of that level when the step was routed; null: the CLI's own. The evidence counts by it: Haiku and Opus are two workers.</summary>
+    public string? Model { get; set; }
+
+    /// <summary>Runs of the current worker on the step that failed: one more try, then the step goes a tier up.</summary>
+    public int Failures { get; set; }
 
     public TeamStepStatus Status { get; set; }
 

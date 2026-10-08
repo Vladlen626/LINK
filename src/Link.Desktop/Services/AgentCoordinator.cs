@@ -32,6 +32,9 @@ public sealed record AgentPlan(
 
     /// <summary>The project the card was opened for: a new task belongs to it, whichever project is active when Run is pressed.</summary>
     public Guid ProjectId { get; init; }
+
+    /// <summary>A team does the task: the lead plans it first, read only, and Link gives each step to its worker.</summary>
+    public bool Team { get; init; }
 }
 
 /// <summary>

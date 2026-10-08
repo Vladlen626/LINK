@@ -71,6 +71,9 @@ public sealed record AgentCardModel(
 
     /// <summary>Makes the card anew from Settings as they stand, for when they are saved while it is open; see <see cref="AgentPanel.RefreshSetup"/>.</summary>
     public Func<AgentCardModel>? Renew { get; init; }
+
+    /// <summary>The card offers a team (Settings allow it); the box is ticked while the goal reads as team work (<see cref="TeamRunner.Suggests"/>).</summary>
+    public bool TeamOffered { get; init; }
 }
 
 /// <summary>
@@ -87,6 +90,8 @@ public partial class AgentPanel : UserControl
     private bool _fillingCard;
     // The specialist is the user's once they chose it (a hand-over starts so): the goal's words pick it no more.
     private bool _roleChosen;
+    // Team is the user's once they ticked or cleared it: the goal's words set it no more.
+    private bool _teamChosen;
     // The picked specialist (null: General) and its chips; a pick changes the chips in place, so that a click on one
     // that took the goal's focus is not lost to a chip drawn anew.
     private string? _roleId;
@@ -209,6 +214,9 @@ public partial class AgentPanel : UserControl
         AccessCombo.SelectedIndex = card.Access == AgentAccessChoice.Auto ? 1 : 0;
         PlanFirstBox.IsChecked = false;
         PlanFirstBox.Visibility = card.FixedProvider ? Visibility.Collapsed : Visibility.Visible;
+        _teamChosen = false;
+        TeamBox.Visibility = card.TeamOffered && !card.FixedProvider ? Visibility.Visible : Visibility.Collapsed;
+        TeamBox.IsChecked = TeamBox.Visibility == Visibility.Visible && TeamRunner.Suggests(card.Goal, card.Roles);
         BackupBox.IsChecked = true;
         GoalBox.Text = card.Goal;
         ProjectText.Text = card.ProjectName;
@@ -844,6 +852,8 @@ public partial class AgentPanel : UserControl
         if (_card is not { FixedProvider: false } card) return false;
         var role = SelectedRoleId;
         if (!_roleChosen && card.Roles.Count > 0) SelectRole(ProjectRoles.Suggest(GoalBox.Text, card.Roles)?.Id);
+        // Team follows the goal until the user ticks or clears it.
+        if (!_teamChosen && TeamBox.Visibility == Visibility.Visible) TeamBox.IsChecked = TeamRunner.Suggests(GoalBox.Text, card.Roles);
         // The chips stay as they are unless the pick changed: a click on one lost the focus of the goal, and a chip
         // drawn anew under the mouse would take that click.
         var skills = PickedSkills();
@@ -875,9 +885,15 @@ public partial class AgentPanel : UserControl
         CheckText.Visibility = card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
         PlanFirstBox.Content = "Plan first: read only, then you run the plan";
         PlanFirstBox.ToolTip = "The agent only reads and proposes a plan, on Settings' Strong model; you run it, on the model above, in the same session";
+        // A team always plans first, on the lead.
+        PlanFirstBox.IsEnabled = !Team;
         RunButton.IsEnabled = card.Workspace is not null;
-        RunButton.Content = card.RunLabel ?? (PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
+        RunButton.Content = card.RunLabel ?? (Team ? "Plan the team" : PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
     }
+
+    private bool Team => TeamBox.Visibility == Visibility.Visible && TeamBox.IsChecked == true;
+
+    private void TeamBox_OnClick(object sender, RoutedEventArgs e) => _teamChosen = true;
 
     private void Run_OnClick(object sender, RoutedEventArgs e)
     {
@@ -899,10 +915,11 @@ public partial class AgentPanel : UserControl
             agent.Kind,
             workspace,
             AgentAccess.Do,
-            PlanFirstBox.Visibility == Visibility.Visible && PlanFirstBox.IsChecked == true,
+            Team || (PlanFirstBox.Visibility == Visibility.Visible && PlanFirstBox.IsChecked == true),
             BackupBox.Visibility == Visibility.Visible && BackupBox.IsChecked == true,
             GoalBox.Text.Trim())
         {
+            Team = Team,
             Model = SelectedModel,
             Effort = SelectedEffort,
             // An agent with no effort levels (the custom model) leaves Auto as the card had it, for the agents the task may reach.
@@ -934,8 +951,12 @@ public partial class AgentPanel : UserControl
         SendReply(queue: false);
     }
 
-    private void ReplyBox_OnTextChanged(object sender, TextChangedEventArgs e) =>
+    private void ReplyBox_OnTextChanged(object sender, TextChangedEventArgs e)
+    {
         ReplyPlaceholder.Visibility = ReplyBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        // Nothing to send leaves the button dim, as Enter does nothing then.
+        ContinueButton.IsEnabled = ReplyBox.Text.Trim().Length > 0;
+    }
 
     private void SendReply(bool queue)
     {
@@ -993,6 +1014,11 @@ public partial class AgentPanel : UserControl
     private void TurnSteps_OnClick(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: ThreadTurn turn }) turn.StepsOpen = !turn.StepsOpen;
+    }
+
+    private void TurnFiles_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ThreadTurn turn }) turn.FilesOpen = !turn.FilesOpen;
     }
 
     private void StepGroup_OnClick(object sender, RoutedEventArgs e)

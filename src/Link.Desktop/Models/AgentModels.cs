@@ -162,6 +162,10 @@ public sealed record AgentRunRecord
 {
     public AgentProviderKind Provider { get; init; }
     public string? Model { get; init; }
+
+    /// <summary>The model the CLI said it ran, where that is not <see cref="Model"/>: a family such as haiku, resolved.</summary>
+    public string? RanModel { get; init; }
+
     public string? Effort { get; init; }
 
     /// <summary>Why Link chose the effort when the task was on Auto; null when it was chosen by hand.</summary>
@@ -499,6 +503,10 @@ public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail
 public sealed record AgentResult
 {
     public string? SessionId { get; init; }
+
+    /// <summary>The model the CLI says the session ran on; null when it did not say.</summary>
+    public string? Model { get; init; }
+
     public string Summary { get; init; } = string.Empty;
     public bool Succeeded { get; init; }
     public bool Stopped { get; init; }
@@ -608,11 +616,21 @@ public sealed class AgentSettings
     /// <summary>Codex's reasoning effort, the last one chosen on the card; null: the effort of Codex's config.</summary>
     public string? CodexEffort { get; set; }
 
-    // The Light and Deep levels; Standard is the model and effort above, the user's everyday choice.
-    public AgentLevelChoice ClaudeLight { get; set; } = new() { Model = "claude-sonnet-5-5", Effort = "medium" };
+    // The Light and Deep levels; Standard is the model and effort above, the user's everyday choice. Light is the cheap
+    // worker of a team: Haiku, and Codex's lightest model when Claude's limit is reached.
+    public AgentLevelChoice ClaudeLight { get; set; } = new() { Model = LightClaudeModel, Effort = "low" };
     public AgentLevelChoice ClaudeDeep { get; set; } = new() { Model = "claude-opus-5-5", Effort = "xhigh" };
-    public AgentLevelChoice CodexLight { get; set; } = new() { Effort = "low" };
+    public AgentLevelChoice CodexLight { get; set; } = new() { Model = LightCodexModel, Effort = "low" };
     public AgentLevelChoice CodexDeep { get; set; } = new() { Effort = "xhigh" };
+
+    private const string LightClaudeModel = "claude-haiku-5-5";
+    private const string LightCodexModel = "gpt-5.6-luna";
+
+    /// <summary>
+    /// The model each Claude family (opus, haiku…) last resolved to, by the alias: when Claude Code takes a newer one,
+    /// the task says so (see <see cref="NoteResolved"/>).
+    /// </summary>
+    public Dictionary<string, string> LatestModels { get; set; } = [];
 
     /// <summary>Plan first runs on Deep, and the plan is carried out on Standard in the same session.</summary>
     public bool PlanOnDeep { get; set; } = true;
@@ -656,9 +674,12 @@ public sealed class AgentSettings
         CodexEffort = Trimmed(CodexEffort);
         foreach (var level in new[] { ClaudeLight ??= new(), ClaudeDeep ??= new(), CodexLight ??= new(), CodexDeep ??= new() })
         {
-            level.Model = Trimmed(level.Model);
+            level.Model = Newer(Trimmed(level.Model));
             level.Effort = Trimmed(level.Effort);
         }
+
+        ClaudeModel = Newer(ClaudeModel);
+        LatestModels ??= [];
 
         Custom ??= new();
         Custom.Normalize();
@@ -739,8 +760,33 @@ public sealed class AgentSettings
         OwnAnswersOnCustom = OwnAnswersOnCustom,
         ContextBudget = ContextBudget,
         AutoCompact = AutoCompact,
-        Team = Team.Clone()
+        Team = Team.Clone(),
+        LatestModels = new Dictionary<string, string>(LatestModels)
     };
+
+    /// <summary>
+    /// Remembers the model a Claude family resolved to in a run: null when the run asked for no family or nothing new
+    /// was learnt; else what changed since the last time, "haiku: claude-haiku-4-5 → claude-haiku-5-5", or null the
+    /// first time.
+    /// </summary>
+    public (string? Changed, string Model)? NoteResolved(string? asked, string? ran)
+    {
+        if (asked is null || ran is null || ran == asked || !Services.ClaudeCodeProvider.Families.Contains(asked)) return null;
+        var before = LatestModels.GetValueOrDefault(asked);
+        if (before == ran) return null;
+        LatestModels[asked] = ran;
+        return (before is null ? null : $"{asked}: {before} → {ran}", ran);
+    }
+
+    /// <summary>The Light levels an older Link saved by default (Sonnet; Codex's own model) become the team's cheap workers; chosen ones stay.</summary>
+    public void MoveOldLightDefaults()
+    {
+        if (ClaudeLight is { Model: "claude-sonnet-5-5", Effort: "medium" }) ClaudeLight = new() { Model = LightClaudeModel, Effort = "low" };
+        if (CodexLight is { Model: null, Effort: "low" }) CodexLight.Model = LightCodexModel;
+    }
+
+    /// <summary>A Claude model an older Link offered and this one does not: Haiku 4.5 is Haiku 5.5 now.</summary>
+    private static string? Newer(string? model) => model == "claude-haiku-4-5-20251001" ? LightClaudeModel : model;
 
     private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
 }

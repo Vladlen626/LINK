@@ -1,6 +1,6 @@
 ---
 name: agent-token-review
-description: Find where an agent's tokens and turns go (Claude Code or Codex, through Link or this session's own) from the CLIs' session logs, and decide what Link's harness should cut or fix.
+description: Find where an agent's tokens, turns and time go (Claude Code or Codex, through Link or this session's own) from the CLIs' session logs, and decide what Link's harness should cut or fix.
 ---
 
 # Agent token review
@@ -16,6 +16,17 @@ One line per session: requests, the first request's input (what rides along on e
 totals (cached apart), output, tool calls, failed calls, and the troubles met in Link's runs: garbled Russian, git
 "dubious ownership", sandbox refusals, reads of plugin guides. Link's own `[Agent]` lines in
 `%LocalAppData%\Link\link.log` give the same totals per task.
+
+Where the time went in one session (the user says the agent was slow):
+
+```powershell
+& .agents\skills\agent-token-review\session-time.ps1 -Agent claude -Session <id part> [-Since <ISO time>] [-Top 12]
+```
+
+Span, time inside tool calls and the rest (the model, waits between runs), time by script or tool, the slowest calls.
+In BigSteps (2026-10-06) most of a 3.8-hour Claude run was checks and waits for them; in Codex runs, 70-80% is the
+model itself. A slow tool is fixed in the project's tooling and skill (the editor's background throttle, `localhost`
+on Windows costing 2 s a connection), not by telling the model to hurry.
 
 Logs: Codex `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (`session_meta` names the folder, `token_count` the usage
 of each request); Claude Code `~/.claude/projects/<folder with - for \ and :>/<session>.jsonl` (`assistant` lines

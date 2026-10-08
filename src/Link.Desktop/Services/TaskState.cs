@@ -98,7 +98,8 @@ public static class TaskState
         if (decisions.Length > 0) lines.AddRange(["## Decisions", .. decisions]);
 
         lines.Add("## Current state");
-        lines.AddRange(record.Plan.Count > 0 ? PlanLines(record) : ["No plan written yet."]);
+        // A team's task stands where its plan's steps stand; a worker's own plan is only of its step.
+        lines.AddRange(record.Team.Count > 0 ? TeamRunner.StateLines(record) : record.Plan.Count > 0 ? PlanLines(record) : ["No plan written yet."]);
 
         var files = Files(record, numstat).Split('\n', StringSplitOptions.RemoveEmptyEntries);
         if (files.Length > 0)
@@ -146,6 +147,7 @@ public static class TaskState
     /// <summary>The step the last run named for itself, else the plan's first open one.</summary>
     private static string NextAction(AgentTaskRecord record)
     {
+        if (TeamRunner.Current(record) is { } teamStep) return $"Step {TeamRunner.Number(record, teamStep)} of the team plan: {teamStep.Text}";
         if (record.LastRun is { } last && AgentNext.Split(last.Words).Next is { } step) return step.Step;
         return record.Plan.FirstOrDefault(item => !item.Done)?.Text ?? "Decide from the state above.";
     }
@@ -155,7 +157,7 @@ public static class TaskState
     {
         var pointers = new List<string>();
         if (File.Exists(ProjectMap.PathIn(workspace))) pointers.Add($"- Project map: {ProjectMap.RelativePath}");
-        if (ProjectSkills.In(workspace).Count > 0) pointers.Add($"- Skills: {ProjectSkills.RelativeFolder}/");
+        if (ProjectSkills.Own(workspace).Count > 0) pointers.Add($"- Skills: {ProjectSkills.RelativeFolder}/");
         pointers.Add("- The brief this task began with is below.");
         return [.. pointers];
     }

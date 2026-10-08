@@ -188,6 +188,10 @@
                 </Grid>
                 <TextBox Margin="0,8,0,0" Style="{StaticResource ReadTextStyle}" Text="{Binding Said, Mode=OneWay}"
                          Visibility="{Binding SaidVisibility}" />
+                <Button Margin="-6,8,0,0" Padding="6,1" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
+                        Click="TurnFiles_OnClick" Visibility="{Binding FilesToggleVisibility}" ToolTip="The files this run changed">
+                    <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding FilesLabel}" />
+                </Button>
                 <ItemsControl Margin="0,10,0,0" ItemsSource="{Binding Files}" Visibility="{Binding FilesVisibility}">
                     <ItemsControl.ItemsPanel>
                         <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
@@ -369,7 +373,11 @@
                                 <TextBlock FontSize="12" Foreground="{StaticResource LinkTextBrush}" Text="Harness ›" />
                             </Button>
                         </Grid>
-                        <CheckBox x:Name="PlanFirstBox" Margin="0,12,0,0" FontSize="12.5" Checked="Card_OnChanged" Unchecked="Card_OnChanged" />
+                        <CheckBox x:Name="TeamBox" Margin="0,12,0,0" FontSize="12.5" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Click="TeamBox_OnClick"
+                                  Content="Team: the lead plans the steps, Link gives each to its worker"
+                                  ToolTip="Strong plans, read only; you see each step with its worker and why, then run the team. Steps run one after another"
+                                  Visibility="Collapsed" />
+                        <CheckBox x:Name="PlanFirstBox" Margin="0,8,0,0" FontSize="12.5" Checked="Card_OnChanged" Unchecked="Card_OnChanged" />
                         <CheckBox x:Name="BackupBox" Margin="0,8,0,0" FontSize="12.5" IsChecked="True" Content="Copy the folder before edits"
                                   ToolTip="The workspace has no Git or Perforce: undo puts the files back from this copy" />
                         <TextBlock x:Name="CheckText" Margin="0,10,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="12" TextWrapping="Wrap"
@@ -558,11 +566,11 @@
                             <Button x:Name="FinishButton" Style="{StaticResource GhostChipStyle}" Click="Finish_OnClick" Content="Finish"
                                     ToolTip="Close the task; it stays in the list, where it can be opened and taken up again" />
                         </WrapPanel>
-                        <Button x:Name="ContinueButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource RoundAccentButtonStyle}"
-                                VerticalAlignment="Bottom" Click="Continue_OnClick">
+                        <Button x:Name="ContinueButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ComposerSendButtonStyle}"
+                                VerticalAlignment="Bottom" Click="Continue_OnClick" IsEnabled="False">
                             <Viewbox Width="14" Height="14">
-                                <Path Data="{StaticResource SendIconGeometry}" Fill="Transparent" Stroke="{StaticResource AccentForegroundBrush}"
-                                      StrokeThickness="2.2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                                <Path Data="{StaticResource ArrowUpIconGeometry}" Stroke="{StaticResource AccentForegroundBrush}"
+                                      StrokeThickness="2.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
                             </Viewbox>
                         </Button>
                     </Grid>

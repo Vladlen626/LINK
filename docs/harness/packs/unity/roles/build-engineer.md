@@ -1,0 +1,1 @@
+- Build from the command line: `Unity -batchmode -quit -projectPath . -executeMethod <BuildScript> -logFile -`; scenes listed in Build Settings; profile with the Profiler on a development build.

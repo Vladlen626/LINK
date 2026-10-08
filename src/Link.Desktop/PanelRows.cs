@@ -38,6 +38,7 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, B
     private string _next = string.Empty;
     private string _stats = string.Empty;
     private bool _stepsOpen;
+    private bool _filesOpen;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -83,10 +84,21 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, B
     public IReadOnlyList<AgentChangeRow> Files
     {
         get => _files;
-        set => Set(ref _files, value, nameof(Files), nameof(FilesVisibility));
+        set => Set(ref _files, value, nameof(Files), nameof(FilesVisibility), nameof(FilesToggleVisibility), nameof(FilesLabel));
     }
 
-    public Visibility FilesVisibility => _files.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+    /// <summary>More changed files than this fold into one line, "91 files changed ▸", that opens them: a big change would bury the thread.</summary>
+    private const int FilesShown = 8;
+
+    public bool FilesOpen
+    {
+        get => _filesOpen;
+        set => Set(ref _filesOpen, value, nameof(FilesVisibility), nameof(FilesLabel));
+    }
+
+    public Visibility FilesVisibility => _files.Count > 0 && (_files.Count <= FilesShown || _filesOpen) ? Visibility.Visible : Visibility.Collapsed;
+    public Visibility FilesToggleVisibility => _files.Count > FilesShown ? Visibility.Visible : Visibility.Collapsed;
+    public string FilesLabel => $"{_files.Count} files changed {(_filesOpen ? "▾" : "▸")}";
 
     /// <summary>The next step the agent ended with, "Next: wire the jump · medium"; empty when it named none.</summary>
     public string Next

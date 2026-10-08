@@ -47,6 +47,34 @@
         </Viewbox>
     </ControlTemplate>
 
+    <!-- Link Studio's icon for the taskbar and the button that opens it: the jellyfish on a warm dark tile, in fixed
+         colours, since the taskbar is not Link's theme. The glyph is LinkGlyphTemplate's, scaled into the tile. -->
+    <DrawingImage x:Key="StudioIconImage">
+        <DrawingImage.Drawing>
+            <DrawingGroup>
+                <GeometryDrawing Brush="#FF2A211C">
+                    <GeometryDrawing.Geometry><RectangleGeometry Rect="0,0,24,24" RadiusX="5.5" RadiusY="5.5" /></GeometryDrawing.Geometry>
+                </GeometryDrawing>
+                <DrawingGroup Transform="0.74,0,0,0.74,3.12,3.2">
+                    <GeometryDrawing Geometry="M6.5,13.4 L4.2,17.6 M9.75,13.9 L8.9,18.3 M17.5,13.4 L19.8,17.6 M14.25,13.9 L15.1,18.3">
+                        <GeometryDrawing.Pen><Pen Brush="#FFF5843F" Thickness="2.7" StartLineCap="Round" EndLineCap="Round" /></GeometryDrawing.Pen>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#FFF5843F">
+                        <GeometryDrawing.Geometry><RectangleGeometry Rect="3.25,4,17.5,10.9" RadiusX="3.8" RadiusY="3.8" /></GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                    <GeometryDrawing Brush="#FF2B1810">
+                        <GeometryDrawing.Geometry>
+                            <GeometryGroup>
+                                <RectangleGeometry Rect="7.5,6.7,2.6,4.4" RadiusX="1.3" RadiusY="1.3" />
+                                <RectangleGeometry Rect="13.9,6.7,2.6,4.4" RadiusX="1.3" RadiusY="1.3" />
+                            </GeometryGroup>
+                        </GeometryDrawing.Geometry>
+                    </GeometryDrawing>
+                </DrawingGroup>
+            </DrawingGroup>
+        </DrawingImage.Drawing>
+    </DrawingImage>
+
     <Style x:Key="GlassCardStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource CardBrush}" />
         <Setter Property="BorderBrush" Value="{StaticResource GlassBorderBrush}" />
@@ -747,28 +775,33 @@
         <Setter Property="Template" Value="{StaticResource CaptionCloseButtonTemplate}" />
     </Style>
 
-    <!-- A round filled button, such as the composer's send. -->
-    <ControlTemplate x:Key="RoundAccentButtonTemplate" TargetType="Button">
+    <!-- The composer's send button, as Claude's: a rounded square, dim until there are words to send. -->
+    <ControlTemplate x:Key="ComposerSendButtonTemplate" TargetType="Button">
         <Grid>
-            <Ellipse x:Name="Chrome" Fill="{TemplateBinding Background}" />
-            <Ellipse x:Name="HoverLight" Fill="{StaticResource AccentHoverBrush}" Opacity="0" />
+            <Border x:Name="Chrome" CornerRadius="9" Background="{TemplateBinding Background}" />
+            <Border x:Name="HoverLight" CornerRadius="9" Background="{StaticResource AccentHoverBrush}" Opacity="0" />
             <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center" />
         </Grid>
         <ControlTemplate.Triggers>
             <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="HoverLight" Property="Opacity" Value="1" /></Trigger>
             <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="HoverLight" Property="Opacity" Value="1" /></Trigger>
             <Trigger Property="IsPressed" Value="True">
-                <Setter TargetName="HoverLight" Property="Fill" Value="{StaticResource PressedBrush}" />
+                <Setter TargetName="HoverLight" Property="Background" Value="{StaticResource PressedBrush}" />
                 <Setter TargetName="HoverLight" Property="Opacity" Value="1" />
             </Trigger>
-            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Chrome" Property="Opacity" Value="0.45" /></Trigger>
+            <Trigger Property="IsEnabled" Value="False">
+                <Setter TargetName="Chrome" Property="Background" Value="{StaticResource InnerGlassBrush}" />
+                <Setter TargetName="HoverLight" Property="Opacity" Value="0" />
+                <Setter Property="Opacity" Value="0.55" />
+            </Trigger>
         </ControlTemplate.Triggers>
     </ControlTemplate>
 
-    <Style x:Key="RoundAccentButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
-        <Setter Property="Width" Value="32" />
-        <Setter Property="Height" Value="32" />
+    <Style x:Key="ComposerSendButtonStyle" TargetType="Button" BasedOn="{StaticResource PrimaryButtonStyle}">
+        <Setter Property="Width" Value="30" />
+        <Setter Property="Height" Value="30" />
         <Setter Property="Padding" Value="0" />
-        <Setter Property="Template" Value="{StaticResource RoundAccentButtonTemplate}" />
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+        <Setter Property="Template" Value="{StaticResource ComposerSendButtonTemplate}" />
     </Style>
 </ResourceDictionary>

@@ -94,9 +94,16 @@ DeepSeek, OpenRouter, локальная Ollama) через тот же Claude C
    в той же сессии на модели карточки. Пока сессия в режиме планирования, рядом с Hand off и Finish стоит
    **Plan mode ✕**: ответы до него только обсуждают план, после — идут с правками.
 4. **Специалист и skills.** Link предлагает роль по брифу — Technical Designer, UI/UX Designer, 3D Artist,
-   Rigger / Animator, Unreal Developer, Level Artist, QA / Playtest, Build / Performance — и до четырёх skills папки
+   Rigger / Animator, Gameplay Developer, Level Artist, QA / Playtest, Build / Performance — и до четырёх skills папки
    чипами (сначала skills роли); всё меняется на карточке, **General** — без роли. Свои роли папки —
-   `.agents/roles/<id>.md` (заменяют встроенные с тем же id). Под настройками — строка `Context budget 450k ·
+   `.agents/roles/<id>.md` (заменяют встроенные с тем же id). Роли не знают движка: что делать в Unreal, Unity,
+   Godot, Blender, Cascadeur, им добавляют **пакеты инструментов** в `%USERPROFILE%\LinkPacks\<pack>` (`pack.md`,
+   `roles/`, `skills/`), общие для всех игр; Link берёт пакеты, чьи файлы есть в папке (`*.uproject`, `*.blend`…),
+   а skill проекта с тем же именем перекрывает пакетный. Урок агента идёт в копию skill в проекте; после задачи Link
+   предлагает **Share with all games**.
+   **Team** (галка, когда бриф называет двух специалистов и больше): ведущий (Strong) только планирует шаги, Link
+   раздаёт их по уровням — Haiku, Codex, Opus — с причиной в Plan, после провала повторяет и поднимает уровень,
+   шаг «на вкус» ждёт **OK, next step**. Под настройками — строка `Context budget 450k ·
    5 skills · MCP: unreal` и **Harness**.
 5. **Проверка после правок** (если задана у папки). **Run** — без него ничего не запускается.
 6. **Задача:** ‹ к списку, название, состояние (working · 3:12, done, needs you), агент · модель · доступ, `+N −M`

@@ -76,20 +76,13 @@ public static class AgentProcess
                          Kill(process);
                      }))
         {
-            try
-            {
-                await process.StandardInput.WriteAsync(command.Input);
-                process.StandardInput.Close();
-            }
-            catch (IOException)
-            {
-                // The process ended before it read its task; its exit code and stderr tell why.
-            }
-
+            // The task goes in while the process runs: a CLI that ends before it read a long task, leaving a child that
+            // holds stdin open, would otherwise keep the write and the run waiting for that child.
+            var input = WriteInputAsync(process, command.Input);
             await process.WaitForExitAsync(CancellationToken.None);
             // A process the agent left running (a dev server, a watcher) holds the pipes open and would keep the run
             // going: after a moment for the last lines, the job ends it.
-            var pumps = Task.WhenAll(output, errors);
+            var pumps = Task.WhenAll(output, errors, input);
             if (await Task.WhenAny(pumps, Task.Delay(LeftoverGrace, CancellationToken.None)) != pumps) job.Dispose();
             await pumps;
         }
@@ -143,6 +136,19 @@ public static class AgentProcess
         return argument.Length > 0 && argument.IndexOfAny([' ', '\t', '(', ')', ',', ';', '=']) < 0
             ? argument
             : "\"" + argument + "\"";
+    }
+
+    private static async Task WriteInputAsync(Process process, string input)
+    {
+        try
+        {
+            await process.StandardInput.WriteAsync(input);
+            process.StandardInput.Close();
+        }
+        catch (IOException)
+        {
+            // The process ended before it read its task; its exit code and stderr tell why.
+        }
     }
 
     private static async Task PumpAsync(StreamReader reader, Action<string> onLine)

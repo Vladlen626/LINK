@@ -1,0 +1,1 @@
+- Build with the project's UI system (UI Toolkit or uGUI); uGUI: Layout Groups, anchors, a Canvas Scaler set once.

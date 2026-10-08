@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:Link.Desktop"
-        Title="Link Studio" Width="1100" Height="720" MinWidth="760" MinHeight="480"
+        Title="Link Studio" Icon="{StaticResource StudioIconImage}" Width="1100" Height="720" MinWidth="760" MinHeight="480"
         Style="{StaticResource LinkWindowStyle}" WindowStartupLocation="CenterScreen" ResizeMode="CanResize" ShowInTaskbar="True"
         WindowStyle="None">
     <shell:WindowChrome.WindowChrome>

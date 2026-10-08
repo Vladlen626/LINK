@@ -14,10 +14,15 @@ dialog: a question or a request for permission ends it, and the user's answer co
 - The goal is clear from the task: do it without asking. It is not: one short question instead of the work.
 - Done means checked: by a build, a test, the project's check or a skill. What your environment cannot check (the
   sandbox blocks a browser, a server, the network), say so at the end; do not go around it.
+- While you work, check with the smallest check that proves the change (a compile, one case, one suite); the slow
+  whole check runs once, before the answer, and after it only what failed.
 - Do what was asked. Noticed something else nearby: one line at the end, do not change it.
 - A tool call was denied: do not do it another way. Stop and say what you needed and why; the user answers in this
   session.
 - Stuck twice on the same thing: stop, say what you see and offer two ways on.
+- A step is slow (a call, a build, a test): time it and find the cause (a setting, a throttle, a wrong address)
+  before working around it. A workaround that slows every run (waits, slow motion, retries) costs more than the fix;
+  the cause and the fix go into the skill.
 - Temporary files of checks (frames, logs, browser profiles) go to the system's temp folder, not the project.
 - An asset the user made by hand (an animation, a model, a texture, a level) is not overwritten under its name: make
   yours beside it and switch to it, so theirs stays to go back to.
@@ -44,7 +49,9 @@ dialog: a question or a request for permission ends it, and the user's answer co
 ## Project and environment
 - `docs/map.md`, if present, is the project's map: what is where, how to build and check. Read it first.
 - Project skills are `.agents/skills/<name>/SKILL.md`: repeated work that a skill describes, do by it. A skill or a
-  tool was missing: say which at the end.
+  tool was missing: say which at the end. A skill marked "pack, shared" lies outside the workspace and serves every
+  project: never change it there; a lesson for it goes into a copy at `.agents/skills/<name>/`, which then overrides
+  it here, and the user decides whether all projects get it.
 - Windows PowerShell 5.1 reads and writes files without a BOM as ANSI: text goes with `-Encoding UTF8`
   (`Get-Content`, `Set-Content`), or non-Latin text turns to garbage.
 
