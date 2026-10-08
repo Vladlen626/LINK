@@ -38,21 +38,6 @@ public static class AutoEffort
     private const string Highest = "xhigh";
     private const int WhyLength = 60;
 
-    // Stems of the brief's words, English and Russian; what sounds like design or an unknown cause asks for more.
-    private static readonly (string Reason, string[] Words)[] Hard =
-    [
-        ("a design task", ["architecture", "design a", "new mechanic", "system", "refactor", "rewrite",
-            "архитектур", "спроектир", "механик", "систем", "рефактор", "переписа"]),
-        ("an unclear failure", ["investigate", "why", "crash", "race", "deadlock", "performance", "memory leak", "unclear",
-            "разбер", "почему", "вылета", "падает", "утечк", "производител", "непонятн"])
-    ];
-
-    private static readonly string[] Mechanical =
-    [
-        "rename", "typo", "import ", "imports", "imported", "reimport", "move file", "format", "translate", "comment", "docs", "description", "bump version",
-        "переимен", "опечат", "импорт", "перенеси", "форматир", "перевед", "коммент", "описани", "документац"
-    ];
-
     /// <summary>
     /// The effort for a run and the reason in words, the first rule that applies. A run since the last good one failed
     /// (<paramref name="failures"/>), or a restart: one step above <paramref name="lastEffort"/>. The effort the agent
@@ -125,12 +110,12 @@ public static class AutoEffort
     /// <summary>The brief's own words: design or an unknown cause is high, a mechanical change low, and high wins.</summary>
     private static (string Effort, string Reason) ByBrief(string brief, string? roleEffort)
     {
-        foreach (var (reason, words) in Hard)
+        foreach (var (reason, words) in StepKinds.Hard)
         {
             if (words.FirstOrDefault(word => Stems.Found(brief, word)) is { } hard) return ("high", $"\"{hard}\": {reason}");
         }
 
-        if (Mechanical.FirstOrDefault(word => Stems.Found(brief, word)) is { } easy) return ("low", $"\"{easy.Trim()}\": a mechanical change");
+        if (StepKinds.Mechanical.FirstOrDefault(word => Stems.Found(brief, word)) is { } easy) return ("low", $"\"{easy.Trim()}\": a mechanical change");
         return roleEffort?.Trim().ToLowerInvariant() is { } role && Rank(role) >= 0 ? (Capped(role), "the role's usual effort") : ("medium", "a usual task");
     }
 

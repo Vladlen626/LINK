@@ -3,7 +3,7 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>What a tool step did, as the mark its row starts with tells.</summary>
-public enum StepKind
+public enum ToolKind
 {
     Command,
     Read,
@@ -34,14 +34,14 @@ public static class StepGroups
     };
 
     /// <summary>The kind of a step row; null for the agent's words and every row that is no tool call.</summary>
-    public static StepKind? KindOf(string step) => step.Length > 1 && step[1] == ' '
+    public static ToolKind? KindOf(string step) => step.Length > 1 && step[1] == ' '
         ? step[0] switch
         {
-            '$' => StepKind.Command,
-            '≡' => StepKind.Read,
-            '⌕' => StepKind.Search,
-            '✎' => StepKind.Edit,
-            '▸' => StepKind.Other,
+            '$' => ToolKind.Command,
+            '≡' => ToolKind.Read,
+            '⌕' => ToolKind.Search,
+            '✎' => ToolKind.Edit,
+            '▸' => ToolKind.Other,
             _ => null
         }
         : null;
@@ -53,15 +53,15 @@ public static class StepGroups
     public static string Summarize(IEnumerable<string> steps)
     {
         var tools = steps.Select(step => (Kind: KindOf(step), Step: step)).Where(tool => tool.Kind is not null).ToArray();
-        int Calls(StepKind kind) => tools.Count(tool => tool.Kind == kind);
-        int Files(StepKind kind) => tools.Where(tool => tool.Kind == kind).Select(tool => tool.Step).Distinct().Count();
+        int Calls(ToolKind kind) => tools.Count(tool => tool.Kind == kind);
+        int Files(ToolKind kind) => tools.Where(tool => tool.Kind == kind).Select(tool => tool.Step).Distinct().Count();
         var parts = new[]
         {
-            Part(Calls(StepKind.Command), "ran {0} command{1}"),
-            Part(Files(StepKind.Read), "read {0} file{1}"),
-            Part(Files(StepKind.Edit), "edited {0} file{1}"),
-            Part(Calls(StepKind.Search), "searched {0}"),
-            Part(Calls(StepKind.Other), "used {0} tool{1}")
+            Part(Calls(ToolKind.Command), "ran {0} command{1}"),
+            Part(Files(ToolKind.Read), "read {0} file{1}"),
+            Part(Files(ToolKind.Edit), "edited {0} file{1}"),
+            Part(Calls(ToolKind.Search), "searched {0}"),
+            Part(Calls(ToolKind.Other), "used {0} tool{1}")
         }.Where(part => part.Length > 0);
         var line = string.Join(", ", parts);
         return line.Length == 0 ? line : char.ToUpperInvariant(line[0]) + line[1..];

@@ -9,6 +9,13 @@ public static class Stems
     /// Whether <paramref name="text"/> has a word that begins with <paramref name="stem"/>, ignoring case: "анимац" finds
     /// "анимацию", while "format" is not in "information" nor "race" in "trace".
     /// </summary>
-    public static bool Found(string text, string stem) =>
-        stem.Length > 0 && Regex.IsMatch(text, @"(?<!\p{L})" + Regex.Escape(stem), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+    public static bool Found(string text, string stem) => IndexOf(text, stem) >= 0;
+
+    /// <summary>Where the first word that begins with <paramref name="stem"/> starts in <paramref name="text"/>; -1 when there is none.</summary>
+    public static int IndexOf(string text, string stem)
+    {
+        if (stem.Length == 0) return -1;
+        var match = Regex.Match(text, @"(?<!\p{L})" + Regex.Escape(stem), RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+        return match.Success ? match.Index : -1;
+    }
 }

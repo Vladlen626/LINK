@@ -53,6 +53,28 @@ public static class TaskState
     public static string CompactBrief(AgentTaskRecord record, string? numstat, string workspace, Func<AgentProviderKind, string>? agentName = null) =>
         $"{Build(record, numstat, workspace, agentName)}\n\n{GoOn}";
 
+    /// <summary>
+    /// What a worker's new session is told for its step of a team plan: the task's state, what the steps before handed
+    /// over, then the step with the files the plan names. A step an earlier worker failed carries what that worker ended
+    /// in, so that the next does not repeat it.
+    /// </summary>
+    public static string StepBrief(AgentTaskRecord record, string? numstat, string workspace, TeamStep step, Func<AgentProviderKind, string>? agentName = null)
+    {
+        var lines = new List<string> { Build(record, numstat, workspace, agentName) };
+        var position = record.Team.IndexOf(step);
+        var handed = record.Team
+            .Select((each, index) => (Step: each, Number: index + 1))
+            .Where(each => (position < 0 || each.Number <= position) && !string.IsNullOrWhiteSpace(each.Step.HandedOver))
+            .Select(each => $"- Step {each.Number} ({each.Step.Worker}): {each.Step.HandedOver!.Trim()}")
+            .ToArray();
+        if (handed.Length > 0) lines.AddRange(["", "## Handed over by earlier steps", .. handed]);
+        lines.AddRange(["", "## Your step", step.Text]);
+        if (step.Files.Count > 0) lines.Add("files: " + string.Join(", ", step.Files));
+        if (step.EscalatedFrom is not null && !string.IsNullOrWhiteSpace(step.Failure)) lines.Add($"The {step.EscalatedFrom} tried this step and failed: {step.Failure.Trim()}");
+        lines.Add(TeamPlan.StepEnd);
+        return string.Join('\n', lines);
+    }
+
     /// <summary>The line the task's history gets when it is compacted, with what the session held when that is known.</summary>
     public static string Compacted(long? contextTokens) =>
         "Compacted: a fresh session from the task state" + (contextTokens is { } tokens ? $" (was {AgentContext.Tokens(tokens)} tokens)" : string.Empty);

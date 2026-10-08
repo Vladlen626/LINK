@@ -95,6 +95,17 @@ internal static class AgentTests
         TeamPackLinks();
         TeamPackReplace();
         TeamPackRefusals();
+        StepKindsWords();
+        TeamPlanSplit();
+        TeamPlanPrompt();
+        TeamSettingsKept();
+        TeamRecordsKept();
+        WorkerEvidenceRules();
+        WorkerRoutes();
+        CompactRuleReasons();
+        TaskMetricsCounted();
+        RoleSuggestAll();
+        StepBriefBuilt();
     }
 
     /// <summary>Settings offers each CLI's own effort levels up to max, Claude's models and Codex's list of the account.</summary>
@@ -863,7 +874,7 @@ internal static class AgentTests
     private static void ContextBudget()
     {
         var settings = new AgentSettings();
-        Program.Equal("budget: 550k by default, in older settings too", (settings.ContextBudget, JsonSerializer.Deserialize<AgentSettings>("{}")!.ContextBudget), (550_000, 550_000));
+        Program.Equal("budget: 450k by default, in older settings too", (settings.ContextBudget, JsonSerializer.Deserialize<AgentSettings>("{}")!.ContextBudget), (450_000, 450_000));
         var normalized = new[] { 0, -1, 49_999, 2_000_001, 50_000, 550_000, 2_000_000 }.Select(budget =>
         {
             var each = new AgentSettings { ContextBudget = budget };
@@ -871,7 +882,7 @@ internal static class AgentTests
             return each.ContextBudget;
         });
         Program.Equal("budget: 50k to 2M is kept, anything else is the default",
-            string.Join(", ", normalized), "550000, 550000, 550000, 550000, 50000, 550000, 2000000");
+            string.Join(", ", normalized), "450000, 450000, 450000, 450000, 50000, 550000, 2000000");
         Program.Equal("budget: a copy keeps it", new AgentSettings { ContextBudget = 800_000 }.Clone().ContextBudget, 800_000);
 
         var claude = new ClaudeCodeProvider(() => settings, _ => { });
@@ -2269,7 +2280,7 @@ internal static class AgentTests
             StepGroups.Summarize(["$ Bash: ls", "≡ Read: a.cs", "✎ Edit: a.cs", "⌕ Grep: x", "▸ Skill: map"]), "Ran 1 command, read 1 file, edited 1 file, searched 1, used 1 tool");
         Program.Equal("steps: the line starts with what the group did first",
             StepGroups.Summarize(["≡ Read: a.cs", "▸ Skill: map"]), "Read 1 file, used 1 tool");
-        Program.Equal("steps: the agent's words and notes are no tool call", (StepGroups.Summarize(["Said something", "· Session started", "⚠ Not allowed", "✗ Error"]), StepGroups.KindOf("$5 fee")), ("", (StepKind?)null));
+        Program.Equal("steps: the agent's words and notes are no tool call", (StepGroups.Summarize(["Said something", "· Session started", "⚠ Not allowed", "✗ Error"]), StepGroups.KindOf("$5 fee")), ("", (ToolKind?)null));
         Program.Equal("steps: a tool row of an earlier Link, marked ▸ only, counts as a tool used",
             StepGroups.Summarize(["▸ Bash: ls", "▸ Edit: a.cs", "▸ Read: a.cs"]), "Used 3 tools");
     }
@@ -2854,6 +2865,497 @@ internal static class AgentTests
         {
             DeleteFolder(workspace);
             DeleteFolder(folder);
+        }
+    }
+
+    /// <summary>A step is a kind from its words, read as Auto effort reads a brief; each kind starts at its own tier.</summary>
+    private static void StepKindsWords()
+    {
+        string Kinds(params string[] texts) => string.Join(", ", texts.Select(text => StepKinds.Of(text).ToString()));
+        Program.Equal("step kinds: renames, typos and imports are mechanical, a README, comments and descriptions are text",
+            Kinds("Rename the sprite files to the new scheme", "Fix the typo in the menu", "Reimport the FBX", "Переименуй спрайты", "Update the README",
+                "Add comments to the dash code", "Опиши это в документации"),
+            "Mechanical, Mechanical, Mechanical, Mechanical, Docs, Docs, Docs");
+        Program.Equal("step kinds: design words and an unclear failure come first",
+            Kinds("Design a new dash mechanic", "Refactor the movement system", "Спроектируй систему рывка", "Investigate why the game crashes", "Почему падает игра"),
+            "Design, Design, Design, Investigate, Investigate");
+        Program.Equal("step kinds: tests, reviews and checks",
+            Kinds("Add unit tests for the dash", "Review the movement changes", "Check that the build passes", "Проверь результат"), "Test, Review, Review, Review");
+        Program.Equal("step kinds: anything else is code, a stem counts only at the start of a word",
+            Kinds("Add the dash ability to the movement component", "Fix the jump", "Add an information panel", string.Empty), "Code, Code, Code, Code");
+        Program.Equal("step kinds: each kind has its tier",
+            string.Join(", ", Enum.GetValues<StepKind>().Select(kind => $"{kind}={StepKinds.TierOf(kind)}")),
+            "Design=Strong, Investigate=Strong, Code=Standard, Test=Standard, Review=Standard, Asset=Strong, Mechanical=Light, Docs=Light");
+        Program.Equal("step kinds: Auto effort still names the first mechanical word of its list",
+            AutoEffort.Choose(EffortPhase.New, "Bump version and add a comment", ["low", "medium", "high"], null, 0, null),
+            ((string?)"low", "\"comment\": a mechanical change"));
+    }
+
+    /// <summary>The lead's team plan: the last link-plan block, read tolerantly; the answer goes on without it.</summary>
+    private static void TeamPlanSplit()
+    {
+        static string Show(IReadOnlyList<PlannedStep> steps) =>
+            string.Join("|", steps.Select(step => $"{step.Text}/{step.Kind}/{step.Worker?.ToString() ?? "-"}/{step.Why}/{string.Join(",", step.Files)}"));
+        static string Specialists(IReadOnlyList<PlannedStep> steps) => string.Join("|", steps.Select(step => $"{step.Role ?? "-"}/{step.Check}"));
+
+        const string Good = "```link-plan\n[{\"step\": \"Rename the sprite files\", \"kind\": \"mechanical\", \"worker\": \"light\", \"why\": \"a list of renames\", \"files\": [\"Content/Sprites\"]},\n" +
+                            " {\"step\": \"Add the dash ability\", \"kind\": \"code\", \"worker\": \"Standard\"},\n" +
+                            " {\"step\": \"Tune the dash feel\", \"kind\": \"design\", \"worker\": \"strong\", \"why\": \"taste\"}]\n```";
+        var specialists = ProjectRoles.In(null);
+        var (text, steps) = TeamPlan.Split("The plan.\n" + Good);
+        Program.Equal("team plan: the answer goes on without the block, the steps are read with kind, worker, why and files",
+            (text, Show(steps)),
+            ("The plan.", "Rename the sprite files/Mechanical/Light/a list of renames/Content/Sprites|Add the dash ability/Code/Standard//|Tune the dash feel/Design/Strong/taste/"));
+
+        var (_, tolerant) = TeamPlan.Split("""
+            ```link-plan
+            {"steps": [{"step": "Add unit tests for the dash", "kind": "wizardry", "worker": "genius"}, {"step": "  "}, {"kind": "code"}, "Update the README", 7,
+                       {"step": "Fix the jump", "kind": "3", "worker": "2", "files": "Source/Jump.cpp"}, {"step": "Rename it", "kind": "MECHANICAL", "worker": "LIGHT"}]}
+            ```
+            """);
+        Program.Equal("team plan: an unknown kind is classified by words, an unknown worker is none, a step without words or a number is dropped, a bare string is a step",
+            Show(tolerant),
+            "Add unit tests for the dash/Test/-//|Update the README/Docs/-//|Fix the jump/Code/-//Source/Jump.cpp|Rename it/Mechanical/Light//");
+
+        var many = "```link-plan\n[" + string.Join(",", Enumerable.Range(1, 15).Select(number => $"{{\"step\": \"Step {number}\"}}")) + "]\n```";
+        Program.Equal("team plan: at most 12 steps", TeamPlan.Split(many).Steps.Count, 12);
+
+        const string Answer = "I could not plan.\n```link-plan\n[{\"step\": \n```";
+        Program.Equal("team plan: JSON that does not read leaves the answer as it is, without steps",
+            (TeamPlan.Split(Answer).Text, TeamPlan.Split(Answer).Steps.Count), (Answer, 0));
+        Program.Equal("team plan: no block, an empty list and a block that is no list are no plan",
+            new[] { "Just an answer.", "```link-plan\n[]\n```", "```link-plan\n{\"note\": 1}\n```", "```link-plan\n[{\"step\": \"\"}]\n```" }
+                .Select(answer => TeamPlan.Split(answer) is (var shown, { Count: 0 }) && shown == answer).All(same => same),
+            true);
+
+        var (_, specialist) = TeamPlan.Split("""
+            ```link-plan
+            [{"step": "Model the dash prop", "role": "3d-artist", "check": true}, {"step": "Rig it", "role": "Rigger-Animator"}, {"step": "Animate it", "role": "RIGGER-ANIMATOR", "check": "TRUE"},
+             {"step": "Wire it", "role": "ghost", "check": false}, {"step": "Test it", "role": 7, "check": 1}, {"step": "Tidy"}]
+            ```
+            """, specialists);
+        Program.Equal("team plan: a role is one of the workspace's, in the role's own spelling, an unknown one is none; check is true or \"true\", anything else is no check",
+            Specialists(specialist), "3d-artist/True|rigger-animator/False|rigger-animator/True|-/False|-/False|-/False");
+        Program.Equal("team plan: without the roles of the workspace no role is taken", TeamPlan.Split("```link-plan\n[{\"step\": \"Model it\", \"role\": \"3d-artist\"}]\n```").Steps[0].Role, (string?)null);
+
+        var (rest, last) = TeamPlan.Split("First:\n```link-plan\n[{\"step\": \"Old\"}]\n```\nThen:\n```link-plan\n[{\"step\": \"New\"}]\n```");
+        Program.Equal("team plan: the last block is the plan", (rest, Show(last)), ("First:\n```link-plan\n[{\"step\": \"Old\"}]\n```\nThen:", "New/Code/-//"));
+    }
+
+    /// <summary>What the lead is asked when the task is planned for a team.</summary>
+    private static void TeamPlanPrompt()
+    {
+        const string Ask = "Make a team plan.";
+        Program.Equal("team prompt: the task, the request without its notes, and nothing yet when the project has no evidence",
+            TeamPlan.Prompt(" Fix the jump ", "<!-- for whoever edits it -->\nMake a team plan.\n", []), $"Fix the jump\n\n{Ask}\n\nWhat workers did in this project before: nothing yet");
+        Program.Equal("team prompt: what each worker did, a line each",
+            TeamPlan.Prompt("Fix the jump", Ask, ["GLM: Mechanical 6/6 ✓", "Codex: Code 5/5 ✓"]), $"Fix the jump\n\n{Ask}\n\nWhat workers did in this project before:\n- GLM: Mechanical 6/6 ✓\n- Codex: Code 5/5 ✓");
+        AgentRole Role(string id, string name, string description) => new(id, name, description, [], [], null, string.Empty, string.Empty);
+        Program.Equal("team prompt: the specialists a step can go to, by id",
+            TeamPlan.Prompt("Fix the jump", Ask, [], [Role("3d-artist", "3D Artist", "Modeling and UV."), Role("qa", "QA", "Checks.")]),
+            $"Fix the jump\n\n{Ask}\n\nSpecialists for a step's \"role\":\n- 3d-artist: 3D Artist. Modeling and UV.\n- qa: QA. Checks.\n\nWhat workers did in this project before: nothing yet");
+        var request = File.ReadAllText(TeamPlan.TaskFile);
+        Program.Equal("team prompt: its request ships beside Link and shows the block, the tiers and the check", (request.Contains("```link-plan"), request.Contains("`light`"), request.Contains("\"check\": true")), (true, true, true));
+        Program.Equal("handover: the last line that starts with Handed over, in a list or in bold too, or none",
+            (TeamPlan.HandedOver("Done.\nHanded over: Content/Dash.fbx, skeleton SK_Nori"), TeamPlan.HandedOver("Done.\n- **Handed over:** Content/Dash.fbx\r\nNothing else."),
+                TeamPlan.HandedOver("Handed over: old\nmore text\nHanded over: the new one  "), TeamPlan.HandedOver("We handed over nothing."), TeamPlan.HandedOver("Handed over:   ")),
+            ((string?)"Content/Dash.fbx, skeleton SK_Nori", "Content/Dash.fbx", "the new one", null, null));
+    }
+
+    /// <summary>The team in the settings and on the records: defaults, older files, odd values, and the 450k budget that came with it.</summary>
+    private static void TeamSettingsKept()
+    {
+        var fresh = new AgentSettings();
+        Program.Equal("team settings: on, every tier left to the default, no A/B, Link compacts by itself",
+            (fresh.Team.Enabled, fresh.Team.Light, fresh.Team.Standard, fresh.Team.Strong, fresh.Team.Alternate, fresh.AutoCompact),
+            (true, (WorkerChoice?)null, (WorkerChoice?)null, (WorkerChoice?)null, false, true));
+
+        var older = JsonSerializer.Deserialize<AgentSettings>("""{"ContextBudget":300000,"PlanOnDeep":false}""")!;
+        older.Normalize();
+        Program.Equal("team settings: settings of an older Link load with the team on and Compact by Link on",
+            (older.Team.Enabled, older.Team.Light, older.AutoCompact, older.ContextBudget), (true, (WorkerChoice?)null, true, 300_000));
+        var nothing = JsonSerializer.Deserialize<AgentSettings>("""{"Team":null}""")!;
+        nothing.Normalize();
+        Program.Equal("team settings: a null team is the default one", (nothing.Team.Enabled, nothing.Team.Light), (true, (WorkerChoice?)null));
+
+        var odd = JsonSerializer.Deserialize<AgentSettings>(
+            """{"Team":{"Enabled":false,"Light":{"Provider":2,"Level":0},"Standard":{"Provider":9,"Level":1},"Strong":{"Provider":0,"Level":7}}}""")!;
+        odd.Normalize();
+        Program.Equal("team settings: a choice is kept, one of an agent or level this Link does not know is the default",
+            (odd.Team.Enabled, odd.Team.Light, odd.Team.Standard, odd.Team.Strong), (false, new WorkerChoice(AgentProviderKind.Custom, AgentLevel.Light), (WorkerChoice?)null, (WorkerChoice?)null));
+
+        var copy = new AgentSettings { AutoCompact = false, Team = { Standard = new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Deep), Alternate = true } }.Clone();
+        Program.Equal("team settings: a copy keeps them and is its own",
+            (copy.AutoCompact, copy.Team.Standard, copy.Team.Alternate, copy.Team.For(WorkerTier.Standard), copy.Team.For(WorkerTier.Light)),
+            (false, new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Deep), true, new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Deep), (WorkerChoice?)null));
+        var again = JsonSerializer.Deserialize<AgentSettings>(JsonSerializer.Serialize(copy))!;
+        Program.Equal("team settings: they are saved", (again.Team.Standard, again.Team.Alternate, again.AutoCompact), (copy.Team.Standard, true, false));
+
+        AppSettings Load(string json)
+        {
+            var settings = JsonSerializer.Deserialize<AppSettings>(json)!;
+            settings.Normalize();
+            return settings;
+        }
+
+        Program.Equal("budget: 450k is the default in new and older settings",
+            (AgentSettings.DefaultContextBudget, new AppSettings().SchemaVersion, Load("""{"SchemaVersion":7}""").Agent.ContextBudget), (450_000, 8, 450_000));
+        Program.Equal("budget: schema 8 turns last night's default 550k into 450k, and nothing else",
+            (Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":550000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":800000}}""").Agent.ContextBudget,
+                Load("""{"SchemaVersion":8,"Agent":{"ContextBudget":550000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":550000}}""").SchemaVersion),
+            (450_000, 800_000, 550_000, 8));
+    }
+
+    /// <summary>The team plan and the mode on the task record, the step on the run; older records load with defaults.</summary>
+    private static void TeamRecordsKept()
+    {
+        var older = JsonSerializer.Deserialize<AgentTaskRecord>("""{"Goal":"Fix it","Workspace":"C:\\Work","Runs":[{"Provider":0,"Outcome":"Done in 1:00"}]}""")!;
+        Program.Equal("team record: a task of an older Link is Solo, with no team plan and no step on its run",
+            (older.Mode, older.Team.Count, older.Runs[0].Step, older.Runs[0].Kind, older.Runs[0].Tier),
+            (TaskMode.Solo, 0, (int?)null, (StepKind?)null, (WorkerTier?)null));
+
+        var team = new AgentTaskRecord
+        {
+            Goal = "Add the dash", Workspace = "C:\\Work", Mode = TaskMode.Team,
+            Team =
+            [
+                new TeamStep { Text = "Rename", Kind = StepKind.Mechanical, Tier = WorkerTier.Light, Worker = "GLM", Status = TeamStepStatus.Done, Reason = "Mechanical → GLM", Files = ["Content"] },
+                new TeamStep { Text = "Add", Kind = StepKind.Code, Tier = WorkerTier.Standard, Worker = "Codex", Status = TeamStepStatus.AwaitsOk, EscalatedFrom = "GLM", Failure = "Failed after 0:10", Role = "3d-artist", Check = true, HandedOver = "Content/Dash.fbx" }
+            ],
+            Runs = [new AgentRunRecord { Step = 2, Kind = StepKind.Code, Tier = WorkerTier.Standard, Outcome = "Done in 0:30" }],
+            Plan = [new AgentPlanItem("Add", false, true, null, null, "GLM → Codex", "3D Artist")]
+        };
+        var back = JsonSerializer.Deserialize<AgentTaskRecord>(JsonSerializer.Serialize(team))!;
+        Program.Equal("team record: mode, steps, escalation and the run's step are saved",
+            (back.Mode, string.Join("|", back.Team.Select(step => $"{step.Text}/{step.Kind}/{step.Tier}/{step.Worker}/{step.Status}/{step.EscalatedFrom}/{step.Failure}/{step.Reason}/{string.Join(",", step.Files)}/{step.Role}/{step.Check}/{step.HandedOver}")),
+                back.Runs[0].Step, back.Runs[0].Kind, back.Runs[0].Tier, back.Plan[0].Worker + " · " + back.Plan[0].Role),
+            (TaskMode.Team, "Rename/Mechanical/Light/GLM/Done///Mechanical → GLM/Content//False/|Add/Code/Standard/Codex/AwaitsOk/GLM/Failed after 0:10///3d-artist/True/Content/Dash.fbx", (int?)2, (StepKind?)StepKind.Code, (WorkerTier?)WorkerTier.Standard, "GLM → Codex · 3D Artist"));
+        Program.Equal("team record: a plan item without a worker is the agent's own",
+            (new AgentPlanItem("Fix it", false, true, "Fixing it", 2).Worker, JsonSerializer.Deserialize<AgentPlanItem>("""{"Text":"A","Done":false,"Active":false}""")!.Role),
+            ((string?)null, (string?)null));
+    }
+
+    /// <summary>Which worker did which kind of step well, learned from checked results: the rules, the words and the file.</summary>
+    private static void WorkerEvidenceRules()
+    {
+        var glm = new Worker(AgentProviderKind.Custom, AgentLevel.Light, "glm-4.7-flash");
+        var codex = new Worker(AgentProviderKind.Codex, AgentLevel.Standard, null);
+        (bool Blocked, bool Proven) Rule(int done, int failed)
+        {
+            var evidence = new WorkerEvidence();
+            for (var each = 0; each < done; each++) evidence.Record(StepKind.Code, glm, true);
+            for (var each = 0; each < failed; each++) evidence.Record(StepKind.Code, glm, false);
+            return (evidence.Blocked(StepKind.Code, glm), evidence.Proven(StepKind.Code, glm));
+        }
+
+        Program.Equal("evidence: nothing known blocks nobody and proves nobody", Rule(0, 0), (false, false));
+        Program.Equal("evidence: blocked at two failures with fewer done than failed",
+            (Rule(0, 1), Rule(0, 2), Rule(2, 2), Rule(1, 3), Rule(3, 3)), ((false, false), (true, false), (false, false), (true, false), (false, false)));
+        Program.Equal("evidence: proven at three done with failures at most a quarter of them",
+            (Rule(2, 0), Rule(3, 0), Rule(3, 1), Rule(4, 1), Rule(8, 2)), ((false, false), (false, true), (false, false), (false, true), (false, true)));
+
+        var evidence = new WorkerEvidence();
+        evidence.Record(StepKind.Code, glm, false);
+        evidence.Record(StepKind.Code, glm, false);
+        Program.Equal("evidence: a kind, an agent and a model are counted apart; no model is the empty one",
+            (evidence.Blocked(StepKind.Code, glm), evidence.Blocked(StepKind.Docs, glm), evidence.Blocked(StepKind.Code, glm with { Model = "glm-4.7" }),
+                evidence.Blocked(StepKind.Code, glm with { Provider = AgentProviderKind.Codex }), evidence.Blocked(StepKind.Code, glm with { Level = AgentLevel.Deep })),
+            (true, false, false, false, true));
+        evidence.Record(StepKind.Test, codex, true);
+        Program.Equal("evidence: no model and an empty one are one worker", evidence.Counts(StepKind.Test, codex with { Model = string.Empty }), (1, 0));
+
+        Program.Equal("evidence: a run's word on its worker; a Stop, a Steer, a limit and a start that failed say nothing",
+            string.Join(",", new[]
+            {
+                new AgentRunRecord { Outcome = "Done in 0:42" }, new AgentRunRecord { Outcome = "Failed after 1:00" }, new AgentRunRecord { Outcome = "Check failed after 2:00" },
+                new AgentRunRecord { Outcome = "Stopped after 0:10" }, new AgentRunRecord { Outcome = "Stopped after 0:20", Looped = true },
+                new AgentRunRecord { Outcome = "Stopped at the usage limit after 1:00", Looped = true }, new AgentRunRecord { Outcome = "could not start" }
+            }.Select(run => WorkerEvidence.Verdict(run)?.ToString() ?? "none")),
+            "True,False,False,none,False,none,none");
+
+        var learned = new WorkerEvidence();
+        for (var each = 0; each < 6; each++) learned.Record(StepKind.Mechanical, glm, true);
+        foreach (var done in new[] { false, false, true, false }) learned.Record(StepKind.Code, glm, done);
+        for (var each = 0; each < 5; each++) learned.Record(StepKind.Code, codex, true);
+        Program.Equal("evidence: a line per worker, the busiest first, with done of tried, a tick for proven and a word for blocked",
+            string.Join("\n", learned.Summary(provider => provider == AgentProviderKind.Custom ? "GLM" : provider.DefaultName())),
+            "GLM glm-4.7-flash: Mechanical 6/6 ✓, Code 1/4 — not given Code here\nCodex: Code 5/5 ✓");
+        Program.Equal("evidence: nothing learned, nothing said", new WorkerEvidence().Summary(provider => provider.DefaultName()).Count, 0);
+
+        var folder = TempFolder();
+        try
+        {
+            var file = Path.Combine(folder, "project", "workers.json");
+            Program.Equal("evidence: a missing file is no records", WorkerEvidence.Load(file).Records.Count, 0);
+            var saved = WorkerEvidence.Load(file);
+            saved.Record(StepKind.Code, codex, true, new DateTimeOffset(2026, 10, 8, 10, 0, 0, TimeSpan.Zero));
+            saved.Record(StepKind.Code, codex, false);
+            saved.Record(StepKind.Docs, glm, true);
+            var again = WorkerEvidence.Load(file);
+            Program.Equal("evidence: each record is saved to the project's file",
+                (again.Counts(StepKind.Code, codex), again.Counts(StepKind.Docs, glm), again.Records.Count), ((1, 1), (1, 0), 2));
+
+            var broken = Path.Combine(folder, "broken.json");
+            File.WriteAllText(broken, "not json");
+            var odd = Path.Combine(folder, "odd.json");
+            File.WriteAllText(odd, """[{"Kind":99,"Provider":1,"Model":null,"Done":3,"Failed":0,"LastAt":"2026-10-08T10:00:00+00:00"},{"Kind":2,"Provider":1,"Model":null,"Done":-5,"Failed":1,"LastAt":"2026-10-08T10:00:00+00:00"},null]""");
+            Program.Equal("evidence: a file that does not read is no records; an unknown kind is dropped, a count never goes below zero",
+                (WorkerEvidence.Load(broken).Records.Count, WorkerEvidence.Load(odd).Counts(StepKind.Code, codex), WorkerEvidence.Load(odd).Records.Count), (0, (0, 1), 1));
+        }
+        finally
+        {
+            DeleteFolder(folder);
+        }
+    }
+
+    /// <summary>The worker of each tier from the settings, and who gets a step: by kind, the plan's word, the evidence and what can work now.</summary>
+    private static void WorkerRoutes()
+    {
+        static string Show(Worker worker) => $"{worker.Provider} {worker.Level} {worker.Model ?? "-"}";
+        Func<AgentProviderKind, WorkerState> ready = _ => WorkerState.Ready;
+        Func<AgentProviderKind, WorkerState> Without(params AgentProviderKind[] missing) => provider => missing.Contains(provider) ? WorkerState.NotSet : WorkerState.Ready;
+        string Tiers(AgentSettings settings, Func<AgentProviderKind, WorkerState> state) =>
+            string.Join(" | ", WorkerRouting.Workers(settings, state).OrderBy(pair => pair.Key).Select(pair => $"{pair.Key}: {Show(pair.Value)}"));
+
+        var settings = new AgentSettings();
+        Program.Equal("workers: Claude Code at Deep leads, Codex takes Standard, the custom model Light",
+            Tiers(settings, ready), "Light: Custom Light glm-4.7-flash | Standard: Codex Standard - | Strong: ClaudeCode Deep claude-opus-5-5");
+        Program.Equal("workers: without Codex, Claude Code takes Standard; without the custom model, Codex Light",
+            (Tiers(settings, Without(AgentProviderKind.Codex)), Tiers(settings, Without(AgentProviderKind.Custom))),
+            ("Light: Custom Light glm-4.7-flash | Standard: ClaudeCode Standard - | Strong: ClaudeCode Deep claude-opus-5-5",
+                "Light: Codex Light - | Standard: Codex Standard - | Strong: ClaudeCode Deep claude-opus-5-5"));
+        Program.Equal("workers: with only Claude Code every tier is Claude Code at its level",
+            Tiers(settings, Without(AgentProviderKind.Codex, AgentProviderKind.Custom)),
+            "Light: ClaudeCode Light claude-sonnet-5-5 | Standard: ClaudeCode Standard - | Strong: ClaudeCode Deep claude-opus-5-5");
+
+        var chosen = new AgentSettings { DefaultProvider = AgentProviderKind.Codex, Team = { Light = new WorkerChoice(AgentProviderKind.ClaudeCode, AgentLevel.Light), Standard = new WorkerChoice(AgentProviderKind.Custom, AgentLevel.Standard) } };
+        Program.Equal("workers: a tier the user chose is that choice, the default agent leads, a choice that is not set up is the default",
+            (Tiers(chosen, ready), Tiers(chosen, Without(AgentProviderKind.Custom))),
+            ("Light: ClaudeCode Light claude-sonnet-5-5 | Standard: Custom Standard glm-4.7-flash | Strong: Codex Deep -",
+                "Light: ClaudeCode Light claude-sonnet-5-5 | Standard: Codex Standard - | Strong: Codex Deep -"));
+
+        var workers = WorkerRouting.Workers(settings, ready);
+        var glm = workers[WorkerTier.Light];
+        var codex = workers[WorkerTier.Standard];
+        var claude = workers[WorkerTier.Strong];
+        string Name(AgentProviderKind provider) => provider == AgentProviderKind.Custom ? "GLM" : WorkerRouting.ShortName(provider);
+        string Route(StepKind kind, WorkerTier? asked = null, WorkerEvidence? evidence = null, Func<AgentProviderKind, WorkerState>? state = null)
+        {
+            var (tier, worker, reason) = WorkerRouting.Route(kind, asked, settings, state ?? ready, evidence ?? new WorkerEvidence(), Name);
+            return $"{tier} {worker?.Provider.ToString() ?? "nobody"} | {reason}";
+        }
+        Func<AgentProviderKind, WorkerState> Unavailable(params AgentProviderKind[] limited) => provider => limited.Contains(provider) ? WorkerState.LimitReached : WorkerState.Ready;
+
+        WorkerEvidence Learned(Worker worker, StepKind kind, int done, int failed)
+        {
+            var evidence = new WorkerEvidence();
+            for (var each = 0; each < done; each++) evidence.Record(kind, worker, true);
+            for (var each = 0; each < failed; each++) evidence.Record(kind, worker, false);
+            return evidence;
+        }
+
+        Program.Equal("route: each kind goes to the worker of its tier",
+            string.Join("\n", Enum.GetValues<StepKind>().Select(kind => $"{kind}: {Route(kind)}")),
+            "Design: Strong ClaudeCode | Design → Claude\nInvestigate: Strong ClaudeCode | Investigate → Claude\nCode: Standard Codex | Code → Codex\n" +
+            "Test: Standard Codex | Test → Codex\nReview: Standard Codex | Review → Codex\nAsset: Strong ClaudeCode | Asset → Claude\n" +
+            "Mechanical: Light Custom | Mechanical → GLM\nDocs: Light Custom | Docs → GLM");
+        Program.Equal("route: the plan's tier is taken, with its word in the reason",
+            (Route(StepKind.Code, WorkerTier.Light), Route(StepKind.Mechanical, WorkerTier.Strong)),
+            ("Light Custom | Code: the plan chose Light → GLM", "Strong ClaudeCode | Mechanical: the plan chose Strong → Claude"));
+        Program.Equal("route: a worker proven for a kind takes it one tier lower, but not what the plan asked for, and only if it can work now",
+            (Route(StepKind.Code, null, Learned(glm, StepKind.Code, 3, 0)), Route(StepKind.Code, WorkerTier.Standard, Learned(glm, StepKind.Code, 3, 0)),
+                Route(StepKind.Code, null, Learned(glm, StepKind.Code, 3, 0), provider => provider == AgentProviderKind.Custom ? WorkerState.LimitReached : WorkerState.Ready),
+                Route(StepKind.Mechanical, null, Learned(glm, StepKind.Mechanical, 9, 0))),
+            ("Light Custom | Code: GLM did 3 of 3 here → GLM", "Standard Codex | Code: the plan chose Standard → Codex",
+                "Standard Codex | Code → Codex", "Light Custom | Mechanical → GLM"));
+
+        var failing = Learned(glm, StepKind.Code, 1, 3);
+        Program.Equal("route: a worker that keeps failing a kind here no longer gets it: the step goes a tier up, and the reason says why",
+            (Route(StepKind.Code, WorkerTier.Light, failing), Route(StepKind.Mechanical, null, Learned(glm, StepKind.Mechanical, 0, 2)),
+                Route(StepKind.Code, null, failing), Route(StepKind.Docs, null, failing)),
+            ("Standard Codex | Code: the plan chose Light, GLM failed it 3 of 4 here → Codex", "Standard Codex | Mechanical: GLM failed it 2 of 2 here → Codex",
+                "Standard Codex | Code → Codex", "Light Custom | Docs → GLM"));
+        var both = Learned(glm, StepKind.Mechanical, 0, 2);
+        both.Record(StepKind.Mechanical, codex, false);
+        both.Record(StepKind.Mechanical, codex, false);
+        Program.Equal("route: and on, tier by tier, while the next worker fails it too",
+            Route(StepKind.Mechanical, null, both), "Strong ClaudeCode | Mechanical: GLM failed it 2 of 2 here, Codex failed it 2 of 2 here → Claude");
+
+        Program.Equal("route: a worker at its limit is passed by, with the reason; an agent that is not set up is not in the team to begin with",
+            (Route(StepKind.Code, null, null, Unavailable(AgentProviderKind.Codex)), Route(StepKind.Mechanical, null, null, Without(AgentProviderKind.Custom))),
+            ("Strong ClaudeCode | Code: Codex limit reached → Claude", "Light Codex | Mechanical → Codex"));
+        Program.Equal("route: Strong with its agent out of reach goes to the other subscription agent at Deep, and says so",
+            (Route(StepKind.Design, null, null, Unavailable(AgentProviderKind.ClaudeCode)), Route(StepKind.Design, null, null, Without(AgentProviderKind.ClaudeCode)),
+                Route(StepKind.Code, null, null, Unavailable(AgentProviderKind.ClaudeCode, AgentProviderKind.Custom)), Route(StepKind.Design, WorkerTier.Strong, null, Unavailable(AgentProviderKind.ClaudeCode))),
+            ("Strong Codex | Design: Claude limit reached → Codex (Strong)", "Strong Codex | Design: Claude is not set up → Codex (Strong)",
+                "Standard Codex | Code → Codex", "Strong Codex | Design: the plan chose Strong, Claude limit reached → Codex (Strong)"));
+        Program.Equal("route: the stand-in is the other agent whichever leads, and it needs the project's trust too",
+            (WorkerRouting.Route(StepKind.Design, null, chosen, Unavailable(AgentProviderKind.Codex), new WorkerEvidence(), Name).Worker is { Provider: AgentProviderKind.ClaudeCode, Level: AgentLevel.Deep, Model: "claude-opus-5-5" },
+                Route(StepKind.Design, null, Learned(new Worker(AgentProviderKind.Codex, AgentLevel.Deep, null), StepKind.Design, 0, 2), Unavailable(AgentProviderKind.ClaudeCode))),
+            (true, "Strong nobody | Design: Claude limit reached, Codex failed it 2 of 2 here → no agent can take it now"));
+        Program.Equal("route: with no agent that can work at Strong there is no worker, and the reason names each",
+            (Route(StepKind.Code, null, null, Unavailable(AgentProviderKind.ClaudeCode, AgentProviderKind.Codex)),
+                Route(StepKind.Design, null, null, Without(AgentProviderKind.ClaudeCode, AgentProviderKind.Codex))),
+            ("Strong nobody | Code: Codex limit reached, Claude limit reached → no agent can take it now",
+                "Strong nobody | Design: Claude is not set up, Codex is not set up → no agent can take it now"));
+        Program.Equal("route: a worker that failed the kind at Strong stays, with the reason: it is not out of reach",
+            Route(StepKind.Design, null, Learned(claude, StepKind.Design, 0, 2)), "Strong ClaudeCode | Design: Claude failed it 2 of 2 here → Claude");
+        Program.Equal("route: Design and Asset never go below Standard, whatever the plan asked or the project proved",
+            (Route(StepKind.Design, WorkerTier.Light), Route(StepKind.Asset, WorkerTier.Light), Route(StepKind.Design, null, Learned(glm, StepKind.Design, 9, 0)),
+                Route(StepKind.Design, null, Learned(codex, StepKind.Design, 3, 0)), Route(StepKind.Docs, WorkerTier.Light)),
+            ("Standard Codex | Design: the plan chose Light, Design goes no lower than Standard → Codex",
+                "Standard Codex | Asset: the plan chose Light, Asset goes no lower than Standard → Codex", "Strong ClaudeCode | Design → Claude",
+                "Standard Codex | Design: Codex did 3 of 3 here → Codex", "Light Custom | Docs: the plan chose Light → GLM"));
+        Func<AgentProviderKind, bool> onlyClaudeSees = provider => provider == AgentProviderKind.ClaudeCode;
+        (WorkerTier, Worker?, string) Asset(AgentSettings each, Func<AgentProviderKind, WorkerState>? state = null, WorkerTier? asked = null) =>
+            WorkerRouting.Route(StepKind.Asset, asked, each, state ?? ready, new WorkerEvidence(), Name, onlyClaudeSees);
+        var (_, seeing, seeingReason) = Asset(settings, asked: WorkerTier.Standard);
+        var (_, standIn, standInReason) = Asset(settings, Unavailable(AgentProviderKind.ClaudeCode));
+        Program.Equal("route: an Asset step goes only to an agent that sees images: the worker without eyes is passed by, and so is a stand-in",
+            ($"{seeing?.Provider} | {seeingReason}", $"{standIn?.Provider.ToString() ?? "nobody"} | {standInReason}"),
+            ("ClaudeCode | Asset: the plan chose Standard, Codex cannot see images → Claude", "nobody | Asset: Claude limit reached, Codex cannot see images → no agent can take it now"));
+        Program.Equal("route: an Asset step in the default setup, where Codex sees images, goes to Claude at Strong and to Codex when Claude is out",
+            (Route(StepKind.Asset), Route(StepKind.Asset, null, null, Unavailable(AgentProviderKind.ClaudeCode))),
+            ("Strong ClaudeCode | Asset → Claude", "Strong Codex | Asset: Claude limit reached → Codex (Strong)"));
+        Program.Equal("route: a step that failed goes one tier up, none above Strong",
+            (WorkerRouting.Escalate(WorkerTier.Light), WorkerRouting.Escalate(WorkerTier.Standard), WorkerRouting.Escalate(WorkerTier.Strong)),
+            ((WorkerTier?)WorkerTier.Standard, (WorkerTier?)WorkerTier.Strong, (WorkerTier?)null));
+        Program.Equal("route: the short names of the agents", (WorkerRouting.ShortName(AgentProviderKind.ClaudeCode), WorkerRouting.ShortName(AgentProviderKind.Codex), WorkerRouting.ShortName(AgentProviderKind.Custom)),
+            ("Claude", "Codex", "Custom"));
+    }
+
+    /// <summary>When Link starts a fresh session from the task's state: only where the saving is clear.</summary>
+    private static void CompactRuleReasons()
+    {
+        var none = TimeSpan.Zero;
+        Program.Equal("compact rule: a session that does not tell its size is resumed", CompactRule.Why(null, 450_000, TimeSpan.FromDays(3)), (string?)null);
+        Program.Equal("compact rule: at 80% of the budget the session is too big to re-send",
+            (CompactRule.Why(360_000, 450_000, none), CompactRule.Why(359_999, 450_000, none)),
+            ("the session holds 360k of 450k: each step of the next run would re-send it; the task's state is far shorter", (string?)null));
+        Program.Equal("compact rule: a custom model's window caps the budget, a window above the budget does not raise it",
+            (CompactRule.Why(170_000, 450_000, none, 200_000), CompactRule.Why(170_000, 450_000, none), CompactRule.Why(130_000, 150_000, none, 200_000)),
+            ("the session holds 170k of 200k: each step of the next run would re-send it; the task's state is far shorter", (string?)null,
+                "the session holds 130k of 150k: each step of the next run would re-send it; the task's state is far shorter"));
+        Program.Equal("compact rule: after an hour idle the session's cache has expired",
+            CompactRule.Why(120_000, 450_000, TimeSpan.FromMinutes(75)),
+            "the session's cache has expired (75 min idle): re-sending 120k would cost more than starting from the task's state");
+        bool Cold(long held, int budget, int minutes) => CompactRule.Why(held, budget, TimeSpan.FromMinutes(minutes)) is { } why && why.StartsWith("the session's cache", StringComparison.Ordinal);
+        Program.Equal("compact rule: only for a session of 100k and a quarter of the budget, idle for an hour",
+            (Cold(112_499, 450_000, 120), Cold(112_500, 450_000, 120), Cold(120_000, 450_000, 59), Cold(100_000, 200_000, 60), Cold(99_999, 200_000, 300)),
+            (false, true, false, true, false));
+        Program.Equal("compact rule: a long idle is told in hours and days; a session near the budget gives the size reason first",
+            (CompactRule.Why(150_000, 450_000, TimeSpan.FromHours(50)), CompactRule.Why(150_000, 450_000, TimeSpan.FromHours(5)),
+                CompactRule.Why(400_000, 450_000, TimeSpan.FromHours(5))?.StartsWith("the session holds 400k of 450k", StringComparison.Ordinal)),
+            ("the session's cache has expired (2 days idle): re-sending 150k would cost more than starting from the task's state",
+                "the session's cache has expired (5 h idle): re-sending 150k would cost more than starting from the task's state", (bool?)true));
+    }
+
+    /// <summary>A task measured: tokens per agent without the cached part counted twice, the strong agent's apart, steers and escalations.</summary>
+    private static void TaskMetricsCounted()
+    {
+        var at = new DateTimeOffset(2026, 10, 8, 10, 0, 0, TimeSpan.Zero);
+        var minute = TimeSpan.FromMinutes(1);
+        var record = new AgentTaskRecord
+        {
+            Goal = "Add the dash", Workspace = "C:\\Work", Mode = TaskMode.Team, Status = AgentTaskStatus.Done, LastCheck = "dotnet test: passed",
+            Runs =
+            [
+                new AgentRunRecord { Provider = AgentProviderKind.ClaudeCode, Outcome = "Done in 1:00", StartedAt = at, Duration = minute, InputTokens = 1000, CachedTokens = 800, OutputTokens = 100 },
+                new AgentRunRecord { Provider = AgentProviderKind.Codex, Outcome = "Done in 2:00", StartedAt = at + minute, Duration = 2 * minute, InputTokens = 500, CachedTokens = 0, OutputTokens = 10 },
+                // A cached part beyond the input is a slip of the CLI: it is cut to the input.
+                new AgentRunRecord { Provider = AgentProviderKind.ClaudeCode, Outcome = "Done in 1:00", StartedAt = at + 3 * minute, Duration = minute, InputTokens = 100, CachedTokens = 300 }
+            ],
+            Team = [new TeamStep { EscalatedFrom = "GLM" }, new TeamStep()]
+        };
+        record.Entries.Add(new AgentTaskEntry(at, AgentEntryKind.Brief, "Add the dash"));
+        record.Entries.Add(new AgentTaskEntry(at + TimeSpan.FromSeconds(30), AgentEntryKind.You, "(steer now) lower"));
+        record.Entries.Add(new AgentTaskEntry(at + TimeSpan.FromSeconds(90), AgentEntryKind.You, "(after this step) tests"));
+        record.Entries.Add(new AgentTaskEntry(at + 5 * minute, AgentEntryKind.You, "thanks, one more"));
+        var metric = TaskMetrics.Of(record, AgentProviderKind.ClaudeCode);
+        Program.Equal("metrics: tokens per agent, the cached part apart from the fresh input",
+            string.Join(", ", metric.Agents.Select(agent => $"{agent.Provider} {agent.Tokens.Uncached}/{agent.Tokens.Cached}/{agent.Tokens.Output}")), "ClaudeCode 200/900/100, Codex 500/0/10");
+        Program.Equal("metrics: ≈ tokens = fresh + a tenth of the cached + five times the output, all of it and the strong agent's apart",
+            (Math.Round(metric.Equivalent, 6), Math.Round(metric.StrongEquivalent, 6)), (1340.0, 790.0));
+        Program.Equal("metrics: time, runs, the words given while a run went, escalations, the end and the check",
+            (metric.Time, metric.Runs, metric.Steers, metric.Escalations, metric.Done, metric.CheckPassed, metric.Mode, metric.Kind),
+            (4 * minute, 3, 2, 1, true, (bool?)true, TaskMode.Team, StepKind.Code));
+        Program.Equal("metrics: a run that told no tokens has none; a cached part counts only within the input",
+            (TokenCount.Of(new AgentRunRecord()), Math.Round(TokenCount.Of(new AgentRunRecord { InputTokens = 50, CachedTokens = 80, OutputTokens = 2 }).Equivalent, 6)),
+            (new TokenCount(0, 0, 0), 15.0));
+
+        var failed = new AgentTaskRecord
+        {
+            Goal = "Fix it", Workspace = "C:\\Work", Status = AgentTaskStatus.CheckFailed, LastCheck = "dotnet test: failed",
+            Runs = [new AgentRunRecord { Provider = AgentProviderKind.Codex, Outcome = "Check failed after 1:00" }]
+        };
+        var open = new AgentTaskRecord { Goal = "Fix it", Workspace = "C:\\Work", Status = AgentTaskStatus.Finished, Runs = [new AgentRunRecord { Outcome = "Failed after 1:00" }] };
+        Program.Equal("metrics: a failed check is not a pass, no check is none, a finished task whose last run failed is not done, no run is not done",
+            (TaskMetrics.Of(failed, AgentProviderKind.ClaudeCode).CheckPassed, TaskMetrics.Of(failed, AgentProviderKind.ClaudeCode).Done, TaskMetrics.Of(open, AgentProviderKind.ClaudeCode).CheckPassed,
+                TaskMetrics.Of(open, AgentProviderKind.ClaudeCode).Done, TaskMetrics.Of(new AgentTaskRecord { Goal = "x", Workspace = "w" }, AgentProviderKind.ClaudeCode).Done),
+            ((bool?)false, false, (bool?)null, false, false));
+    }
+
+    /// <summary>Every specialist a brief names, in the order the work flows: where their words first occur.</summary>
+    private static void RoleSuggestAll()
+    {
+        var roles = ProjectRoles.In(null);
+        string Ids(string brief) => string.Join(", ", ProjectRoles.SuggestAll(brief, roles).Select(role => role.Id));
+        Program.Equal("suggest all: a brief that goes from a model to its animation to the game names the specialists in that order",
+            (Ids("Сделай 3д модель кабана, анимация бега и блюпринт для него"), Ids("Add the Enhanced Input action in a Blueprint, then retarget the animation, then make a low-poly mesh in Blender")),
+            ("3d-artist, rigger-animator, unreal-developer", "unreal-developer, rigger-animator, 3d-artist"));
+        Program.Equal("suggest all: the user's own words for a model, its animation and the combat system",
+            Ids("сделать модель + анимировать и добавить в боевую систему"), "3d-artist, rigger-animator, unreal-developer");
+        Program.Equal("suggest all: a role appears once, by its earliest word, and one with no word in the brief is not there",
+            (Ids("Retarget the animation, rig the skeleton, then retarget again"), Ids("Rename the variable"), Ids(string.Empty), ProjectRoles.SuggestAll("Fix the animation", []).Count),
+            ("rigger-animator", string.Empty, string.Empty, 0));
+        AgentRole Role(string id, params string[] keywords) => new(id, id, string.Empty, keywords, [], null, string.Empty, string.Empty);
+        Program.Equal("suggest all: roles whose words start at the same place keep their order, and a word counts only at the start of a word",
+            (string.Join(", ", ProjectRoles.SuggestAll("jump and run", [Role("b", "jump"), Role("a", "jump", "run")]).Select(role => role.Id)),
+                string.Join(", ", ProjectRoles.SuggestAll("the inanimate run", [Role("one", "animat"), Role("two", "run")]).Select(role => role.Id))),
+            ("b, a", "two"));
+        Program.Equal("suggest all: Suggest still picks the one with the most words",
+            ProjectRoles.Suggest("Make a mesh in Blender, then the run cycle animation and locomotion", roles)?.Id, "rigger-animator");
+        Program.Equal("stems: where a stem starts, or -1", (Stems.IndexOf("a Jump", "jump"), Stems.IndexOf("inanimate", "animat"), Stems.IndexOf("x", string.Empty)), (2, -1, -1));
+    }
+
+    /// <summary>A worker's new session is told the task's state and its step; the one that takes over a failed step is told what failed.</summary>
+    private static void StepBriefBuilt()
+    {
+        var workspace = TempFolder();
+        try
+        {
+            var record = new AgentTaskRecord
+            {
+                Goal = "Add the dash", Brief = "Add the dash to the movement component.", Workspace = workspace,
+                Plan = [new AgentPlanItem("Rename the sprites", true, false, null, null, "GLM"), new AgentPlanItem("Add the dash ability", false, true, null, null, "Codex")]
+            };
+            var state = TaskState.Build(record, null, workspace);
+            var step = new TeamStep { Text = "Add the dash ability to the movement component", Files = ["Source/Movement", "Source/Dash.cpp"] };
+            Program.Equal("step brief: the task state, the step with its files, and the limit of the work",
+                TaskState.StepBrief(record, null, workspace, step),
+                state + "\n\n## Your step\nAdd the dash ability to the movement component\nfiles: Source/Movement, Source/Dash.cpp\n" + TeamPlan.StepEnd);
+            Program.Equal("step brief: a step without files has no files line",
+                TaskState.StepBrief(record, null, workspace, new TeamStep { Text = "Rename it" }), state + "\n\n## Your step\nRename it\n" + TeamPlan.StepEnd);
+            record.Team = [new TeamStep { Text = "Model the prop", Worker = "Claude", HandedOver = "Content/Dash.fbx" }, new TeamStep { Text = "Rig it", Worker = "Codex", HandedOver = "  " }, step,
+                new TeamStep { Text = "Wire it", Worker = "GLM", HandedOver = "not yet" }];
+            Program.Equal("step brief: what the earlier steps handed over comes before the step, numbered by the plan; a later step's is not told",
+                TaskState.StepBrief(record, null, workspace, step),
+                state + "\n\n## Handed over by earlier steps\n- Step 1 (Claude): Content/Dash.fbx" +
+                "\n\n## Your step\nAdd the dash ability to the movement component\nfiles: Source/Movement, Source/Dash.cpp\n" + TeamPlan.StepEnd);
+            record.Team = [];
+            step.EscalatedFrom = "GLM";
+            step.Failure = " Failed after 0:42\nerror CS0103: the name 'dash' does not exist ";
+            Program.Equal("step brief: the worker that takes the step over is told what the one before it ended in",
+                TaskState.StepBrief(record, null, workspace, step),
+                state + "\n\n## Your step\nAdd the dash ability to the movement component\nfiles: Source/Movement, Source/Dash.cpp\n" +
+                "The GLM tried this step and failed: Failed after 0:42\nerror CS0103: the name 'dash' does not exist\n" + TeamPlan.StepEnd);
+            step.Failure = null;
+            Program.Equal("step brief: an escalation with nothing to tell adds no line",
+                TaskState.StepBrief(record, null, workspace, step).Contains("tried this step"), false);
+        }
+        finally
+        {
+            DeleteFolder(workspace);
         }
     }
 

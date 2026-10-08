@@ -2,7 +2,7 @@
 ---
 name: Rigger / Animator
 description: Rig, skinning, locomotion and gameplay animation, export to the engine.
-keywords: rigging, rigged, skeleton, skinning, weight paint, animat, locomotion, run cycle, walk cycle, blendspace, root motion, montage, retarget, control rig, foot slid, animbp, риггинг, скелет, скиннинг, веса, анимац, ходьб, цикл бег, ретаргет
+keywords: rigging, rigged, skeleton, skinning, weight paint, animat, locomotion, run cycle, walk cycle, blendspace, root motion, montage, retarget, control rig, foot slid, animbp, риггинг, скелет, скиннинг, веса, анимац, аним, ходьб, цикл бег, ретаргет, риг
 skills: blender-anim, unreal-animbp
 effort: medium
 ---

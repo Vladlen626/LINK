@@ -2,7 +2,7 @@
 ---
 name: 3D Artist
 description: Modeling, UV, textures and materials in Blender, FBX export and import into Unreal at the right scale.
-keywords: blender, 3d model, 3d модел, 3д модел, modeling, mesh, topology, retopo, uv unwrap, texture, sculpt, polycount, lods, normal map, low-poly, блендер, моделинг, топологи, текстур, скульпт, полигон, ретопо, развертк, развёртк
+keywords: blender, 3d model, 3d модел, 3д модел, modeling, mesh, topology, retopo, uv unwrap, texture, sculpt, polycount, lods, normal map, low-poly, блендер, моделинг, топологи, текстур, скульпт, полигон, ретопо, развертк, развёртк, модел, модельк
 skills: blender-model, blender-export
 effort: medium
 ---

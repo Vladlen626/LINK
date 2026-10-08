@@ -85,6 +85,12 @@ public sealed class AgentTaskRecord
     /// <summary>The names of the skills the agent is told to read first, as the card or the last change of specialist picked them.</summary>
     public List<string> Skills { get; set; } = [];
 
+    /// <summary>Who did the task: one agent, a team plan or one routed worker. A task of an older Link is Solo.</summary>
+    public TaskMode Mode { get; set; } = TaskMode.Solo;
+
+    /// <summary>The team plan as Link routed it, step by step; empty unless <see cref="Mode"/> is Team.</summary>
+    public List<TeamStep> Team { get; set; } = [];
+
     [JsonIgnore]
     public AgentRunRecord? LastRun => Runs.Count == 0 ? null : Runs[^1];
 
@@ -146,6 +152,12 @@ public sealed record AgentRunRecord
 
     /// <summary>The specialist this run worked as; null: General.</summary>
     public string? RoleId { get; init; }
+
+    /// <summary>The number of the team plan's step this run carried out (the first of them for a run of several); null outside a team.</summary>
+    public int? Step { get; init; }
+
+    public StepKind? Kind { get; init; }
+    public WorkerTier? Tier { get; init; }
 
     public AgentAccess Access { get; init; }
     public bool AutoApprove { get; init; }
@@ -220,9 +232,11 @@ public enum AgentEntryKind
 /// <summary>
 /// A step of the agent's own plan (Claude Code's tasks, Codex's plan). <see cref="Doing"/> is what the agent says while
 /// it works on the step ("Fixing the jump"); <see cref="Number"/> is the task's number in Claude Code, by which its
-/// TaskUpdate names it. Plans of an earlier Link have neither.
+/// TaskUpdate names it. Plans of an earlier Link have neither. <see cref="Worker"/> names who does the step when the
+/// plan is a team's ("GLM", "GLM → Codex" after an escalation); null for the agent's own plan. <see cref="Role"/> is the
+/// name of the specialist of a team's step ("3D Artist"), shown beside the worker.
 /// </summary>
-public sealed record AgentPlanItem(string Text, bool Done, bool Active, string? Doing = null, int? Number = null);
+public sealed record AgentPlanItem(string Text, bool Done, bool Active, string? Doing = null, int? Number = null, string? Worker = null, string? Role = null);
 
 /// <summary>
 /// A usage window of an agent's subscription as the CLI last reported it: "5 h" or "week", how much of it is used and
@@ -586,13 +600,19 @@ public sealed class AgentSettings
     /// <summary>Link's own answers (a map, a skill, a note) run on the custom model, not on the subscription agent.</summary>
     public bool OwnAnswersOnCustom { get; set; }
 
-    private const int DefaultContextBudget = 550_000;
+    public const int DefaultContextBudget = 450_000;
 
     /// <summary>
     /// The tokens near which an agent's CLI compacts its session by itself, so that a long task does not grow without
     /// end; the CLI caps it at the model's own window.
     /// </summary>
     public int ContextBudget { get; set; } = DefaultContextBudget;
+
+    /// <summary>Link starts a fresh session from the task's state where that is cheaper than going on in a big or cold one (see <see cref="Services.CompactRule"/>).</summary>
+    public bool AutoCompact { get; set; } = true;
+
+    /// <summary>Who serves the tiers of a team plan, and whether the steps go to workers.</summary>
+    public TeamSettings Team { get; set; } = new();
 
     public void Normalize()
     {
@@ -613,6 +633,8 @@ public sealed class AgentSettings
 
         Custom ??= new();
         Custom.Normalize();
+        Team ??= new();
+        Team.Normalize();
     }
 
     /// <summary>A level's model and effort for an agent; null parts are left to the CLI.</summary>
@@ -686,7 +708,9 @@ public sealed class AgentSettings
         AutoEffort = AutoEffort,
         Custom = Custom.Clone(),
         OwnAnswersOnCustom = OwnAnswersOnCustom,
-        ContextBudget = ContextBudget
+        ContextBudget = ContextBudget,
+        AutoCompact = AutoCompact,
+        Team = Team.Clone()
     };
 
     private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();

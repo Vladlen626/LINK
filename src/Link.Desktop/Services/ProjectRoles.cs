@@ -80,6 +80,18 @@ public static partial class ProjectRoles
     }
 
     /// <summary>
+    /// Every role whose keywords the brief has, in the order they first occur in it: a task that goes from a model to its
+    /// animation to the game names its specialists in the order the work flows. A role with no keyword in the brief is
+    /// not among them; roles whose first words are at the same place keep their order.
+    /// </summary>
+    public static IReadOnlyList<AgentRole> SuggestAll(string brief, IReadOnlyList<AgentRole> roles) =>
+        [.. roles
+            .Select(role => (Role: role, First: role.Keywords.Select(keyword => Stems.IndexOf(brief, keyword)).Where(index => index >= 0).DefaultIfEmpty(-1).Min()))
+            .Where(each => each.First >= 0)
+            .OrderBy(each => each.First)
+            .Select(each => each.Role)];
+
+    /// <summary>
     /// The skills for a task, at most four: the role's own that the workspace has, then those that go with the brief or
     /// the role. A skill goes with the brief when a word of its name or description (the first letters of it) begins a
     /// word of the brief, and with the role when one of the role's keywords is in its description; the more such words,

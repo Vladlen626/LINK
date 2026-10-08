@@ -2,7 +2,7 @@
 ---
 name: Unreal Developer
 description: Blueprints and C++ gameplay in UE5: input, movement, game rules, and wiring art, animation and UI into the game.
-keywords: blueprint, c++, с++, enhanced input, input action, character movement, game mode, pawn, actor component, data asset, uproperty, ufunction, collision, camera, live coding, блюпринт, блупринт, компонент, актор, коллиз, столкновен, камер, инпут
+keywords: blueprint, c++, с++, enhanced input, input action, character movement, game mode, pawn, actor component, data asset, uproperty, ufunction, collision, camera, live coding, блюпринт, блупринт, компонент, актор, коллиз, столкновен, камер, инпут, combat, damage, weapon, ability, боев, урон, оружи, способност, интегрир
 skills: unreal-blueprint, unreal-mcp, unreal-verify
 effort: medium
 ---

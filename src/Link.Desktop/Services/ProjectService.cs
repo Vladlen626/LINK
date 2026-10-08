@@ -120,6 +120,9 @@ public sealed class ProjectService
 
     private const int TasksKept = 20;
 
+    /// <summary>What the project has learned of its workers, in its data folder; recording into it saves.</summary>
+    public WorkerEvidence ReadWorkerEvidence(LinkProject project) => WorkerEvidence.Load(Path.Combine(project.DataFolder, "workers.json"));
+
     private static string AgentTasksFile(LinkProject project) => Path.Combine(project.DataFolder, "agent-tasks.json");
 
     private static string AgentSessionsFile(LinkProject project) => Path.Combine(project.DataFolder, "agent-sessions.json");
