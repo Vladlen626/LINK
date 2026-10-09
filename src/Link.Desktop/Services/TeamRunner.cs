@@ -37,7 +37,10 @@ public enum TeamMove
     Stopped,
 
     /// <summary>An editor step called done with no file changed: not counted for its worker, it waits for the user's OK.</summary>
-    Unverified
+    Unverified,
+
+    /// <summary>The artist is done: the art critic judges its frames before the team goes on.</summary>
+    Critique
 }
 
 /// <summary>
@@ -88,24 +91,31 @@ public static partial class TeamRunner
     /// <summary>
     /// What follows a run of the step (<paramref name="done"/>: true it did the step, false it failed it, null neither,
     /// as <see cref="WorkerEvidence.Verdict"/> reads a run), with the step brought up to date and the worker's evidence
-    /// counted. A step done hands over what its answer's last line says, and goes to the lead's review when
-    /// <paramref name="review"/> (see <see cref="Reviews"/>): its worker is counted by the verdict then. A failed step gets
-    /// one more try from the same worker, then goes a tier up; above Strong, or with no worker left, the team stops. An
-    /// asset step done with no file <paramref name="changed"/> is unverified: a "done" with nothing saved proves nothing.
+    /// counted. A step done hands over what its answer's last line says, and goes to the art critic when
+    /// <paramref name="critique"/>, else to the lead's review when <paramref name="review"/> (see <see cref="Reviews"/>):
+    /// its worker is counted by the verdict then. A failed step gets one more try from the same worker, then goes a tier
+    /// up; above Strong, or with no worker left, the team stops. An art step (<see cref="StepKinds.IsArt"/>) done with no
+    /// file <paramref name="changed"/> is unverified: a "done" with nothing saved proves nothing.
     /// </summary>
     public static TeamMove After(AgentTaskRecord record, TeamStep step, bool? done, string answer, string failure, Router route,
-        Func<Worker, string> workerName, WorkerEvidence evidence, bool review = false, bool changed = true)
+        Func<Worker, string> workerName, WorkerEvidence evidence, bool review = false, bool changed = true, bool critique = false)
     {
         if (done is null || step.Provider is not { } provider) return TeamMove.Paused;
         var worker = new Worker(provider, step.Level, step.Model);
         if (done.Value)
         {
             step.HandedOver = TeamPlan.HandedOver(answer) ?? step.HandedOver;
-            if (step.Kind == StepKind.Asset && !changed)
+            if (StepKinds.IsArt(step.Kind) && !changed)
             {
                 step.Unverified = true;
                 step.Status = TeamStepStatus.AwaitsOk;
                 return TeamMove.Unverified;
+            }
+
+            if (critique)
+            {
+                step.Status = TeamStepStatus.Critique;
+                return TeamMove.Critique;
             }
 
             if (review)
@@ -157,6 +167,35 @@ public static partial class TeamRunner
         }
     }
 
+    /// <summary>
+    /// What follows the art critic's verdict on a step it judged. Accept: done, or waiting for the user's OK where the
+    /// step asks for it, its worker counted as good. Redo (and an escalation, which art does not need): the artist fixes
+    /// the defects in its session, at most <see cref="MaxRedos"/> times; a redo is how art is made, not a failure of its
+    /// worker. After that, and on a stop, the step waits for the user's OK with the critic's notes: the user is the last
+    /// judge of a look.
+    /// </summary>
+    public static TeamMove Critiqued(AgentTaskRecord record, TeamStep step, LeadReview review, WorkerEvidence evidence)
+    {
+        if (review.Verdict == ReviewVerdict.Accept)
+        {
+            if (step.Provider is { } provider) evidence.Record(step.Kind, new Worker(provider, step.Level, step.Model), true);
+            step.CriticNotes = step.Check && review.Notes.Length > 0 ? review.Notes : null;
+            step.Status = step.Check ? TeamStepStatus.AwaitsOk : TeamStepStatus.Done;
+            return step.Check ? TeamMove.AwaitOk : Current(record) is null ? TeamMove.Finished : TeamMove.Next;
+        }
+
+        step.CriticNotes = review.Notes.Length > 0 ? review.Notes : null;
+        if (review.Verdict is ReviewVerdict.Redo or ReviewVerdict.Escalate && step.Redos < MaxRedos && step.CriticNotes is not null)
+        {
+            step.Redos++;
+            step.Status = TeamStepStatus.Running;
+            return TeamMove.Redo;
+        }
+
+        step.Status = TeamStepStatus.AwaitsOk;
+        return TeamMove.Stopped;
+    }
+
     /// <summary>The user's OK for a step that waited for it: done, and the team goes on.</summary>
     public static TeamMove Approve(AgentTaskRecord record, TeamStep step)
     {
@@ -172,11 +211,12 @@ public static partial class TeamRunner
         [.. record.Team.Select(step => new AgentPlanItem(
             step.Status == TeamStepStatus.Failed ? "Failed: " + step.Text : step.Text,
             step.Status == TeamStepStatus.Done,
-            step.Status is TeamStepStatus.Running or TeamStepStatus.AwaitsOk or TeamStepStatus.Reviewing,
+            step.Status is TeamStepStatus.Running or TeamStepStatus.AwaitsOk or TeamStepStatus.Reviewing or TeamStepStatus.Critique,
             step.Status switch
             {
                 TeamStepStatus.AwaitsOk => (step.Unverified ? "Unverified, no file changed: waits for your OK: " : "Waits for your OK: ") + step.Text,
                 TeamStepStatus.Reviewing => "The lead reviews: " + step.Text,
+                TeamStepStatus.Critique => "The art critic judges: " + step.Text,
                 _ => null
             },
             Worker: step.EscalatedFrom is { } from && from != step.Worker ? $"{from} → {step.Worker}" : step.Worker,

@@ -26,7 +26,16 @@ public enum StepKind
     Review = 4,
     Asset = 5,
     Mechanical = 6,
-    Docs = 7
+    Docs = 7,
+
+    /// <summary>Art from the project's generator: seeds and a preset of a class it already makes, no modelling.</summary>
+    Instance = 8,
+
+    /// <summary>
+    /// Never a step of a plan: the art critic's judgement, counted for the critic by whether the user's rating of an
+    /// exam agreed with it (see <see cref="Services.ArtCritic"/>).
+    /// </summary>
+    Critique = 9
 }
 
 /// <summary>An agent at one of its levels: what a tier of the team is served by.</summary>
@@ -60,6 +69,12 @@ public sealed class TeamSettings
     /// </summary>
     public bool LeadReview { get; set; } = true;
 
+    /// <summary>
+    /// An art critic, another agent than the artist's where one can, judges the frames of each art step of a team (an
+    /// asset or an instance) and of each art exam before the user does (see <see cref="Services.ArtCritic"/>).
+    /// </summary>
+    public bool ArtReview { get; set; } = true;
+
     /// <summary>The worker chosen for a tier; null: the default one.</summary>
     public WorkerChoice? For(WorkerTier tier) => tier switch
     {
@@ -78,7 +93,8 @@ public sealed class TeamSettings
 
     public TeamSettings Clone() => new()
     {
-        Enabled = Enabled, Light = Light, Standard = Standard, Strong = Strong, Alternate = Alternate, AutoLower = AutoLower, LeadReview = LeadReview
+        Enabled = Enabled, Light = Light, Standard = Standard, Strong = Strong, Alternate = Alternate, AutoLower = AutoLower, LeadReview = LeadReview,
+        ArtReview = ArtReview
     };
 
     private static WorkerChoice? Known(WorkerChoice? choice) =>
@@ -107,7 +123,10 @@ public enum TeamStepStatus
     AwaitsOk = 4,
 
     /// <summary>The worker is done and the lead reads its result: its verdict decides the step.</summary>
-    Reviewing = 5
+    Reviewing = 5,
+
+    /// <summary>The artist is done and the art critic judges its frames: its verdict decides the step.</summary>
+    Critique = 6
 }
 
 /// <summary>
@@ -157,7 +176,7 @@ public sealed class TeamStep
     /// <summary>What the worker handed over to the next step (paths, names of assets, what the next specialist needs); null until it said.</summary>
     public string? HandedOver { get; set; }
 
-    /// <summary>The session of the worker's last run on the step: the lead's notes go back into it, where it knows what it did.</summary>
+    /// <summary>The session of the worker's last run on the step: the lead's and the art critic's notes go back into it, where it knows what it did.</summary>
     public string? SessionId { get; set; }
 
     /// <summary>How many times the lead sent the step back (see <see cref="Services.TeamRunner.MaxRedos"/>).</summary>
@@ -165,6 +184,12 @@ public sealed class TeamStep
 
     /// <summary>What the lead asks the worker to change, until the worker's next run takes it; null: nothing.</summary>
     public string? ReviewNotes { get; set; }
+
+    /// <summary>
+    /// What the art critic said of the step's frames: the defects to fix, until the artist's next run takes them, or once
+    /// the step waits for the user's OK what the user should look at; null: nothing.
+    /// </summary>
+    public string? CriticNotes { get; set; }
 
     /// <summary>
     /// An editor or DCC step its worker called done with no file changed: nothing shows it was saved, so it is not counted

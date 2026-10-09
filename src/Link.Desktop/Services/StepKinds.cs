@@ -37,8 +37,8 @@ public static class StepKinds
 
     /// <summary>
     /// The kind of a step from its words, the first that applies: design, an unclear failure, text (docs, comments), a
-    /// mechanical change, tests, a review or check; else code. An asset (an editor or DCC task) is named by the plan,
-    /// not guessed from words.
+    /// mechanical change, tests, a review or check; else code. An asset (an editor or DCC task) and an instance of a
+    /// generator are named by the plan, not guessed from words.
     /// </summary>
     public static StepKind Of(string text)
     {
@@ -51,11 +51,17 @@ public static class StepKinds
         return StepKind.Code;
     }
 
-    /// <summary>The tier a kind of step starts at: design, unknown causes and editor work are Strong, mechanical edits and text Light.</summary>
+    /// <summary>
+    /// The tier a kind of step starts at: design, unknown causes and editor work are Strong, mechanical edits and text
+    /// Light; an instance of a generator, whose look the generator already holds, Standard.
+    /// </summary>
     public static WorkerTier TierOf(StepKind kind) => kind switch
     {
         StepKind.Design or StepKind.Investigate or StepKind.Asset => WorkerTier.Strong,
         StepKind.Mechanical or StepKind.Docs => WorkerTier.Light,
         _ => WorkerTier.Standard
     };
+
+    /// <summary>Art a player sees: an asset or an instance of a generator. Its worker must see images, and the art critic judges it.</summary>
+    public static bool IsArt(StepKind kind) => kind is StepKind.Asset or StepKind.Instance;
 }

@@ -8,7 +8,11 @@ End your answer with one block, nothing after it:
 ```
 - `worker`: `strong` design, an unclear bug, taste, editor or DCC work, anything risky; `standard` usual code and tests
   by a clear description; `light` mechanical edits, renames, imports, docs, comments, descriptions.
-- `kind`: design, investigate, code, test, review, asset, mechanical, docs.
+- `kind`: design, investigate, code, test, review, asset, instance, mechanical, docs. Art: `instance` when the project
+  has a generator for the class (`tools/blender/generators/`): seeds and a preset, no modelling; `asset` for a unique
+  model, or a new generator once the class repeats (two or three approved of it, or many are asked for). An art
+  critic judges each asset and instance step from the frames its artist names, before the next step or the user's
+  OK: it is Link's own, so plan no step for it.
 - `role`: the specialist who does the step, from the list below; none fits: leave it out.
 - `check`: true where only the user can judge (a model's look, an animation's feel): the team waits for their OK.
 - 2–8 steps, each self-contained: what to do, where, how to know it is done. Order them as the work flows (model, then

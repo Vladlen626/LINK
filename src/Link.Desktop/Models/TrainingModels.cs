@@ -62,6 +62,9 @@ public sealed class TrainingExam
     /// <summary>The user's words that set the exam.</summary>
     public string Brief { get; set; } = string.Empty;
 
+    /// <summary>The references the user gave with those words, by path: the art critic judges the result against them too.</summary>
+    public List<string> Images { get; set; } = [];
+
     public DateTimeOffset At { get; set; } = DateTimeOffset.Now;
     public AgentProviderKind Provider { get; set; }
     public string? Model { get; set; }
@@ -80,6 +83,17 @@ public sealed class TrainingExam
 
     /// <summary>The files the exam's runs changed, relative to the workspace: the evidence that it made something.</summary>
     public List<string> Files { get; set; } = [];
+
+    /// <summary>The art critic's score of the result before the user rated it, 1-5; null: no critic scored it (see <see cref="Services.ArtCritic"/>).</summary>
+    public int? CriticScore { get; set; }
+
+    /// <summary>The critic's worst defects and what to do about them, as it said them.</summary>
+    public string? CriticNotes { get; set; }
+
+    /// <summary>The agent and model that judged: the user's rating counts for or against it as a critic.</summary>
+    public AgentProviderKind? CriticProvider { get; set; }
+
+    public string? CriticModel { get; set; }
 
     /// <summary>The user's rating, 1-5; null until rated.</summary>
     public int? Rating { get; set; }

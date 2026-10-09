@@ -425,7 +425,17 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    проектные — в `<пакет>-project`) → Share with all games. Экзамен без изменённых файлов и шаг Asset команды без
    файлов — UNVERIFIED (не в `workers.json`). Blender: стадии и review sheet в `blender-model`, `shots.py` — вид `34r`
    и looks lit/matcap/wire/uv (проверено в фоновом Blender 5.2), rubric у 3D Artist. Живой прогон учёбы и экзамена не
-   запускался. Дальше (V2): Skill Evidence по поднавыкам, Visual Critic, Reference Board, A/B exam; V3 — генерация.
+   запускался. Дальше (V2): Skill Evidence по поднавыкам, A/B exam; Visual Critic, Reference Board и генерация — в п. 11.
+11. **Арт в стиле игры** (PDF пользователя о конвейере DREDGE-like, 09.10) — [docs/ART_PLAN.md](docs/ART_PLAN.md).
+   Решения пользователя: Unity, сетап на ПК; общее ремесло — в пакете `blender`, всё про стиль — в проекте
+   (`docs/art/STYLE.md`, `REFERENCES.md`, линейка `Art/Approved/`); кто критик, а кто работает, решает Link; генераторы
+   — Python первым, Geometry Nodes для scatter. Сделано в облаке (09.10, ждёт проверки на ПК): кадры как видит игрок
+   (`shots.py` game/thumb/flat по профилю) и линейка (`sheet.py`), палитра-атлас (`palette.py`), генераторы с
+   контрактом и записью seed (`blender-procedural`, `gen.py`), skill `art-style`; роль Art Critic — слепой критик
+   шагов asset/instance команды и экзаменов по арту (ledger, 1–3 дефекта, вердикт и оценка, до двух возвратов
+   художнику), другой агент, чем у художника; калибровка критика оценками экзаменов в `workers.json`; вид шага
+   `instance` (Standard); галка Settings → Agents → Art critic. Вживую не запускались Blender MCP, Unity и критик на
+   Codex с картинками; что доделать на ПК — список в плане.
 
 ## Для AI-агентов
 

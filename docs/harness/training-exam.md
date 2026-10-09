@@ -10,8 +10,10 @@ where they fit. The user rates the result, not your words: what counts is the sa
   detail, game-ready). Fix the form before adding detail.
 - Save the source (.blend, the material, the graph) and the export in the project: a result only in memory, or only in
   your answer, cannot pass.
-- Before you hand in, make the review sheet your skills describe (views, wireframe, UV check, the functional poses)
-  and critique it against the references and the rubric, worst problem first; fix what you can and say what is left.
+- Before you hand in, make the review sheet your skills describe (views, wireframe, UV check, the functional poses;
+  with an art profile first the gameplay camera, the thumbnail and the lineup) and critique it against the references
+  and the rubric, worst problem first; fix what you can and say what is left. An art critic judges the frames you
+  list in `sheet` before the user rates them, without your answer: list every frame that shows the work.
 - Apply a lesson only where it fits the task; do not force one in. Say for each lesson you applied what it changed.
 
 Answer in short: what you made and where it is saved, what you took from the references, the critique and what you

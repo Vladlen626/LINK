@@ -4,7 +4,8 @@ Run: python blender_mcp.py <command> [arguments]   (or: uv run --no-project blen
 
   ping                  - Blender's version, the open file, the scene
   py <file.py|-> [args] - run code in the open Blender (bpy is there; the answer is the dict `result`,
-                          print() goes to stdout). ARGS is the list of strings after the file name.
+                          print() goes to stdout). ARGS is the list of strings after the file name, __file__
+                          the script's full path.
 
 Environment: BLENDER_MCP_HOST (127.0.0.1), BLENDER_MCP_PORT (9876), BLENDER_MCP_TIMEOUT (seconds, 300).
 Protocol: JSON {"type": "execute", "code": ..., "strict_json": false} + '\\0' -> JSON + '\\0'.
@@ -50,7 +51,9 @@ def main(argv):
     elif cmd == "py":
         src = argv[2] if len(argv) > 2 else "-"
         code = sys.stdin.read() if src == "-" else open(src, encoding="utf-8").read()
-        resp = execute("ARGS = {!r}\n".format(argv[3:]) + code)
+        # __file__ lets a script find the scripts beside it (gen.py renders with shots.py).
+        where = "" if src == "-" else "__file__ = {!r}\n".format(os.path.abspath(src))
+        resp = execute("ARGS = {!r}\n".format(argv[3:]) + where + code)
     else:
         print("unknown command: " + cmd, file=sys.stderr)
         return 2

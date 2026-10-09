@@ -21,7 +21,7 @@ public sealed record AgentRole(
     string? Color = null);
 
 /// <summary>
-/// The specialists: eight ship beside Link.exe and are edited without a rebuild; a workspace adds its own or replaces a
+/// The specialists: nine ship beside Link.exe and are edited without a rebuild; a workspace adds its own or replaces a
 /// built-in one in <c>.agents/roles</c> by the file's name. Link suggests one from the brief, picks the skills that go
 /// with it, and tells them to the agent in the new session, where they follow its rules.
 /// </summary>

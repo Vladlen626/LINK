@@ -107,6 +107,8 @@ internal static class AgentTests
         TeamRunnerMoves();
         TrainingCourseRules();
         LeadReviewText();
+        ArtCriticRules();
+        ArtCritiqueMoves();
         ToolPacksUsed();
         RoleColors();
         RoleColorFiles();
@@ -1032,13 +1034,13 @@ internal static class AgentTests
             (saved.AutoEffort, saved.Runs[0].EffortReason, saved.Runs[0].Looped), (true, "carrying out the approved plan", true));
     }
 
-    /// <summary>Specialists as files: the eight that ship beside Link, a workspace's own that add or replace by file name, and junk skipped.</summary>
+    /// <summary>Specialists as files: the nine that ship beside Link, a workspace's own that add or replace by file name, and junk skipped.</summary>
     private static void RolesRead()
     {
         var builtIn = ProjectRoles.In(null);
-        Program.Equal("roles: eight ship beside Link, by name",
+        Program.Equal("roles: nine ship beside Link, by name",
             string.Join("|", builtIn.Select(role => role.Name)),
-            "3D Artist|Build / Performance|Gameplay Developer|Level Artist|QA / Playtest|Rigger / Animator|Technical Designer|UI/UX Designer");
+            "3D Artist|Art Critic|Build / Performance|Gameplay Developer|Level Artist|QA / Playtest|Rigger / Animator|Technical Designer|UI/UX Designer");
         Program.Equal("roles: each has a description, keywords, an effort and a body without the editor's note",
             builtIn.All(role => role.Description.Length > 0 && role.Keywords.Count > 0 && role.Effort is not null &&
                                 role.Body.StartsWith("## Duties", StringComparison.Ordinal) && !role.Body.Contains("<!--")), true);
@@ -1061,14 +1063,14 @@ internal static class AgentTests
             var roles = ProjectRoles.In(workspace);
             Program.Equal("roles: a workspace file adds a role; junk, a file without a name and other extensions are skipped",
                 string.Join("|", roles.Select(role => role.Id)),
-                "3d-artist|audio|build-engineer|gameplay-developer|level-artist|qa-playtest|rigger-animator|technical-designer|ui-ux-designer");
+                "3d-artist|art-critic|audio|build-engineer|gameplay-developer|level-artist|qa-playtest|rigger-animator|technical-designer|ui-ux-designer");
             var own = roles.First(role => role.Id == "qa-playtest");
             Program.Equal("roles: a workspace file of a built-in one's name replaces it",
                 (own.Name, own.Effort, string.Join("+", own.Keywords), string.Join("+", own.Skills), own.Body), ("QA of this game", "high", "smoke+плейтест", "game-check", "Check by the game's script."));
             Program.Equal("roles: Find by file name, none for General and for a role whose file is gone",
                 (ProjectRoles.Find("audio", workspace)?.Name, ProjectRoles.Find("AUDIO", workspace)?.Name, ProjectRoles.Find("audio", null)?.Name, ProjectRoles.Find(null, workspace)?.Name, ProjectRoles.Find("gone", workspace)?.Name),
                 ("Audio", "Audio", (string?)null, (string?)null, (string?)null));
-            Program.Equal("roles: no workspace folder, no workspace at all", (ProjectRoles.In(Path.Combine(workspace, "none")).Count, ProjectRoles.In(null).Count), (8, 8));
+            Program.Equal("roles: no workspace folder, no workspace at all", (ProjectRoles.In(Path.Combine(workspace, "none")).Count, ProjectRoles.In(null).Count), (9, 9));
         }
         finally
         {
@@ -2844,9 +2846,9 @@ internal static class AgentTests
             Kinds("Add unit tests for the dash", "Review the movement changes", "Check that the build passes", "Проверь результат"), "Test, Review, Review, Review");
         Program.Equal("step kinds: anything else is code, a stem counts only at the start of a word",
             Kinds("Add the dash ability to the movement component", "Fix the jump", "Add an information panel", string.Empty), "Code, Code, Code, Code");
-        Program.Equal("step kinds: each kind has its tier",
-            string.Join(", ", Enum.GetValues<StepKind>().Select(kind => $"{kind}={StepKinds.TierOf(kind)}")),
-            "Design=Strong, Investigate=Strong, Code=Standard, Test=Standard, Review=Standard, Asset=Strong, Mechanical=Light, Docs=Light");
+        Program.Equal("step kinds: each kind of a plan has its tier",
+            string.Join(", ", Enum.GetValues<StepKind>().Where(kind => kind != StepKind.Critique).Select(kind => $"{kind}={StepKinds.TierOf(kind)}")),
+            "Design=Strong, Investigate=Strong, Code=Standard, Test=Standard, Review=Standard, Asset=Strong, Mechanical=Light, Docs=Light, Instance=Standard");
         Program.Equal("step kinds: Auto effort still names the first mechanical word of its list",
             AutoEffort.Choose(EffortPhase.New, "Bump version and add a comment", ["low", "medium", "high"], null, 0, null),
             ((string?)"low", "the brief reads as a mechanical change (\"comment\")"));
@@ -3142,11 +3144,11 @@ internal static class AgentTests
             return evidence;
         }
 
-        Program.Equal("route: each kind goes to the worker of its tier",
-            string.Join("\n", Enum.GetValues<StepKind>().Select(kind => $"{kind}: {Route(kind)}")),
+        Program.Equal("route: each kind of a plan goes to the worker of its tier",
+            string.Join("\n", Enum.GetValues<StepKind>().Where(kind => kind != StepKind.Critique).Select(kind => $"{kind}: {Route(kind)}")),
             "Design: Strong ClaudeCode | Design → Claude\nInvestigate: Strong ClaudeCode | Investigate → Claude\nCode: Standard Codex | Code → Codex\n" +
             "Test: Standard Codex | Test → Codex\nReview: Standard Codex | Review → Codex\nAsset: Strong ClaudeCode | Asset → Claude\n" +
-            "Mechanical: Light ClaudeCode | Mechanical → Claude\nDocs: Light ClaudeCode | Docs → Claude");
+            "Mechanical: Light ClaudeCode | Mechanical → Claude\nDocs: Light ClaudeCode | Docs → Claude\nInstance: Standard Codex | Instance → Codex");
         Program.Equal("route: the plan's tier is taken, with its word in the reason",
             (Route(StepKind.Code, WorkerTier.Light), Route(StepKind.Mechanical, WorkerTier.Strong)),
             ("Light ClaudeCode | Code: the plan chose Light → Claude", "Strong ClaudeCode | Mechanical: the plan chose Strong → Claude"));
@@ -3593,16 +3595,16 @@ internal static class AgentTests
             Of(odd), string.Join(",", ProjectRoles.Colors.Take(5)));
     }
 
-    /// <summary>A role file's <c>color:</c> line is read ("#RRGGBB" or none); the eight roles that ship keep theirs; a workspace role is given a free one.</summary>
+    /// <summary>A role file's <c>color:</c> line is read ("#RRGGBB" or none); the nine roles that ship keep theirs; a workspace role is given a free one.</summary>
     private static void RoleColorFiles()
     {
         var builtIn = ProjectRoles.In(null);
         Program.Equal("role color files: each built-in role names its own color in its file",
             string.Join(",", builtIn.Select(role => role.Id + "=" + role.Color)),
-            "3d-artist=#A78BFA,build-engineer=#A3E635,gameplay-developer=#6C9EF8,level-artist=#34D399,qa-playtest=#F87171,rigger-animator=#F472B6,technical-designer=#FBBF24,ui-ux-designer=#38BDF8");
+            "3d-artist=#A78BFA,art-critic=#E2E8F0,build-engineer=#A3E635,gameplay-developer=#6C9EF8,level-artist=#34D399,qa-playtest=#F87171,rigger-animator=#F472B6,technical-designer=#FBBF24,ui-ux-designer=#38BDF8");
         var colors = builtIn.Select(role => ProjectRoles.ColorOf(role, builtIn)).ToArray();
-        Program.Equal("role color files: the eight colors differ, and none is Link's orange",
-            (colors.Distinct().Count(), colors.Contains(ProjectRoles.LinkColor)), (8, false));
+        Program.Equal("role color files: the nine colors differ, and none is Link's orange",
+            (colors.Distinct().Count(), colors.Contains(ProjectRoles.LinkColor)), (9, false));
 
         var workspace = TempFolder();
         try
@@ -4030,6 +4032,197 @@ internal static class AgentTests
             (true, true, true, true, true));
         Program.Equal("lead review: the worker's own session is told the notes and to fix in place",
             TeamPlan.RedoPrompt(" Null check ").StartsWith("The team lead reviewed your step and asks for this:\nNull check\nFix it in place", StringComparison.Ordinal), true);
+    }
+
+    /// <summary>
+    /// The art critic: which runs it judges and which art, the frames an answer names, who judges (another agent than the
+    /// artist's, as the evidence allows), what it is told, its score, and how the user's rating of an exam counts for it.
+    /// </summary>
+    private static void ArtCriticRules()
+    {
+        Program.Equal("art critic: image paths in backticks with spaces, bare, in a link and at a sentence's end, in order",
+            string.Join("|", ArtCritic.Named(@"Frames: `C:\My Shots\crate game.png`, C:\shots\thumb_1.png and [lineup](Art/Review/lineup.JPG).
+See shots/flat.png. Not crate.blend or a.pngx.")),
+            @"C:\My Shots\crate game.png|C:\shots\thumb_1.png|Art/Review/lineup.JPG|shots/flat.png");
+
+        var workspace = TempFolder();
+        try
+        {
+            Directory.CreateDirectory(Path.Combine(workspace, "Art"));
+            var game = Path.Combine(workspace, "Art", "game.png");
+            File.WriteAllText(game, "png");
+            File.WriteAllText(Path.Combine(workspace, "Art", "thumb.jpg"), "jpg");
+            File.WriteAllText(Path.Combine(workspace, "Art", "crate.blend"), "blend");
+            var frames = ArtCritic.Frames([game, "Art/thumb.jpg", "Art/game.png", "Art/crate.blend", "Art/gone.png", "bad\0path.png"], workspace, File.Exists);
+            Program.Equal("art critic: frames are the images that exist, full paths, a relative one from the workspace, each once",
+                string.Join("|", frames.Select(frame => Path.GetRelativePath(workspace, frame).Replace('\\', '/'))), "Art/game.png|Art/thumb.jpg");
+        }
+        finally
+        {
+            DeleteFolder(workspace);
+        }
+
+        AgentTask Run(string? role, AgentAccess access, params string[] skills) =>
+            new() { Provider = AgentProviderKind.ClaudeCode, Workspace = "w", Prompt = "p", RoleId = role, Access = access, Skills = skills };
+        Program.Equal("art critic: it judges read only as itself; art is the work of a specialist by the art profile's skill",
+            (ArtCritic.Judges(Run("art-critic", AgentAccess.Analyze)), ArtCritic.Judges(Run("art-critic", AgentAccess.Do)), ArtCritic.Judges(Run("3d-artist", AgentAccess.Analyze)),
+                ArtCritic.Judgeable(Run("3d-artist", AgentAccess.Do, "blender-model", "Art-Style")), ArtCritic.Judgeable(Run("3d-artist", AgentAccess.Do, "blender-model")),
+                ArtCritic.Judgeable(Run("art-critic", AgentAccess.Analyze, "art-style")), ArtCritic.Judged(new AgentRunRecord { RoleId = "art-critic", Access = AgentAccess.Analyze })),
+            (true, false, false, true, false, false, true));
+
+        var settings = new AgentSettings();
+        var claude = new Worker(AgentProviderKind.ClaudeCode, AgentLevel.Deep, "claude-opus-5-5");
+        var codex = new Worker(AgentProviderKind.Codex, AgentLevel.Deep, null);
+        string Critic(Worker artist, WorkerEvidence evidence, Func<AgentProviderKind, WorkerState>? state = null, Func<AgentProviderKind, bool>? eyes = null)
+        {
+            var (critic, reason) = ArtCritic.Choose(artist, settings, state ?? (_ => WorkerState.Ready), evidence, eyes ?? (_ => true), WorkerRouting.ShortName);
+            return $"{(critic is null ? "none" : $"{critic.Provider} {critic.Level} {critic.Model ?? "-"}")}: {reason}";
+        }
+
+        Program.Equal("art critic: another agent than the artist's judges, at its Deep level",
+            (Critic(claude, new WorkerEvidence()), Critic(codex, new WorkerEvidence())),
+            ("Codex Deep -: another agent than the artist's", "ClaudeCode Deep claude-opus-5-5: another agent than the artist's"));
+        Program.Equal("art critic: the artist's own agent in a new session when the other cannot judge; none when neither can, and why",
+            (Critic(claude, new WorkerEvidence(), provider => provider == AgentProviderKind.Codex ? WorkerState.NotSet : WorkerState.Ready),
+                Critic(claude, new WorkerEvidence(), eyes: provider => provider != AgentProviderKind.Codex),
+                Critic(claude, new WorkerEvidence(), _ => WorkerState.LimitReached)),
+            ("ClaudeCode Deep claude-opus-5-5: Codex is not set up, a new session of the artist's agent",
+                "ClaudeCode Deep claude-opus-5-5: Codex cannot see images, a new session of the artist's agent",
+                "none: no agent can judge it now: Codex limit reached, Claude limit reached"));
+        var disagreed = new WorkerEvidence();
+        disagreed.Record(StepKind.Critique, codex, false);
+        disagreed.Record(StepKind.Critique, codex, false);
+        var agreed = new WorkerEvidence();
+        for (var each = 0; each < 3; each++) agreed.Record(StepKind.Critique, claude, true);
+        Program.Equal("art critic: one that disagreed with the user is passed over; one that agreed goes first, the artist's own too",
+            (Critic(claude, disagreed), Critic(claude, agreed)),
+            ("ClaudeCode Deep claude-opus-5-5: Codex disagreed with you 2 of 2 here, a new session of the artist's agent",
+                "ClaudeCode Deep claude-opus-5-5: agreed with you 3 of 3 here"));
+
+        Program.Equal("art critic: it agrees with the user when both pass or both fail",
+            (ArtCritic.Agrees(4, 5), ArtCritic.Agrees(5, 3), ArtCritic.Agrees(2, 3), ArtCritic.Agrees(3, 4)), (true, false, true, false));
+        var calibration = new WorkerEvidence();
+        Program.Equal("art critic: a rated exam counts its critic by agreement; an unverified or unscored one counts nothing",
+            (ArtCritic.Calibrate(new TrainingExam { CriticScore = 4, CriticProvider = AgentProviderKind.Codex, Rating = 2, Result = ExamResult.Fail }, calibration),
+                ArtCritic.Calibrate(new TrainingExam { CriticScore = 4, CriticProvider = AgentProviderKind.Codex, Rating = 5, Result = ExamResult.Unverified }, calibration),
+                ArtCritic.Calibrate(new TrainingExam { CriticProvider = AgentProviderKind.Codex, Rating = 5, Result = ExamResult.Pass }, calibration),
+                calibration.Counts(StepKind.Critique, codex)),
+            ((bool?)false, (bool?)null, (bool?)null, (0, 1)));
+
+        var many = Enumerable.Range(1, ArtCritic.MostFrames + 1).Select(index => $"/f/{index}.png").ToArray();
+        var prompt = ArtCritic.Prompt("<!-- note -->Judge it.", "Model the crate", "Art/crate.fbx", ["Art/crate.blend", "Art/crate.fbx"], ["/refs/boat.png"], many);
+        Program.Equal("art critic: the request without its notes, the task, hand-over, saved files, references and frames, the first attached",
+            (prompt.StartsWith("Judge it.\n\n## The task\nModel the crate\n\n## Handed over\nArt/crate.fbx\n\n## Saved files\n- Art/crate.blend\n- Art/crate.fbx\n\n" +
+                               "## The user's references\n- /refs/boat.png\n\n## Frames\n- /f/1.png (attached)", StringComparison.Ordinal),
+                prompt.EndsWith($"- /f/{ArtCritic.MostFrames}.png (attached)\n- /f/{ArtCritic.MostFrames + 1}.png", StringComparison.Ordinal)),
+            (true, true));
+        Program.Equal("art critic: without a hand-over, files or references only the task and the frames",
+            ArtCritic.Prompt("Judge it.", "Exam", null, [], [], ["/f/1.png"]), "Judge it.\n\n## The task\nExam\n\n## Frames\n- /f/1.png (attached)");
+        Program.Equal("art critic: the artist's own session is told the defects, the source and the same frames again",
+            (ArtCritic.RedoPrompt(" 1. Raise the bow ").StartsWith("The art critic judged your frames and asks for this, worst first:\n1. Raise the bow\nFix it in the source",
+                StringComparison.Ordinal), ArtCritic.RedoPrompt("x").EndsWith(TeamPlan.StepEnd, StringComparison.Ordinal)),
+            (true, true));
+        Program.Equal("art critic: words to the artist after the critic left the step to the user carry what the critic said",
+            ArtCritic.Heard(" 1. Raise the bow ", " Keep the hull "),
+            "The art critic judged your frames and said this, worst first:\n1. Raise the bow\n\nThe user has seen it and says:\nKeep the hull");
+
+        Program.Equal("art critic: its score is read beside the verdict, rounded and clamped to 1-5; one that is not a number is none",
+            (TeamPlan.SplitReview("```link-review\n{\"verdict\": \"accept\", \"score\": 4, \"notes\": \"\"}\n```").Review,
+                TeamPlan.SplitReview("```link-review\n{\"verdict\": \"redo\", \"score\": 9, \"notes\": \"x\"}\n```").Review?.Score,
+                TeamPlan.SplitReview("```link-review\n{\"verdict\": \"redo\", \"score\": 2.6}\n```").Review?.Score,
+                TeamPlan.SplitReview("```link-review\n{\"verdict\": \"redo\", \"score\": \"4\"}\n```").Review?.Score),
+            (new LeadReview(ReviewVerdict.Accept, "", 4), (int?)5, (int?)3, (int?)null));
+        var (_, planned) = TeamPlan.Split("```link-plan\n[{\"step\": \"Build ten crates from the generator\", \"kind\": \"instance\"}, {\"step\": \"Judge the crates\", \"kind\": \"critique\"}]\n```");
+        Program.Equal("art critic: a plan's step may be an instance of a generator, never a critique: that one goes by its words",
+            (planned[0].Kind, planned[1].Kind), (StepKind.Instance, StepKinds.Of("Judge the crates")));
+        AgentRole[] specialists = [new("3d-artist", "3D Artist", "Models.", [], [], null, "", ""), new(ArtCritic.RoleId, "Art Critic", "Judges.", [], [], null, "", "")];
+        Program.Equal("art critic: never a specialist the lead gives a step to: not listed for it, not taken from its plan",
+            (TeamPlan.Prompt("Make a boat", "Plan it.", [], specialists).Contains(ArtCritic.RoleId, StringComparison.Ordinal),
+                string.Join(",", TeamPlan.Split("```link-plan\n[{\"step\": \"Judge the boat\", \"role\": \"art-critic\"}, {\"step\": \"Model the boat\", \"role\": \"3d-artist\"}]\n```",
+                    specialists).Steps.Select(step => step.Role ?? "none"))),
+            (false, "none,3d-artist"));
+        Program.Equal("art critic: an instance step starts at Standard, never lower, and goes only to an agent that sees images, at medium effort",
+            (StepKinds.TierOf(StepKind.Instance), StepKinds.IsArt(StepKind.Instance), StepKinds.IsArt(StepKind.Code),
+                WorkerRouting.Route(StepKind.Instance, WorkerTier.Light, settings, _ => WorkerState.Ready, new WorkerEvidence()).Tier,
+                WorkerRouting.Route(StepKind.Instance, null, settings, _ => WorkerState.Ready, new WorkerEvidence(), seesImages: provider => provider != AgentProviderKind.Codex).Worker?.Provider,
+                AutoEffort.ForStep(StepKind.Instance, ["low", "medium", "high"], 0)),
+            (WorkerTier.Standard, true, false, WorkerTier.Standard, (AgentProviderKind?)AgentProviderKind.ClaudeCode, ((string?)"medium", "an instance step of the plan")));
+
+        var older = JsonSerializer.Deserialize<AgentSettings>("""{"Team":{"LeadReview":false}}""")!;
+        older.Normalize();
+        Program.Equal("art critic: on by default and in older settings; a copy keeps it off",
+            (new AgentSettings().Team.ArtReview, older.Team.ArtReview, new AgentSettings { Team = { ArtReview = false } }.Clone().Team.ArtReview), (true, true, false));
+    }
+
+    /// <summary>An art step the critic judges: it waits for the verdict, goes back to its artist twice at most, then to the user.</summary>
+    private static void ArtCritiqueMoves()
+    {
+        var artist = new Worker(AgentProviderKind.ClaudeCode, AgentLevel.Deep, "claude-opus-5-5");
+        TeamRunner.Router route = (_, asked) => (asked ?? WorkerTier.Strong, artist, "art");
+        static string Name(Worker worker) => "Opus 5.5";
+        AgentTaskRecord Planned(bool check = true)
+        {
+            var record = new AgentTaskRecord { Goal = "Crates", Workspace = @"C:\Game", Mode = TaskMode.Team };
+            record.Team = TeamRunner.Steps(
+            [
+                new PlannedStep("Model the crate", StepKind.Asset, null, "taste", [], "3d-artist", check),
+                new PlannedStep("Place the crates", StepKind.Instance, null, "a generator", [])
+            ], route, Name);
+            return record;
+        }
+
+        var record = Planned();
+        var crate = record.Team[0];
+        var evidence = new WorkerEvidence();
+        Program.Equal("critique: an art step done goes to the critic before any review, its handover kept, its artist not counted yet",
+            (TeamRunner.After(record, crate, true, "Modeled.\nHanded over: Art/crate.fbx", "", route, Name, evidence, review: true, critique: true), crate.Status,
+                crate.HandedOver, evidence.Records.Count, TeamRunner.PlanItems(record, _ => null)[0].Doing),
+            (TeamMove.Critique, TeamStepStatus.Critique, "Art/crate.fbx", 0, "The art critic judges: Model the crate"));
+        Program.Equal("critique: redo sends the step back to its artist with the defects, not counted against it",
+            (TeamRunner.Critiqued(record, crate, new LeadReview(ReviewVerdict.Redo, "Raise the lid", 3), evidence), crate.Status, crate.CriticNotes, crate.Redos, evidence.Records.Count),
+            (TeamMove.Redo, TeamStepStatus.Running, "Raise the lid", 1, 0));
+        Program.Equal("critique: a new session for a step sent back is told the critic's defects",
+            TaskState.StepBrief(record, null, @"C:\Game", crate).Contains("asks for this: Raise the lid", StringComparison.Ordinal), true);
+        crate.Status = TeamStepStatus.Critique;
+        TeamRunner.Critiqued(record, crate, new LeadReview(ReviewVerdict.Escalate, "Again"), evidence);
+        crate.Status = TeamStepStatus.Critique;
+        Program.Equal("critique: after two redos the step waits for the user's OK with the critic's notes",
+            (TeamRunner.Critiqued(record, crate, new LeadReview(ReviewVerdict.Redo, "Still flat"), evidence), crate.Status, crate.CriticNotes, crate.Redos),
+            (TeamMove.Stopped, TeamStepStatus.AwaitsOk, "Still flat", 2));
+
+        var accepted = Planned();
+        var first = accepted.Team[0];
+        first.Status = TeamStepStatus.Critique;
+        Program.Equal("critique: accept counts the artist; a step the user must judge waits for their OK with the critic's notes",
+            (TeamRunner.Critiqued(accepted, first, new LeadReview(ReviewVerdict.Accept, "Look at the lid", 4), evidence), first.Status, first.CriticNotes,
+                evidence.Counts(StepKind.Asset, artist)),
+            (TeamMove.AwaitOk, TeamStepStatus.AwaitsOk, "Look at the lid", (1, 0)));
+        var free = Planned(check: false);
+        var empty = Planned().Team[0];
+        Program.Equal("critique: accept of a step the user need not see goes on; a stop, or a redo without notes, leaves it to the user",
+            (TeamRunner.Critiqued(free, free.Team[0], new LeadReview(ReviewVerdict.Accept, "fine"), evidence), free.Team[0].CriticNotes,
+                TeamRunner.Critiqued(free, free.Team[1], new LeadReview(ReviewVerdict.Stop, "The task and the profile disagree"), evidence), free.Team[1].Status,
+                TeamRunner.Critiqued(free, empty, new LeadReview(ReviewVerdict.Redo, ""), evidence), empty.Redos),
+            (TeamMove.Next, (string?)null, TeamMove.Stopped, TeamStepStatus.AwaitsOk, TeamMove.Stopped, 0));
+
+        var placed = Planned();
+        placed.Team[0].Status = TeamStepStatus.Done;
+        Program.Equal("critique: an instance step with no file changed is unverified, as an asset step is",
+            TeamRunner.After(placed, placed.Team[1], true, "Built ten.", "", route, Name, new WorkerEvidence(), changed: false, critique: true), TeamMove.Unverified);
+
+        var kept = JsonSerializer.Deserialize<AgentTaskRecord>(JsonSerializer.Serialize(new AgentTaskRecord
+        {
+            Goal = "Crates", Workspace = @"C:\Game", Images = [@"C:\refs\boat.png"],
+            Team = [new TeamStep { Kind = StepKind.Instance, Status = TeamStepStatus.Critique, CriticNotes = "Raise the lid" }],
+            Training = new TrainingCourse { Exams = [new TrainingExam { Images = [@"C:\refs\crate.png"], CriticScore = 3, CriticNotes = "Flat", CriticProvider = AgentProviderKind.Codex }] }
+        }))!;
+        var exam = kept.Training!.Exams[0];
+        var older = JsonSerializer.Deserialize<AgentTaskRecord>("""{"Goal":"g","Workspace":"w","Team":[{}],"Training":{"Exams":[{}]}}""")!;
+        Program.Equal("critique: the task's images, a step's critique and an exam's critic are saved; an older record has none",
+            (kept.Images[0], kept.Team[0].Kind, kept.Team[0].Status, kept.Team[0].CriticNotes, exam.Images[0], exam.CriticScore, exam.CriticNotes, exam.CriticProvider,
+                older.Images.Count, older.Team[0].CriticNotes, older.Training!.Exams[0].CriticScore, older.Training.Exams[0].Images.Count),
+            (@"C:\refs\boat.png", StepKind.Instance, TeamStepStatus.Critique, "Raise the lid", @"C:\refs\crate.png", (int?)3, "Flat", (AgentProviderKind?)AgentProviderKind.Codex,
+                0, (string?)null, (int?)null, 0));
     }
 
     private static void ToolPacksUsed()

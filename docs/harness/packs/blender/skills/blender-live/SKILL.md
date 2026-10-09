@@ -30,11 +30,18 @@ scripts in the project (`tools/blender/` unless `docs/map.md` says otherwise), n
 ## Check by numbers, then by frames
 - Numbers first: dimensions in metres, vertex and face counts, pivots, bone positions, distances - a short script
   returns them in `result`. Frames only for what numbers cannot tell (silhouette, deformation).
-- `python blender_mcp.py py shots.py <objects|*> [front,left,34] [frames] [prefix] [looks]` renders PNGs to
+- `python blender_mcp.py py shots.py <objects|*> [front,left,34] [frames] [prefix] [looks] [options]` renders PNGs to
   `%TEMP%\blender_shots`; `uv run --no-project --with pillow sheet.py out.png <cols> <png…>` glues them; then read the
   one sheet, not each frame. Views also `back`, `right`, `top`, `34r` (rear 3/4); looks `lit`, `matcap` (the form
   alone), `wire`, `uv` (a grid: stretching and texel density). A model's review sheet in one call:
   `shots.py <objects> front,left,back,34,34r,top 1 sheet lit,matcap,wire,uv`, glued 6 to a row.
+- As the player sees it: view `game` (the gameplay camera, in perspective), view `thumb` (the object as small as on
+  screen far away), look `flat` (the colours unshaded: whether the colour zones alone carry the form). The camera,
+  background and thumbnail size come from the project's art profile with the option `style=docs/art/STYLE.md`, or as
+  `cam=PITCH,FOV,DISTANCE[,YAW];bg=#RRGGBB;thumb=64`; colours render as they are (Standard view transform). A style
+  check: `shots.py <objects> game,thumb 1 style lit,flat "style=docs/art/STYLE.md"`; `sheet.py` fits frames of other
+  sizes into the first frame's cell, a thumbnail enlarged by whole pixels, so the lineup - your `game` frame beside
+  approved assets' `gamecam.png` - is one sheet.
 - A camera render draws no overlays: that is why `wire` adds a temporary Wireframe modifier and `uv` an active Image
   Texture node with a generated grid; the script takes them off after, as any check of yours must.
 - To frame a rigged character, move the camera and the surroundings, not the rig object: parts not parented to it

@@ -51,6 +51,8 @@ public partial class MainWindow
     // The project the open task belongs to: the user may switch projects while it runs.
     private LinkProject? _taskProject;
     private AgentRun? _lastRun;
+    // The artist's run the art critic judges: after the verdict the user's words go on in its session, not the critic's.
+    private AgentRun? _critiqued;
     // What the shown task changed in its header ("+181 −12"), counted once when a run ends or the task opens.
     private (Guid Task, string Text, string Hint) _changes;
     private AgentTask? _runningTask;
@@ -612,7 +614,8 @@ public partial class MainWindow
             RoleId = plan.RoleId,
             Skills = [.. plan.Skills],
             Mode = lead is not null ? TaskMode.Team : course is not null ? TaskMode.Training : TaskMode.Solo,
-            Training = course
+            Training = course,
+            Images = [.. _agentOrigin.Images]
         };
         var how = lead is not null ? $"\n(team: {WorkerLabel(lead)} plans the steps)"
             : course is not null ? "\n(training: study first, then an exam)"
@@ -673,11 +676,11 @@ public partial class MainWindow
         {
             _agentOrigin = earlier with { ResumeSessionId = null };
             _backupBeforeDo = true;
-            _ = StartAgentAsync(earlier with { Prompt = text, Images = images }, null, phase: phase);
+            _ = StartAgentAsync(earlier with { Prompt = WithCriticNotes(text, earlier.ResumeSessionId), Images = images }, null, phase: phase);
             return;
         }
 
-        if (_lastRun is { } run && WordsAfter(run, text) is { } task)
+        if (_lastRun is { } run && WordsAfter(run, WithCriticNotes(text, AgentCoordinator.SessionOf(run))) is { } task)
         {
             _ = StartAgentAsync(task with { Images = images }, run, phase: phase);
         }
@@ -859,7 +862,8 @@ public partial class MainWindow
         _lastRun = null;
         _agentOrigin = null;
         _decision = null;
-        var last = record.LastRun;
+        // In a team or a training the art critic only judged: words go on with the work it judged.
+        var last = (record.Team.Count > 0 || record.Training is not null ? record.Runs.LastOrDefault(run => !ArtCritic.Judged(run)) : null) ?? record.LastRun;
         // A question the task ended on is still a question.
         _question = record.Status == AgentTaskStatus.NeedsYou && last is not null ? AgentQuestion.Split(last.Words).Question : null;
         _earlierSession = last?.SessionId is { } session
@@ -1050,7 +1054,12 @@ public partial class MainWindow
             _queued = null;
             IReadOnlyList<string> images = [.. _queuedImages];
             _queuedImages.Clear();
-            if (ended is not null && WordsAfter(ended, later) is { } next) await StartAgentAsync(next with { Images = images }, ended, phase: EffortPhase.Reply);
+            // After the art critic's verdict the words go on with the work it judged (AfterCritique), after its question with it.
+            var after = ended is not null && ArtCritic.Judges(ended.Task) ? _lastRun : ended;
+            if (after is not null && WordsAfter(after, WithCriticNotes(later, AgentCoordinator.SessionOf(after))) is { } next)
+            {
+                await StartAgentAsync(next with { Images = images }, after, phase: EffortPhase.Reply);
+            }
         }
 
         StartNextTask();
@@ -1264,8 +1273,8 @@ public partial class MainWindow
         if (AgentRunning || _task is not { } record || ResumableTask() is null && _agentOrigin is null) return;
         var fromProvider = record.LastRun?.Provider ?? Other(to);
         var brief = AgentCoordinator.HandOffBrief(record, AgentName(fromProvider), await NumstatAsync());
-        // The images the task began with go along; a task from the list has kept none.
-        var images = _agentOrigin?.Images ?? [];
+        // The images the task began with go along; a task from the list kept them on its record.
+        var images = _agentOrigin?.Images ?? [.. record.Images.Where(File.Exists)];
         AgentCardModel Build() => CardModel(brief, string.Empty, images, to, _taskProject) with
         {
             Title = $"Hand off to {AgentName(to)} · new session",
@@ -1334,8 +1343,8 @@ public partial class MainWindow
         if (AgentRunning || _task is not { } record || ResumableTask() is not { } resume) return;
         var provider = resume.Task.Provider;
         var state = TaskState.CompactBrief(record, await NumstatAsync(), record.Workspace, AgentName);
-        // The images the task began with go along; a task from the list has kept none.
-        var images = _agentOrigin?.Images ?? [];
+        // The images the task began with go along; a task from the list kept them on its record.
+        var images = _agentOrigin?.Images ?? [.. record.Images.Where(File.Exists)];
         AgentCardModel Build()
         {
             var plain = CardModel(state, string.Empty, images, provider, _taskProject);
@@ -2499,8 +2508,12 @@ public partial class MainWindow
         _decision = null;
         _agentPanel!.HideDecision();
         if (result.Stopped || result.SessionId is not { } session) return false;
-        // The team lead's review only reads: its verdict decides the step (AfterTeamStep), not a card of this.
-        if (_task is { } reviewed && TeamRunner.Current(reviewed) is { Status: TeamStepStatus.Reviewing }) return false;
+        // The team lead's review and the art critic only read: their verdict decides (AfterTeamStep, AfterTrainingRun), not a card of this.
+        if (_task is { } reviewed && (TeamRunner.Current(reviewed) is { Status: TeamStepStatus.Reviewing or TeamStepStatus.Critique } ||
+                                      reviewed.Training is not null && ArtCritic.Judges(task)))
+        {
+            return false;
+        }
         // Changing files or running any command is never allowed in read only: it is a retry with edits, except for a
         // task whose file Link writes itself (a map).
         var claude = task.Provider.RunsOnClaudeCode();

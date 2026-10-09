@@ -49,6 +49,7 @@
     <Content Include="..\..\docs\harness\map-task.md" Link="harness\map-task.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\team-task.md" Link="harness\team-task.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\team-review.md" Link="harness\team-review.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\docs\harness\art-review.md" Link="harness\art-review.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\training-*.md" Link="harness\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\roles\*.md" Link="harness\roles\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <!-- Link's own tool packs: copied into the packs folder where it lacks them, edited there. -->

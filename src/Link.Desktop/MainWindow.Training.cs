@@ -38,8 +38,9 @@ public partial class MainWindow
 
     /// <summary>
     /// After a run of a training: a study's lessons become the candidates and the exam is offered; an exam's answer tells
-    /// what it applied and made, and the user is asked to rate it; a promotion done leaves the training waiting for the
-    /// next exam. A run that asked something or was cut short waits for the user's words in its session.
+    /// what it applied and made, the art critic judges its frames where it made art, and the user is asked to rate it; a
+    /// promotion done leaves the training waiting for the next exam. A run that asked something or was cut short waits
+    /// for the user's words in its session.
     /// </summary>
     private void AfterTrainingRun(AgentTaskRecord record, AgentRun run, bool needsYou)
     {
@@ -59,11 +60,20 @@ public partial class MainWindow
                 if (!needsYou && course.Lessons.Count > 0) OfferExam(record, course);
                 break;
             case TrainingStage.Exam when Training.OpenExam(course) is { } exam:
+                if (ArtCritic.Judges(run.Task))
+                {
+                    AfterExamCritique(record, course, exam, run, needsYou);
+                    break;
+                }
+
                 exam.SessionId = AgentCoordinator.SessionOf(run) ?? exam.SessionId;
                 Training.ReadExam(run.Result.Summary, exam);
                 exam.Files = [.. exam.Files.Union(run.Changes.Select(change => Relative(change.Path)), StringComparer.OrdinalIgnoreCase)];
+                // A score of the work before this run says nothing of it now.
+                (exam.CriticScore, exam.CriticNotes, exam.CriticProvider, exam.CriticModel) = (null, null, null, null);
                 SaveTask(record);
                 ShowTask();
+                if (!needsYou) CritiqueExam(record, course, exam, run);
                 break;
             case TrainingStage.Promoting when !needsYou && WorkerEvidence.Verdict(record.LastRun!) == true:
                 course.Stage = TrainingStage.AwaitsExam;
@@ -75,6 +85,53 @@ public partial class MainWindow
                 ShowTask();
                 break;
         }
+    }
+
+    /// <summary>
+    /// The art critic judges an exam's frames before the user rates them, where the exam made art the critic judges
+    /// (<see cref="ArtCritic.Judgeable"/>) and saved it; the thread says why when no critic can.
+    /// </summary>
+    private void CritiqueExam(AgentTaskRecord record, TrainingCourse course, TrainingExam exam, AgentRun run)
+    {
+        if (!_settings.Current.Agent.Team.ArtReview || !ArtCritic.Judgeable(run.Task) || exam.Files.Count == 0) return;
+        var number = course.Exams.IndexOf(exam) + 1;
+        var frames = ArtCritic.Frames(exam.Sheet, record.Workspace, File.Exists);
+        var (critic, why) = frames.Count == 0
+            ? (null, "it listed no frames in its sheet")
+            : CriticFor(new Worker(run.Task.Provider, AgentLevel.Deep, run.Task.Model), _projects.ReadWorkerEvidence(_taskProject ?? _projects.ActiveProject));
+        record.Add(AgentEntryKind.HandOff, critic is null
+            ? $"Exam {number}: no art critic judged it · {why}"
+            : $"Exam {number}: {WorkerLabel(critic)} judges its frames before you rate it, blind to its answer · {why}");
+        SaveTask(record);
+        ShowTask();
+        if (critic is not null) Dispatcher.BeginInvoke(() => _ = StartCriticAsync(record, critic, run, exam.Brief, null, exam.Files, exam.Images, frames));
+    }
+
+    /// <summary>
+    /// The art critic's run on an exam ended: its score and defects go beside the rating, and the user's words after it go
+    /// on in the exam's session. A question of the critic's waits for the user's answer in its session.
+    /// </summary>
+    private void AfterExamCritique(AgentTaskRecord record, TrainingCourse course, TrainingExam exam, AgentRun run, bool needsYou)
+    {
+        if (needsYou) return;
+        if (_critiqued is { } judged) _lastRun = judged;
+        _critiqued = null;
+        var number = course.Exams.IndexOf(exam) + 1;
+        var critic = WorkerLabel(new Worker(run.Task.Provider, AgentLevel.Deep, run.Task.Model));
+        if (TeamPlan.SplitReview(run.Result.Summary).Review is { } review)
+        {
+            (exam.CriticScore, exam.CriticNotes, exam.CriticProvider, exam.CriticModel) =
+                (review.Score, review.Notes.Length > 0 ? review.Notes : null, run.Task.Provider, run.Task.Model);
+            record.Add(AgentEntryKind.HandOff, $"Exam {number}: {critic} " + (review.Score is { } score ? $"scores it {score} of 5" : "gave no score") +
+                                               (review.Notes.Length > 0 ? " · " + Shorten(review.Notes, 200) : string.Empty));
+        }
+        else
+        {
+            record.Add(AgentEntryKind.HandOff, $"Exam {number}: {critic} gave no verdict");
+        }
+
+        SaveTask(record);
+        ShowTask();
     }
 
     /// <summary>The study has drawn its lessons: words go on talking them over, "Ready for exam" makes the next words the exam.</summary>
@@ -105,7 +162,7 @@ public partial class MainWindow
         var provider = learner?.Provider ?? StartProvider;
         var request = File.Exists(Training.ExamFile) ? await File.ReadAllTextAsync(Training.ExamFile) : string.Empty;
         if (AgentRunning || _task != record) return;
-        var exam = new TrainingExam { Brief = words, Provider = provider, Model = learner?.Model };
+        var exam = new TrainingExam { Brief = words, Provider = provider, Model = learner?.Model, Images = [.. images] };
         course.Exams.Add(exam);
         course.Stage = TrainingStage.Exam;
         var candidates = course.Lessons.Count(lesson => lesson.Status == LessonStatus.Candidate);
@@ -133,14 +190,20 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The exam waits for the user's rating: what it applied, what it made and its own scores, and why a pass would
-    /// prove nothing when it changed no file or named no lesson. Words instead go to its session: a revision.
+    /// The exam waits for the user's rating: what it applied, what it made, its own scores and the art critic's, and why
+    /// a pass would prove nothing when it changed no file or named no lesson. Words instead go to its session: a revision.
     /// </summary>
     private void ShowRating(AgentTaskRecord record, TrainingCourse course, TrainingExam exam)
     {
         var number = course.Exams.IndexOf(exam) + 1;
         var scores = exam.Scores.Count == 0 ? string.Empty
             : " Its own scores: " + string.Join(", ", exam.Scores.Select(score => $"{score.Key} {score.Value}")) + ".";
+        if (exam is { CriticScore: { } critic, CriticProvider: { } judge })
+        {
+            scores += $" The art critic ({WorkerLabel(new Worker(judge, AgentLevel.Deep, exam.CriticModel))}): {critic} of 5" +
+                      (exam.CriticNotes is { Length: > 0 } notes ? $", {Shorten(notes, 300)}" : ".");
+        }
+
         var why = exam.Files.Count == 0 ? $" It changed no file: unverified, a pass cannot prove anything. Tell it to save its work first."
             : exam.Applied.Count == 0 ? " It named no lesson it applied: a pass proves none. Ask it below which it applied."
             : $" 4-5 passes it and proves lesson{(exam.Applied.Count == 1 ? string.Empty : "s")} {string.Join(", ", exam.Applied)}; 1-3 fails it.";
@@ -152,8 +215,11 @@ public partial class MainWindow
     {
         if (AgentRunning || _task is not { Training: { } course } record || Training.OpenExam(course) is not { } exam) return;
         var proven = Training.Rate(course, exam, rating);
+        // The user's rating tells which critic judges as they do: the choice of critics learns from it.
+        var agreed = ArtCritic.Calibrate(exam, _projects.ReadWorkerEvidence(_taskProject ?? _projects.ActiveProject));
         record.Add(AgentEntryKind.You, $"Rated exam {course.Exams.IndexOf(exam) + 1}: {exam.Rating} of 5");
-        record.Add(AgentEntryKind.HandOff, Training.Verdict(course, exam, proven));
+        record.Add(AgentEntryKind.HandOff, Training.Verdict(course, exam, proven) +
+                                           (agreed is { } same ? same ? " · the art critic agreed" : " · the art critic did not agree" : string.Empty));
         SaveTask(record);
         ShowTask();
         if (proven.Count > 0) _ = StartPromoteAsync(record, course, exam, proven);

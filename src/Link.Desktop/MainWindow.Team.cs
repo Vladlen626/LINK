@@ -34,8 +34,9 @@ public partial class MainWindow
 
     /// <summary>
     /// A step's run: a new session of its worker, as the step's specialist with the skills its words call for, told the
-    /// task's state, what the steps before handed over and the step. On Auto, Link picks the effort from the step's words.
-    /// A step the lead sent back goes on in its worker's own session, told the lead's notes.
+    /// task's state, what the steps before handed over and the step; an art step sees the images the task began with. On
+    /// Auto, Link picks the effort from the step's words. A step the lead or the art critic sent back goes on in its
+    /// worker's own session, told their notes.
     /// </summary>
     private async Task StartTeamStepAsync(AgentTaskRecord record, TeamStep step, bool backup = false)
     {
@@ -47,9 +48,11 @@ public partial class MainWindow
         var skills = ProjectRoles.SkillsFor(step.Text, role, ProjectSkills.In(record.Workspace));
         var (model, effort) = settings.Level(provider, step.Level);
         var number = TeamRunner.Number(record, step);
-        var redo = step.ReviewNotes is { } notes && step.SessionId is { } session ? (Notes: notes, Session: session) : default;
-        var prompt = redo.Session is null ? TaskState.StepBrief(record, null, record.Workspace, step, AgentName) : TeamPlan.RedoPrompt(redo.Notes);
+        var again = step.ReviewNotes is { } notes ? TeamPlan.RedoPrompt(notes) : step.CriticNotes is { } defects ? ArtCritic.RedoPrompt(defects) : null;
+        var redo = again is not null && step.SessionId is { } session ? (Prompt: again, Session: session) : default;
+        var prompt = redo.Session is null ? TaskState.StepBrief(record, null, record.Workspace, step, AgentName) : redo.Prompt;
         step.ReviewNotes = null;
+        step.CriticNotes = null;
         step.Status = TeamStepStatus.Running;
         if (redo.Session is null)
         {
@@ -69,6 +72,8 @@ public partial class MainWindow
             Workspace = record.Workspace,
             Prompt = prompt,
             ResumeSessionId = redo.Session,
+            // The user's references; a session sent back has them already.
+            Images = StepKinds.IsArt(step.Kind) && redo.Session is null ? [.. record.Images.Where(File.Exists)] : [],
             Access = access,
             AllowedTools = AgentCoordinator.Tools(project, record.Workspace, access),
             CheckCommand = project.CheckCommand,
@@ -85,20 +90,23 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// After a run of the step under way: the step is done, goes to the lead's review, waits for the user's OK, is tried
-    /// again, goes a tier up, or the team stops; the next step starts by itself once this call is over. A run that asked
-    /// the user something waits for their answer in its session, and one that was stopped or hit a limit waits for "Go on".
-    /// A run while the step is under review is the lead's: its verdict decides the step.
+    /// After a run of the step under way: the step is done, goes to the art critic or the lead's review, waits for the
+    /// user's OK, is tried again, goes a tier up, or the team stops; the next step starts by itself once this call is
+    /// over. A run that asked the user something waits for their answer in its session, and one that was stopped or hit a
+    /// limit waits for "Go on". A run while the step is under review is the lead's, and one while it is judged the
+    /// critic's: their verdict decides the step.
     /// </summary>
     private void AfterTeamStep(AgentTaskRecord record, AgentRun run, bool needsYou)
     {
         if (run.Task.PlanOnly || TeamRunner.Current(record) is not { } step) return;
-        // Words to a step that waited for the OK changed it: it waits for the OK again. Files changed now show its work.
+        // Words to a step that waited for the OK changed it: it waits for the OK again. Files changed now show its work,
+        // and the critic's notes are of the work before.
         if (step.Status == TeamStepStatus.AwaitsOk)
         {
-            if (run.Changes.Count > 0 && step.Unverified)
+            if (run.Changes.Count > 0 && (step.Unverified || step.CriticNotes is not null))
             {
                 step.Unverified = false;
+                step.CriticNotes = null;
                 SaveTask(record);
             }
 
@@ -115,6 +123,14 @@ public partial class MainWindow
             return;
         }
 
+        if (step.Status == TeamStepStatus.Critique)
+        {
+            if (ArtCritic.Judges(run.Task)) AfterCritique(record, step, run, needsYou);
+            // Words the user left the artist for after its run went first: the critic judges what it made then.
+            else if (!needsYou) CritiqueAgain(record, step, run);
+            return;
+        }
+
         if (step.Status != TeamStepStatus.Running) return;
         var number = TeamRunner.Number(record, step);
         var before = step.Worker;
@@ -122,10 +138,14 @@ public partial class MainWindow
         var verdict = needsYou ? null : WorkerEvidence.Verdict(record.LastRun!);
         var failure = run.Check is { Passed: false } check ? $"the check failed: {check}" : run.Result.Summary;
         var evidence = _projects.ReadWorkerEvidence(_taskProject ?? _projects.ActiveProject);
-        var review = TeamRunner.Reviews(record, step, run.Changes.Count > 0, _settings.Current.Agent.Team.LeadReview);
-        var move = TeamRunner.After(record, step, verdict, run.Result.Summary, failure, Router(evidence), WorkerLabel, evidence, review, run.Changes.Count > 0);
+        var changed = run.Changes.Count > 0;
+        var art = verdict == true ? CritiqueOf(record, step, run, evidence) : (null, null, []);
+        var review = TeamRunner.Reviews(record, step, changed, _settings.Current.Agent.Team.LeadReview);
+        var move = TeamRunner.After(record, step, verdict, run.Result.Summary, failure, Router(evidence), WorkerLabel, evidence, review, changed,
+            critique: art.Critic is not null);
         var note = move switch
         {
+            TeamMove.Critique => $"Step {number} done by {before}: {WorkerLabel(art.Critic!)} judges its frames · {art.Why}",
             TeamMove.Review => $"Step {number} done by {before}: {LeadName(record)} reviews it",
             TeamMove.Next => $"Step {number} done by {before}",
             TeamMove.AwaitOk => $"Step {number} done by {before}: it waits for your OK",
@@ -137,16 +157,24 @@ public partial class MainWindow
             _ => null
         };
         // What the next workers are told of this step, besides the plan's line for it.
-        if (note is not null && move is TeamMove.Review or TeamMove.Next or TeamMove.AwaitOk or TeamMove.Unverified && step.HandedOver is { } handed)
+        if (note is not null && move is TeamMove.Critique or TeamMove.Review or TeamMove.Next or TeamMove.AwaitOk or TeamMove.Unverified &&
+            step.HandedOver is { } handed)
         {
             note += $" · hands over: {Shorten(handed, 240)}";
         }
+
+        // Art the critic should have judged: why it did not.
+        if (note is not null && art.Critic is null && art.Why is not null) note += " · " + art.Why;
 
         if (note is not null) record.Add(AgentEntryKind.HandOff, note);
         SaveTask(record);
         ShowTask();
         switch (move)
         {
+            case TeamMove.Critique:
+                var (critic, frames) = (art.Critic!, art.Frames);
+                Dispatcher.BeginInvoke(() => _ = StartCritiqueAsync(record, step, critic, run, frames));
+                break;
             case TeamMove.Review:
                 Dispatcher.BeginInvoke(() => _ = StartLeadReviewAsync(record, step, run));
                 break;
@@ -252,22 +280,164 @@ public partial class MainWindow
         };
     }
 
+    /// <summary>
+    /// Whether the art critic judges the art a step's run made, who and from which frames, and why that critic; for art
+    /// it cannot judge, why not. Nothing when art reviews are off, the step is not art the critic judges (see
+    /// <see cref="ArtCritic.Judgeable"/>) or the run changed no file: then it is unverified.
+    /// </summary>
+    private (Worker? Critic, string? Why, IReadOnlyList<string> Frames) CritiqueOf(AgentTaskRecord record, TeamStep step, AgentRun run,
+        WorkerEvidence evidence)
+    {
+        if (!_settings.Current.Agent.Team.ArtReview || !StepKinds.IsArt(step.Kind) || !ArtCritic.Judgeable(run.Task) || run.Changes.Count == 0 ||
+            step.Provider is not { } provider)
+        {
+            return (null, null, []);
+        }
+
+        var frames = ArtCritic.Frames(ArtCritic.Named(run.Result.Summary), record.Workspace, File.Exists);
+        if (frames.Count == 0) return (null, "it named no frames, so no art critic judged it", []);
+        var (critic, why) = CriticFor(new Worker(provider, step.Level, step.Model), evidence);
+        return (critic, why, frames);
+    }
+
+    /// <summary>Who judges an artist's work now, as Settings, the project's evidence and the agents' state stand (see <see cref="ArtCritic.Choose"/>).</summary>
+    private (Worker? Critic, string Reason) CriticFor(Worker artist, WorkerEvidence evidence) =>
+        ArtCritic.Choose(artist, _settings.Current.Agent, WorkerStateOf, evidence, provider => _agents.Provider(provider).Capabilities.Images, ShortName);
+
+    /// <summary>
+    /// The user's words changed a step's art before the critic judged it: the critic judges what the artist made then.
+    /// With no frames named or no critic to judge them, the step waits for the user's OK.
+    /// </summary>
+    private void CritiqueAgain(AgentTaskRecord record, TeamStep step, AgentRun run)
+    {
+        var number = TeamRunner.Number(record, step);
+        var evidence = _projects.ReadWorkerEvidence(_taskProject ?? _projects.ActiveProject);
+        var (critic, why, frames) = CritiqueOf(record, step, run, evidence);
+        if (critic is null)
+        {
+            TeamRunner.Critiqued(record, step, new LeadReview(ReviewVerdict.Stop, string.Empty), evidence);
+            record.Add(AgentEntryKind.HandOff, $"Step {number}: {why ?? "no art critic judged it"} · it waits for your OK");
+            SaveTask(record);
+            ShowTask();
+            OfferOk(record, step);
+            return;
+        }
+
+        record.Add(AgentEntryKind.HandOff, $"Step {number}: {WorkerLabel(critic)} judges its frames · {why}");
+        SaveTask(record);
+        ShowTask();
+        Dispatcher.BeginInvoke(() => _ = StartCritiqueAsync(record, step, critic, run, frames));
+    }
+
+    /// <summary>The art critic judges what an artist's run made for a step: its text, hand-over and saved files, the task's references.</summary>
+    private Task StartCritiqueAsync(AgentTaskRecord record, TeamStep step, Worker critic, AgentRun judged, IReadOnlyList<string> frames) =>
+        StartCriticAsync(record, critic, judged, step.Text, step.HandedOver, [.. judged.Changes.Select(change => Relative(change.Path))], record.Images,
+            frames);
+
+    /// <summary>
+    /// A new session of the art critic: read only, as the Art Critic with its skills and at its role's effort, told the
+    /// task, what was handed over and saved, the user's references and the frames, the first of them attached; never the
+    /// artist's account. After its verdict the user's words go on in the session of <paramref name="judged"/>.
+    /// </summary>
+    private async Task StartCriticAsync(AgentTaskRecord record, Worker critic, AgentRun judged, string task, string? handedOver,
+        IReadOnlyList<string> saved, IReadOnlyList<string> references, IReadOnlyList<string> frames)
+    {
+        var request = File.Exists(ArtCritic.RequestFile) ? await File.ReadAllTextAsync(ArtCritic.RequestFile) : string.Empty;
+        if (AgentRunning || _task != record) return;
+        var project = _taskProject ?? _projects.ActiveProject;
+        var role = ProjectRoles.Find(ArtCritic.RoleId, record.Workspace);
+        var (deepModel, deepEffort) = _settings.Current.Agent.Level(critic.Provider, AgentLevel.Deep);
+        var model = critic.Model ?? deepModel;
+        var efforts = _agents.Provider(critic.Provider).EffortsOf(model);
+        _critiqued = judged;
+        await StartAgentAsync(new AgentTask
+        {
+            Provider = critic.Provider,
+            Workspace = record.Workspace,
+            Prompt = ArtCritic.Prompt(request, task, handedOver, saved, [.. references.Where(File.Exists)], frames),
+            Images = [.. frames.Take(ArtCritic.MostFrames)],
+            Access = AgentAccess.Analyze,
+            AllowedTools = AgentCoordinator.Tools(project, record.Workspace, AgentAccess.Analyze),
+            Model = model,
+            // Its role's usual effort where the agent has it: judging frames needs no Deep level's longest thinking.
+            Effort = role?.Effort is { } usual && efforts.Any(effort => effort.Value == usual) ? usual : deepEffort,
+            RoleId = ArtCritic.RoleId,
+            Skills = ProjectRoles.SkillsFor(task, role, ProjectSkills.In(record.Workspace))
+        }, null);
+    }
+
+    /// <summary>
+    /// The art critic's run on a step ended: its verdict sends the step back to its artist with the defects, lets the team
+    /// go on, or leaves the step to the user's OK with what the critic saw; so does a run without a verdict (a Stop). A
+    /// question of the critic's waits for the user's answer in its session; after the verdict the user's words go on with
+    /// the artist's work.
+    /// </summary>
+    private void AfterCritique(AgentTaskRecord record, TeamStep step, AgentRun run, bool needsYou)
+    {
+        if (needsYou) return;
+        if (_critiqued is { } judged) _lastRun = judged;
+        _critiqued = null;
+        var number = TeamRunner.Number(record, step);
+        var artist = step.Worker;
+        var critic = WorkerLabel(new Worker(run.Task.Provider, AgentLevel.Deep, run.Task.Model));
+        var review = TeamPlan.SplitReview(run.Result.Summary).Review;
+        var evidence = _projects.ReadWorkerEvidence(_taskProject ?? _projects.ActiveProject);
+        var move = TeamRunner.Critiqued(record, step, review ?? new LeadReview(ReviewVerdict.Stop, string.Empty), evidence);
+        var score = review?.Score is { } given ? $", {given} of 5" : string.Empty;
+        var notes = review?.Notes is { Length: > 0 } said ? " · " + Shorten(said, 200) : string.Empty;
+        record.Add(AgentEntryKind.HandOff, review is null ? $"Step {number}: {critic} gave no verdict · it waits for your OK" : move switch
+        {
+            TeamMove.Redo => $"Step {number}: {critic} sends it back to {artist}{score} ({step.Redos} of {TeamRunner.MaxRedos}){notes}",
+            TeamMove.Stopped when review.Verdict == ReviewVerdict.Stop => $"Step {number}: {critic} leaves it to you{score} · it waits for your OK{notes}",
+            TeamMove.Stopped => $"Step {number}: {critic} still asks for changes{score} after {Plural(step.Redos, "redo")} · it waits for your OK{notes}",
+            _ => $"Step {number}: {critic} accepted the work of {artist}{score}{notes}"
+        });
+        if (move == TeamMove.Finished) record.Add(AgentEntryKind.HandOff, "The team is through all its steps");
+        SaveTask(record);
+        ShowTask();
+        if (move is TeamMove.Next or TeamMove.Redo) GoOnWithTeam(record);
+        else if (move is TeamMove.AwaitOk or TeamMove.Stopped) OfferOk(record, step);
+    }
+
+    /// <summary>
+    /// The user's words for a session, with the art critic's notes on the team's step when that session is the step's
+    /// artist's: the critic said them in its own session. Told once, they are the artist's to act on.
+    /// </summary>
+    private string WithCriticNotes(string words, string? session)
+    {
+        if (session is null || _task is not { } record || TeamRunner.Current(record) is not { CriticNotes: { } notes } step || step.SessionId != session)
+        {
+            return words;
+        }
+
+        step.CriticNotes = null;
+        SaveTask(record);
+        return ArtCritic.Heard(notes, words);
+    }
+
     /// <summary>The team's lead as the thread names it: the model of its planning run.</summary>
     private string LeadName(AgentTaskRecord record) =>
         record.Runs.FirstOrDefault(run => run.SessionId == record.LeadSession) is { } lead
             ? WorkerLabel(new Worker(lead.Provider, AgentLevel.Deep, lead.Model))
             : "The lead";
 
-    /// <summary>A step only the user can judge (a look, a feel): their OK lets the team go on.</summary>
+    /// <summary>
+    /// A step only the user can judge (a look, a feel), with what the art critic saw in it; or one the critic did not get
+    /// to judge: their OK lets the team go on.
+    /// </summary>
     private void OfferOk(AgentTaskRecord record, TeamStep step)
     {
         var number = TeamRunner.Number(record, step);
+        var critic = step.CriticNotes is { } notes ? $" The art critic: {Shorten(notes, 400)}" : string.Empty;
         _agentPanel!.ShowDecision(
-            (step.Unverified
+            step.Status == TeamStepStatus.Critique
+                ? $"The art critic did not judge step {number}: {Shorten(step.Text, 160)}. Look at it and go on; your words instead go " +
+                  "to its artist, and the critic judges what it makes then."
+                : step.Unverified
                 ? $"Step {number} is called done, but no file changed: {Shorten(step.Text, 160)}. Look in the editor; OK goes on without " +
                   "counting it for its worker; your words instead go to its session, such as to save the work."
-                : $"Step {number} is done and only you can judge it: {Shorten(step.Text, 160)}. Look at it, then go on; " +
-                  "your words instead go to its session to change it."),
+                : $"Step {number} is done and only you can judge it: {Shorten(step.Text, 160)}.{critic} Look at it, then go on; " +
+                  "your words instead go to its session to change it.",
             "OK, next step",
             canRemember: false);
         _decision = () =>
@@ -298,7 +468,7 @@ public partial class MainWindow
     private void OfferTeamGoOn(AgentTaskRecord record)
     {
         if (AgentRunning || _agentPanel is null || TeamRunner.Current(record) is not { Status: not TeamStepStatus.Failed } step) return;
-        if (step.Status == TeamStepStatus.AwaitsOk)
+        if (step.Status is TeamStepStatus.AwaitsOk or TeamStepStatus.Critique)
         {
             OfferOk(record, step);
             return;

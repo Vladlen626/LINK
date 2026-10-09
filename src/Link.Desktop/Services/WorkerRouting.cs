@@ -60,14 +60,14 @@ public static class WorkerRouting
 
     /// <summary>
     /// The tier and worker for a step, and why. The tier is the one the plan asked for (<paramref name="asked"/>; an
-    /// escalated step asks for the next tier up), else the kind's own. Design and Asset never go below Standard, and an
-    /// Asset step goes only to an agent that sees images (<paramref name="seesImages"/>; default: all but the custom
-    /// model). Quality first: a cheaper worker the project has proven for the kind is only suggested in the reason,
-    /// unless Settings let Link lower the tier by itself (<see cref="TeamSettings.AutoLower"/>). A worker that cannot
-    /// work now (not set up, at its limit) is replaced by the other subscription agent at the same level (Claude Code
-    /// and Codex stand in for each other); the step rises a tier only where the worker failed the kind here, or neither
-    /// can work. Above Strong there is no worker, and the reason says why. <paramref name="agentName"/> names an agent
-    /// in the reason (default <see cref="ShortName"/>).
+    /// escalated step asks for the next tier up), else the kind's own. Design and art (<see cref="StepKinds.IsArt"/>)
+    /// never go below Standard, and art goes only to an agent that sees images (<paramref name="seesImages"/>; default:
+    /// all but the custom model). Quality first: a cheaper worker the project has proven for the kind is only suggested
+    /// in the reason, unless Settings let Link lower the tier by itself (<see cref="TeamSettings.AutoLower"/>). A
+    /// worker that cannot work now (not set up, at its limit) is replaced by the other subscription agent at the same
+    /// level (Claude Code and Codex stand in for each other); the step rises a tier only where the worker failed the
+    /// kind here, or neither can work. Above Strong there is no worker, and the reason says why.
+    /// <paramref name="agentName"/> names an agent in the reason (default <see cref="ShortName"/>).
     /// </summary>
     public static (WorkerTier Tier, Worker? Worker, string Reason) Route(
         StepKind kind,
@@ -83,7 +83,7 @@ public static class WorkerRouting
         var workers = Workers(settings, state);
         var parts = new List<string>();
         string? hint = null;
-        var floor = kind is StepKind.Design or StepKind.Asset ? WorkerTier.Standard : WorkerTier.Light;
+        var floor = kind == StepKind.Design || StepKinds.IsArt(kind) ? WorkerTier.Standard : WorkerTier.Light;
         var tier = asked ?? StepKinds.TierOf(kind);
         var below = tier > floor ? workers[tier - 1] : null;
         if (asked is { } plan) parts.Add($"the plan chose {plan}");
@@ -155,7 +155,7 @@ public static class WorkerRouting
     private static string Reason(StepKind kind, List<string> parts, string to, string? hint) =>
         (parts.Count == 0 ? $"{kind} → {to}" : $"{kind}: {string.Join(", ", parts)} → {to}") + (hint is null ? string.Empty : $" ({hint})");
 
-    /// <summary>Why a worker cannot take a step now whatever it did before, in words: not set up, at its limit, no eyes for an Asset; null if it can.</summary>
+    /// <summary>Why a worker cannot take a step now whatever it did before, in words: not set up, at its limit, no eyes for art; null if it can.</summary>
     private static string? Cannot(
         StepKind kind, Worker worker, Func<AgentProviderKind, WorkerState> state, Func<AgentProviderKind, bool> seesImages, Func<AgentProviderKind, string> agentName)
     {
@@ -164,7 +164,7 @@ public static class WorkerRouting
         {
             WorkerState.NotSet => $"{name} is not set up",
             WorkerState.LimitReached => $"{name} limit reached",
-            _ => kind == StepKind.Asset && !seesImages(worker.Provider) ? $"{name} cannot see images" : null
+            _ => StepKinds.IsArt(kind) && !seesImages(worker.Provider) ? $"{name} cannot see images" : null
         };
     }
 

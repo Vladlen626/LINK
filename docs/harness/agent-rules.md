@@ -48,6 +48,7 @@ dialog: a question or a request for permission ends it, and the user's answer co
 
 ## Project and environment
 - `docs/map.md`, if present, is the project's map: what is where, how to build and check. Read it first.
+- `docs/art/STYLE.md`, if present, is the game's art profile: art work follows it over any skill's default.
 - Project skills are `.agents/skills/<name>/SKILL.md`: repeated work that a skill describes, do by it. A skill or a
   tool was missing: say which at the end. A skill marked "pack, shared" lies outside the workspace and is the tool's
   know-how for every project: never change it there. A lesson true in any project with that tool (a pitfall, a better

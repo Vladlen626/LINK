@@ -12,7 +12,8 @@ that proves nothing). Your lessons are rules for future work, not a summary of t
 - each one checkable in a real task: an exam must be able to show it worked or not;
 - only what is new to your skills and matters for this project's kind of work; at most 8, fewer is better;
 - `skill`: the skill it goes into, one of those you read (a pack's general skill such as `blender-model`), or a new
-  name if none fits; `project`: true only when it is true of this game alone.
+  name if none fits; `project`: true only when it is true of this game alone. A lesson about how this game looks
+  (its shapes, palette, proportions, detail) is `"skill": "style"` and project: it goes into the game's art profile.
 
 Answer in short: what you studied (a line per source), what changes in how you work, and a good exam for these
 lessons: a real task of this project that would show them, and the references the user should attach. End with one

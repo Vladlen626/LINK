@@ -115,6 +115,7 @@ public partial class SettingsWindow : Window
         ContextBudgetCombo.SelectedIndex = _budgets.IndexOf(current.Agent.ContextBudget);
         AutoEffortBox.IsChecked = current.Agent.AutoEffort;
         LeadReviewBox.IsChecked = current.Agent.Team.LeadReview;
+        ArtReviewBox.IsChecked = current.Agent.Team.ArtReview;
         var claude = _agents.First(agent => agent.Kind == AgentProviderKind.ClaudeCode);
         var codex = _agents.First(agent => agent.Kind == AgentProviderKind.Codex);
         ShowChoices(ClaudeModelCombo, claude.Models, current.Agent.ClaudeModel, "Default — Claude Code's own");
@@ -710,6 +711,7 @@ public partial class SettingsWindow : Window
         current.Agent.ContextBudget = ContextBudgetCombo.SelectedIndex >= 0 ? _budgets[ContextBudgetCombo.SelectedIndex] : current.Agent.ContextBudget;
         current.Agent.AutoEffort = AutoEffortBox.IsChecked == true;
         current.Agent.Team.LeadReview = LeadReviewBox.IsChecked == true;
+        current.Agent.Team.ArtReview = ArtReviewBox.IsChecked == true;
         current.Agent.ClaudeModel = Chosen(ClaudeModelCombo);
         current.Agent.CodexModel = Chosen(CodexModelCombo);
         current.Agent.SetEffort(AgentProviderKind.ClaudeCode, Chosen(ClaudeEffortCombo));

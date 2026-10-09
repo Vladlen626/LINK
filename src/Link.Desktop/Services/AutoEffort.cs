@@ -62,8 +62,8 @@ public static class AutoEffort
     /// <summary>
     /// The effort for a step of a team plan and why: the step's kind as the lead named it, not the words of its text,
     /// which tell what the step touches (a long step mentions renames and comments in passing). Design, an unknown cause
-    /// and editor or DCC work high, code, tests and reviews medium, mechanical edits and text low; one above that once
-    /// the step has failed (<paramref name="failures"/>).
+    /// and editor or DCC work high, code, tests, reviews and instances of a generator medium, mechanical edits and text
+    /// low; one above that once the step has failed (<paramref name="failures"/>).
     /// </summary>
     public static (string? Effort, string Reason) ForStep(StepKind kind, IReadOnlyList<string> efforts, int failures)
     {
@@ -76,6 +76,7 @@ public static class AutoEffort
         var what = kind switch
         {
             StepKind.Asset => "an asset step",
+            StepKind.Instance => "an instance step",
             StepKind.Investigate => "an investigation step",
             StepKind.Docs => "a text step",
             _ => $"a {kind.ToString().ToLowerInvariant()} step"

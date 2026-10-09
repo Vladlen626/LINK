@@ -28,8 +28,11 @@ public enum ReviewVerdict
     Stop
 }
 
-/// <summary>The lead's verdict on a step and its notes: what to change, or why it stops.</summary>
-public sealed record LeadReview(ReviewVerdict Verdict, string Notes);
+/// <summary>
+/// The lead's verdict on a step and its notes: what to change, or why it stops. The art critic's comes the same way,
+/// with its score of the whole, 1-5 (null: none given).
+/// </summary>
+public sealed record LeadReview(ReviewVerdict Verdict, string Notes, int? Score = null);
 
 /// <summary>
 /// The team plan the lead ends its answer with, as its rules ask: a fenced <c>link-plan</c> block of JSON, a list of
@@ -43,8 +46,8 @@ public static partial class TeamPlan
     /// <summary>
     /// The answer without its last link-plan block, and the steps that block holds; the answer as it is and no steps
     /// when there is none, it does not read or holds no step. A step without a known kind is classified by its words
-    /// (<see cref="StepKinds.Of"/>), an unknown worker or a role that is not among <paramref name="roles"/> is none, a
-    /// step without words is dropped.
+    /// (<see cref="StepKinds.Of"/>), an unknown worker or a role that is not among <paramref name="roles"/> is none (so is
+    /// the art critic: Link's own), a step without words is dropped.
     /// </summary>
     public static (string Text, IReadOnlyList<PlannedStep> Steps) Split(string answer, IReadOnlyList<AgentRole>? roles = null)
     {
@@ -75,12 +78,14 @@ public static partial class TeamPlan
 
     /// <summary>
     /// What the lead is asked when the task is planned for a team: the task, the request for a plan (the text of
-    /// <see cref="TaskFile"/>), the specialists it can give a step to, and what workers did in this project before
-    /// (<see cref="WorkerEvidence.Summary"/>).
+    /// <see cref="TaskFile"/>), the specialists it can give a step to (all but the art critic: Link's own), and what
+    /// workers did in this project before (<see cref="WorkerEvidence.Summary"/>).
     /// </summary>
     public static string Prompt(string task, string request, IReadOnlyList<string> evidence, IReadOnlyList<AgentRole>? roles = null) =>
         task.Trim() + "\n\n" + AgentRules.WithoutNotes(request) +
-        (roles is { Count: > 0 } ? "\n\nSpecialists for a step's \"role\":\n" + string.Join('\n', roles.Select(role => $"- {role.Id}: {role.Name}. {role.Description}")) : string.Empty) +
+        (roles?.Where(StepRole).ToArray() is { Length: > 0 } specialists
+            ? "\n\nSpecialists for a step's \"role\":\n" + string.Join('\n', specialists.Select(role => $"- {role.Id}: {role.Name}. {role.Description}"))
+            : string.Empty) +
         "\n\nWhat workers did in this project before:" +
         (evidence.Count == 0 ? " nothing yet" : "\n" + string.Join('\n', evidence.Select(line => "- " + line)));
 
@@ -109,8 +114,8 @@ public static partial class TeamPlan
         $"The team lead reviewed your step and asks for this:\n{notes.Trim()}\nFix it in place: your changes are in the workspace. {StepEnd}";
 
     /// <summary>
-    /// The answer without its last link-review block, and the verdict that block holds; the answer as it is and null when
-    /// there is none or it does not read.
+    /// The answer without its last link-review block, and the verdict that block holds, with its score clamped to 1-5
+    /// when it gives one; the answer as it is and null when there is none or it does not read.
     /// </summary>
     public static (string Text, LeadReview? Review) SplitReview(string answer)
     {
@@ -125,7 +130,7 @@ public static partial class TeamPlan
             }
 
             var text = (answer[..match.Index] + answer[(match.Index + match.Length)..]).Trim();
-            return (text, new LeadReview(verdict, AgentQuestion.Text(json.RootElement, "notes")?.Trim() ?? string.Empty));
+            return (text, new LeadReview(verdict, AgentQuestion.Text(json.RootElement, "notes")?.Trim() ?? string.Empty, Score(json.RootElement)));
         }
         catch (JsonException)
         {
@@ -172,16 +177,26 @@ public static partial class TeamPlan
             case JsonValueKind.Object when AgentQuestion.Text(element, "step")?.Trim() is { Length: > 0 } text:
                 return new PlannedStep(
                     text,
-                    ByName<StepKind>(AgentQuestion.Text(element, "kind")) ?? StepKinds.Of(text),
+                    PlanKind(AgentQuestion.Text(element, "kind")) ?? StepKinds.Of(text),
                     ByName<WorkerTier>(AgentQuestion.Text(element, "worker")),
                     AgentQuestion.Text(element, "why")?.Trim() ?? string.Empty,
                     Files(element),
-                    roles.FirstOrDefault(role => string.Equals(role.Id, AgentQuestion.Text(element, "role")?.Trim(), StringComparison.OrdinalIgnoreCase))?.Id,
+                    roles.FirstOrDefault(role => StepRole(role) && string.Equals(role.Id, AgentQuestion.Text(element, "role")?.Trim(), StringComparison.OrdinalIgnoreCase))?.Id,
                     Check(element));
             default:
                 return null;
         }
     }
+
+    // A critique is Link's own judgement of art, never a step a worker is given; nor is the critic a step's specialist.
+    private static StepKind? PlanKind(string? name) => ByName<StepKind>(name) is { } kind && kind != StepKind.Critique ? kind : null;
+
+    private static bool StepRole(AgentRole role) => !string.Equals(role.Id, ArtCritic.RoleId, StringComparison.OrdinalIgnoreCase);
+
+    private static int? Score(JsonElement review) =>
+        review.TryGetProperty("score", out var score) && score.ValueKind == JsonValueKind.Number && score.TryGetDouble(out var value)
+            ? Math.Clamp((int)Math.Round(value), 1, 5)
+            : null;
 
     private static bool Check(JsonElement step) =>
         step.TryGetProperty("check", out var check) &&
