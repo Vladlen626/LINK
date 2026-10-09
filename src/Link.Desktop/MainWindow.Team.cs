@@ -93,9 +93,15 @@ public partial class MainWindow
     private void AfterTeamStep(AgentTaskRecord record, AgentRun run, bool needsYou)
     {
         if (run.Task.PlanOnly || TeamRunner.Current(record) is not { } step) return;
-        // Words to a step that waited for the OK changed it: it waits for the OK again.
+        // Words to a step that waited for the OK changed it: it waits for the OK again. Files changed now show its work.
         if (step.Status == TeamStepStatus.AwaitsOk)
         {
+            if (run.Changes.Count > 0 && step.Unverified)
+            {
+                step.Unverified = false;
+                SaveTask(record);
+            }
+
             if (!needsYou) OfferOk(record, step);
             return;
         }
@@ -117,12 +123,13 @@ public partial class MainWindow
         var failure = run.Check is { Passed: false } check ? $"the check failed: {check}" : run.Result.Summary;
         var evidence = _projects.ReadWorkerEvidence(_taskProject ?? _projects.ActiveProject);
         var review = TeamRunner.Reviews(record, step, run.Changes.Count > 0, _settings.Current.Agent.Team.LeadReview);
-        var move = TeamRunner.After(record, step, verdict, run.Result.Summary, failure, Router(evidence), WorkerLabel, evidence, review);
+        var move = TeamRunner.After(record, step, verdict, run.Result.Summary, failure, Router(evidence), WorkerLabel, evidence, review, run.Changes.Count > 0);
         var note = move switch
         {
             TeamMove.Review => $"Step {number} done by {before}: {LeadName(record)} reviews it",
             TeamMove.Next => $"Step {number} done by {before}",
             TeamMove.AwaitOk => $"Step {number} done by {before}: it waits for your OK",
+            TeamMove.Unverified => $"Step {number}: {before} says it is done, but no file changed: unverified, not counted for it · it waits for your OK",
             TeamMove.Retry => $"Step {number} failed: {before} tries once more",
             TeamMove.Escalated => $"Step {number} failed twice: {step.Worker} takes it · {step.Reason}",
             TeamMove.Failed => $"Step {number} failed and no worker is left for it: the team stops · {step.Reason}",
@@ -130,7 +137,7 @@ public partial class MainWindow
             _ => null
         };
         // What the next workers are told of this step, besides the plan's line for it.
-        if (note is not null && move is TeamMove.Review or TeamMove.Next or TeamMove.AwaitOk && step.HandedOver is { } handed)
+        if (note is not null && move is TeamMove.Review or TeamMove.Next or TeamMove.AwaitOk or TeamMove.Unverified && step.HandedOver is { } handed)
         {
             note += $" · hands over: {Shorten(handed, 240)}";
         }
@@ -146,7 +153,7 @@ public partial class MainWindow
             case TeamMove.Next or TeamMove.Retry or TeamMove.Escalated:
                 GoOnWithTeam(record);
                 break;
-            case TeamMove.AwaitOk:
+            case TeamMove.AwaitOk or TeamMove.Unverified:
                 OfferOk(record, step);
                 break;
             case TeamMove.Paused when !needsYou:
@@ -256,8 +263,11 @@ public partial class MainWindow
     {
         var number = TeamRunner.Number(record, step);
         _agentPanel!.ShowDecision(
-            $"Step {number} is done and only you can judge it: {Shorten(step.Text, 160)}. Look at it, then go on; " +
-            "your words instead go to its session to change it.",
+            (step.Unverified
+                ? $"Step {number} is called done, but no file changed: {Shorten(step.Text, 160)}. Look in the editor; OK goes on without " +
+                  "counting it for its worker; your words instead go to its session, such as to save the work."
+                : $"Step {number} is done and only you can judge it: {Shorten(step.Text, 160)}. Look at it, then go on; " +
+                  "your words instead go to its session to change it."),
             "OK, next step",
             canRemember: false);
         _decision = () =>

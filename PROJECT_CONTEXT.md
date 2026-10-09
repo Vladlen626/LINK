@@ -416,6 +416,16 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    Explorer). Решения пользователя: план — шаг строкой с раскрытием, «What Link gave» убран (есть Harness →
    Injected context); skills — пакетный skill общий, проект дополняет его своим `<пакет>-project`, общие уроки — в
    пакет и через `share-packs` в git для коллег; Link обновляет неизменённые файлы пакетов.
+10. **Обучение специалистов** (PDF пользователя «LINK Agent Training», 09.10) — [docs/TRAINING_PLAN.md](docs/TRAINING_PLAN.md).
+   Решение: прочитанное — не навык; урок попадает в skill только после экзамена на настоящей задаче пользователя.
+   Сделан MVP (TR.1–TR.4, 09.10, ждёт проверки пользователем): галка **Train** на карточке, учёба только чтением
+   (WebFetch/WebSearch без вопросов) → до 8 уроков-кандидатов (блок `link-lessons`, карточка Lessons) → **Ready for
+   exam** → экзамен в новой сессии специалиста с уроками и rubric роли, без лекции (блок `link-exam`) → оценка
+   пользователя 1–5 (4–5 — Pass) → доказанные уроки вписывает сессия экзамена (общие — в копию skill пакета,
+   проектные — в `<пакет>-project`) → Share with all games. Экзамен без изменённых файлов и шаг Asset команды без
+   файлов — UNVERIFIED (не в `workers.json`). Blender: стадии и review sheet в `blender-model`, `shots.py` — вид `34r`
+   и looks lit/matcap/wire/uv (проверено в фоновом Blender 5.2), rubric у 3D Artist. Живой прогон учёбы и экзамена не
+   запускался. Дальше (V2): Skill Evidence по поднавыкам, Visual Critic, Reference Board, A/B exam; V3 — генерация.
 
 ## Для AI-агентов
 

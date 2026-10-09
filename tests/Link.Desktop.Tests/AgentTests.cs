@@ -105,6 +105,7 @@ internal static class AgentTests
         RoleSuggestAll();
         StepBriefBuilt();
         TeamRunnerMoves();
+        TrainingCourseRules();
         LeadReviewText();
         ToolPacksUsed();
         RoleColors();
@@ -3914,8 +3915,100 @@ internal static class AgentTests
         Program.Equal("lead review: a new session for a step sent back is told the lead's notes",
             TaskState.StepBrief(reviewed, null, @"C:\Game", code).Contains("asks for this: Use the input map", StringComparison.Ordinal), true);
 
+        var asset = Planned();
+        asset.Team[0].Status = TeamStepStatus.Done;
+        var model = asset.Team[1];
+        model.Kind = StepKind.Asset;
+        var assetEvidence = new WorkerEvidence();
+        Program.Equal("unverified: an asset step called done with no file changed is not counted for its worker and waits for the user's OK",
+            (TeamRunner.After(asset, model, true, "Modeled the dash.", "", route, Name, assetEvidence, changed: false), model.Status, model.Unverified,
+                assetEvidence.Records.Count, TeamRunner.PlanItems(asset, _ => null)[1].Doing),
+            (TeamMove.Unverified, TeamStepStatus.AwaitsOk, true, 0, "Unverified, no file changed: waits for your OK: Add the dash"));
+        var plain = Planned();
+        Program.Equal("unverified: a code step with no file changed is done as before",
+            TeamRunner.After(plain, plain.Team[1], true, "Nothing to change.", "", route, Name, new WorkerEvidence(), changed: false), TeamMove.Next);
+
         Program.Equal("team suggested: two specialists or a list of three things to do",
             (TeamRunner.Suggests("Do it:\n- import the car\n- add doors\n2. add the trunk", []), TeamRunner.Suggests("- import the car\n- add doors", [])), (true, false));
+    }
+
+    private static void TrainingCourseRules()
+    {
+        var lessons = Training.Lessons("""
+            Studied the lecture.
+            ```link-lessons
+            [{"text": " Block out the silhouette first. Check it from three sides. ", "skill": "blender-model"},
+             {"text": "Doors of this SUV open 70 degrees", "skill": "blender-project", "project": true},
+             {"text": ""}, 7, {"skill": "blender-model"}]
+            ```
+            """);
+        Program.Equal("training: the study's lessons are the block's, with words, their skill and whether only this game needs them",
+            string.Join("|", lessons.Select(lesson => $"{lesson.Text}/{lesson.Skill}/{lesson.Project}/{lesson.Status}")),
+            "Block out the silhouette first. Check it from three sides./blender-model/False/Candidate|Doors of this SUV open 70 degrees/blender-project/True/Candidate");
+        var many = "```link-lessons\n{\"lessons\": [" + string.Join(", ", Enumerable.Range(1, 12).Select(n => $"{{\"text\": \"Lesson {n}\"}}")) + "]}\n```";
+        Program.Equal("training: lessons are read from an object too, at most eight; a broken block holds none",
+            (Training.Lessons(many).Count, Training.Lessons("```link-lessons\n[{\"text\": \n```").Count, Training.Lessons("No block.").Count), (8, 0, 0));
+
+        var exam = new TrainingExam { Brief = "Model the dash" };
+        Program.Equal("training: the exam's block gives the lessons applied, its own scores 1-5 and its frames",
+            (Training.ReadExam("Done.\n```link-exam\n{\"applied\": [1, 3, 3, \"2\"], \"scores\": {\"Silhouette\": 7, \"Proportions\": 3, \"Mood\": \"good\"}, \"sheet\": [\"C:/t/sheet.png\", \" \"]}\n```", exam),
+                string.Join(",", exam.Applied), string.Join(",", exam.Scores.Select(score => $"{score.Key}={score.Value}")), string.Join(",", exam.Sheet),
+                Training.ReadExam("No block.", exam), exam.Applied.Count),
+            (true, "1,3", "Silhouette=5,Proportions=3", "C:/t/sheet.png", false, 2));
+
+        static TrainingCourse Course() => new()
+        {
+            Stage = TrainingStage.Exam,
+            Lessons =
+            [
+                new TrainingLesson { Text = "Silhouette first.", Skill = "blender-model" },
+                new TrainingLesson { Text = "One bevel everywhere looks cheap.", Skill = "blender-model", Status = LessonStatus.Proven, Exams = 1, Passed = 1 },
+                new TrainingLesson { Text = "Panels follow how it is made.", Skill = "blender-model" }
+            ],
+            Exams = [new TrainingExam { Brief = "Model the SUV", Applied = [1, 3, 9], Files = ["Art/SUV.blend"] }]
+        };
+        var course = Course();
+        var open = course.Exams[0];
+        Program.Equal("training: the exam under way waits for its rating; its lessons are under way on the card, proven ones done",
+            (Training.OpenExam(course) == open,
+                string.Join("|", Training.PlanItems(course).Select(item => $"{TeamPlan.Headline(item.Text).Title}/{item.Done}/{item.Active}/{item.Worker}"))),
+            (true, "1) Silhouette first./False/True/blender-model|2) One bevel everywhere looks cheap./True/False/blender-model|3) Panels follow how it is made./False/True/blender-model"));
+        var proven = Training.Rate(course, open, 4);
+        Program.Equal("training: a pass proves the candidate lessons it applied, counts the proven one again, and the training writes them into skills",
+            (open.Result, string.Join(",", proven.Select(lesson => course.Lessons.IndexOf(lesson) + 1)), course.Lessons[0].Passed, course.Stage,
+                Training.OpenExam(course), Training.Verdict(course, open, proven)),
+            (ExamResult.Pass, "1,3", 1, TrainingStage.Promoting, (TrainingExam?)null, "Exam 1 rated 4 of 5: passed · proven: lessons 1, 3"));
+        var failed = Course();
+        Program.Equal("training: below 4 the exam fails, the lessons stay candidates with one exam more, and the next words set another exam",
+            (Training.Rate(failed, failed.Exams[0], 3).Count, failed.Exams[0].Result, failed.Lessons[0].Status, failed.Lessons[0].Exams, failed.Stage),
+            (0, ExamResult.Fail, LessonStatus.Candidate, 1, TrainingStage.AwaitsExam));
+        var empty = Course();
+        empty.Exams[0].Files = [];
+        Program.Equal("training: an exam that changed no file is unverified whatever the rating, and counts for no lesson",
+            (Training.Rate(empty, empty.Exams[0], 5).Count, empty.Exams[0].Result, empty.Lessons[0].Exams, Training.Verdict(empty, empty.Exams[0], [])),
+            (0, ExamResult.Unverified, 0, "Exam 1 rated 5 of 5: unverified, it changed no file, so it proves nothing"));
+
+        var role = new AgentRole("3d-artist", "3D Artist", "", [], [], null, "## Duties\n- Model.\n## Rubric\n- Silhouette: reads.\n- Forms: built.\n## Hand over\n- Next.", "");
+        Program.Equal("training: the exam is told the candidate lessons by their numbers, the role's rubric and the task, not the notes",
+            Training.ExamPrompt("<!-- note -->Sit the exam.", Course(), role, "Model the dash with the refs"),
+            "Sit the exam.\n\n## Lessons to prove\n1. Silhouette first.\n3. Panels follow how it is made.\n\n## Rubric\nYour role's rubric:\n- Silhouette: reads.\n- Forms: built." +
+            "\n\n## The exam\nModel the dash with the refs");
+        Program.Equal("training: a role without a rubric is scored on Link's own scales",
+            Training.ExamPrompt("Sit it.", Course(), null, "Task").Contains(Training.DefaultRubric, StringComparison.Ordinal), true);
+        Program.Equal("training: the promotion is told each proven lesson with its skill and reach",
+            Training.PromotePrompt("Write them.", [new TrainingLesson { Text = "Silhouette first.", Skill = "blender-model" }, new TrainingLesson { Text = "Doors open 70°.", Project = true }]),
+            "Write them.\n\n## Proven lessons\n- [blender-model, all games] Silhouette first.\n- [your main skill, this game only] Doors open 70°.");
+        Program.Equal("training: the sources are the goal's links, without the sentence's end, and the attached files, once each",
+            string.Join("|", Training.Sources("Study https://example.com/vfx-breakdown, and (https://youtu.be/abc).\nhttps://example.com/vfx-breakdown", [@"C:\Docs\Lecture.pdf"])),
+            @"https://example.com/vfx-breakdown|https://youtu.be/abc|C:\Docs\Lecture.pdf");
+        Program.Equal("training: the thread shows answers without the lessons and the exam's blocks",
+            TeamPlan.WithoutBlocks("Studied.\n```link-lessons\n[]\n```\nMade it.\n```link-exam\n{}\n```"), "Studied.\n\nMade it.");
+
+        var record = new AgentTaskRecord { Goal = "Train", Workspace = @"C:\Game", Mode = TaskMode.Training, Training = Course() };
+        var loaded = JsonSerializer.Deserialize<AgentTaskRecord>(JsonSerializer.Serialize(record))!;
+        Program.Equal("training: a training task keeps its course through saving",
+            (loaded.Mode, loaded.Training!.Lessons.Count, loaded.Training.Lessons[1].Status, loaded.Training.Exams[0].Applied.Count, loaded.Training.Stage),
+            (TaskMode.Training, 3, LessonStatus.Proven, 3, TrainingStage.Exam));
     }
 
     private static void LeadReviewText()

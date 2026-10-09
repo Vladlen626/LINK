@@ -134,8 +134,9 @@ public static partial class TeamPlan
     }
 
     /// <summary>
-    /// The answer without its link-plan and link-review blocks, one cut short at the end included: the plan is the plan
-    /// card and the verdict a line of the thread, not words to read.
+    /// The answer without Link's blocks (link-plan, link-review, and a training's link-lessons and link-exam), one cut
+    /// short at the end included: the plan and the lessons are the plan card and a verdict a line of the thread, not
+    /// words to read.
     /// </summary>
     public static string WithoutBlocks(string answer) => AnyBlock().Replace(answer, string.Empty).Trim();
 
@@ -209,7 +210,7 @@ public static partial class TeamPlan
     private static partial Regex ReviewBlock();
 
     // A kept answer is cut at its length, so the last block may have lost its closing fence.
-    [GeneratedRegex(@"```link-(?:plan|review)[^\n]*\n.*?(?:```|\z)", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"```link-(?:plan|review|lessons|exam)[^\n]*\n.*?(?:```|\z)", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex AnyBlock();
 
     // The end of a step's first sentence: a full stop before a space or a line, or a line break.

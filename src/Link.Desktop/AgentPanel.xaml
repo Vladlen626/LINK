@@ -399,6 +399,10 @@
                                   Content="Team: the lead plans the steps, Link gives each to its worker"
                                   ToolTip="Strong plans, read only; you see each step with its worker and why, then run the team. Steps run one after another"
                                   Visibility="Collapsed" />
+                        <CheckBox x:Name="TrainBox" Margin="0,8,0,0" FontSize="12.5" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Click="TrainBox_OnClick"
+                                  Content="Train the specialist: it studies your sources, then proves its lessons in an exam"
+                                  ToolTip="Links in the goal and attached PDFs are the sources; the study only reads. Its lessons reach a skill only after an exam you rate 4 or 5"
+                                  Visibility="Collapsed" />
                         <CheckBox x:Name="PlanFirstBox" Margin="0,8,0,0" FontSize="12.5" Checked="Card_OnChanged" Unchecked="Card_OnChanged" />
                         <CheckBox x:Name="BackupBox" Margin="0,8,0,0" FontSize="12.5" IsChecked="True" Content="Copy the folder before edits"
                                   ToolTip="The workspace has no Git or Perforce: undo puts the files back from this copy" />
@@ -533,6 +537,20 @@
                             <CheckBox x:Name="AlwaysBox" Margin="0,8,0,0" FontSize="12.5" Content="Always allow for this project" />
                             <Button x:Name="DecisionButton" Style="{StaticResource PrimaryButtonStyle}" Height="30" Margin="0,10,0,0"
                                     Padding="14,0" HorizontalAlignment="Left" Click="Decision_OnClick" />
+                        </StackPanel>
+                    </Border>
+
+                    <!-- A training's exam waits for the user's rating: the verdict is theirs, the agent's own scores are a hint. -->
+                    <Border x:Name="RatingCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
+                        <StackPanel>
+                            <TextBlock x:Name="RatingText" Style="{StaticResource RowTextStyle}" />
+                            <WrapPanel Margin="0,4,0,0">
+                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Margin="0,6,6,0" Click="Rating_OnClick" Tag="1" Content="1" ToolTip="Bad: the lessons stay candidates" />
+                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Margin="0,6,6,0" Click="Rating_OnClick" Tag="2" Content="2" />
+                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Margin="0,6,6,0" Click="Rating_OnClick" Tag="3" Content="3" ToolTip="So-so: still a fail" />
+                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Margin="0,6,6,0" Click="Rating_OnClick" Tag="4" Content="4" ToolTip="Good: a pass, the lessons it applied are proven" />
+                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Margin="0,6,6,0" Click="Rating_OnClick" Tag="5" Content="5" />
+                            </WrapPanel>
                         </StackPanel>
                     </Border>
 

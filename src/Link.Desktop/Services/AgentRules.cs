@@ -57,7 +57,7 @@ public static partial class AgentRules
     public static string WithoutNotes(string text) => Comment().Replace(text, string.Empty).Trim();
 
     /// <summary>A harness file without its notes for whoever edits it; empty when it is missing.</summary>
-    private static string ReadHarness(string file)
+    public static string ReadHarness(string file)
     {
         try
         {

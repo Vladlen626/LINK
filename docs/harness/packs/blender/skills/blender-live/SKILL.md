@@ -30,11 +30,13 @@ scripts in the project (`tools/blender/` unless `docs/map.md` says otherwise), n
 ## Check by numbers, then by frames
 - Numbers first: dimensions in metres, vertex and face counts, pivots, bone positions, distances - a short script
   returns them in `result`. Frames only for what numbers cannot tell (silhouette, deformation).
-- `python blender_mcp.py py shots.py <objects|*> [front,left,34] [frames] [prefix]` renders PNGs to
+- `python blender_mcp.py py shots.py <objects|*> [front,left,34] [frames] [prefix] [looks]` renders PNGs to
   `%TEMP%\blender_shots`; `uv run --no-project --with pillow sheet.py out.png <cols> <png…>` glues them; then read the
-  one sheet, not each frame.
-- A camera render draws no overlays: for a wireframe frame add a temporary Wireframe modifier (`use_replace`), for a
-  UV check an active Image Texture node with a generated grid and shading `color_type` `TEXTURE`; take both off after.
+  one sheet, not each frame. Views also `back`, `right`, `top`, `34r` (rear 3/4); looks `lit`, `matcap` (the form
+  alone), `wire`, `uv` (a grid: stretching and texel density). A model's review sheet in one call:
+  `shots.py <objects> front,left,back,34,34r,top 1 sheet lit,matcap,wire,uv`, glued 6 to a row.
+- A camera render draws no overlays: that is why `wire` adds a temporary Wireframe modifier and `uv` an active Image
+  Texture node with a generated grid; the script takes them off after, as any check of yours must.
 - To frame a rigged character, move the camera and the surroundings, not the rig object: parts not parented to it
   stay behind.
 

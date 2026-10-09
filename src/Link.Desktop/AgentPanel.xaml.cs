@@ -119,7 +119,10 @@ public partial class AgentPanel : UserControl
     private readonly HashSet<string> _openSteps = [];
     private int _planDone;
     private int _planCount;
+    private string _planTitle = "Plan";
     private string _replyTarget = "the agent";
+    // What the next words do when it is not the usual reply, such as a training's exam; null: the usual.
+    private string? _replyHint;
     private IReadOnlyList<PanelAction> _handOff = [];
     private IReadOnlyList<PanelAction> _more = [];
     private IReadOnlyList<IReadOnlyList<PanelAction>> _setup = [];
@@ -141,6 +144,9 @@ public partial class AgentPanel : UserControl
 
     /// <summary>The decision card's button; true: remember the allowance for the project.</summary>
     public event Action<bool>? DecisionTaken;
+
+    /// <summary>A rating of a training's exam, 1-5.</summary>
+    public event Action<int>? RatingChosen;
 
     /// <summary>Start over in a clean session with the agent's note on what did not work.</summary>
     public event Action? RestartRequested;
@@ -223,6 +229,8 @@ public partial class AgentPanel : UserControl
         _teamChosen = false;
         TeamBox.Visibility = card.TeamOffered && !card.FixedProvider ? Visibility.Visible : Visibility.Collapsed;
         TeamBox.IsChecked = TeamBox.Visibility == Visibility.Visible && TeamRunner.Suggests(card.Goal, card.Roles);
+        TrainBox.Visibility = card.Roles.Count > 0 && !card.FixedProvider ? Visibility.Visible : Visibility.Collapsed;
+        TrainBox.IsChecked = false;
         BackupBox.IsChecked = true;
         GoalBox.Text = card.Goal;
         ProjectText.Text = card.ProjectName;
@@ -323,6 +331,8 @@ public partial class AgentPanel : UserControl
         CheaperRow.Visibility = Visibility.Collapsed;
         RestartCard.Visibility = Visibility.Collapsed;
         LimitCard.Visibility = Visibility.Collapsed;
+        RatingCard.Visibility = Visibility.Collapsed;
+        _replyHint = null;
         UpdateReplyHint();
     }
 
@@ -411,8 +421,9 @@ public partial class AgentPanel : UserControl
     /// it and as which specialist, in the colour of that specialist's jellyfish, found by name among
     /// <paramref name="roles"/>, and why that worker under its words.
     /// </summary>
-    public void ShowPlan(IReadOnlyList<AgentPlanItem> plan, IReadOnlyList<AgentRole>? roles = null)
+    public void ShowPlan(IReadOnlyList<AgentPlanItem> plan, IReadOnlyList<AgentRole>? roles = null, string title = "Plan")
     {
+        _planTitle = title;
         var done = (Brush)FindResource("SuccessBrush");
         var muted = (Brush)FindResource("MutedBrush");
         var accent = (Brush)FindResource("AccentBrush");
@@ -444,7 +455,21 @@ public partial class AgentPanel : UserControl
         ShowPlanLabel();
     }
 
-    private void ShowPlanLabel() => PlanLabel.Text = $"Plan · {_planDone} of {_planCount} {(_planOpen ? "▾" : "▸")}";
+    private void ShowPlanLabel() => PlanLabel.Text = $"{_planTitle} · {_planDone} of {_planCount} {(_planOpen ? "▾" : "▸")}";
+
+    /// <summary>A training's exam waits for the user's rating, 1-5, with what it means; null hides the card.</summary>
+    public void ShowRating(string? text)
+    {
+        RatingText.Text = text ?? string.Empty;
+        RatingCard.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>What the next words do when it is not the usual reply, in the box's placeholder; null: the usual.</summary>
+    public void ShowReplyHint(string? hint)
+    {
+        _replyHint = hint;
+        UpdateReplyHint();
+    }
 
     /// <summary>What the task changed, beside its standing: "+181 −12" or "5 files", the files as its hint; empty hides it.</summary>
     public void ShowChanges(string text, string files)
@@ -597,7 +622,7 @@ public partial class AgentPanel : UserControl
                 ? $"Answer {_replyTarget} in your own words"
                 : _planning
                     ? $"Reply to {_replyTarget}: the session stays in plan mode, reading and planning only"
-                    : $"Reply to {_replyTarget}: the same session goes on with your words";
+                    : _replyHint ?? $"Reply to {_replyTarget}: the same session goes on with your words";
         // The send button is a round icon: its tooltip carries the label, and so does its name for UI Automation.
         var label = _running ? "Steer now" : answering ? "Answer" : "Send";
         AutomationProperties.SetName(ContinueButton, label);
@@ -983,7 +1008,7 @@ public partial class AgentPanel : UserControl
         var role = SelectedRoleId;
         if (!_roleChosen && card.Roles.Count > 0) SelectRole(ProjectRoles.Suggest(GoalBox.Text, card.Roles)?.Id);
         // Team follows the goal until the user ticks or clears it.
-        if (!_teamChosen && TeamBox.Visibility == Visibility.Visible) TeamBox.IsChecked = TeamRunner.Suggests(GoalBox.Text, card.Roles);
+        if (!_teamChosen && !Train && TeamBox.Visibility == Visibility.Visible) TeamBox.IsChecked = TeamRunner.Suggests(GoalBox.Text, card.Roles);
         // The chips stay as they are unless the pick changed: a click on one lost the focus of the goal, and a chip
         // drawn anew under the mouse would take that click.
         var skills = PickedSkills();
@@ -1015,15 +1040,28 @@ public partial class AgentPanel : UserControl
         CheckText.Visibility = card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
         PlanFirstBox.Content = "Plan first: read only, then you run the plan";
         PlanFirstBox.ToolTip = "The agent only reads and proposes a plan, on Settings' Strong model; you run it, on the model above, in the same session";
-        // A team always plans first, on the lead.
-        PlanFirstBox.IsEnabled = !Team;
+        // A team always plans first, on the lead; a training studies first, read only.
+        PlanFirstBox.IsEnabled = !Team && !Train;
         RunButton.IsEnabled = card.Workspace is not null;
-        RunButton.Content = card.RunLabel ?? (Team ? "Plan the team" : PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
+        RunButton.Content = card.RunLabel ?? (Team ? "Plan the team" : Train ? "Start training" : PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
     }
 
     private bool Team => TeamBox.Visibility == Visibility.Visible && TeamBox.IsChecked == true;
 
-    private void TeamBox_OnClick(object sender, RoutedEventArgs e) => _teamChosen = true;
+    private bool Train => TrainBox.Visibility == Visibility.Visible && TrainBox.IsChecked == true;
+
+    private void TeamBox_OnClick(object sender, RoutedEventArgs e)
+    {
+        _teamChosen = true;
+        if (TeamBox.IsChecked == true) TrainBox.IsChecked = false;
+    }
+
+    private void TrainBox_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (TrainBox.IsChecked != true) return;
+        _teamChosen = true;
+        TeamBox.IsChecked = false;
+    }
 
     private void Run_OnClick(object sender, RoutedEventArgs e)
     {
@@ -1031,6 +1069,12 @@ public partial class AgentPanel : UserControl
         if (string.IsNullOrWhiteSpace(GoalBox.Text))
         {
             ShowCardWarning("Write what the agent should do.");
+            return;
+        }
+
+        if (Train && SelectedRoleId is null)
+        {
+            ShowCardWarning("Pick the specialist to train: General has no role to learn for.");
             return;
         }
 
@@ -1045,11 +1089,12 @@ public partial class AgentPanel : UserControl
             agent.Kind,
             workspace,
             AgentAccess.Do,
-            Team || (PlanFirstBox.Visibility == Visibility.Visible && PlanFirstBox.IsChecked == true),
+            Team || (!Train && PlanFirstBox.Visibility == Visibility.Visible && PlanFirstBox.IsChecked == true),
             BackupBox.Visibility == Visibility.Visible && BackupBox.IsChecked == true,
             GoalBox.Text.Trim())
         {
             Team = Team,
+            Train = Train,
             Model = SelectedModel,
             Effort = SelectedEffort,
             // An agent with no effort levels (the custom model) leaves Auto as the card had it, for the agents the task may reach.
@@ -1203,6 +1248,13 @@ public partial class AgentPanel : UserControl
 
     private void Stop_OnClick(object sender, RoutedEventArgs e) => StopRequested?.Invoke();
     private void Decision_OnClick(object sender, RoutedEventArgs e) => DecisionTaken?.Invoke(AlwaysBox.IsChecked == true);
+
+    private void Rating_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: string tag } || !int.TryParse(tag, out var rating)) return;
+        RatingCard.Visibility = Visibility.Collapsed;
+        RatingChosen?.Invoke(rating);
+    }
     private void Restart_OnClick(object sender, RoutedEventArgs e) => RestartRequested?.Invoke();
     private void Escalate_OnClick(object sender, RoutedEventArgs e) => EscalateRequested?.Invoke();
     private void RestartNotNow_OnClick(object sender, RoutedEventArgs e) => ShowRestart(false);

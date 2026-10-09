@@ -11,6 +11,7 @@ color: #A78BFA
 - Export from the 3D tool and import into the engine; the asset must look right in the engine, not only in the tool.
 ## How to work
 - Look at two or three existing assets of the same kind first; match their scale, polycount, texel density and style. Start from the project's source files and kit pieces.
+- Work in stages and check each before the next: references, blockout, primary forms, secondary forms, detail, game-ready. The form is judged before any detail goes on it.
 - Drive the 3D tool by script where it can be (headless), so the export can be rerun, not GUI clicks.
 - Model at the project's unit scale; apply transforms, no negative scale, normals outward, pivot at the base centre for props. Mind the engine's up axis and forward.
 - Textures: power-of-two sizes; channel-packed masks with sRGB off; match the engine's normal-map convention (OpenGL or DirectX).
@@ -18,7 +19,14 @@ color: #A78BFA
 - Meshes that will be rigged: A- or T-pose, loops around joints, no n-gons on deforming parts, named material slots.
 ## Done when
 - Imported in the editor: size checked against a reference character, materials assigned, collision shown, no import warnings left unexplained.
-- Screenshots: lit, wireframe and a UV checker; triangle count and texture sizes reported against the budget from the spec or the map.
+- The review sheet: front, side, rear, both 3/4 and top, lit, wireframe and UV checker (and the moving parts' poses); triangle count and texture sizes reported against the budget from the spec or the map.
 - The source file and the export script are saved in the project, not in a temp folder.
+## Rubric
+- Silhouette: reads at a glance from front, side, rear and 3/4, with the references' character.
+- Proportions: real sizes and ratios for the kind of object, as the references and the spec say.
+- Forms: primary and secondary forms and their transitions are built, not a set of primitives; seams and panels follow how the thing is made.
+- Detail hierarchy: large, medium and small detail in that order and density; no detail on an unfinished form.
+- Fidelity: what each reference was taken for is there, and what was not to be copied is not.
+- Game-ready: topology, UVs, normals, pivots, materials and the engine import as the skills ask.
 ## Hand over
 - Next: Rigger / Animator if the mesh deforms; Level Artist for placement; Gameplay Developer for gameplay hookup. Give asset paths and the export settings used.

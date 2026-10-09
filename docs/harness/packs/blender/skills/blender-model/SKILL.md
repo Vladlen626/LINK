@@ -18,6 +18,27 @@ Work through the bridge of `blender-live`; build by scripts kept in the project,
   the answer what you corrected against the pictures.
 - Blender's front is -Y, so a car's left is +X (and Unity's left is -X after export).
 
+## Stages: the form before the detail
+A model that exports cleanly can still look built of primitives. Work in stages; each ends with frames from the same
+cameras, compared with the references, and a stage that fails is fixed there, not covered with detail.
+1. References: what each one is taken for (silhouette, construction, detail density, materials), real sizes, where a
+   drawn reference breaks the mechanics, and what not to copy.
+2. Blockout: big masses at real size, nothing else: the silhouette and proportions read from front, side and 3/4.
+3. Primary forms: the main surfaces with their curvature and the transitions between them (a beltline, tumblehome, a
+   bonnet that runs into the wings): it reads as the object from every side, not as boxes put together.
+4. Secondary forms: panels, cuts, openings, lips and recesses that follow how the thing is made and where its parts
+   meet; the surfaces stay continuous across them.
+5. Detail: handles, lamps, seams, bolts - only on a form that passed, denser where the eye goes, sparse on flat areas.
+6. Game-ready: topology, UVs, normals, materials, pivots, export and the engine check (below).
+
+## Review sheet and critique
+- The sheet is front, side, rear, both 3/4 and top, each lit, matcap, wireframe and UV grid (`shots.py`, skill
+  `blender-live`, one call); a vehicle adds its parts open (doors, hood, tailgate), the wheels steered, and the
+  views from the driver's and the rear seats.
+- Critique the form, not the presence of parts, worst first: silhouette, proportions, the quality of transitions, a
+  primitive look (boxes and cylinders butted together, one bevel everywhere, no secondary forms), detail hierarchy,
+  fidelity to the references. Fix, render the sheet again, and say what is left.
+
 ## Hollow bodies and cut panels by booleans
 - A boxy body: the side profile (y, z) extruded across X, bisected at the beltline and tapered above it
   (tumblehome), Bevel modifier by angle; then EXACT booleans through a temporary object and

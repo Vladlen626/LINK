@@ -417,6 +417,7 @@ public partial class MainWindow
             panel.HideDecision();
             decide?.Invoke();
         };
+        panel.RatingChosen += RateExam;
         panel.RestartRequested += RequestRestart;
         panel.EscalateRequested += Escalate;
         panel.ContinueRequested += (words, attached) => ContinueWithAttached(words, attached, queue: false);
@@ -578,6 +579,8 @@ public partial class MainWindow
         // A team is planned by its lead, the Strong worker on its Deep level, read only (OfferTeam routes the plan).
         var lead = plan.Team ? WorkerRouting.Workers(agent, WorkerStateOf)[WorkerTier.Strong] : null;
         if (lead is not null) plan = plan with { Provider = lead.Provider, PlanFirst = true, RoleId = null, Skills = [] };
+        // A training's study only reads: its exams edit, with the card's Auto.
+        else if (plan.Train) plan = plan with { Access = AgentAccess.Analyze, PlanFirst = false };
         // A plan is made on the strongest model and carried out with the card's, in the same session.
         _planSetup = (plan.Model, plan.Effort);
         var (model, effort) = lead is not null ? agent.Level(lead.Provider, lead.Level)
@@ -596,6 +599,9 @@ public partial class MainWindow
             _agentOrigin = _agentOrigin with { Prompt = TeamPlan.Prompt(brief, request, evidence, ProjectRoles.In(plan.Workspace)) };
         }
 
+        // A training studies first, read only: its lessons wait for an exam (see MainWindow.Training).
+        TrainingCourse? course = null;
+        if (plan.Train && lead is null) (_agentOrigin, course) = await TrainingStartAsync(_agentOrigin, plan, project, attachedFiles);
         _taskProject = project;
         _task = new AgentTaskRecord
         {
@@ -605,9 +611,12 @@ public partial class MainWindow
             AutoEffort = plan.AutoEffort,
             RoleId = plan.RoleId,
             Skills = [.. plan.Skills],
-            Mode = lead is null ? TaskMode.Solo : TaskMode.Team
+            Mode = lead is not null ? TaskMode.Team : course is not null ? TaskMode.Training : TaskMode.Solo,
+            Training = course
         };
-        var how = lead is not null ? $"\n(team: {WorkerLabel(lead)} plans the steps)" : plan.PlanFirst ? "\n(plan first)" : string.Empty;
+        var how = lead is not null ? $"\n(team: {WorkerLabel(lead)} plans the steps)"
+            : course is not null ? "\n(training: study first, then an exam)"
+            : plan.PlanFirst ? "\n(plan first)" : string.Empty;
         _task.Add(AgentEntryKind.Brief, goal.Trim() + ImagesNote(_agentOrigin.Images) + how);
         _earlierSession = null;
         _lastRun = null;
@@ -642,6 +651,13 @@ public partial class MainWindow
         }
 
         _question = null;
+        // A training ready for its exam: the words set it, in a new session.
+        if (_task is { Training: { Stage: TrainingStage.AwaitsExam } course } training)
+        {
+            _ = StartExamAsync(training, course, text, images);
+            return;
+        }
+
         var phase = _planLeft is not null && ReferenceEquals(_lastRun, _planLeft) ? EffortPhase.RunPlan : EffortPhase.Reply;
         // After the wait for a limit, or a long idle, the session's cache is cold: a big one is re-read at full price, and
         // re-sent at each step. Where Settings allow it, a fresh session from the task's state takes the words instead
@@ -826,6 +842,8 @@ public partial class MainWindow
         ShowTaskInPanel();
         // A team left mid-way goes on from the step it is on; a question it ended on is answered first.
         if (record.Team.Count > 0 && _question is null) OfferTeamGoOn(record);
+        // A study that drew its lessons still offers the exam.
+        if (record.Training is { Stage: TrainingStage.Learning, Lessons.Count: > 0 } course && _question is null) OfferExam(record, course);
         _ = ShowChangesAsync(record);
         UpdateRouteButton();
         AgentStatus(_earlierSession is null
@@ -1058,7 +1076,8 @@ public partial class MainWindow
         // A team's step is a new session of its own worker: its effort follows the step's kind and its own failures.
         var (effort, reason) = TeamRunner.Current(record) is { Status: TeamStepStatus.Running } step
             ? AutoEffort.ForStep(step.Kind, efforts, step.Failures)
-            : AutoEffort.Choose(phase, BriefOf(record), efforts, last?.Effort, AutoEffort.Failures(record.Runs),
+            : AutoEffort.Choose(phase, record.Training is { Stage: TrainingStage.Exam, Exams: [.., var exam] } ? exam.Brief : BriefOf(record),
+                efforts, last?.Effort, AutoEffort.Failures(record.Runs),
                 last is null ? null : AgentNext.Split(last.Words).Next, role);
         return task with { Effort = effort, EffortReason = reason };
     }
@@ -1559,9 +1578,15 @@ public partial class MainWindow
     private static Lazy<IReadOnlyList<AgentRole>> WorkspaceRoles(string workspace) => new(() => ProjectRoles.In(workspace));
 
     /// <summary>The roles that colour a plan's jellyfish: read only when a step of the plan names its specialist.</summary>
-    /// <summary>The task's plan card: a team's steps with their workers, else the agent's own plan.</summary>
+    /// <summary>The task's plan card: a team's steps with their workers, a training's lessons, else the agent's own plan.</summary>
     private void ShowPlanOf(AgentTaskRecord record)
     {
+        if (record.Training is { } course)
+        {
+            _agentPanel?.ShowPlan(Training.PlanItems(course), title: "Lessons");
+            return;
+        }
+
         var plan = record.Team.Count > 0 ? TeamPlanItems(record) : record.Plan;
         _agentPanel?.ShowPlan(plan, PlanRoles(plan, record.Workspace));
     }
@@ -1677,7 +1702,7 @@ public partial class MainWindow
         // An answer Link wrote to a file is shown as written.
         var answer = task.AnswerFile is null ? result.Summary : AgentCoordinator.Unfenced(result.Summary);
         // The lead's plan is the plan card and its verdict a line of the thread: the answer is shown and kept without them.
-        if (_task is { Mode: TaskMode.Team }) answer = TeamPlan.WithoutBlocks(answer);
+        if (_task is { Mode: TaskMode.Team or TaskMode.Training }) answer = TeamPlan.WithoutBlocks(answer);
         var (answerText, question) = AgentQuestion.Split(answer);
         // The changelist's line is for P4V and the next step is for Link's Auto effort; the thread shows the answer without them.
         var said = AgentChanges.SplitChangelistLine(AgentNext.Split(answerText).Text).Text;
@@ -1715,7 +1740,13 @@ public partial class MainWindow
             _ = ShowChangesAsync(_task);
             ShowTask();
             if (_task.Team.Count > 0) AfterTeamStep(_task, run, needsYou: _question is not null || decision || limitReached);
-            if (!needsYou && _decision is null && _task.LastRun is { } done && WorkerEvidence.Verdict(done) == true && TeamRunner.Current(_task) is null) OfferShare(_task);
+            if (_task.Training is not null) AfterTrainingRun(_task, run, needsYou: _question is not null || decision || limitReached);
+            // A training shares the skills its exam's lessons went into once they are written, not on the way.
+            if (!needsYou && _decision is null && _task.LastRun is { } done && WorkerEvidence.Verdict(done) == true && TeamRunner.Current(_task) is null &&
+                _task.Training is null or { Stage: TrainingStage.AwaitsExam })
+            {
+                OfferShare(_task);
+            }
         }
         else if (_agentPanel is not null)
         {
@@ -2049,6 +2080,7 @@ public partial class MainWindow
         }
 
         panel.ShowQuestion(_question);
+        ShowTrainingOf(record, live);
         panel.ShowMenus(HandOffActions(record), MoreActions());
         panel.ShowCheaper(live || AgentRunning ? null : CheaperHintFor(record), AgentName(AgentProviderKind.Custom));
         panel.ShowFinish(true);
@@ -2132,8 +2164,8 @@ public partial class MainWindow
         var turn = new ThreadTurn(who, outcome, OutcomeBrush(outcome), RoleBrushes.For(run?.RoleId, roles));
         if (run is null) return turn;
         turn.AddSteps(run.Steps.Select(StepRow));
-        // A team's answers were kept with the lead's plan before Link took it out.
-        var words = record.Mode == TaskMode.Team ? TeamPlan.WithoutBlocks(run.Words) : run.Words;
+        // A team's answers were kept with the lead's plan before Link took it out, a training's with its lessons.
+        var words = record.Mode is TaskMode.Team or TaskMode.Training ? TeamPlan.WithoutBlocks(run.Words) : run.Words;
         var (said, next) = AgentNext.Split(AgentQuestion.Split(words).Text);
         turn.Said = AgentChanges.SplitChangelistLine(said).Text;
         if (showNext && next is not null) turn.Next = next.Line;

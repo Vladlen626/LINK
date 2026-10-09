@@ -187,15 +187,23 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
         };
     }
 
-    /// <summary>The task's brief and hand-overs; while a team works, what the worker of the current step is told instead.</summary>
+    /// <summary>
+    /// The task's brief and hand-overs; while a team works, what the worker of the current step is told instead, and in
+    /// a training's exam what its session was told: the lessons and the rubric, not the sources.
+    /// </summary>
     private static HarnessSection Injected(HarnessInput input)
     {
         if (input.Task is not { Brief.Length: > 0 } task) return new HarnessSection("Injected context", "Nothing yet") { ShowsConsole = true };
         var step = TeamRunner.Current(task);
-        var text = step is null ? task.BriefText : TaskState.StepBrief(task, null, task.Workspace, step, input.AgentName);
+        var exam = task.Training is { } course ? Training.OpenExam(course) : null;
+        var text = step is not null ? TaskState.StepBrief(task, null, task.Workspace, step, input.AgentName)
+            : exam is not null ? Training.ExamPrompt(AgentRules.ReadHarness(Training.ExamFile), task.Training!, ProjectRoles.Find(task.RoleId, task.Workspace), exam.Brief)
+            : task.BriefText;
         var length = text.Length.ToString("N0", CultureInfo.InvariantCulture);
         return new HarnessSection("Injected context",
-            step is null ? $"The brief Link gave: {length} characters" : $"Step {TeamRunner.Number(task, step)}'s brief: {length} characters")
+            step is not null ? $"Step {TeamRunner.Number(task, step)}'s brief: {length} characters"
+            : exam is not null ? $"Exam {task.Training!.Exams.IndexOf(exam) + 1}'s brief: {length} characters"
+            : $"The brief Link gave: {length} characters")
         {
             Note = "The rules and the role go before it in a new session; the Console has the exact text",
             Detail = text,

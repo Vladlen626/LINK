@@ -34,7 +34,10 @@ public enum TeamMove
     Redo,
 
     /// <summary>The lead stopped the team at the step: the user decides.</summary>
-    Stopped
+    Stopped,
+
+    /// <summary>An editor step called done with no file changed: not counted for its worker, it waits for the user's OK.</summary>
+    Unverified
 }
 
 /// <summary>
@@ -87,16 +90,24 @@ public static partial class TeamRunner
     /// as <see cref="WorkerEvidence.Verdict"/> reads a run), with the step brought up to date and the worker's evidence
     /// counted. A step done hands over what its answer's last line says, and goes to the lead's review when
     /// <paramref name="review"/> (see <see cref="Reviews"/>): its worker is counted by the verdict then. A failed step gets
-    /// one more try from the same worker, then goes a tier up; above Strong, or with no worker left, the team stops.
+    /// one more try from the same worker, then goes a tier up; above Strong, or with no worker left, the team stops. An
+    /// asset step done with no file <paramref name="changed"/> is unverified: a "done" with nothing saved proves nothing.
     /// </summary>
     public static TeamMove After(AgentTaskRecord record, TeamStep step, bool? done, string answer, string failure, Router route,
-        Func<Worker, string> workerName, WorkerEvidence evidence, bool review = false)
+        Func<Worker, string> workerName, WorkerEvidence evidence, bool review = false, bool changed = true)
     {
         if (done is null || step.Provider is not { } provider) return TeamMove.Paused;
         var worker = new Worker(provider, step.Level, step.Model);
         if (done.Value)
         {
             step.HandedOver = TeamPlan.HandedOver(answer) ?? step.HandedOver;
+            if (step.Kind == StepKind.Asset && !changed)
+            {
+                step.Unverified = true;
+                step.Status = TeamStepStatus.AwaitsOk;
+                return TeamMove.Unverified;
+            }
+
             if (review)
             {
                 step.Status = TeamStepStatus.Reviewing;
@@ -164,7 +175,7 @@ public static partial class TeamRunner
             step.Status is TeamStepStatus.Running or TeamStepStatus.AwaitsOk or TeamStepStatus.Reviewing,
             step.Status switch
             {
-                TeamStepStatus.AwaitsOk => "Waits for your OK: " + step.Text,
+                TeamStepStatus.AwaitsOk => (step.Unverified ? "Unverified, no file changed: waits for your OK: " : "Waits for your OK: ") + step.Text,
                 TeamStepStatus.Reviewing => "The lead reviews: " + step.Text,
                 _ => null
             },

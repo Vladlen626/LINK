@@ -85,12 +85,15 @@ public sealed class TeamSettings
         choice is not null && Enum.IsDefined(choice.Provider) && Enum.IsDefined(choice.Level) ? choice : null;
 }
 
-/// <summary>Who did a task: one agent the user chose or the strong agent alone, a team plan, or one worker that Auto routed the whole task to.</summary>
+/// <summary>Who did a task: one agent the user chose or the strong agent alone, a team plan, or one worker that Auto routed the whole task to; or a training.</summary>
 public enum TaskMode
 {
     Solo = 0,
     Team = 1,
-    Worker = 2
+    Worker = 2,
+
+    /// <summary>A specialist studies sources and proves what it learned in exams (see <see cref="TrainingCourse"/>).</summary>
+    Training = 3
 }
 
 public enum TeamStepStatus
@@ -162,4 +165,10 @@ public sealed class TeamStep
 
     /// <summary>What the lead asks the worker to change, until the worker's next run takes it; null: nothing.</summary>
     public string? ReviewNotes { get; set; }
+
+    /// <summary>
+    /// An editor or DCC step its worker called done with no file changed: nothing shows it was saved, so it is not counted
+    /// for the worker, and the user's OK lets the team go on.
+    /// </summary>
+    public bool Unverified { get; set; }
 }
