@@ -7,7 +7,7 @@ public sealed record AgentChange(string Path, string Kind, bool Undoable);
 
 /// <summary>
 /// What a workspace looked like before a task: in git or Perforce, its pending files with a fingerprint each;
-/// without version control, the copy made before Do, if any.
+/// without version control, the copy made before Do, else every file with its fingerprint.
 /// </summary>
 public sealed record WorkspaceBefore(string Workspace, bool IsGit, IReadOnlyDictionary<string, string> Dirty, string? Backup,
     DateTime StartedUtc, bool IsPerforce = false)
@@ -55,10 +55,16 @@ public sealed partial class AgentChanges
         }
 
         var copy = backup ? await Task.Run(() => Backup(workspace), cancellationToken) : null;
-        return new WorkspaceBefore(workspace, false, new Dictionary<string, string>(), copy, started);
+        // Without a copy (a later run of the task, a workspace too big) the files' sizes and times still tell what a run
+        // changed, though not how to put it back.
+        var prints = copy is null ? await Task.Run(() => Prints(workspace), cancellationToken) : new Dictionary<string, string>();
+        return new WorkspaceBefore(workspace, false, prints, copy, started);
     }
 
-    /// <summary>The files changed since <paramref name="before"/>; without git and without a copy, none can be told.</summary>
+    /// <summary>
+    /// The files changed since <paramref name="before"/>. Without version control: against the copy, or by size and time,
+    /// and then none can be undone.
+    /// </summary>
     public async Task<IReadOnlyList<AgentChange>> CompareAsync(WorkspaceBefore before, CancellationToken cancellationToken)
     {
         if (before.IsGit)
@@ -74,7 +80,7 @@ public sealed partial class AgentChanges
             return ChangedSince(before, after);
         }
 
-        return before.Backup is null ? [] : await Task.Run(() => CompareWithBackup(before), cancellationToken);
+        return await Task.Run(() => before.Backup is null ? CompareWithPrints(before) : CompareWithBackup(before), cancellationToken);
     }
 
     /// <summary>Puts back the undoable changes: a new file is deleted, a changed or deleted one comes back from HEAD.</summary>
@@ -174,6 +180,21 @@ public sealed partial class AgentChanges
 
         return changes;
     }
+
+    private static IReadOnlyList<AgentChange> CompareWithPrints(WorkspaceBefore before)
+    {
+        var now = Prints(before.Workspace);
+        var changes = now
+            .Where(entry => !before.Dirty.TryGetValue(entry.Key, out var print) || print != entry.Value)
+            .Select(entry => new AgentChange(entry.Key, before.Dirty.ContainsKey(entry.Key) ? "M" : "??", false))
+            .ToList();
+        changes.AddRange(before.Dirty.Keys.Where(path => !now.ContainsKey(path)).Select(path => new AgentChange(path, "D", false)));
+        return changes;
+    }
+
+    /// <summary>Each file of the workspace, as <see cref="Files"/> walks it, with its size and write time.</summary>
+    private static Dictionary<string, string> Prints(string workspace) =>
+        Files(workspace).ToDictionary(file => file.FullName, file => $"{file.Length}:{file.LastWriteTimeUtc.Ticks}", StringComparer.OrdinalIgnoreCase);
 
     private static bool SameContent(FileInfo first, FileInfo second)
     {

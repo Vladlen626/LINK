@@ -13,6 +13,9 @@ public static class TaskState
     public const string GoOn =
         "Go on with the task from this state; look at the files touched before changing them; do not redo what is done.";
 
+    /// <summary>A worker's next action: its step, which follows the state.</summary>
+    internal const string StepBelow = "Your step, below.";
+
     /// <summary>
     /// How much each part of a state may take. A state over <see cref="AgentCoordinator.BriefBudget"/> is cut in this
     /// order, each step on top of the ones before: the older problems, the long decisions, the brief, the files. The
@@ -34,11 +37,13 @@ public static class TaskState
     /// where it told them (the record's list of files otherwise), <paramref name="workspace"/> is where the map and the
     /// skills it points to are looked for, <paramref name="agentName"/> names an agent as Settings does.
     /// </summary>
-    public static string Build(AgentTaskRecord record, string? numstat, string workspace, Func<AgentProviderKind, string>? agentName = null)
+    public static string Build(AgentTaskRecord record, string? numstat, string workspace, Func<AgentProviderKind, string>? agentName = null) =>
+        Build(record, numstat, workspace, agentName, NextAction(record));
+
+    private static string Build(AgentTaskRecord record, string? numstat, string workspace, Func<AgentProviderKind, string>? agentName, string next)
     {
         agentName ??= kind => kind.DefaultName();
         var pointers = Pointers(workspace);
-        var next = NextAction(record);
         var state = string.Empty;
         foreach (var cut in Cuts)
         {
@@ -63,11 +68,11 @@ public static class TaskState
     /// <summary>
     /// What a worker's new session is told for its step of a team plan: the task's state, what the steps before handed
     /// over, then the step with the files the plan names. A step an earlier worker failed carries what that worker ended
-    /// in, so that the next does not repeat it, and one the lead sent back its notes.
+    /// in, so that the next does not repeat it, and one the lead sent back its notes. The step's text comes once, at the end.
     /// </summary>
     public static string StepBrief(AgentTaskRecord record, string? numstat, string workspace, TeamStep step, Func<AgentProviderKind, string>? agentName = null)
     {
-        var lines = new List<string> { Build(record, numstat, workspace, agentName) };
+        var lines = new List<string> { Build(record, numstat, workspace, agentName, StepBelow) };
         var position = record.Team.IndexOf(step);
         var handed = record.Team
             .Select((each, index) => (Step: each, Number: index + 1))

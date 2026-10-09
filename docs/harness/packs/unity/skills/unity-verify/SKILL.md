@@ -18,6 +18,9 @@ The ladder, lowest step the change needs (`docs/map.md` may say more): `.cs` →
    <Project><ItemGroup Condition="'$(MSBuildProjectName)' == 'ASSEMBLY'"><Compile Include="FULL\PATH\File.cs" /></ItemGroup></Project>
    ```
    and build `dotnet build ASSEMBLY.csproj -nologo -v q -p:CustomAfterMicrosoftCommonTargets=<targets>`.
+   In Codex's sandbox add `-p:TargetPlatformSdkPath=none -p:TargetPlatformDisplayName=Windows` to every build:
+   otherwise MSBuild looks for the Windows SDK in `%LOCALAPPDATA%\Microsoft SDKs`, the sandbox denies it, and every
+   build ends in MSB4184 before compiling anything.
 3. A changed `.asmdef` with new `references`: add them to the same targets as `ProjectReference`.
 4. Take the lines with `: error `; thousands of warnings are noise. The summary line depends on the locale
    (`Ошибок:` / `Error(s)`).

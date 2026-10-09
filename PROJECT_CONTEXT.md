@@ -55,7 +55,7 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
 - **Decision memory** — нет: решения отдельно от summaries (active/deprecated), отдельно open questions.
 - **Commands** — нет: command palette, quicklinks, script commands (PowerShell/Python/EXE), локальные действия без AI.
 - **Agent** — сделано (2026-09-30, задача как единица — 2026-10-03): Claude Code или Codex CLI, карточка с брифом,
-  вкладка Task — одна задача с историей, планом агента, What Link gave, usage и окнами лимитов; Correct / After this,
+  вкладка Task — одна задача с историей, планом агента, usage и окнами лимитов; Correct / After this,
   Stop, Hand off ▾ (другой агент с брифом, другой уровень в той же сессии, возврат первого), Start over, Escalate,
   Finish; уровни Light / Standard / Deep; итог чипом в следующий вопрос, Discuss in chat с diff. Харнесс — всегда:
   правила агента в каждой новой сессии, цифры задачи, карта, skills, проверка после Do, метки петель.
@@ -400,13 +400,22 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    через VPS пользователя, Steer now без остановки шага (stream-json на входе).
 9. **Команда и пакеты инструментов** (PDF пользователя и его ответы, 08.10): ведущий раскладывает большую задачу на
    шаги, Link раздаёт их Opus / Codex Astra / Haiku 5.5 по очереди и показывает кто и почему; пакеты инструментов
-   (unreal, unity, godot, blender, cascadeur…) общие для игр в своей папке, роли без движка, skills проекта перекрывают
-   пакетные — [docs/TEAM_PLAN.md](docs/TEAM_PLAN.md). Сделано T.0–T.5 (08.10): галка **Team** на карточке, план
+   (unreal, unity, godot, blender, cascadeur…) общие для игр в своей папке, роли без движка —
+   [docs/TEAM_PLAN.md](docs/TEAM_PLAN.md). Сделано T.0–T.5 (08.10): галка **Team** на карточке, план
    ведущего → шаги с работником и причиной, повтор → уровень выше, OK пользователя для шагов на вкус; пакеты в
    `%USERPROFILE%\LinkPacks` (встроенные из `docs/harness/packs` досылаются), стек — автоопределением по файлам папки
    (чипов включения пока нет), `unreal-developer` → `gameplay-developer`, «Share with all games» после Done. Не
    сделано: настройка папки пакетов и уровней команды в Settings, Jev/модель-советчик для «соло или команда» —
    после статистики `workers.json`.
+   Разбор первого живого прогона (09.10, SUV в DriverTheSlop, 6 шагов): Auto effort читал слова шага и ставил Low
+   Opus на 3D-шаги и Codex на код («rename», «comment» в длинном тексте) — теперь шаг по виду из плана, бриф low
+   только короткий; каждый исполнитель получал весь план (12,7 тыс. символов из 31) и свой шаг трижды — теперь план
+   заголовками, шаг один раз; в папке без git шаги после первого показывали «0 files» и ведущий их не проверял —
+   теперь изменения по размеру и времени; Codex в песочнице не собирал Unity (MSB4184, `unity-verify` знает обход);
+   Link закрылся вместе с обновлением приложения Claude, из которого был запущен (`rebuild-link` запускает через
+   Explorer). Решения пользователя: план — шаг строкой с раскрытием, «What Link gave» убран (есть Harness →
+   Injected context); skills — пакетный skill общий, проект дополняет его своим `<пакет>-project`, общие уроки — в
+   пакет и через `share-packs` в git для коллег; Link обновляет неизменённые файлы пакетов.
 
 ## Для AI-агентов
 

@@ -116,6 +116,7 @@ public partial class AgentPanel : UserControl
     private bool _hasTask;
     private bool _replyShown;
     private bool _planOpen = true;
+    private readonly HashSet<string> _openSteps = [];
     private int _planDone;
     private int _planCount;
     private string _replyTarget = "the agent";
@@ -406,8 +407,9 @@ public partial class AgentPanel : UserControl
 
     /// <summary>
     /// The agent's plan as it last wrote it, as its own app shows it: ✓ done, ● under way (in the agent's words for it,
-    /// when it gave any), ○ to do. A team's step also names who does it and as which specialist, in the colour of that
-    /// specialist's jellyfish, found by name among <paramref name="roles"/>.
+    /// when it gave any), ○ to do; a step by its first sentence, the rest a click away. A team's step also names who does
+    /// it and as which specialist, in the colour of that specialist's jellyfish, found by name among
+    /// <paramref name="roles"/>, and why that worker under its words.
     /// </summary>
     public void ShowPlan(IReadOnlyList<AgentPlanItem> plan, IReadOnlyList<AgentRole>? roles = null)
     {
@@ -417,15 +419,23 @@ public partial class AgentPanel : UserControl
         var text = (Brush)FindResource("TextBrush");
         PlanList.ItemsSource = plan.Select(item =>
         {
-            var row = item.Done ? new PlanRow("✓", done, item.Text, muted)
-                : item.Active ? new PlanRow("●", accent, item.Doing ?? item.Text, text)
-                : new PlanRow("○", muted, item.Text, text);
+            var (mark, markBrush, words, brush) = item.Done ? ("✓", done, item.Text, muted)
+                : item.Active ? ("●", accent, item.Doing ?? item.Text, text)
+                : ("○", muted, item.Text, text);
+            var (title, rest) = TeamPlan.Headline(words);
+            var detail = string.Join("\n\n", new[] { rest, item.Why is { Length: > 0 } why ? "Why this worker: " + why : string.Empty }.Where(part => part.Length > 0));
             // The agent's own plan names neither.
-            if (string.IsNullOrEmpty(item.Worker) && string.IsNullOrEmpty(item.Role)) return row;
-            var color = roles?.FirstOrDefault(each => string.Equals(each.Name, item.Role, StringComparison.OrdinalIgnoreCase)) is { } role
-                ? RoleBrushes.Of(ProjectRoles.ColorOf(role, roles))
-                : RoleBrushes.Link;
-            return row with { Worker = item.Worker ?? string.Empty, RoleName = item.Role ?? string.Empty, RoleBrush = color };
+            var team = !string.IsNullOrEmpty(item.Worker) || !string.IsNullOrEmpty(item.Role);
+            var color = !team ? null
+                : roles?.FirstOrDefault(each => string.Equals(each.Name, item.Role, StringComparison.OrdinalIgnoreCase)) is { } role
+                    ? RoleBrushes.Of(ProjectRoles.ColorOf(role, roles))
+                    : RoleBrushes.Link;
+            // A step opened stays open while the plan is drawn again as the team moves on.
+            return new PlanRow(mark, markBrush, title, brush)
+            {
+                Detail = detail, Worker = item.Worker ?? string.Empty, RoleName = item.Role ?? string.Empty, RoleBrush = color,
+                Open = _openSteps.Contains(title)
+            };
         }).ToArray();
         _planDone = plan.Count(item => item.Done);
         _planCount = plan.Count;
@@ -442,14 +452,6 @@ public partial class AgentPanel : UserControl
         ChangesText.Text = text;
         ChangesText.ToolTip = files.Length == 0 ? null : files;
         ChangesText.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-    }
-
-    /// <summary>What Link gave the agent for the task, word for word; empty hides it.</summary>
-    public void ShowBrief(string brief)
-    {
-        BriefText.Text = brief;
-        BriefToggle.Visibility = brief.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-        if (brief.Length == 0) BriefText.Visibility = Visibility.Collapsed;
     }
 
     /// <summary>The task's tokens by agent, with what the money means on a subscription; empty hides it.</summary>
@@ -1150,11 +1152,12 @@ public partial class AgentPanel : UserControl
         ShowPlanLabel();
     }
 
-    private void BriefToggle_OnClick(object sender, RoutedEventArgs e)
+    private void PlanRow_OnClick(object sender, RoutedEventArgs e)
     {
-        var open = BriefText.Visibility != Visibility.Visible;
-        BriefText.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        BriefToggleText.Text = open ? "What Link gave ▾" : "What Link gave ▸";
+        if (sender is not FrameworkElement { DataContext: PlanRow row }) return;
+        row.Open = !row.Open;
+        if (row.Open) _openSteps.Add(row.Title);
+        else _openSteps.Remove(row.Title);
     }
 
     private void TurnSteps_OnClick(object sender, RoutedEventArgs e)

@@ -98,8 +98,8 @@
                 </Border>
 
                 <!-- The tasks (the sidebar and the open task, AgentPanel) in the middle; what the agent really gets on the right,
-                     in a column that folds away. -->
-                <Grid Grid.Row="1">
+                     in a column that folds away. Clear of the resize band on the right, which would take the scroll bars' clicks. -->
+                <Grid Grid.Row="1" Margin="0,0,6,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition x:Name="InspectorColumn" Width="340" />

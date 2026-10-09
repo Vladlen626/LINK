@@ -1055,9 +1055,9 @@ public partial class MainWindow
         // An agent with no effort levels (the custom model) has nothing to pick, and no reason to show.
         if (efforts.Length == 0) return task;
         var role = ProjectRoles.Find(record.RoleId, record.Workspace)?.Effort;
-        // A team's step is a new session of its own worker: its effort follows the step's words and its own failures.
+        // A team's step is a new session of its own worker: its effort follows the step's kind and its own failures.
         var (effort, reason) = TeamRunner.Current(record) is { Status: TeamStepStatus.Running } step
-            ? AutoEffort.Choose(phase, step.Text, efforts, null, step.Failures, null, role)
+            ? AutoEffort.ForStep(step.Kind, efforts, step.Failures)
             : AutoEffort.Choose(phase, BriefOf(record), efforts, last?.Effort, AutoEffort.Failures(record.Runs),
                 last is null ? null : AgentNext.Split(last.Words).Next, role);
         return task with { Effort = effort, EffortReason = reason };
@@ -1081,7 +1081,6 @@ public partial class MainWindow
         panel.ShowPlan([]);
         panel.ShowChanges(string.Empty, string.Empty);
         panel.ShowThread([own.Turn]);
-        panel.ShowBrief(string.Empty);
         panel.ShowUsage(string.Empty, string.Empty);
         panel.ResetCards();
         panel.ShowQuestion(null);
@@ -1677,13 +1676,11 @@ public partial class MainWindow
             : $"Done in {elapsed}";
         // An answer Link wrote to a file is shown as written.
         var answer = task.AnswerFile is null ? result.Summary : AgentCoordinator.Unfenced(result.Summary);
+        // The lead's plan is the plan card and its verdict a line of the thread: the answer is shown and kept without them.
+        if (_task is { Mode: TaskMode.Team }) answer = TeamPlan.WithoutBlocks(answer);
         var (answerText, question) = AgentQuestion.Split(answer);
         // The changelist's line is for P4V and the next step is for Link's Auto effort; the thread shows the answer without them.
         var said = AgentChanges.SplitChangelistLine(AgentNext.Split(answerText).Text).Text;
-        // The lead's link-plan block is the team's plan card, not words to read.
-        if (task.PlanOnly && _task is { Mode: TaskMode.Team }) said = TeamPlan.Split(said).Text;
-        // The lead's verdict on a step is a line of the thread, not words to read.
-        else if (_task is { Mode: TaskMode.Team }) said = TeamPlan.SplitReview(said).Text;
         // A question is asked by a run that ended well; one cut short asks nothing.
         _question = !stopped && result.Succeeded && !checkFailed ? question : null;
         var text = checkFailed ? CheckReport(task, run.Check!) + (said.Length > 0 ? "\n\n" + said : string.Empty) : said;
@@ -2034,7 +2031,6 @@ public partial class MainWindow
         var (changed, changedFiles) = _changes.Task == record.Id ? (_changes.Text, _changes.Hint) : TaskChanges.Describe(null, record.ChangedFiles);
         panel.ShowChanges(changed, changedFiles);
         panel.ShowThread(BuildThread(record, live));
-        panel.ShowBrief(record.BriefText);
         var (usage, hint) = UsageText(record);
         panel.ShowUsage(usage, hint);
         var provider = (live ? _runningTask?.Provider : null) ?? record.LastRun?.Provider ?? StartProvider;
@@ -2136,7 +2132,9 @@ public partial class MainWindow
         var turn = new ThreadTurn(who, outcome, OutcomeBrush(outcome), RoleBrushes.For(run?.RoleId, roles));
         if (run is null) return turn;
         turn.AddSteps(run.Steps.Select(StepRow));
-        var (said, next) = AgentNext.Split(AgentQuestion.Split(run.Words).Text);
+        // A team's answers were kept with the lead's plan before Link took it out.
+        var words = record.Mode == TaskMode.Team ? TeamPlan.WithoutBlocks(run.Words) : run.Words;
+        var (said, next) = AgentNext.Split(AgentQuestion.Split(words).Text);
         turn.Said = AgentChanges.SplitChangelistLine(said).Text;
         if (showNext && next is not null) turn.Next = next.Line;
         turn.Files = run.Files.Select(file => new AgentChangeRow(file, Path.Combine(record.Workspace, file))).ToArray();

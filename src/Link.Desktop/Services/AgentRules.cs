@@ -43,7 +43,7 @@ public static partial class AgentRules
             foreach (var skill in skills)
             {
                 input.Append("\n- `").Append(ProjectSkills.PathFor(workspace, skill)).Append("`: ").Append(skill.Description);
-                // A pack's skill serves every project: a lesson for this one goes into a copy of it (see the rules).
+                // A pack's skill serves every project: a general lesson goes into a copy of it, a project's into its add-on (see the rules).
                 if (skill.Pack is { } pack) input.Append(" (").Append(pack).Append(" pack, shared)");
             }
         }

@@ -13,6 +13,8 @@ scripts in the project (`tools/blender/` unless `docs/map.md` says otherwise), n
   ~2 s a call). `python blender_mcp.py ping` - version, file, scene; `python blender_mcp.py py <script.py> [args]` -
   the script runs in the open Blender: `bpy` is there, the arguments are the list `ARGS`, the answer is the dict
   `result`, `print()` goes to stdout. Keep the code in a script file, not in an argument.
+- In Git Bash on Windows `python` can be the Microsoft Store stub (prints `Python`, exit 49): run the client as
+  `uv run --no-project blender_mcp.py ...`. The script must set `result` to a dict.
 - No answer on the port: ask the user to open Blender with the MCP extension on; do not start the GUI yourself.
 - A module you import in the open Blender is cached: after changing a helper, `importlib.reload` it.
 - A script leaves the scene as it found it: the active action, frame, selection and active object come back
@@ -20,8 +22,9 @@ scripts in the project (`tools/blender/` unless `docs/map.md` says otherwise), n
 
 ## Background Blender
 - `blender -b <file.blend> --python <script.py> -- <args>` for work on another file or without the GUI (find
-  `blender.exe` in PATH, `C:\Program Files\Blender Foundation\`, or Steam's `steamapps\common\Blender\`). Run it
-  without saving first; save only once the result is checked.
+  `blender.exe` in PATH, `C:\Program Files\Blender Foundation\`, or Steam's `steamapps\common\Blender\`; the surest
+  is the open one: PowerShell `(Get-Process blender).Path`). Run it without saving first; save only once the result
+  is checked.
 - In PowerShell check `$LASTEXITCODE` after each CLI call before the next step that depends on it.
 
 ## Check by numbers, then by frames
@@ -30,6 +33,8 @@ scripts in the project (`tools/blender/` unless `docs/map.md` says otherwise), n
 - `python blender_mcp.py py shots.py <objects|*> [front,left,34] [frames] [prefix]` renders PNGs to
   `%TEMP%\blender_shots`; `uv run --no-project --with pillow sheet.py out.png <cols> <png…>` glues them; then read the
   one sheet, not each frame.
+- A camera render draws no overlays: for a wireframe frame add a temporary Wireframe modifier (`use_replace`), for a
+  UV check an active Image Texture node with a generated grid and shading `color_type` `TEXTURE`; take both off after.
 - To frame a rigged character, move the camera and the surroundings, not the rig object: parts not parented to it
   stay behind.
 
@@ -37,6 +42,8 @@ scripts in the project (`tools/blender/` unless `docs/map.md` says otherwise), n
 - Action curves are slotted: `action.layers[0].strips[0].channelbags[0].fcurves`, not `action.fcurves`.
 - An action that keys only some bones leaves the others in the pose of the last action: reset the pose to rest before
   showing, measuring or exporting it.
+- `mesh.materials.clear()` resets every face's `material_index` to 0: keep the indices, re-add the slots, then
+  `polygons.foreach_set("material_index", ...)`.
 - Operators need the right context (mode, active object, area); prefer data API calls (`bpy.data`, `bmesh`) to
   `bpy.ops` in scripts. Check the API of the running version before guessing.
 

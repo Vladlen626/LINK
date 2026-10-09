@@ -24,6 +24,7 @@ Where the time went in one session (the user says the agent was slow):
 ```
 
 Span, time inside tool calls and the rest (the model, waits between runs), time by script or tool, the slowest calls.
+An `Edit` or `Write` of 10-25 s is the model writing the edit (the call's text streams before it runs), not the tool.
 In BigSteps (2026-10-06) most of a 3.8-hour Claude run was checks and waits for them; in Codex runs, 70-80% is the
 model itself. A slow tool is fixed in the project's tooling and skill (the editor's background throttle, `localhost`
 on Windows costing 2 s a connection), not by telling the model to hurry.
@@ -34,6 +35,13 @@ carry `usage`, one response over several lines with the same message id).
 
 ## Read what rides along
 
+- What Link gave a run, by section and size (the user asks whether a worker gets too much):
+  `prompt-sections.ps1 -Agent claude -Session <id part> [-Show "Current state"]`. A team step's prompt is the rules
+  (~8k characters), the role, the skills list, the task state, the hand-overs and its step; on 2026-10-09 the state
+  held every step of the plan in full (12.7k of 31k) and the step itself three times, fixed by headlines.
+- A team task: `[Agent]` lines of `link.log` per step, the task's runs in `Projects\<id>\agent-tasks.json` (effort and
+  `EffortReason`, files, words). Check that each step got the effort its kind needs, that a step which changed files
+  shows them (the lead reviews only those), and what a worker could not verify and why (Codex's sandbox).
 - Codex: the rollout's first lines are the request's start — `base_instructions`, the skills list, plugin
   suggestions, `AGENTS.md` in `world_state`. Tool schemas are not there: first input minus those is the tools.
 - Check a CLI's flags without running a model: `codex -c <key>=<value> features list` (bad values fail to load),

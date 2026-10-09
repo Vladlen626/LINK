@@ -433,6 +433,18 @@ internal static class AgentTests
             await changes.RestoreAsync(before, found, CancellationToken.None);
             Program.Equal("copy: restore brings the file back", File.ReadAllText(Path.Combine(workspace, "scene.blend")), "land v1");
             Program.Equal("copy: restore deletes what the agent added", File.Exists(Path.Combine(workspace, "land.fbx")), false);
+
+            // A later run of the task makes no copy: sizes and times tell what it changed, and nothing of it can be undone.
+            File.WriteAllText(Path.Combine(workspace, "old.txt"), "old");
+            var later = await changes.CaptureAsync(workspace, backup: false, CancellationToken.None);
+            File.WriteAllText(Path.Combine(workspace, "scene.blend"), "land v3, longer");
+            File.WriteAllText(Path.Combine(workspace, "land.fbx"), "export");
+            File.WriteAllText(Path.Combine(workspace, "bin", "skipped.dll"), "build output again");
+            File.Delete(Path.Combine(workspace, "old.txt"));
+            Program.Equal("copy: without a copy, a run's changes are told by size and time and none is undoable",
+                string.Join(",", (await changes.CompareAsync(later, CancellationToken.None))
+                    .Select(change => $"{Path.GetFileName(change.Path)}:{change.Kind}:{change.Undoable}").Order()),
+                "land.fbx:??:False,old.txt:D:False,scene.blend:M:False");
         }
         finally
         {
@@ -913,7 +925,7 @@ internal static class AgentTests
         Program.Equal("auto: a stem counts only at the start of a word",
             (Choose(EffortPhase.New, "Add an information panel").Effort, Choose(EffortPhase.New, "An important fix to the menu").Effort,
                 Choose(EffortPhase.New, "Read the stack trace and fix the menu").Effort, Choose(EffortPhase.New, "Import the new FBX").Reason),
-            ("medium", "medium", "medium", "\"import\": a mechanical change"));
+            ("medium", "medium", "medium", "the brief reads as a mechanical change (\"import\")"));
         Program.Equal("auto: the raise never goes above xhigh, and starts from high when the last effort is not known",
             (Choose(EffortPhase.Reply, last: "xhigh", failures: 1).Effort, Choose(EffortPhase.Reply, last: "max", failures: 1).Effort, Choose(EffortPhase.Steer, failures: 1).Effort),
             ("xhigh", "xhigh", "high"));
@@ -941,14 +953,14 @@ internal static class AgentTests
 
         Program.Equal("auto: a hard task is high, with the word that said so",
             (Choose(EffortPhase.New, brief: "The app crashes on start"), Choose(EffortPhase.New, brief: "Build a save system").Reason, Choose(EffortPhase.HandOff, brief: "Investigate the stutter").Effort),
-            (("high", "\"crash\": an unclear failure"), "\"system\": a design task", "high"));
-        Program.Equal("auto: a mechanical task is low", Choose(EffortPhase.New, brief: "Rename the Player class"), ("low", "\"rename\": a mechanical change"));
+            (("high", "the brief reads as an unclear failure (\"crash\")"), "the brief reads as a design task (\"system\")", "high"));
+        Program.Equal("auto: a mechanical task is low", Choose(EffortPhase.New, brief: "Rename the Player class"), ("low", "the brief reads as a mechanical change (\"rename\")"));
         Program.Equal("auto: the brief is read in any case", Choose(EffortPhase.New, brief: "REFACTOR the input").Effort, "high");
-        Program.Equal("auto: high wins over low", Choose(EffortPhase.New, brief: "Rewrite the docs"), ("high", "\"rewrite\": a design task"));
+        Program.Equal("auto: high wins over low", Choose(EffortPhase.New, brief: "Rewrite the docs"), ("high", "the brief reads as a design task (\"rewrite\")"));
         Program.Equal("auto: Russian stems",
             (Choose(EffortPhase.New, brief: "Переименуй поле"), Choose(EffortPhase.New, brief: "Почему падает игра"), Choose(EffortPhase.New, brief: "Спроектируй систему").Effort,
                 Choose(EffortPhase.New, brief: "Опечатка в описании").Effort, Choose(EffortPhase.New, brief: "Переименуй систему").Effort),
-            (("low", "\"переимен\": a mechanical change"), ("high", "\"почему\": an unclear failure"), "high", "low", "high"));
+            (("low", "the brief reads as a mechanical change (\"переимен\")"), ("high", "the brief reads as an unclear failure (\"почему\")"), "high", "low", "high"));
         Program.Equal("auto: an indefinite word is no question", Choose(EffortPhase.New, brief: "Скиллы почему-то не видны, добавь двери").Effort, "medium");
         Program.Equal("auto: nothing to go by is medium, or the role's usual effort",
             (Choose(EffortPhase.New), Choose(EffortPhase.New, role: "High"), Choose(EffortPhase.New, role: "max").Effort, Choose(EffortPhase.New, role: "ultra").Effort),
@@ -966,7 +978,18 @@ internal static class AgentTests
         Program.Equal("auto: a list with values of its own is mapped by the known ones",
             Choose(EffortPhase.Reply, next: new AgentNext("dig", "high", "x"), efforts: ["minimal", "low", "medium"]).Effort, "medium");
         Program.Equal("auto: no efforts to choose from leaves the CLI its own",
-            Choose(EffortPhase.New, brief: "Rename it", efforts: []), ((string?)null, "\"rename\": a mechanical change"));
+            Choose(EffortPhase.New, brief: "Rename it", efforts: []), ((string?)null, "the brief reads as a mechanical change (\"rename\")"));
+        Program.Equal("auto: a long brief is no mechanical change for one of its words",
+            Choose(EffortPhase.New, brief: "Rework the SUV body in Blender so the windows are real openings with glass and the normals are right. " +
+                "Before rebuilding, rename the current collection to SUV_prev and hide it, then export the FBX again."), ("medium", "a usual task"));
+
+        Program.Equal("auto: a team step goes by the kind the plan gave it, not by its words",
+            (AutoEffort.ForStep(StepKind.Asset, all, 0), AutoEffort.ForStep(StepKind.Code, all, 0), AutoEffort.ForStep(StepKind.Docs, all, 0),
+                AutoEffort.ForStep(StepKind.Investigate, all, 0).Reason),
+            (("high", "an asset step of the plan"), ("medium", "a code step of the plan"), ("low", "a text step of the plan"), "an investigation step of the plan"));
+        Program.Equal("auto: a team step that failed goes one above its kind, on the CLI's own values",
+            (AutoEffort.ForStep(StepKind.Code, all, 1), AutoEffort.ForStep(StepKind.Asset, short3, 2).Effort, AutoEffort.ForStep(StepKind.Code, [], 0).Effort),
+            (("high", "raised: a code step that failed"), "high", (string?)null));
     }
 
     /// <summary>The runs that count as failed for Auto: failed, or the check failed; a good or stopped run clears them.</summary>
@@ -2825,7 +2848,7 @@ internal static class AgentTests
             "Design=Strong, Investigate=Strong, Code=Standard, Test=Standard, Review=Standard, Asset=Strong, Mechanical=Light, Docs=Light");
         Program.Equal("step kinds: Auto effort still names the first mechanical word of its list",
             AutoEffort.Choose(EffortPhase.New, "Bump version and add a comment", ["low", "medium", "high"], null, 0, null),
-            ((string?)"low", "\"comment\": a mechanical change"));
+            ((string?)"low", "the brief reads as a mechanical change (\"comment\")"));
     }
 
     /// <summary>The lead's team plan: the last link-plan block, read tolerantly; the answer goes on without it.</summary>
@@ -2877,6 +2900,18 @@ internal static class AgentTests
 
         var (rest, last) = TeamPlan.Split("First:\n```link-plan\n[{\"step\": \"Old\"}]\n```\nThen:\n```link-plan\n[{\"step\": \"New\"}]\n```");
         Program.Equal("team plan: the last block is the plan", (rest, Show(last)), ("First:\n```link-plan\n[{\"step\": \"Old\"}]\n```\nThen:", "New/Code/-//"));
+
+        Program.Equal("team plan: the thread shows an answer without its plan and verdict, one cut short at the end too",
+            (TeamPlan.WithoutBlocks("Found it.\n```link-plan\n[{\"step\": \"Old\"}]\n```\nDone.\n```link-review\n{\"verdict\": \"accept\"}\n```"),
+                TeamPlan.WithoutBlocks("The plan:\n```link-plan\n[{\"step\": \"Put the SUV into Unity…"), TeamPlan.WithoutBlocks("```csharp\nvar x = 1;\n```")),
+            ("Found it.\n\nDone.", "The plan:", "```csharp\nvar x = 1;\n```"));
+        Program.Equal("team plan: a step's headline is its first sentence, the rest apart; a file name's dot ends nothing",
+            (TeamPlan.Headline(" Rework the body in Art/SUV.blend. Cut the windows through.\nThen export. "), TeamPlan.Headline("Rename the files"),
+                TeamPlan.Headline("Wire the doors\n(1) Copy the FBX")),
+            (("Rework the body in Art/SUV.blend.", "Cut the windows through.\nThen export."), ("Rename the files", ""), ("Wire the doors", "(1) Copy the FBX")));
+        var endless = string.Join(' ', Enumerable.Repeat("word", 60));
+        Program.Equal("team plan: a first sentence too long for a line is cut at a word, and then the rest is the whole step",
+            TeamPlan.Headline(endless) is var (title, whole) && title.EndsWith("word…", StringComparison.Ordinal) && title.Length <= 160 && whole == endless, true);
     }
 
     /// <summary>What the lead is asked when the task is planned for a team.</summary>
@@ -3650,22 +3685,26 @@ internal static class AgentTests
                 Goal = "Add the dash", Brief = "Add the dash to the movement component.", Workspace = workspace,
                 Plan = [new AgentPlanItem("Rename the sprites", true, false, null, null, "GLM"), new AgentPlanItem("Add the dash ability", false, true, null, null, "Codex")]
             };
-            var state = TaskState.Build(record, null, workspace);
+            // A worker's state points to its step below instead of naming the next action.
+            string AsWorker(string built, string next) => built.Replace("## Next action\n" + next + "\n", "## Next action\n" + TaskState.StepBelow + "\n");
+            var state = AsWorker(TaskState.Build(record, null, workspace), "Add the dash ability");
             var step = new TeamStep { Text = "Add the dash ability to the movement component", Files = ["Source/Movement", "Source/Dash.cpp"] };
             Program.Equal("step brief: the task state, the step with its files, and the limit of the work",
                 TaskState.StepBrief(record, null, workspace, step),
                 state + "\n\n## Your step\nAdd the dash ability to the movement component\nfiles: Source/Movement, Source/Dash.cpp\n" + TeamPlan.StepEnd);
             Program.Equal("step brief: a step without files has no files line",
                 TaskState.StepBrief(record, null, workspace, new TeamStep { Text = "Rename it" }), state + "\n\n## Your step\nRename it\n" + TeamPlan.StepEnd);
-            record.Team = [new TeamStep { Text = "Model the prop", Worker = "Claude", HandedOver = "Content/Dash.fbx" }, new TeamStep { Text = "Rig it", Worker = "Codex", HandedOver = "  " }, step,
-                new TeamStep { Text = "Wire it", Worker = "GLM", HandedOver = "not yet" }];
+            record.Team = [new TeamStep { Text = "Model the prop in Blender. Keep the pivots on the hinges.", Worker = "Claude", HandedOver = "Content/Dash.fbx" },
+                new TeamStep { Text = "Rig it", Worker = "Codex", HandedOver = "  " }, step, new TeamStep { Text = "Wire it", Worker = "GLM", HandedOver = "not yet" }];
             var teamState = TaskState.Build(record, null, workspace);
-            Program.Equal("step brief: a team's state is where its steps stand, the next action its current step",
-                (teamState.Contains("- [ ] 1. Model the prop (Claude)\n- [ ] 2. Rig it (Codex)"), teamState.Contains("## Next action\nStep 1 of the team plan: Model the prop")),
+            Program.Equal("step brief: a team's state is where its steps stand, each by its first sentence; the next action is the current step in full",
+                (teamState.Contains("- [ ] 1. Model the prop in Blender. (Claude)\n- [ ] 2. Rig it (Codex)"),
+                    teamState.Contains("## Next action\nStep 1 of the team plan: Model the prop in Blender. Keep the pivots on the hinges.")),
                 (true, true));
             Program.Equal("step brief: what the earlier steps handed over comes before the step, numbered by the plan; a later step's is not told",
                 TaskState.StepBrief(record, null, workspace, step),
-                teamState + "\n\n## Handed over by earlier steps\n- Step 1 (Claude): Content/Dash.fbx" +
+                AsWorker(teamState, "Step 1 of the team plan: Model the prop in Blender. Keep the pivots on the hinges.") +
+                "\n\n## Handed over by earlier steps\n- Step 1 (Claude): Content/Dash.fbx" +
                 "\n\n## Your step\nAdd the dash ability to the movement component\nfiles: Source/Movement, Source/Dash.cpp\n" + TeamPlan.StepEnd);
             record.Team = [];
             step.EscalatedFrom = "GLM";
@@ -3925,6 +3964,30 @@ internal static class AgentTests
             File.Delete(Path.Combine(packs, "godot", "pack.md"));
             Program.Equal("tool packs: Seed again copies only what is missing: the user's changes stay",
                 (ToolPacks.Seed(ToolPacks.BuiltInFolder, packs), File.ReadAllText(mine).Contains("My Unreal way")), (1, true));
+
+            // A newer Link's pack: a file still as Link put it takes the new text, one the user changed stays theirs.
+            var newer = TempFolder();
+            var seededTo = TempFolder();
+            try
+            {
+                var skill = Path.Combine(newer, "blender", "skills", "blender-model", "SKILL.md");
+                Directory.CreateDirectory(Path.GetDirectoryName(skill)!);
+                File.WriteAllText(skill, "v1");
+                var seededCopy = Path.Combine(seededTo, "blender", "skills", "blender-model", "SKILL.md");
+                var first = ToolPacks.Seed(newer, seededTo);
+                File.WriteAllText(skill, "v2");
+                Program.Equal("tool packs: a newer Link's version replaces a file the user did not change",
+                    (first, ToolPacks.Seed(newer, seededTo), File.ReadAllText(seededCopy)), (1, 1, "v2"));
+                File.WriteAllText(seededCopy, "v2 and my lesson");
+                File.WriteAllText(skill, "v3");
+                Program.Equal("tool packs: a file the user changed stays theirs when Link's changes too",
+                    (ToolPacks.Seed(newer, seededTo), File.ReadAllText(seededCopy)), (0, "v2 and my lesson"));
+            }
+            finally
+            {
+                DeleteFolder(newer);
+                DeleteFolder(seededTo);
+            }
 
             var shared = Path.Combine(packs, "unreal", "skills", "ue-own");
             Directory.CreateDirectory(shared);

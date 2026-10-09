@@ -187,15 +187,21 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
         };
     }
 
-    private static HarnessSection Injected(HarnessInput input) =>
-        input.Task is { Brief.Length: > 0 } task
-            ? new HarnessSection("Injected context", $"The brief Link gave: {task.BriefText.Length.ToString("N0", CultureInfo.InvariantCulture)} characters")
-            {
-                Note = "The rules and the role go before it in a new session; the Console has the exact text",
-                Detail = task.BriefText,
-                ShowsConsole = true
-            }
-            : new HarnessSection("Injected context", "Nothing yet") { ShowsConsole = true };
+    /// <summary>The task's brief and hand-overs; while a team works, what the worker of the current step is told instead.</summary>
+    private static HarnessSection Injected(HarnessInput input)
+    {
+        if (input.Task is not { Brief.Length: > 0 } task) return new HarnessSection("Injected context", "Nothing yet") { ShowsConsole = true };
+        var step = TeamRunner.Current(task);
+        var text = step is null ? task.BriefText : TaskState.StepBrief(task, null, task.Workspace, step, input.AgentName);
+        var length = text.Length.ToString("N0", CultureInfo.InvariantCulture);
+        return new HarnessSection("Injected context",
+            step is null ? $"The brief Link gave: {length} characters" : $"Step {TeamRunner.Number(task, step)}'s brief: {length} characters")
+        {
+            Note = "The rules and the role go before it in a new session; the Console has the exact text",
+            Detail = text,
+            ShowsConsole = true
+        };
+    }
 
     private static HarnessSection Tools(HarnessInput input)
     {

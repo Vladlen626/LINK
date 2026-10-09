@@ -49,9 +49,12 @@ dialog: a question or a request for permission ends it, and the user's answer co
 ## Project and environment
 - `docs/map.md`, if present, is the project's map: what is where, how to build and check. Read it first.
 - Project skills are `.agents/skills/<name>/SKILL.md`: repeated work that a skill describes, do by it. A skill or a
-  tool was missing: say which at the end. A skill marked "pack, shared" lies outside the workspace and serves every
-  project: never change it there; a lesson for it goes into a copy at `.agents/skills/<name>/`, which then overrides
-  it here, and the user decides whether all projects get it.
+  tool was missing: say which at the end. A skill marked "pack, shared" lies outside the workspace and is the tool's
+  know-how for every project: never change it there. A lesson true in any project with that tool (a pitfall, a better
+  way) goes into a copy at `.agents/skills/<name>/` that stays general - no paths, names or sizes of this project -
+  and the user decides whether all projects get it. What holds only here (this project's scripts, assets, numbers)
+  goes into the project's own add-on `.agents/skills/<pack>-project/` (`blender-project`): it builds on the pack's
+  skills, says so in its description, and never repeats them.
 - Windows PowerShell 5.1 reads and writes files without a BOM as ANSI: text goes with `-Encoding UTF8`
   (`Get-Content`, `Set-Content`), or non-Latin text turns to garbage.
 

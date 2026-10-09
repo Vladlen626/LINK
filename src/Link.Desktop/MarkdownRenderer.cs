@@ -3,6 +3,7 @@ using System.Diagnostics.CodeAnalysis;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -379,14 +380,13 @@ public static class MarkdownText
             box.PreviewMouseWheel += PassWheel;
         }
 
-        var document = new FlowDocument
+        var document = new FlowDocument { PagePadding = new Thickness(0), LineHeight = 20 };
+        // Bound, not copied: a box in a template can get its text before its style, and a copy kept the default black.
+        foreach (var property in new[] { TextElement.FontFamilyProperty, TextElement.FontSizeProperty, TextElement.ForegroundProperty })
         {
-            PagePadding = new Thickness(0),
-            FontFamily = box.FontFamily,
-            FontSize = box.FontSize,
-            LineHeight = 20,
-            Foreground = box.Foreground
-        };
+            document.SetBinding(property, new Binding(property.Name) { Source = box });
+        }
+
         new MarkdownRenderer(box, Open).Render((string?)e.NewValue ?? string.Empty, (_, create) => document.Blocks.Add(create()));
         // The last block's space below would only pad the turn.
         if (document.Blocks.LastBlock is { } last) last.Margin = new Thickness(last.Margin.Left, last.Margin.Top, last.Margin.Right, 0);

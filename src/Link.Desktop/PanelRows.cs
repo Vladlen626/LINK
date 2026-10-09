@@ -187,17 +187,43 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, B
 public sealed record AgentStepRow(string Text, Brush Brush);
 
 /// <summary>
-/// A step of the agent's plan: its mark (✓ done, ● under way, ○ to do) and the mark's colour, its words and their colour.
-/// A team's step also names who does it (<see cref="Worker"/>) and the specialist, with the colour of its jellyfish; an
-/// agent's own plan has neither.
+/// A step of the agent's plan: its mark (✓ done, ● under way, ○ to do) and the mark's colour, its first sentence and
+/// their colour; the rest of its words (<see cref="Detail"/>) open under it on a click. A team's step also names who
+/// does it (<see cref="Worker"/>) and the specialist, with the colour of its jellyfish; an agent's own plan has neither.
 /// </summary>
-public sealed record PlanRow(string Mark, Brush MarkBrush, string Text, Brush Brush)
+public sealed class PlanRow(string mark, Brush markBrush, string title, Brush brush) : INotifyPropertyChanged
 {
+    private bool _open;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string Mark => mark;
+    public Brush MarkBrush => markBrush;
+    public string Title => title;
+    public Brush Brush => brush;
+
+    /// <summary>The words after the first sentence and, for a team's step, why its worker; empty: the row does not open.</summary>
+    public string Detail { get; init; } = string.Empty;
+
     public string Worker { get; init; } = string.Empty;
     public string RoleName { get; init; } = string.Empty;
     public Brush? RoleBrush { get; init; }
     public Visibility WorkerVisibility => Worker.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     public Visibility RoleVisibility => RoleName.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    public string Chevron => Detail.Length == 0 ? string.Empty : _open ? "▾" : "▸";
+    public Visibility DetailVisibility => _open ? Visibility.Visible : Visibility.Collapsed;
+
+    public bool Open
+    {
+        get => _open;
+        set
+        {
+            if (_open == value || Detail.Length == 0) return;
+            _open = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Chevron)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DetailVisibility)));
+        }
+    }
 }
 
 /// <summary>

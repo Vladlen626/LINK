@@ -1,3 +1,6 @@
+using System.Security.Cryptography;
+using System.Text.Json;
+
 namespace Link.Desktop.Services;
 
 /// <summary>A tool pack: what Link knows of an engine or a tool (Unreal, Unity, Blender…) for every project that uses it.</summary>
@@ -175,23 +178,47 @@ public static class ToolPacks
                           (!File.Exists(other) || File.ReadAllText(other) != File.ReadAllText(file)));
 
     /// <summary>
-    /// Copies Link's own packs into the packs folder, each file only where the folder lacks it: a file the user changed
-    /// stays theirs, and a new one of a newer Link arrives. Returns how many files were copied.
+    /// Copies Link's own packs into the packs folder: a file the folder lacks, and a newer Link's version of one that is
+    /// still as Link put it there (<see cref="SeededFile"/> keeps a hash of each); a file the user or an agent's shared
+    /// lesson changed stays theirs. Returns how many files were copied.
     /// </summary>
     public static int Seed(string from, string to)
     {
         if (!Directory.Exists(from)) return 0;
+        var manifest = Path.Combine(to, SeededFile);
+        var seeded = AtomicJsonFile.Read<Dictionary<string, string>>(manifest) ?? [];
+        var known = seeded.Count;
         var copied = 0;
         try
         {
             foreach (var file in Directory.EnumerateFiles(from, "*", SearchOption.AllDirectories))
             {
-                var target = Path.Combine(to, Path.GetRelativePath(from, file));
-                if (File.Exists(target)) continue;
-                Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-                File.Copy(file, target);
-                copied++;
+                var relative = Path.GetRelativePath(from, file).Replace('\\', '/');
+                var target = Path.Combine(to, relative);
+                var ours = Hash(file);
+                if (File.Exists(target))
+                {
+                    var theirs = Hash(target);
+                    if (theirs == ours) seeded[relative] = ours;
+                    // A file Link did not put there, or one changed since: the user's.
+                    if (theirs == ours || !seeded.TryGetValue(relative, out var put) || put != theirs) continue;
+                }
+
+                try
+                {
+                    Directory.CreateDirectory(Path.GetDirectoryName(target)!);
+                    if (File.Exists(target)) File.SetAttributes(target, FileAttributes.Normal);
+                    File.Copy(file, target, overwrite: true);
+                    seeded[relative] = ours;
+                    copied++;
+                }
+                catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+                {
+                    // A file open elsewhere comes with the next start.
+                }
             }
+
+            if (copied > 0 || seeded.Count != known) AtomicJsonFile.Write(manifest, seeded, new JsonSerializerOptions { WriteIndented = true });
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -201,4 +228,9 @@ public static class ToolPacks
         lock (Gate) Seen.Clear();
         return copied;
     }
+
+    /// <summary>What Link put into the packs folder, file by file, as a hash: a file still the same is Link's to update.</summary>
+    public const string SeededFile = ".link-seeded.json";
+
+    private static string Hash(string file) => Convert.ToHexString(SHA256.HashData(File.ReadAllBytes(file)));
 }

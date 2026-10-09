@@ -59,7 +59,7 @@ try:
             if bpy.app.background:
                 bpy.ops.render.render(write_still=True)
             else:
-                bpy.ops.render.opengl(write_still=True)
+                bpy.ops.render.opengl(write_still=True, view_context=False)  # else the GUI draws the viewport view, not this camera
             files.append(path)
 finally:
     scene.camera, frame, scene.render.filepath, scene.render.resolution_x, scene.render.resolution_y, scene.render.engine = saved

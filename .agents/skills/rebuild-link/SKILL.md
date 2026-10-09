@@ -36,8 +36,10 @@ test exe, and it passes.
    while Link is closed (it writes them itself).
 3. `dotnet build Link.sln -c Release` → `Предупреждений: 0`, `Ошибок: 0`.
 4. `dotnet run --project tests/Link.Desktop.Tests -c Release --no-build` → `All N checks passed.`
-5. `Start-Process src\Link.Desktop\bin\Release\net10.0-windows\Link.exe`, wait ~5 s, then
-   `Get-Content $env:LOCALAPPDATA\Link\link.log -Tail 5`: no new errors.
+5. `explorer.exe "$PWD\src\Link.Desktop\bin\Release\net10.0-windows\Link.exe"`, wait ~5 s, then
+   `Get-Content $env:LOCALAPPDATA\Link\link.log -Tail 5`: no new errors. Through Explorer, not `Start-Process`: a
+   process started from this session belongs to the Claude app, and Windows ends it with the app's update (2026-10-09
+   Link and its team's agent died at 08:58 when Claude 2.31226 installed, with nothing in link.log).
 
 ## Done when
 

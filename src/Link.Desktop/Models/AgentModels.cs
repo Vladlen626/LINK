@@ -261,9 +261,11 @@ public enum AgentEntryKind
 /// it works on the step ("Fixing the jump"); <see cref="Number"/> is the task's number in Claude Code, by which its
 /// TaskUpdate names it. Plans of an earlier Link have neither. <see cref="Worker"/> names who does the step when the
 /// plan is a team's ("GLM", "GLM → Codex" after an escalation); null for the agent's own plan. <see cref="Role"/> is the
-/// name of the specialist of a team's step ("3D Artist"), shown beside the worker.
+/// name of the specialist of a team's step ("3D Artist"), shown beside the worker, and <see cref="Why"/> why Link gave the
+/// step to that worker.
 /// </summary>
-public sealed record AgentPlanItem(string Text, bool Done, bool Active, string? Doing = null, int? Number = null, string? Worker = null, string? Role = null);
+public sealed record AgentPlanItem(
+    string Text, bool Done, bool Active, string? Doing = null, int? Number = null, string? Worker = null, string? Role = null, string? Why = null);
 
 /// <summary>
 /// A usage window of an agent's subscription as the CLI last reported it: "5 h" or "week", how much of it is used and

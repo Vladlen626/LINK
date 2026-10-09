@@ -155,7 +155,7 @@ public static partial class TeamRunner
 
     /// <summary>
     /// The team plan as the task's plan card shows it: done, under way or waiting for the user's OK, and to do; each
-    /// step with its worker (after an escalation "Haiku 5.5 → Codex") and its specialist's name.
+    /// step with its worker (after an escalation "Haiku 5.5 → Codex"), its specialist's name and why that worker.
     /// </summary>
     public static IReadOnlyList<AgentPlanItem> PlanItems(AgentTaskRecord record, Func<string?, string?> roleName) =>
         [.. record.Team.Select(step => new AgentPlanItem(
@@ -169,12 +169,14 @@ public static partial class TeamRunner
                 _ => null
             },
             Worker: step.EscalatedFrom is { } from && from != step.Worker ? $"{from} → {step.Worker}" : step.Worker,
-            Role: roleName(step.Role)))];
+            Role: roleName(step.Role),
+            Why: step.Reason))];
 
     /// <summary>The team plan for the task's state: where each step stands and who does it.</summary>
     public static IEnumerable<string> StateLines(AgentTaskRecord record) =>
+        // A step by its first sentence: each worker gets its own step in full, the others' would only cost tokens.
         record.Team.Select((step, index) =>
-            $"- [{(step.Status == TeamStepStatus.Done ? "x" : " ")}] {index + 1}. {step.Text} ({step.Worker}" +
+            $"- [{(step.Status == TeamStepStatus.Done ? "x" : " ")}] {index + 1}. {TeamPlan.Headline(step.Text).Title} ({step.Worker}" +
             (step.Status is TeamStepStatus.Failed or TeamStepStatus.AwaitsOk ? $", {step.Status}" : string.Empty) + ")");
 
     /// <summary>The step goes a tier up, to a new session of that tier's worker; with no tier or worker left it fails.</summary>

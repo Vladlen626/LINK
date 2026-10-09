@@ -53,7 +53,8 @@ public partial class MainWindow
         step.Status = TeamStepStatus.Running;
         if (redo.Session is null)
         {
-            record.Add(AgentEntryKind.HandOff, $"Step {number} → {step.Worker}{(role is null ? string.Empty : " as " + role.Name)}: {Shorten(step.Text, 160)} · {step.Reason}");
+            record.Add(AgentEntryKind.HandOff,
+                $"Step {number} → {step.Worker}{(role is null ? string.Empty : " as " + role.Name)}: {TeamPlan.Headline(step.Text).Title} · {step.Reason}");
         }
 
         record.RoleId = role?.Id;
@@ -128,6 +129,12 @@ public partial class MainWindow
             TeamMove.Finished => $"Step {number} done by {before}: the team is through all {Plural(record.Team.Count, "step")}",
             _ => null
         };
+        // What the next workers are told of this step, besides the plan's line for it.
+        if (note is not null && move is TeamMove.Review or TeamMove.Next or TeamMove.AwaitOk && step.HandedOver is { } handed)
+        {
+            note += $" · hands over: {Shorten(handed, 240)}";
+        }
+
         if (note is not null) record.Add(AgentEntryKind.HandOff, note);
         SaveTask(record);
         ShowTask();

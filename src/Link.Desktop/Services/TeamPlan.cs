@@ -134,6 +134,28 @@ public static partial class TeamPlan
     }
 
     /// <summary>
+    /// The answer without its link-plan and link-review blocks, one cut short at the end included: the plan is the plan
+    /// card and the verdict a line of the thread, not words to read.
+    /// </summary>
+    public static string WithoutBlocks(string answer) => AnyBlock().Replace(answer, string.Empty).Trim();
+
+    /// <summary>
+    /// A step's first sentence, the line the plan card, the hand-overs and the other workers see, and the rest of its
+    /// text. A first sentence longer than <see cref="HeadlineLength"/> is cut, and then the rest is the whole text.
+    /// </summary>
+    public static (string Title, string Body) Headline(string text)
+    {
+        text = text.Trim();
+        var end = SentenceEnd().Match(text) is { Success: true } match ? match.Index : text.Length;
+        var title = text[..end].Trim();
+        if (title.Length <= HeadlineLength) return (title, text[end..].Trim());
+        var space = title.LastIndexOf(' ', HeadlineLength - 1);
+        return (title[..(space > 40 ? space : HeadlineLength - 1)] + "…", text);
+    }
+
+    private const int HeadlineLength = 160;
+
+    /// <summary>
     /// What a step's answer hands over to the next specialist, as <see cref="StepEnd"/> asks: the text of its last
     /// <c>Handed over:</c> line. Null when it has none.
     /// </summary>
@@ -185,6 +207,14 @@ public static partial class TeamPlan
 
     [GeneratedRegex(@"```link-review[^\n]*\n(.*?)```", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex ReviewBlock();
+
+    // A kept answer is cut at its length, so the last block may have lost its closing fence.
+    [GeneratedRegex(@"```link-(?:plan|review)[^\n]*\n.*?(?:```|\z)", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex AnyBlock();
+
+    // The end of a step's first sentence: a full stop before a space or a line, or a line break.
+    [GeneratedRegex(@"(?<=\.)\s|\n")]
+    private static partial Regex SentenceEnd();
 
     // The line may come as a list item or in bold: "- **Handed over:** Content/Dash.fbx".
     [GeneratedRegex(@"^[ \t>*_\-]*Handed over:[ \t*_]*(\S[^\r\n]*?)[ \t]*\r?$", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
