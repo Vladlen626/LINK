@@ -105,6 +105,7 @@ internal static class AgentTests
         RoleSuggestAll();
         StepBriefBuilt();
         TeamRunnerMoves();
+        LeadReviewText();
         ToolPacksUsed();
         RoleColors();
         RoleColorFiles();
@@ -3840,6 +3841,63 @@ internal static class AgentTests
         var state = string.Join("\n", TeamRunner.StateLines(record));
         Program.Equal("team run: the task state lists the steps with their workers, done ones ticked",
             state.Split('\n')[0], "- [x] 1. Rename the sprites (Haiku 5.5)");
+
+        var reviewed = Planned();
+        reviewed.LeadSession = "lead-1";
+        var code = reviewed.Team[1];
+        Program.Equal("lead review: a cheaper worker's step with changes is reviewed; no lead, no changes, Strong or the user's step is not",
+            (TeamRunner.Reviews(reviewed, code, true, true), TeamRunner.Reviews(reviewed, code, false, true), TeamRunner.Reviews(reviewed, code, true, false),
+                TeamRunner.Reviews(reviewed, reviewed.Team[2], true, true), TeamRunner.Reviews(Planned(), code, true, true)),
+            (true, false, false, false, false));
+        var reviewEvidence = new WorkerEvidence();
+        reviewed.Team[0].Status = TeamStepStatus.Done;
+        Program.Equal("lead review: a step done waits for the lead, its handover kept, its worker not counted yet",
+            (TeamRunner.After(reviewed, code, true, "Added.\nHanded over: Dash in Source/Dash.cs", "", route, Name, reviewEvidence, review: true),
+                code.Status, code.HandedOver, reviewEvidence.Records.Count, TeamRunner.PlanItems(reviewed, _ => null)[1].Doing),
+            (TeamMove.Review, TeamStepStatus.Reviewing, "Dash in Source/Dash.cs", 0, "The lead reviews: Add the dash"));
+        Program.Equal("lead review: redo sends the step back to its worker with the notes, twice at most",
+            (TeamRunner.Reviewed(reviewed, code, new LeadReview(ReviewVerdict.Redo, "Null check"), route, Name, reviewEvidence), code.Status, code.ReviewNotes, code.Redos, code.Worker),
+            (TeamMove.Redo, TeamStepStatus.Running, "Null check", 1, "Codex"));
+        code.Status = TeamStepStatus.Reviewing;
+        TeamRunner.Reviewed(reviewed, code, new LeadReview(ReviewVerdict.Redo, "Again"), route, Name, reviewEvidence);
+        code.Status = TeamStepStatus.Reviewing;
+        code.SessionId = "codex-1";
+        Program.Equal("lead review: a third redo goes a tier up in a new session, told the lead's notes",
+            (TeamRunner.Reviewed(reviewed, code, new LeadReview(ReviewVerdict.Redo, "Still wrong"), route, Name, reviewEvidence), code.Worker, code.Failure,
+                code.SessionId, code.ReviewNotes, code.EscalatedFrom),
+            (TeamMove.Escalated, "Opus 5.5", "the lead's review: Still wrong", (string?)null, (string?)null, "Codex"));
+        code.Status = TeamStepStatus.Reviewing;
+        Program.Equal("lead review: stop leaves the step under review for the user; accept finishes it and counts the worker",
+            (TeamRunner.Reviewed(reviewed, code, new LeadReview(ReviewVerdict.Stop, "Wrong plan"), route, Name, reviewEvidence), code.Status,
+                TeamRunner.Reviewed(reviewed, code, new LeadReview(ReviewVerdict.Accept, ""), route, Name, reviewEvidence), code.Status),
+            (TeamMove.Stopped, TeamStepStatus.Reviewing, TeamMove.Next, TeamStepStatus.Done));
+        code.ReviewNotes = "Use the input map";
+        Program.Equal("lead review: a new session for a step sent back is told the lead's notes",
+            TaskState.StepBrief(reviewed, null, @"C:\Game", code).Contains("asks for this: Use the input map", StringComparison.Ordinal), true);
+
+        Program.Equal("team suggested: two specialists or a list of three things to do",
+            (TeamRunner.Suggests("Do it:\n- import the car\n- add doors\n2. add the trunk", []), TeamRunner.Suggests("- import the car\n- add doors", [])), (true, false));
+    }
+
+    private static void LeadReviewText()
+    {
+        var (text, review) = TeamPlan.SplitReview("Checked the diff.\n```link-review\n{\"verdict\": \"Redo\", \"notes\": \"Door_FL opens inward\"}\n```");
+        Program.Equal("lead review: the verdict block is read in any case and taken off the answer",
+            (text, review), ("Checked the diff.", new LeadReview(ReviewVerdict.Redo, "Door_FL opens inward")));
+        Program.Equal("lead review: no block, an unknown verdict or broken JSON is no verdict",
+            (TeamPlan.SplitReview("Looks fine.").Review, TeamPlan.SplitReview("```link-review\n{\"verdict\": \"maybe\"}\n```").Review,
+                TeamPlan.SplitReview("```link-review\n{verdict\n```").Review),
+            ((LeadReview?)null, (LeadReview?)null, (LeadReview?)null));
+        var step = new TeamStep { Text = "Add the doors", Worker = "Codex" };
+        var withDiff = TeamPlan.ReviewPrompt("<!-- note -->Review it.", 2, step, "Added.", "passed", ["Assets/Doors.cs"], "+ open()");
+        var withoutDiff = TeamPlan.ReviewPrompt("Review it.", 2, step, "", null, [], null);
+        Program.Equal("lead review: the request without its notes, the step, answer, check, files and diff",
+            (withDiff.StartsWith("Review it.\n\n## Step 2, done by Codex\nAdd the doors", StringComparison.Ordinal), withDiff.Contains("- Assets/Doors.cs", StringComparison.Ordinal),
+                withDiff.Contains("```diff\n+ open()\n```", StringComparison.Ordinal), withoutDiff.Contains("none is set up", StringComparison.Ordinal),
+                withoutDiff.Contains("Read the changed files.", StringComparison.Ordinal)),
+            (true, true, true, true, true));
+        Program.Equal("lead review: the worker's own session is told the notes and to fix in place",
+            TeamPlan.RedoPrompt(" Null check ").StartsWith("The team lead reviewed your step and asks for this:\nNull check\nFix it in place", StringComparison.Ordinal), true);
     }
 
     private static void ToolPacksUsed()

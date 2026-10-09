@@ -13,4 +13,6 @@ End your answer with one block, nothing after it:
 - `check`: true where only the user can judge (a model's look, an animation's feel): the team waits for their OK.
 - 2–8 steps, each self-contained: what to do, where, how to know it is done. Order them as the work flows (model, then
   rig and animate, then integrate, then QA). Your own exploration is not a step.
-- Light steps that change code end with a `review` step on `standard`.
+- You stay the lead: after each step a cheaper worker does, Link shows you its answer and diff and you accept it or send
+  it back. So give clear code to `standard` and clear edits to `light` rather than doing them yourself, and add no
+  review steps of your own.

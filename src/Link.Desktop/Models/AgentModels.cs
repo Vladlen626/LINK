@@ -108,6 +108,9 @@ public sealed class AgentTaskRecord
     /// <summary>The team plan as Link routed it, step by step; empty unless <see cref="Mode"/> is Team.</summary>
     public List<TeamStep> Team { get; set; } = [];
 
+    /// <summary>The team lead's session: it planned the steps and reviews what the workers did; null for no team.</summary>
+    public string? LeadSession { get; set; }
+
     [JsonIgnore]
     public AgentRunRecord? LastRun => Runs.Count == 0 ? null : Runs[^1];
 

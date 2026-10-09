@@ -177,8 +177,12 @@
                             <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Context budget" />
                             <ComboBox x:Name="ContextBudgetCombo" Grid.Row="2" Grid.Column="1" Width="190" HorizontalAlignment="Left"
                                       ToolTip="The agent's CLI compacts its session near this many tokens; the model's own window caps it" />
-                            <CheckBox x:Name="AutoEffortBox" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Auto effort"
-                                      ToolTip="Link picks each run's effort: high to plan, medium to carry out a plan, the agent's own word for its next step, one step up after a failure. An effort you choose on the card stays for the task." />
+                            <StackPanel Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center" Orientation="Horizontal">
+                                <CheckBox x:Name="AutoEffortBox" VerticalAlignment="Center" Content="Auto effort"
+                                          ToolTip="Link picks each run's effort: high to plan, medium to carry out a plan, the agent's own word for its next step, one step up after a failure. An effort you choose on the card stays for the task." />
+                                <CheckBox x:Name="LeadReviewBox" Margin="24,0,0,0" VerticalAlignment="Center" Content="Team lead reviews each step"
+                                          ToolTip="In a team, the lead reads the diff of each step Codex or Haiku did and accepts it, sends it back with notes (twice at most) or gives it to a stronger worker. A short read-only turn of the lead's own session." />
+                            </StackPanel>
                             <TextBlock Grid.Row="4" Margin="0,6,0,0" Text="Claude Code" />
                             <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,6,0,0">
                                 <TextBlock x:Name="ClaudeStatusText" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Text="Checking…" />

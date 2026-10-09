@@ -54,6 +54,12 @@ public sealed class TeamSettings
     /// </summary>
     public bool AutoLower { get; set; }
 
+    /// <summary>
+    /// The lead reads the result of each step a cheaper worker did (its answer and diff) and accepts it, sends it back
+    /// with notes, or gives it to a stronger worker.
+    /// </summary>
+    public bool LeadReview { get; set; } = true;
+
     /// <summary>The worker chosen for a tier; null: the default one.</summary>
     public WorkerChoice? For(WorkerTier tier) => tier switch
     {
@@ -70,7 +76,10 @@ public sealed class TeamSettings
         Strong = Known(Strong);
     }
 
-    public TeamSettings Clone() => new() { Enabled = Enabled, Light = Light, Standard = Standard, Strong = Strong, Alternate = Alternate, AutoLower = AutoLower };
+    public TeamSettings Clone() => new()
+    {
+        Enabled = Enabled, Light = Light, Standard = Standard, Strong = Strong, Alternate = Alternate, AutoLower = AutoLower, LeadReview = LeadReview
+    };
 
     private static WorkerChoice? Known(WorkerChoice? choice) =>
         choice is not null && Enum.IsDefined(choice.Provider) && Enum.IsDefined(choice.Level) ? choice : null;
@@ -92,7 +101,10 @@ public enum TeamStepStatus
     Failed = 3,
 
     /// <summary>The worker is done and the step needs the user's eyes: the team waits for their OK.</summary>
-    AwaitsOk = 4
+    AwaitsOk = 4,
+
+    /// <summary>The worker is done and the lead reads its result: its verdict decides the step.</summary>
+    Reviewing = 5
 }
 
 /// <summary>
@@ -141,4 +153,13 @@ public sealed class TeamStep
 
     /// <summary>What the worker handed over to the next step (paths, names of assets, what the next specialist needs); null until it said.</summary>
     public string? HandedOver { get; set; }
+
+    /// <summary>The session of the worker's last run on the step: the lead's notes go back into it, where it knows what it did.</summary>
+    public string? SessionId { get; set; }
+
+    /// <summary>How many times the lead sent the step back (see <see cref="Services.TeamRunner.MaxRedos"/>).</summary>
+    public int Redos { get; set; }
+
+    /// <summary>What the lead asks the worker to change, until the worker's next run takes it; null: nothing.</summary>
+    public string? ReviewNotes { get; set; }
 }

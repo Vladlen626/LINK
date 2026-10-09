@@ -48,6 +48,7 @@
     <Content Include="..\..\docs\harness\perforce.md" Link="harness\perforce.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\map-task.md" Link="harness\map-task.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\team-task.md" Link="harness\team-task.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\docs\harness\team-review.md" Link="harness\team-review.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\roles\*.md" Link="harness\roles\%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />
     <!-- Link's own tool packs: copied into the packs folder where it lacks them, edited there. -->
     <Content Include="..\..\docs\harness\packs\**\*.*" Link="harness\packs\%(RecursiveDir)%(Filename)%(Extension)" CopyToOutputDirectory="PreserveNewest" />

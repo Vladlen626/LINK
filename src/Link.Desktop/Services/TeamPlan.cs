@@ -12,6 +12,25 @@ namespace Link.Desktop.Services;
 public sealed record PlannedStep(
     string Text, StepKind Kind, WorkerTier? Worker, string Why, IReadOnlyList<string> Files, string? Role = null, bool Check = false);
 
+/// <summary>What the lead decides about a step a worker did, as its review asks.</summary>
+public enum ReviewVerdict
+{
+    /// <summary>Done well enough for the steps after it.</summary>
+    Accept,
+
+    /// <summary>The same worker fixes it, told the notes.</summary>
+    Redo,
+
+    /// <summary>The worker is out of its depth: a stronger one takes the step, told the notes.</summary>
+    Escalate,
+
+    /// <summary>The plan is wrong or the user must decide: the team waits.</summary>
+    Stop
+}
+
+/// <summary>The lead's verdict on a step and its notes: what to change, or why it stops.</summary>
+public sealed record LeadReview(ReviewVerdict Verdict, string Notes);
+
 /// <summary>
 /// The team plan the lead ends its answer with, as its rules ask: a fenced <c>link-plan</c> block of JSON, a list of
 /// steps with a kind, a worker tier, a role and why. Read tolerantly: the plan is the lead's draft, and Link routes it anyway.
@@ -65,6 +84,55 @@ public static partial class TeamPlan
         "\n\nWhat workers did in this project before:" +
         (evidence.Count == 0 ? " nothing yet" : "\n" + string.Join('\n', evidence.Select(line => "- " + line)));
 
+    /// <summary>The request for a review of a step, beside Link.exe like <see cref="TaskFile"/>.</summary>
+    public static string ReviewFile => Path.Combine(AppContext.BaseDirectory, "harness", "team-review.md");
+
+    /// <summary>
+    /// What the lead's session is asked when a worker has done a step: the request (the text of <see cref="ReviewFile"/>),
+    /// then the step, the worker's answer, the check and what changed: the diff when there is one, else the files to read.
+    /// </summary>
+    public static string ReviewPrompt(string request, int number, TeamStep step, string answer, string? check, IReadOnlyList<string> files, string? diff)
+    {
+        var text = new System.Text.StringBuilder(AgentRules.WithoutNotes(request).Trim())
+            .Append($"\n\n## Step {number}, done by {step.Worker}\n").Append(step.Text.Trim())
+            .Append("\n\n## Its answer\n").Append(answer.Trim().Length == 0 ? "(none)" : answer.Trim())
+            .Append("\n\n## The project's check\n").Append(check ?? "none is set up")
+            .Append("\n\n## Changed files\n").Append(files.Count == 0 ? "(none)" : string.Join('\n', files.Select(file => "- " + file)));
+        text.Append(diff is null
+            ? "\n\nNo diff: the workspace has no version control Link can ask. Read the changed files."
+            : $"\n\n## The diff against the last commit (earlier steps' changes to these files show too)\n```diff\n{diff.Trim()}\n```");
+        return text.ToString();
+    }
+
+    /// <summary>What a worker's own session is told when the lead sends its step back: the notes, and to fix in place.</summary>
+    public static string RedoPrompt(string notes) =>
+        $"The team lead reviewed your step and asks for this:\n{notes.Trim()}\nFix it in place: your changes are in the workspace. {StepEnd}";
+
+    /// <summary>
+    /// The answer without its last link-review block, and the verdict that block holds; the answer as it is and null when
+    /// there is none or it does not read.
+    /// </summary>
+    public static (string Text, LeadReview? Review) SplitReview(string answer)
+    {
+        var match = ReviewBlock().Matches(answer).LastOrDefault();
+        if (match is null) return (answer, null);
+        try
+        {
+            using var json = JsonDocument.Parse(match.Groups[1].Value);
+            if (json.RootElement.ValueKind != JsonValueKind.Object || ByName<ReviewVerdict>(AgentQuestion.Text(json.RootElement, "verdict")) is not { } verdict)
+            {
+                return (answer, null);
+            }
+
+            var text = (answer[..match.Index] + answer[(match.Index + match.Length)..]).Trim();
+            return (text, new LeadReview(verdict, AgentQuestion.Text(json.RootElement, "notes")?.Trim() ?? string.Empty));
+        }
+        catch (JsonException)
+        {
+            return (answer, null);
+        }
+    }
+
     /// <summary>
     /// What a step's answer hands over to the next specialist, as <see cref="StepEnd"/> asks: the text of its last
     /// <c>Handed over:</c> line. Null when it has none.
@@ -114,6 +182,9 @@ public static partial class TeamPlan
 
     [GeneratedRegex(@"```link-plan[^\n]*\n(.*?)```", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex Block();
+
+    [GeneratedRegex(@"```link-review[^\n]*\n(.*?)```", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
+    private static partial Regex ReviewBlock();
 
     // The line may come as a list item or in bold: "- **Handed over:** Content/Dash.fbx".
     [GeneratedRegex(@"^[ \t>*_\-]*Handed over:[ \t*_]*(\S[^\r\n]*?)[ \t]*\r?$", RegexOptions.Multiline | RegexOptions.IgnoreCase)]

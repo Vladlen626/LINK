@@ -28,6 +28,8 @@ public partial class MainWindow
     private const int StepsKeptPerRun = 60;
     // How much diff goes with "Discuss in chat"; a bigger one goes as numbers of lines.
     private const int DiffForChat = 30_000;
+    // How much of a step's diff the team lead reads in its review (about 5k tokens); the rest it reads in the files.
+    private const int ReviewDiff = 20_000;
     private readonly AgentCoordinator _agents;
     private readonly AgentLimits _limits;
     private readonly List<AgentEvent> _pendingAgentEvents = [];
@@ -1680,6 +1682,8 @@ public partial class MainWindow
         var said = AgentChanges.SplitChangelistLine(AgentNext.Split(answerText).Text).Text;
         // The lead's link-plan block is the team's plan card, not words to read.
         if (task.PlanOnly && _task is { Mode: TaskMode.Team }) said = TeamPlan.Split(said).Text;
+        // The lead's verdict on a step is a line of the thread, not words to read.
+        else if (_task is { Mode: TaskMode.Team }) said = TeamPlan.SplitReview(said).Text;
         // A question is asked by a run that ended well; one cut short asks nothing.
         _question = !stopped && result.Succeeded && !checkFailed ? question : null;
         var text = checkFailed ? CheckReport(task, run.Check!) + (said.Length > 0 ? "\n\n" + said : string.Empty) : said;
@@ -2465,6 +2469,8 @@ public partial class MainWindow
         _decision = null;
         _agentPanel!.HideDecision();
         if (result.Stopped || result.SessionId is not { } session) return false;
+        // The team lead's review only reads: its verdict decides the step (AfterTeamStep), not a card of this.
+        if (_task is { } reviewed && TeamRunner.Current(reviewed) is { Status: TeamStepStatus.Reviewing }) return false;
         // Changing files or running any command is never allowed in read only: it is a retry with edits, except for a
         // task whose file Link writes itself (a map).
         var claude = task.Provider.RunsOnClaudeCode();

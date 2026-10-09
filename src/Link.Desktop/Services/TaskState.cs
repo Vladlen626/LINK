@@ -63,7 +63,7 @@ public static class TaskState
     /// <summary>
     /// What a worker's new session is told for its step of a team plan: the task's state, what the steps before handed
     /// over, then the step with the files the plan names. A step an earlier worker failed carries what that worker ended
-    /// in, so that the next does not repeat it.
+    /// in, so that the next does not repeat it, and one the lead sent back its notes.
     /// </summary>
     public static string StepBrief(AgentTaskRecord record, string? numstat, string workspace, TeamStep step, Func<AgentProviderKind, string>? agentName = null)
     {
@@ -78,6 +78,10 @@ public static class TaskState
         lines.AddRange(["", "## Your step", step.Text]);
         if (step.Files.Count > 0) lines.Add("files: " + string.Join(", ", step.Files));
         if (step.EscalatedFrom is not null && !string.IsNullOrWhiteSpace(step.Failure)) lines.Add($"The {step.EscalatedFrom} tried this step and failed: {step.Failure.Trim()}");
+        if (!string.IsNullOrWhiteSpace(step.ReviewNotes))
+        {
+            lines.Add($"The team lead reviewed an earlier try of this step, whose changes are in the workspace, and asks for this: {step.ReviewNotes.Trim()}");
+        }
         lines.Add(TeamPlan.StepEnd);
         return string.Join('\n', lines);
     }
