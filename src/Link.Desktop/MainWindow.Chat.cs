@@ -36,6 +36,7 @@ public partial class MainWindow
     private readonly DispatcherTimer _connectionTimer;
     // The answer on screen: each block's Markdown source with its document block, reused while the answer streams.
     private readonly List<(string Source, Block Block)> _responseBlocks = [];
+    private MarkdownRenderer? _markdown;
     private CancellationTokenSource? _sendCancellation;
     private bool _sending;
     private string _responseText = string.Empty;
@@ -493,7 +494,7 @@ public partial class MainWindow
     // A one-glance preview for a notification or the history: plain words without Markdown markers or code fences.
     private static string ToPreviewText(string markdown) =>
         string.Join(' ', markdown.Split('\n', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Where(line => !line.StartsWith("```", StringComparison.Ordinal) && !IsRuleLine(line))
+            .Where(line => !line.StartsWith("```", StringComparison.Ordinal) && !MarkdownRenderer.IsRuleLine(line))
             .Select(line => line.TrimStart('#', '>', '-', '*', '+', ' ')
                 .Replace("**", string.Empty, StringComparison.Ordinal)
                 .Replace("`", string.Empty, StringComparison.Ordinal)));
@@ -1058,124 +1059,10 @@ public partial class MainWindow
     private void RenderResponse(string text)
     {
         _nextResponseBlock = 0;
-        var lines = text.Replace("\r\n", "\n", StringComparison.Ordinal).Replace('\r', '\n').Split('\n');
-        var index = 0;
-        while (index < lines.Length)
-        {
-            if (string.IsNullOrWhiteSpace(lines[index]))
-            {
-                index++;
-                continue;
-            }
-
-            var start = index;
-            if (lines[index].TrimStart().StartsWith("```", StringComparison.Ordinal))
-            {
-                var language = lines[index].TrimStart()[3..].Trim();
-                index++;
-                var codeLines = new List<string>();
-                while (index < lines.Length && !lines[index].TrimStart().StartsWith("```", StringComparison.Ordinal))
-                {
-                    codeLines.Add(lines[index++]);
-                }
-                if (index < lines.Length) index++;
-
-                // A task ChatGPT wrote for the agent: a card with Give to agent, once the block is complete.
-                if (language.Equals("link-task", StringComparison.OrdinalIgnoreCase) && index > start + 1 &&
-                    lines[index - 1].TrimStart().StartsWith("```", StringComparison.Ordinal))
-                {
-                    AddResponseBlock(lines, start, index, () => CreateTaskBlock(string.Join('\n', codeLines).Trim()));
-                    continue;
-                }
-
-                AddResponseBlock(lines, start, index, () => new Paragraph(new Run(string.Join('\n', codeLines)))
-                {
-                    Margin = new Thickness(0, 3, 0, 10),
-                    Padding = new Thickness(9, 7, 9, 7),
-                    Background = (Brush)FindResource("ResponseCodeBrush"),
-                    FontFamily = new FontFamily("Cascadia Mono, Consolas"),
-                    FontSize = 12.5,
-                    LineHeight = 18
-                });
-                continue;
-            }
-
-            if (TryGetHeading(lines[index], out var headingLevel, out var headingText))
-            {
-                index++;
-                AddResponseBlock(lines, start, index, () =>
-                {
-                    var heading = new Paragraph
-                    {
-                        Margin = new Thickness(0, start == 0 ? 0 : 5, 0, 5),
-                        FontSize = headingLevel switch { 1 => 17, 2 => 15.5, _ => 14.5 },
-                        FontWeight = FontWeights.SemiBold,
-                        LineHeight = 22
-                    };
-                    AddInlineContent(heading.Inlines, headingText);
-                    return heading;
-                });
-                continue;
-            }
-
-            if (IsRuleLine(lines[index]))
-            {
-                index++;
-                AddResponseBlock(lines, start, index, () => new Paragraph
-                {
-                    Margin = new Thickness(0, 2, 0, 11),
-                    BorderBrush = (Brush)FindResource("HairlineBrush"),
-                    BorderThickness = new Thickness(0, 0, 0, 1),
-                    FontSize = 1,
-                    LineHeight = 1
-                });
-                continue;
-            }
-
-            if (IsTableLine(lines[index]))
-            {
-                while (index < lines.Length && IsTableLine(lines[index])) index++;
-                AddResponseBlock(lines, start, index, () => CreateTable(lines[start..index]));
-                continue;
-            }
-
-            if (IsQuoteLine(lines[index]))
-            {
-                while (index < lines.Length && IsQuoteLine(lines[index])) index++;
-                AddResponseBlock(lines, start, index, () =>
-                {
-                    var quote = new Paragraph
-                    {
-                        Margin = new Thickness(0, 0, 0, 9),
-                        Padding = new Thickness(9, 1, 0, 1),
-                        BorderBrush = (Brush)FindResource("AquaBrush"),
-                        BorderThickness = new Thickness(2.5, 0, 0, 0),
-                        Foreground = (Brush)FindResource("MutedBrush")
-                    };
-                    var quoteLines = lines[start..index].Select(line => line.TrimStart()[1..].Trim());
-                    AddInlineContent(quote.Inlines, string.Join(' ', quoteLines.Where(line => line.Length > 0)));
-                    return quote;
-                });
-                continue;
-            }
-
-            if (TryGetListItem(lines[index], numbered: false, out _) || TryGetListItem(lines[index], numbered: true, out _))
-            {
-                var numbered = !TryGetListItem(lines[index], numbered: false, out _);
-                while (index < lines.Length && TryGetListItem(lines[index], numbered, out _)) index++;
-                AddResponseBlock(lines, start, index, () => CreateList(lines[start..index], numbered));
-                continue;
-            }
-
-            while (index < lines.Length && !string.IsNullOrWhiteSpace(lines[index]) && !StartsBlock(lines[index])) index++;
-            AddResponseBlock(lines, start, index, () =>
-            {
-                var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 9) };
-                AddInlineContent(paragraph.Inlines, string.Join(' ', lines[start..index].Select(line => line.Trim())));
-                return paragraph;
-            });
-        }
-
+        // A task ChatGPT wrote for the agent: a card with Give to agent, once its block is complete.
+        _markdown ??= new MarkdownRenderer(this, OpenLink);
+        _markdown.Render(text, AddResponseBlock, (language, code) =>
+            language.Equals("link-task", StringComparison.OrdinalIgnoreCase) ? () => CreateTaskBlock(code.Trim()) : null);
         RemoveResponseBlocks(from: _nextResponseBlock);
     }
 
@@ -1183,9 +1070,8 @@ public partial class MainWindow
     /// Shows the next block of the answer. A streaming answer only grows at its end, so a block whose source is
     /// unchanged keeps its rendered form and layout; from the first changed block on everything is built anew.
     /// </summary>
-    private void AddResponseBlock(string[] lines, int start, int end, Func<Block> create)
+    private void AddResponseBlock(string source, Func<Block> create)
     {
-        var source = string.Join('\n', lines, start, end - start);
         if (_nextResponseBlock < _responseBlocks.Count)
         {
             if (_responseBlocks[_nextResponseBlock].Source == source)
@@ -1244,212 +1130,6 @@ public partial class MainWindow
         give.Click += (_, _) => GiveToAgent(brief);
         section.Blocks.Add(new BlockUIContainer(give));
         return section;
-    }
-
-    private System.Windows.Documents.List CreateList(IEnumerable<string> lines, bool numbered)
-    {
-        var list = new System.Windows.Documents.List
-        {
-            MarkerStyle = numbered ? TextMarkerStyle.Decimal : TextMarkerStyle.Disc,
-            Margin = new Thickness(18, 1, 0, 9),
-            Padding = new Thickness(0)
-        };
-
-        foreach (var line in lines)
-        {
-            TryGetListItem(line, numbered, out var itemText);
-            var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 3) };
-            AddInlineContent(paragraph.Inlines, itemText);
-            list.ListItems.Add(new ListItem(paragraph));
-        }
-
-        return list;
-    }
-
-    private static bool StartsBlock(string line) =>
-        line.TrimStart().StartsWith("```", StringComparison.Ordinal) ||
-        TryGetHeading(line, out _, out _) ||
-        IsRuleLine(line) ||
-        IsTableLine(line) ||
-        IsQuoteLine(line) ||
-        TryGetListItem(line, numbered: false, out _) ||
-        TryGetListItem(line, numbered: true, out _);
-
-    private static bool IsRuleLine(string line)
-    {
-        var trimmed = line.Trim();
-        return trimmed.Length >= 3 && (trimmed.All(ch => ch == '-') || trimmed.All(ch => ch == '*') || trimmed.All(ch => ch == '_'));
-    }
-
-    private static bool IsTableLine(string line)
-    {
-        var trimmed = line.Trim();
-        return trimmed.Length > 1 && trimmed[0] == '|' && trimmed.IndexOf('|', 1) > 0;
-    }
-
-    private static bool IsQuoteLine(string line) => line.TrimStart().StartsWith('>');
-
-    private Paragraph CreateTable(IReadOnlyList<string> lines)
-    {
-        // Monospace columns keep tables readable without a grid control in the compact overlay.
-        var rows = lines
-            .Select(SplitTableRow)
-            .Where(cells => !cells.All(cell => cell.Length > 0 && cell.All(ch => ch is '-' or ':')))
-            .ToList();
-        var columns = rows.Max(row => row.Count);
-        var widths = Enumerable.Range(0, columns)
-            .Select(column => rows.Max(row => column < row.Count ? row[column].Length : 0))
-            .ToArray();
-        var formatted = rows
-            .Select(row => string.Join("  ", Enumerable.Range(0, columns)
-                .Select(column => (column < row.Count ? row[column] : string.Empty).PadRight(widths[column]))).TrimEnd())
-            .ToList();
-
-        var table = new Paragraph
-        {
-            Margin = new Thickness(0, 3, 0, 10),
-            Padding = new Thickness(9, 7, 9, 7),
-            Background = (Brush)FindResource("ResponseCodeBrush"),
-            FontFamily = new FontFamily("Cascadia Mono, Consolas"),
-            FontSize = 12.5,
-            LineHeight = 18
-        };
-        table.Inlines.Add(new Bold(new Run(formatted[0])));
-        if (formatted.Count > 1) table.Inlines.Add(new Run("\n" + string.Join('\n', formatted.Skip(1))));
-        return table;
-    }
-
-    private static List<string> SplitTableRow(string line)
-    {
-        var trimmed = line.Trim();
-        if (trimmed.StartsWith('|')) trimmed = trimmed[1..];
-        if (trimmed.EndsWith('|') && !trimmed.EndsWith("\\|", StringComparison.Ordinal)) trimmed = trimmed[..^1];
-        return System.Text.RegularExpressions.Regex.Split(trimmed, @"(?<!\\)\|")
-            .Select(cell => cell.Trim().Replace("\\|", "|", StringComparison.Ordinal)
-                .Replace("**", string.Empty, StringComparison.Ordinal)
-                .Replace("`", string.Empty, StringComparison.Ordinal))
-            .ToList();
-    }
-
-    private static bool TryGetHeading(string line, out int level, out string text)
-    {
-        var trimmed = line.TrimStart();
-        level = 0;
-        while (level < trimmed.Length && level < 6 && trimmed[level] == '#') level++;
-        if (level == 0 || level >= trimmed.Length || trimmed[level] != ' ')
-        {
-            text = string.Empty;
-            return false;
-        }
-
-        text = trimmed[(level + 1)..].Trim();
-        return text.Length > 0;
-    }
-
-    private static bool TryGetListItem(string line, bool numbered, out string text)
-    {
-        var trimmed = line.TrimStart();
-        if (!numbered)
-        {
-            if (trimmed.Length >= 2 && trimmed[1] == ' ' && trimmed[0] is '-' or '*' or '+')
-            {
-                text = trimmed[2..].Trim();
-                return true;
-            }
-        }
-        else
-        {
-            var separator = trimmed.IndexOf(". ", StringComparison.Ordinal);
-            if (separator > 0 && trimmed[..separator].All(char.IsDigit))
-            {
-                text = trimmed[(separator + 2)..].Trim();
-                return true;
-            }
-        }
-
-        text = string.Empty;
-        return false;
-    }
-
-    private void AddInlineContent(InlineCollection inlines, string text)
-    {
-        var plainStart = 0;
-        var index = 0;
-        while (index < text.Length)
-        {
-            if (!TryReadInline(text, index, out var inline, out var next))
-            {
-                index++;
-                continue;
-            }
-
-            if (index > plainStart) inlines.Add(new Run(text[plainStart..index]));
-            inlines.Add(inline);
-            index = plainStart = next;
-        }
-
-        if (plainStart < text.Length) inlines.Add(new Run(text[plainStart..]));
-    }
-
-    private bool TryReadInline(string text, int index, [System.Diagnostics.CodeAnalysis.NotNullWhen(true)] out Inline? inline, out int next)
-    {
-        inline = null;
-        next = index;
-        if (text[index] == '`')
-        {
-            var end = text.IndexOf('`', index + 1);
-            if (end < 0) return false;
-            inline = new Run(text[(index + 1)..end])
-            {
-                Background = (Brush)FindResource("ResponseCodeBrush"),
-                FontFamily = new FontFamily("Cascadia Mono, Consolas"),
-                FontSize = 12.5
-            };
-            next = end + 1;
-            return true;
-        }
-
-        if (text[index] == '*' && index + 1 < text.Length && text[index + 1] == '*')
-        {
-            var end = text.IndexOf("**", index + 2, StringComparison.Ordinal);
-            if (end < 0) return false;
-            var bold = new Bold();
-            AddInlineContent(bold.Inlines, text[(index + 2)..end]);
-            inline = bold;
-            next = end + 2;
-            return true;
-        }
-
-        if (text[index] == '[')
-        {
-            var labelEnd = text.IndexOf(']', index + 1);
-            if (labelEnd < 0 || labelEnd + 1 >= text.Length || text[labelEnd + 1] != '(') return false;
-            var targetEnd = text.IndexOf(')', labelEnd + 2);
-            if (targetEnd < 0 ||
-                !Uri.TryCreate(text[(labelEnd + 2)..targetEnd], UriKind.Absolute, out var uri) ||
-                uri.Scheme is not ("http" or "https"))
-            {
-                return false;
-            }
-
-            var link = new Hyperlink
-            {
-                NavigateUri = uri,
-                Foreground = (Brush)FindResource("LinkTextBrush"),
-                ToolTip = uri.AbsoluteUri
-            };
-            AddInlineContent(link.Inlines, text[(index + 1)..labelEnd]);
-            link.RequestNavigate += (_, e) =>
-            {
-                e.Handled = true;
-                OpenLink(e.Uri);
-            };
-            inline = link;
-            next = targetEnd + 1;
-            return true;
-        }
-
-        return false;
     }
 
     private void OpenLink(Uri uri)

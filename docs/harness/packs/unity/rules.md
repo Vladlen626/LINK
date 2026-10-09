@@ -1,5 +1,7 @@
 <!-- Unity's rules: Link adds them to the agent's rules in every Unity project, whatever the specialist. Link strips HTML comments before the agent sees it. -->
 ## In Unity
+- The Unity project is the folder with `ProjectSettings/ProjectVersion.txt`: the workspace itself or a folder in it,
+  beside art sources and docs. Paths below are inside it.
 - Never create or edit `.meta`, `*.csproj`, `*.sln`, `Library/`, `Temp/`, `Logs/`, `obj/`, `UserSettings/` by hand. A new
   file in `Assets/` gets its `.meta` when the editor imports it; the two are committed together.
 - YAML assets (`.prefab .unity .asset .mat .anim .controller`): do not read them whole or edit them as text beyond a

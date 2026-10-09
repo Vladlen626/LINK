@@ -57,6 +57,25 @@
             <Setter Property="TextBlock.LineStackingStrategy" Value="BlockLineHeight" />
         </Style>
 
+        <!-- An agent's answer as formatted Markdown (MarkdownText.Source): selectable, as tall as its text. -->
+        <Style x:Key="ReadRichTextStyle" TargetType="RichTextBox">
+            <Setter Property="IsReadOnly" Value="True" />
+            <Setter Property="IsDocumentEnabled" Value="True" />
+            <Setter Property="Background" Value="Transparent" />
+            <Setter Property="BorderThickness" Value="0" />
+            <Setter Property="Padding" Value="0" />
+            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+            <Setter Property="SelectionBrush" Value="{StaticResource SelectionBrush}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="RichTextBox">
+                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" />
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
         <!-- A task in the sidebar: a row with soft corners, lit while the task is the open one. -->
         <Style x:Key="SidebarRowStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
             <Setter Property="Margin" Value="0,0,0,2" />
@@ -188,8 +207,8 @@
                     <TextBlock Grid.Column="1" FontSize="12.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Current}"
                                TextTrimming="CharacterEllipsis" />
                 </Grid>
-                <TextBox Margin="0,8,0,0" Style="{StaticResource ReadTextStyle}" Text="{Binding Said, Mode=OneWay}"
-                         Visibility="{Binding SaidVisibility}" />
+                <RichTextBox Margin="0,8,0,0" Style="{StaticResource ReadRichTextStyle}" local:MarkdownText.Source="{Binding Said, Mode=OneWay}"
+                             Visibility="{Binding SaidVisibility}" />
                 <Button Margin="-6,8,0,0" Padding="6,1" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
                         Click="TurnFiles_OnClick" Visibility="{Binding FilesToggleVisibility}" ToolTip="The files this run changed">
                     <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding FilesLabel}" />
@@ -561,17 +580,21 @@
                                    IsHitTestVisible="False" TextWrapping="Wrap" />
                     </Grid>
                     <Grid x:Name="ComposerFooter" Grid.Row="2" Margin="0,6,0,0">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                         <WrapPanel x:Name="TaskButtons" VerticalAlignment="Center">
                             <Button x:Name="PlanModeButton" Style="{StaticResource GhostChipStyle}" Click="PlanMode_OnClick" Content="Plan mode ✕"
                                     Visibility="Collapsed"
                                     ToolTip="The session only reads and plans: edits, editor calls and commands are refused in it, whatever is allowed. Turn it off: your next words go on with edits, in the same session" />
                             <Button x:Name="HandOffButton" Style="{StaticResource GhostChipStyle}" Click="HandOff_OnClick" Content="Hand off ▾"
-                                    ToolTip="The other agent in a new session with a brief you see first, another model or another specialist in the same session, or the first agent back" />
+                                    ToolTip="The other agent in a new session with a brief you see first, or the first agent back in its own session" />
                             <Button x:Name="FinishButton" Style="{StaticResource GhostChipStyle}" Click="Finish_OnClick" Content="Finish"
                                     ToolTip="Close the task; it stays in the list, where it can be opened and taken up again" />
                         </WrapPanel>
-                        <Button x:Name="ContinueButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ComposerSendButtonStyle}"
+                        <!-- What the next words run on; nothing starts when it changes. -->
+                        <Button x:Name="SetupButton" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource GhostChipStyle}"
+                                Click="Setup_OnClick" Visibility="Collapsed"
+                                ToolTip="What your next words run on: the specialist, the model and its effort. Nothing starts when you change it; the runs after keep it" />
+                        <Button x:Name="ContinueButton" Grid.Column="2" Margin="8,0,0,0" Style="{StaticResource ComposerSendButtonStyle}"
                                 VerticalAlignment="Bottom" Click="Continue_OnClick" IsEnabled="False">
                             <Viewbox Width="14" Height="14">
                                 <Path Data="{StaticResource ArrowUpIconGeometry}" Stroke="{StaticResource AccentForegroundBrush}"

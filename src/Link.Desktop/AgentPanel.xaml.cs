@@ -121,6 +121,7 @@ public partial class AgentPanel : UserControl
     private string _replyTarget = "the agent";
     private IReadOnlyList<PanelAction> _handOff = [];
     private IReadOnlyList<PanelAction> _more = [];
+    private IReadOnlyList<IReadOnlyList<PanelAction>> _setup = [];
     private readonly List<CheckBox> _choices = [];
 
     // The effort box's own tooltip, which a model without effort levels replaces.
@@ -376,6 +377,17 @@ public partial class AgentPanel : UserControl
         UpdateComposer();
     }
 
+    /// <summary>
+    /// What the next words run on, in the composer beside the send button: model, effort and specialist, with groups of
+    /// choices to change them. No choices hide it.
+    /// </summary>
+    public void ShowSetup(string label, IReadOnlyList<IReadOnlyList<PanelAction>> choices)
+    {
+        _setup = choices;
+        SetupButton.Content = label + " ▾";
+        UpdateComposer();
+    }
+
     /// <summary>Whether Finish is offered: not for Link's own answer, such as a map, nor for a task shown only to be read.</summary>
     public void ShowFinish(bool finish)
     {
@@ -604,6 +616,7 @@ public partial class AgentPanel : UserControl
             || FinishButton.Visibility == Visibility.Visible);
         ReplyEditor.Visibility = _replyShown ? Visibility.Visible : Visibility.Collapsed;
         ContinueButton.Visibility = _replyShown ? Visibility.Visible : Visibility.Collapsed;
+        SetupButton.Visibility = _replyShown && _setup.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         ComposerFooter.Margin = new Thickness(0, _replyShown ? 6 : 0, 0, 0);
         ReplyPanel.Visibility = _replyShown || chips ? Visibility.Visible : Visibility.Collapsed;
     }
@@ -942,12 +955,12 @@ public partial class AgentPanel : UserControl
         var others = _card?.WorkspaceSkills.Where(skill => !skills.Contains(skill.Name, StringComparer.OrdinalIgnoreCase)).ToArray() ?? [];
         if (others.Length == 0) return;
         var add = new Button { Style = (Style)FindResource("SmallChipStyle"), Content = "+ skill", ToolTip = "Add a skill of the workspace: the agent is told to read it first" };
-        add.Click += (_, _) => ShowMenu(add, [.. others.Select(skill => new PanelAction(skill.Name, skill.Description, () =>
+        add.Click += (_, _) => ShowMenu(add, [[.. others.Select(skill => new PanelAction(skill.Name, skill.Description, () =>
         {
             _skillsOff.Remove(skill.Name);
             _skillsOn.Add(skill.Name);
             ShowSkills([.. _skills, skill.Name]);
-        }))], PlacementMode.Bottom);
+        }))]], PlacementMode.Bottom);
         SkillsPanel.Children.Add(add);
     }
 
@@ -1106,18 +1119,25 @@ public partial class AgentPanel : UserControl
         if (chosen.Length > 0) Answer(string.Join("; ", chosen));
     }
 
-    private void HandOff_OnClick(object sender, RoutedEventArgs e) => ShowMenu(HandOffButton, _handOff, PlacementMode.Top);
+    private void HandOff_OnClick(object sender, RoutedEventArgs e) => ShowMenu(HandOffButton, [_handOff], PlacementMode.Top);
 
-    private void More_OnClick(object sender, RoutedEventArgs e) => ShowMenu(MoreButton, _more, PlacementMode.Bottom);
+    private void More_OnClick(object sender, RoutedEventArgs e) => ShowMenu(MoreButton, [_more], PlacementMode.Bottom);
 
-    private static void ShowMenu(Button anchor, IReadOnlyList<PanelAction> actions, PlacementMode placement)
+    private void Setup_OnClick(object sender, RoutedEventArgs e) => ShowMenu(SetupButton, _setup, PlacementMode.Top);
+
+    /// <summary>A menu of the actions, a line between groups; the current choice of a group is checked.</summary>
+    private static void ShowMenu(Button anchor, IReadOnlyList<IReadOnlyList<PanelAction>> groups, PlacementMode placement)
     {
         var menu = new ContextMenu { PlacementTarget = anchor, Placement = placement };
-        foreach (var action in actions)
+        foreach (var group in groups.Where(group => group.Count > 0))
         {
-            var item = new MenuItem { Header = action.Label, ToolTip = action.Hint };
-            item.Click += (_, _) => action.Run();
-            menu.Items.Add(item);
+            if (menu.Items.Count > 0) menu.Items.Add(new Separator());
+            foreach (var action in group)
+            {
+                var item = new MenuItem { Header = action.Label, ToolTip = action.Hint, IsChecked = action.Checked };
+                item.Click += (_, _) => action.Run();
+                menu.Items.Add(item);
+            }
         }
 
         menu.IsOpen = true;

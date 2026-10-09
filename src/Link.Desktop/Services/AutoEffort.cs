@@ -63,27 +63,14 @@ public static class AutoEffort
     public static bool IsLevel(string effort) => Rank(effort) >= 0;
 
     /// <summary>
-    /// The runs since the task's last good one that failed, failed the check, or were stopped in a loop. A run stopped
-    /// without one (the user's Stop or Steer, a usage limit) ends the count like a good one: it already had the raise,
-    /// and the next run keeps its effort. A run done after a loop got past it.
+    /// The runs since the task's last good one that failed or failed the check. A stopped run (the user's Stop or Steer,
+    /// a usage limit) ends the count like a good one, a loop label on it too: the user stopped it and says what comes
+    /// next, and a loop has its own Start over, which raises.
     /// </summary>
     public static int Failures(IReadOnlyList<AgentRunRecord> runs)
     {
         var failures = 0;
-        for (var index = runs.Count - 1; index >= 0; index--)
-        {
-            var run = runs[index];
-            var stopped = run.Outcome.StartsWith("Stopped", StringComparison.Ordinal);
-            if (run.Failed || (stopped && run.Looped))
-            {
-                failures++;
-            }
-            else
-            {
-                break;
-            }
-        }
-
+        for (var index = runs.Count - 1; index >= 0 && runs[index].Failed; index--) failures++;
         return failures;
     }
 

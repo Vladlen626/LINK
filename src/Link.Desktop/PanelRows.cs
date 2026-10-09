@@ -243,8 +243,8 @@ public sealed class StepGroup : INotifyPropertyChanged
 /// <summary>A changed file; the label says how it changed and whether undo can take it back.</summary>
 public sealed record AgentChangeRow(string Label, string Path);
 
-/// <summary>A choice the panel offers in a menu or on a card; the window does the work behind it.</summary>
-public sealed record PanelAction(string Label, string Hint, Action Run);
+/// <summary>A choice the panel offers in a menu or on a card; the window does the work behind it. A checked one is the current one.</summary>
+public sealed record PanelAction(string Label, string Hint, Action Run, bool Checked = false);
 
 /// <summary>
 /// A task in the Studio's sidebar: its goal, how it stands and its last words; no record: Link's own run (the map).

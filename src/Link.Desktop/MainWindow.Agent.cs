@@ -78,6 +78,7 @@ public partial class MainWindow
     private IReadOnlyList<string> _steerImages = [];
     private string? _queued;
     private readonly List<string> _queuedImages = [];
+    private NextSetup? _nextSetup;
     // Files the user attached: the next run of the task is told their paths and may read their folders.
     private readonly List<string> _attachedFiles = [];
     // A new task the user ran while an agent worked: it starts when that run is over.
@@ -658,11 +659,22 @@ public partial class MainWindow
             return;
         }
 
-        if (_lastRun is { } run && AgentCoordinator.ContinueTask(run, text) is { } task)
+        if (_lastRun is { } run && WordsAfter(run, text) is { } task)
         {
             _ = StartAgentAsync(task with { Images = images }, run, phase: phase);
         }
     }
+
+    /// <summary>
+    /// The run that takes the user's words after <paramref name="ended"/>: its session goes on with them, and a new
+    /// session stopped before it began starts the task again with them. Null when there is neither.
+    /// </summary>
+    private AgentTask? WordsAfter(AgentRun ended, string words) =>
+        AgentCoordinator.ContinueTask(ended, words)
+        ?? (_agentOrigin is { } origin && IsUserWork(ended.Task) ? origin with { Prompt = $"{origin.Prompt}\n\nThe user adds:\n{words}" } : null);
+
+    /// <summary>Whether the open task takes words now: a session to go on with, or a first run stopped before its session began.</summary>
+    private bool TakesWords => ResumableTask() is not null || (_lastRun is { } run && WordsAfter(run, "-") is not null);
 
     /// <summary>
     /// Why words that would resume the task's last session should start a fresh one instead (see <see cref="CompactRule"/>);
@@ -700,7 +712,6 @@ public partial class MainWindow
         return StartAgentAsync(task, _lastRun, phase: phase);
     }
 
-    /// <summary>Tab while the agent works: the words wait for the end of the run, then the same session goes on with them.</summary>
     /// <summary>
     /// The user's words with what they pasted or dropped: images go as images, other files are named by path at the end
     /// of the words, and the next run may read their folders.
@@ -722,6 +733,7 @@ public partial class MainWindow
         else ContinueAgent(text, images);
     }
 
+    /// <summary>Tab while the agent works: the words wait for the end of the run, then the same session goes on with them.</summary>
     private void QueueAfterRun(string words, IReadOnlyList<string> images)
     {
         if (!AgentRunning || _runningTask is null) return;
@@ -881,6 +893,8 @@ public partial class MainWindow
             _attachedFiles.Clear();
         }
 
+        // The user's words take the setup chosen for them in the composer; Auto, when it stays on, then picks the effort.
+        if (IsUserWork(task) && phase is EffortPhase.Reply or EffortPhase.Steer or EffortPhase.RunPlan) task = WithNextSetup(task);
         if (phase is { } kind) task = WithAutoEffort(task, kind);
         var provider = _agents.Provider(task.Provider);
         // Link's own answer (the map) runs apart: the open task keeps its session, its last run and its question.
@@ -1002,7 +1016,7 @@ public partial class MainWindow
             _steerWith = null;
             var images = _steerImages;
             _steerImages = [];
-            if (ended is not null && AgentCoordinator.ContinueTask(ended, AgentCoordinator.Interrupted(words)) is { } next)
+            if (ended is not null && WordsAfter(ended, AgentCoordinator.Interrupted(words)) is { } next)
             {
                 await StartAgentAsync(next with { Images = images }, ended, phase: EffortPhase.Steer);
             }
@@ -1016,7 +1030,7 @@ public partial class MainWindow
             _queued = null;
             IReadOnlyList<string> images = [.. _queuedImages];
             _queuedImages.Clear();
-            if (ended is not null && AgentCoordinator.ContinueTask(ended, later) is { } next) await StartAgentAsync(next with { Images = images }, ended, phase: EffortPhase.Reply);
+            if (ended is not null && WordsAfter(ended, later) is { } next) await StartAgentAsync(next with { Images = images }, ended, phase: EffortPhase.Reply);
         }
 
         StartNextTask();
@@ -1075,6 +1089,7 @@ public partial class MainWindow
         panel.SetRunning(running);
         // Link's own answer takes no words.
         panel.ShowReply(false, running ? null : "Link's own answer: the file is written. The tasks are on the left.");
+        panel.ShowSetup(string.Empty, []);
     }
 
     /// <summary>What Link's own run writes, as the user reads it: "docs/map.md".</summary>
@@ -1196,32 +1211,27 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The same session goes on with another model and effort: cheaper for routine work, the strongest for a problem
-    /// the task's model did not solve (Escalate). One cache miss: the model reads the session anew.
+    /// Escalate: the same session goes on with the strongest model and effort of Settings, for a problem the task's model
+    /// did not solve. One cache miss: the model reads the session anew. Auto goes on after it.
     /// </summary>
-    private void SwitchSetup((string? Model, string? Effort) setup, bool escalate)
-    {
-        if (AgentRunning || ResumableTask() is not { } resume) return;
-        var prompt = escalate
-            ? "The work is not done yet. Think it through again from what you know, find the cause and finish the task."
-            : "Go on with the task.";
-        _task?.Add(AgentEntryKind.Model,
-            $"{AgentName(resume.Task.Provider)} · {SetupWords(resume.Task.Provider, setup.Model, setup.Effort)}{(escalate ? ", escalated" : string.Empty)}");
-        if (resume.Previous is null) _backupBeforeDo = true;
-        // A level chosen by hand stays; Escalate is the rule for a failure done by hand, and Auto goes on after it.
-        if (!escalate && _task is { } record) record.AutoEffort = false;
-        _ = StartAgentAsync(resume.Task with { Model = setup.Model, Effort = setup.Effort, Prompt = prompt, Images = [] }, resume.Previous);
-    }
-
     private void Escalate()
     {
-        if (ResumableTask() is not { } resume) return;
-        SwitchSetup(_settings.Current.Agent.Level(resume.Task.Provider, AgentLevel.Deep), escalate: true);
+        if (AgentRunning || ResumableTask() is not { } resume) return;
+        var (model, effort) = _settings.Current.Agent.Level(resume.Task.Provider, AgentLevel.Deep);
+        _task?.Add(AgentEntryKind.Model, $"{AgentName(resume.Task.Provider)} · {SetupWords(resume.Task.Provider, model, effort)}, escalated");
+        if (resume.Previous is null) _backupBeforeDo = true;
+        _ = StartAgentAsync(resume.Task with
+        {
+            Model = model,
+            Effort = effort,
+            Prompt = "The work is not done yet. Think it through again from what you know, find the cause and finish the task.",
+            Images = []
+        }, resume.Previous);
     }
 
     /// <summary>The task's last session as a run to continue, and the run it continues; null when there is none.</summary>
     private (AgentTask Task, AgentRun? Previous)? ResumableTask() =>
-        _lastRun is { Result.SessionId: { } session } run ? (run.Task with { ResumeSessionId = session, PlanOnly = false }, run)
+        _lastRun is { } run && AgentCoordinator.SessionOf(run) is { } session ? (run.Task with { ResumeSessionId = session, PlanOnly = false }, run)
         : _earlierSession is { } earlier ? (earlier, null)
         : null;
 
@@ -1812,7 +1822,7 @@ public partial class MainWindow
             RoleId = task.RoleId,
             Access = task.Access,
             AutoApprove = task.AutoApprove,
-            SessionId = result.SessionId,
+            SessionId = AgentCoordinator.SessionOf(run),
             StartedAt = DateTimeOffset.Now - stats.Duration,
             Duration = stats.Duration,
             Outcome = ending,
@@ -2033,6 +2043,7 @@ public partial class MainWindow
             panel.ShowFinish(false);
             panel.ShowPlanMode(false);
             panel.ShowReply(false, $"{AgentName(_runningTask?.Provider ?? provider)} works on another task: open this one again once it ends to go on with it.");
+            panel.ShowSetup(string.Empty, []);
             RefreshStudio();
             return;
         }
@@ -2045,8 +2056,9 @@ public partial class MainWindow
         if (live) panel.ShowReply(true);
         // One agent at a time: Link's own answer, such as the map, goes first.
         else if (AgentRunning && _runningTask is { } busy) panel.ShowReply(false, $"{AgentName(busy.Provider)} writes {OwnWhat(busy)}: your words can go once it ends.");
-        else if (ResumableTask() is not null) panel.ShowReply(true);
+        else if (TakesWords) panel.ShowReply(true);
         else panel.ShowReply(false, "This task has no session to go on with: hand it to an agent, or start it anew from its card.");
+        ShowSetup(panel, record);
         UpdateAgentPill();
         RefreshStudio();
     }
@@ -2143,8 +2155,8 @@ public partial class MainWindow
     };
 
     /// <summary>
-    /// Hand off ▾: the other agent in a new session (with a brief to look at first), another model of Settings for the
-    /// same agent in the same session, the first agent back in its own session, or another specialist in the same session.
+    /// Hand off ▾: the other agent in a new session (with a brief to look at first), or the first agent back in its own
+    /// session. Another model, effort or specialist for the same session is the composer's choice (<see cref="ShowSetup"/>).
     /// </summary>
     private IReadOnlyList<PanelAction> HandOffActions(AgentTaskRecord record)
     {
@@ -2155,18 +2167,6 @@ public partial class MainWindow
         var actions = others.Select(other => new PanelAction($"{AgentName(other)} · new session",
             $"{AgentName(other)} takes the task over with a brief of it; you see and can change the brief first",
             () => _ = ShowHandOffCardAsync(other))).ToList();
-        // Settings' three choices, each once, other than the one the session is on.
-        var seen = new HashSet<(string?, string?)> { (resume.Task.Model, resume.Task.Effort) };
-        foreach (var level in Enum.GetValues<AgentLevel>())
-        {
-            var setup = _settings.Current.Agent.Level(current, level);
-            // The custom model has one setup; its other models are chosen on a card.
-            if (current == AgentProviderKind.Custom || !seen.Add(setup)) continue;
-            actions.Add(new PanelAction($"{AgentName(current)} · {SetupWords(current, setup.Model, setup.Effort)} · same session",
-                "The same session goes on with this model: it keeps what it knows, the model reads it anew once",
-                () => SwitchSetup(setup, escalate: false)));
-        }
-
         foreach (var other in others.Where(other => record.Runs.Any(run => run.Provider == other && run.SessionId is not null)))
         {
             actions.Add(new PanelAction($"Back to {AgentName(other)} · its own session",
@@ -2174,42 +2174,97 @@ public partial class MainWindow
                 () => _ = ReturnToAsync(other)));
         }
 
-        // The specialists: the same session goes on as another one, or as none.
-        foreach (var role in ProjectRoles.In(record.Workspace).Where(role => !string.Equals(role.Id, record.RoleId, StringComparison.OrdinalIgnoreCase)))
-        {
-            actions.Add(new PanelAction($"As {role.Name} · same session",
-                $"{role.Description} The same session goes on as this specialist, with its skills: it does not read the project again",
-                () => SwitchRole(role)));
-        }
-
-        if (record.RoleId is not null)
-        {
-            actions.Add(new PanelAction("As General · same session", "The same session goes on without a specialist role", () => SwitchRole(null)));
-        }
-
         return actions;
     }
 
     /// <summary>
-    /// Another specialist takes the task over in the same session (null: General): it is told so with the role's text and
-    /// the skills picked for it, and does not read the project again. What follows, a hand-over too, keeps the new one.
+    /// What the user's next words in the task's session run on, chosen in the composer: the model, the effort (null with
+    /// Auto, which the task record keeps) and the specialist. Nothing runs when it is chosen; the next run takes it.
     /// </summary>
-    private void SwitchRole(AgentRole? role)
+    private sealed record NextSetup(Guid TaskId, AgentProviderKind Provider, string? Model, string? Effort, string? RoleId);
+
+    /// <summary>The setup the open task's next words run on: the one chosen, else the session's own; null when no session takes words.</summary>
+    private NextSetup? CurrentSetup()
     {
-        if (AgentRunning || _task is not { } record || ResumableTask() is not { } resume) return;
+        if (_task is not { } record) return null;
+        if (_nextSetup is { } chosen && chosen.TaskId == record.Id) return chosen;
+        var task = _runningTask is { } running && IsUserWork(running) ? running : ResumableTask()?.Task ?? _lastRun?.Task;
+        return task is null ? null : new NextSetup(record.Id, task.Provider, task.Model, task.Effort, record.RoleId);
+    }
+
+    /// <summary>
+    /// The composer's choice of model, effort and specialist for the next words, like the model picker of the agents' own
+    /// apps: the line says what they run on, the menu changes it, and the runs after keep it.
+    /// </summary>
+    private void ShowSetup(AgentPanel panel, AgentTaskRecord record)
+    {
+        if (CurrentSetup() is not { } setup)
+        {
+            panel.ShowSetup(string.Empty, []);
+            return;
+        }
+
+        var agent = _agents.Provider(setup.Provider);
+        var auto = record.AutoEffort && _settings.Current.Agent.AutoEffort;
+        var efforts = agent.EffortsOf(setup.Model);
+        var effortChoices = efforts.Select(effort => new PanelAction(effort.Label, "This effort from the next words on; Auto stops choosing it",
+            () => ChooseSetup(setup with { Effort = effort.Value }, auto: false), Checked: !auto && setup.Effort == effort.Value)).ToList();
+        if (efforts.Count > 0 && _settings.Current.Agent.AutoEffort)
+        {
+            effortChoices.Insert(0, new PanelAction("Auto effort", "Link chooses the effort of each run, and says why in its line",
+                () => ChooseSetup(setup, auto: true), Checked: auto));
+        }
+
+        var models = agent.Models.Select(model => new PanelAction(model.Label,
+            "The same session goes on with this model: it keeps what it knows, the model reads it anew once",
+            () => ChooseSetup(setup with
+            {
+                Model = model.Value,
+                Effort = agent.EffortsOf(model.Value).Any(effort => effort.Value == setup.Effort) ? setup.Effort : null
+            }, auto), Checked: setup.Model == model.Value)).ToArray();
+        var roles = ProjectRoles.In(record.Workspace).Select(role => new PanelAction(role.Name,
+                $"{role.Description} The same session goes on as this specialist, with its skills: it does not read the project again",
+                () => ChooseSetup(setup with { RoleId = role.Id }, auto),
+                Checked: string.Equals(role.Id, setup.RoleId, StringComparison.OrdinalIgnoreCase)))
+            .Prepend(new PanelAction("General", "The same session goes on without a specialist role",
+                () => ChooseSetup(setup with { RoleId = null }, auto), Checked: setup.RoleId is null)).ToArray();
+        var effortWords = auto ? "Auto" : setup.Effort is { } effortValue ? EffortName(agent, effortValue) : null;
+        var label = string.Join(" · ", new[]
+        {
+            RoleName(setup.RoleId, record.Workspace) ?? "General",
+            setup.Model is { } modelValue ? ModelName(agent, modelValue) : null,
+            effortWords
+        }.OfType<string>());
+        panel.ShowSetup(label, [effortChoices, models, roles]);
+    }
+
+    private void ChooseSetup(NextSetup setup, bool auto)
+    {
+        if (_task is not { } record) return;
+        record.AutoEffort = auto;
+        SaveTask(record);
+        _nextSetup = setup;
+        if (_agentPanel is { } panel) ShowSetup(panel, record);
+    }
+
+    /// <summary>
+    /// The run with the setup chosen for it in the composer, when it is the open task's and its agent's: the model and
+    /// effort, and another specialist, told so before the user's words.
+    /// </summary>
+    private AgentTask WithNextSetup(AgentTask task)
+    {
+        if (_nextSetup is not { } next || _task is not { } record || next.TaskId != record.Id) return task;
+        _nextSetup = null;
+        if (next.Provider != task.Provider) return task;
+        task = task with { Model = next.Model, Effort = next.Effort };
+        if (string.Equals(next.RoleId, record.RoleId, StringComparison.OrdinalIgnoreCase)) return task;
+        var role = ProjectRoles.Find(next.RoleId, record.Workspace);
         var skills = ProjectRoles.SkillsFor(BriefOf(record), role, ProjectSkills.In(record.Workspace));
         record.RoleId = role?.Id;
         record.Skills = [.. skills];
         record.Add(AgentEntryKind.HandOff, $"Specialist: {role?.Name ?? "General"}");
-        if (resume.Previous is null) _backupBeforeDo = true;
         if (_agentOrigin is { } origin) _agentOrigin = origin with { RoleId = role?.Id, Skills = skills };
-        _ = StartAgentAsync(resume.Task with
-        {
-            RoleId = role?.Id,
-            Skills = skills,
-            Prompt = ProjectRoles.SwitchText(role, skills, record.Workspace),
-            Images = []
-        }, resume.Previous, phase: EffortPhase.Reply);
+        return task with { RoleId = role?.Id, Skills = skills, Prompt = $"{ProjectRoles.SwitchText(role, skills, record.Workspace)}\n\n{task.Prompt}" };
     }
 
     /// <summary>The ⋯ menu: what the last run allows (chat, undo), compacting, starting over, and the console.</summary>

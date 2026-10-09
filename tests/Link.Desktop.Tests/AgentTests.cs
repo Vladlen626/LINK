@@ -948,6 +948,7 @@ internal static class AgentTests
             (Choose(EffortPhase.New, brief: "Переименуй поле"), Choose(EffortPhase.New, brief: "Почему падает игра"), Choose(EffortPhase.New, brief: "Спроектируй систему").Effort,
                 Choose(EffortPhase.New, brief: "Опечатка в описании").Effort, Choose(EffortPhase.New, brief: "Переименуй систему").Effort),
             (("low", "\"переимен\": a mechanical change"), ("high", "\"почему\": an unclear failure"), "high", "low", "high"));
+        Program.Equal("auto: an indefinite word is no question", Choose(EffortPhase.New, brief: "Скиллы почему-то не видны, добавь двери").Effort, "medium");
         Program.Equal("auto: nothing to go by is medium, or the role's usual effort",
             (Choose(EffortPhase.New), Choose(EffortPhase.New, role: "High"), Choose(EffortPhase.New, role: "max").Effort, Choose(EffortPhase.New, role: "ultra").Effort),
             (("medium", "a usual task"), ("high", "the role's usual effort"), "xhigh", "medium"));
@@ -967,7 +968,7 @@ internal static class AgentTests
             Choose(EffortPhase.New, brief: "Rename it", efforts: []), ((string?)null, "\"rename\": a mechanical change"));
     }
 
-    /// <summary>The runs that count as failed for Auto: failed, the check failed, or stopped in a loop; a good run clears them.</summary>
+    /// <summary>The runs that count as failed for Auto: failed, or the check failed; a good or stopped run clears them.</summary>
     private static void AutoEffortFailures()
     {
         static AgentRunRecord Run(string outcome, bool looped = false) => new() { Outcome = outcome, Looped = looped };
@@ -978,8 +979,8 @@ internal static class AgentTests
         Program.Equal("auto failures: a run stopped by the user or a limit ends the count: it already had the raise",
             (AutoEffort.Failures([Run("Failed after 1:00"), Run("Stopped after 0:10")]),
                 AutoEffort.Failures([Run("Failed after 1:00"), Run("Stopped at the usage limit after 2:00")])), (0, 0));
-        Program.Equal("auto failures: stopped in a loop counts, done after a loop does not",
-            (AutoEffort.Failures([Run("Stopped after 4:00", looped: true)]), AutoEffort.Failures([Run("Done in 5:00", looped: true)])), (1, 0));
+        Program.Equal("auto failures: a loop label counts for nothing: a steer or Stop in a loop does not raise",
+            (AutoEffort.Failures([Run("Stopped after 4:00", looped: true)]), AutoEffort.Failures([Run("Done in 5:00", looped: true)])), (0, 0));
     }
 
     /// <summary>Auto effort in what is saved: Settings' switch, the task's pin and the run's reason; older files load as before.</summary>
@@ -3891,6 +3892,13 @@ internal static class AgentTests
             Program.Equal("tool packs: a Unity project with no .blend yet still has Blender, which comes with the engine",
                 ToolPacks.Names(unity), "Blender + Cascadeur + Unity");
             DeleteFolder(unity);
+            var repository = TempFolder();
+            Directory.CreateDirectory(Path.Combine(repository, "Art"));
+            Directory.CreateDirectory(Path.Combine(repository, "Game", "ProjectSettings"));
+            File.WriteAllText(Path.Combine(repository, "Game", "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.0.1f1");
+            Program.Equal("tool packs: a Unity project in a folder of the repository shows its pack",
+                ToolPacks.Names(repository), "Blender + Cascadeur + Unity");
+            DeleteFolder(repository);
 
             var skills = ProjectSkills.In(workspace);
             var ueOther = skills.Single(skill => skill.Name == "ue-other");

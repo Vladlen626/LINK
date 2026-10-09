@@ -25,6 +25,12 @@ public static class ToolPacks
         RecurseSubdirectories = true, MaxRecursionDepth = 2, IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint
     };
 
+    // The folders at the top, without hidden ones (.git) and links.
+    private static readonly EnumerationOptions Top = new()
+    {
+        IgnoreInaccessible = true, AttributesToSkip = FileAttributes.ReparsePoint | FileAttributes.Hidden | FileAttributes.System
+    };
+
     private static readonly Dictionary<string, (DateTimeOffset At, IReadOnlyList<ToolPack> Packs)> Seen = new(StringComparer.OrdinalIgnoreCase);
     private static readonly Lock Gate = new();
 
@@ -80,9 +86,9 @@ public static class ToolPacks
     }
 
     /// <summary>
-    /// Whether a workspace has a pack's marker: a path with a slash is a file or folder at that place
-    /// (<c>ProjectSettings/ProjectVersion.txt</c>), a name with a star is a file pattern at the top or two levels below
-    /// (<c>*.uproject</c>, <c>*.blend</c>), any other name a file or folder at the top (<c>project.godot</c>, <c>.p4config</c>).
+    /// Whether a workspace has a pack's marker: a name with a star is a file pattern at the top or two levels below
+    /// (<c>*.uproject</c>, <c>*.blend</c>); any other name or path is a file or folder at that place, at the top or in a
+    /// folder of the top (<c>ProjectSettings/ProjectVersion.txt</c>, <c>project.godot</c>, <c>.p4config</c>).
     /// </summary>
     public static bool Shows(string workspace, string marker)
     {
@@ -90,8 +96,11 @@ public static class ToolPacks
         {
             if (marker.Contains('/') || !marker.Contains('*'))
             {
-                var path = Path.Combine(workspace, marker.Replace('/', Path.DirectorySeparatorChar));
-                return File.Exists(path) || Directory.Exists(path);
+                // A repository often keeps the engine's project in a folder of its own, beside Art and docs.
+                var relative = marker.Replace('/', Path.DirectorySeparatorChar);
+                return Directory.EnumerateDirectories(workspace, "*", Top).Prepend(workspace)
+                    .Select(folder => Path.Combine(folder, relative))
+                    .Any(path => File.Exists(path) || Directory.Exists(path));
             }
 
             return Directory.EnumerateFiles(workspace, marker, Near).Any();

@@ -163,9 +163,15 @@ public sealed class AgentCoordinator
     /// and without the first task's images. Null without a session or a reply.
     /// </summary>
     public static AgentTask? ContinueTask(AgentRun run, string reply) =>
-        run.Result.SessionId is { } session && reply.Trim() is { Length: > 0 } text
+        SessionOf(run) is { } session && reply.Trim() is { Length: > 0 } text
             ? run.Task with { ResumeSessionId = session, Prompt = text, Images = [] }
             : null;
+
+    /// <summary>
+    /// The session a run leaves to go on with: its own, else the one it resumed (a run stopped before its CLI said a
+    /// word still leaves the session it was given); null for a new session stopped that early.
+    /// </summary>
+    public static string? SessionOf(AgentRun run) => run.Result.SessionId ?? run.Task.ResumeSessionId;
 
     /// <summary>
     /// The brief another agent takes the task over with. Neither CLI can resume the other's session, so the new one is

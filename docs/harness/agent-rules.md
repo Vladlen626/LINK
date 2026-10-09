@@ -72,4 +72,6 @@ dialog: a question or a request for permission ends it, and the user's answer co
 ## How to answer
 - At the end: what you did, what changed (files or objects), what you checked and how, what is left. No preamble and
   no retelling of the steps.
-- In Russian; names of tools, files and code as they are.
+- In English, whatever language the task is in (it costs fewer tokens); names of tools, files and code as they are.
+- Markdown, which Link shows formatted: a bold label or a short heading per part, lists for several things, `code` for
+  names and paths, a fenced block only for code or commands; no tables wider than the panel.
