@@ -522,10 +522,11 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- A usage limit near or reached: the ways on are offered, nothing is done by itself. -->
+                    <!-- A usage limit near or reached: the ways on are offered; going on by itself after the reset is a box to untick. -->
                     <Border x:Name="LimitCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
                         <StackPanel>
                             <TextBlock x:Name="LimitText" Style="{StaticResource RowTextStyle}" />
+                            <CheckBox x:Name="LimitBox" Margin="0,8,0,0" FontSize="12.5" Visibility="Collapsed" Click="LimitBox_OnClick" />
                             <WrapPanel x:Name="LimitActions" Margin="0,2,0,0" />
                         </StackPanel>
                     </Border>

@@ -1767,7 +1767,7 @@ public partial class MainWindow
         // Start over only once a run has ended: a loop label often comes on good work, so while the agent works it stays
         // a line of Activity.
         _agentPanel?.ShowRestart(_agentOrigin is not null && (failed || (stopped && result.Loops.Count > 0)), escalate: !IsStrongest(task));
-        if (limitReached) OfferLimitReached(task.Provider);
+        if (limitReached) OfferLimitReached(task.Provider, IsUserWork(task));
         if (_task is not null && IsUserWork(task)) ShowResultInChat(run, diff: null);
 
         var summary = text.Length > 0 ? text : ending;
@@ -1853,6 +1853,8 @@ public partial class MainWindow
             ? record.Runs.Where(previous => previous.SessionId == result.SessionId).ToArray()
             : [];
         var files = run.Changes.Select(change => Relative(change.Path)).ToList();
+        // A worker's run on a team's step; the lead's review and the art critic's judgement run while the step waits on them.
+        var step = TeamRunner.Current(record) is { Status: TeamStepStatus.Running } current ? current : null;
         record.Runs.Add(new AgentRunRecord
         {
             Provider = task.Provider,
@@ -1861,6 +1863,9 @@ public partial class MainWindow
             Effort = task.Effort,
             EffortReason = task.EffortReason,
             RoleId = task.RoleId,
+            Step = step is null ? null : TeamRunner.Number(record, step),
+            Kind = step?.Kind,
+            Tier = step?.Tier,
             Access = task.Access,
             AutoApprove = task.AutoApprove,
             SessionId = AgentCoordinator.SessionOf(run),
@@ -1923,31 +1928,26 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The run ended on its usage limit: hand the task to the other agent, or let the same session go on by itself
-    /// once the limit resets. Nothing happens without a click.
+    /// The run ended on its usage limit: hand the task to the other agent, or let the same session go on by itself a
+    /// minute after the limit resets. Going on is a box on the card, ticked as the user last left it (see
+    /// <see cref="AgentSettings.ContinueAfterLimit"/>), and only for a run of the task's own (<paramref name="taskRun"/>):
+    /// Link's own answer, such as the map, stopped no task. Without a known reset only the hand-off is offered.
     /// </summary>
-    private void OfferLimitReached(AgentProviderKind provider)
+    private void OfferLimitReached(AgentProviderKind provider, bool taskRun)
     {
         var until = _limits.ReachedUntil(provider);
-        var other = Other(provider);
+        var goOn = taskRun && until is not null && _settings.Current.Agent.ContinueAfterLimit && _task is not null;
         _task?.Add(AgentEntryKind.Limit, until is { } reset
-            ? $"{AgentName(provider)} hit its usage limit; it resets {AgentLimits.Time(reset)}"
+            ? $"{AgentName(provider)} hit its usage limit; it resets {AgentLimits.Time(reset)}" +
+              (goOn ? $", and the task goes on by itself at {AgentLimits.Time(reset.AddMinutes(1))}" : string.Empty)
             : $"{AgentName(provider)} hit its usage limit");
-        var actions = new List<PanelAction>
+        if (goOn)
         {
-            new($"Hand off to {AgentName(other)}", "A new session of the other agent with a brief of the task; you see it first",
-                () => _ = ShowHandOffCardAsync(other))
-        };
-        if (until is { } at)
-        {
-            actions.Add(new PanelAction($"Continue at {AgentLimits.Time(at.AddMinutes(1))}",
-                "The task goes on by itself a minute after the limit resets, also if Link is restarted before then; a big session starts fresh from the task's state",
-                () => ContinueAfterReset(at)));
+            _task!.ContinueAt = until!.Value.AddMinutes(1);
+            ArmContinue(_task);
         }
 
-        _agentPanel?.ShowLimit(until is { } time
-            ? $"{AgentName(provider)} hit its usage limit; it resets {AgentLimits.Time(time)}."
-            : $"{AgentName(provider)} hit its usage limit.", actions);
+        ShowLimitReached(provider, until, taskRun);
         if (_task is not null)
         {
             SaveTask(_task);
@@ -1956,19 +1956,58 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The task goes on by itself a minute after the limit resets. The time is kept with the task, so that a restart of
-    /// Link does not lose it; Finish, another task or a new run cancels it.
+    /// The card of a limit reached: the hand-off, and where the task <paramref name="canWait"/> for a known reset the box
+    /// that lets it go on by itself after it.
     /// </summary>
-    private void ContinueAfterReset(DateTimeOffset reset)
+    private void ShowLimitReached(AgentProviderKind provider, DateTimeOffset? reset, bool canWait)
     {
+        var other = Other(provider);
+        PanelAction[] actions =
+        [
+            new($"Hand off to {AgentName(other)}", "A new session of the other agent with a brief of the task; you see it first",
+                () => _ = ShowHandOffCardAsync(other))
+        ];
+        var toggle = canWait && reset is { } at
+            ? new PanelToggle($"Continue at {AgentLimits.Time(at.AddMinutes(1))}",
+                "The task goes on by itself a minute after the limit resets, also if Link is restarted before then; a big session starts fresh from the task's state. Untick it, and the task waits for your words",
+                _task?.ContinueAt is not null, on => GoOnAfterReset(at, on))
+            : null;
+        _agentPanel?.ShowLimit(reset is { } time
+            ? $"{AgentName(provider)} hit its usage limit; it resets {AgentLimits.Time(time)}."
+            : $"{AgentName(provider)} hit its usage limit.", actions, toggle);
+    }
+
+    /// <summary>
+    /// The box on the limit's card: ticked, the task goes on by itself a minute after the limit resets, the time kept
+    /// with the task so that a restart of Link does not lose it; unticked, it waits for the user's words. The next limit
+    /// finds the box as it was left. Finish, another task or a new run cancels the wait.
+    /// </summary>
+    private void GoOnAfterReset(DateTimeOffset reset, bool on)
+    {
+        if (_settings.Current.Agent.ContinueAfterLimit != on)
+        {
+            _settings.Current.Agent.ContinueAfterLimit = on;
+            _settings.Save();
+        }
+
         if (_task is not { } record) return;
         var at = reset.AddMinutes(1);
-        record.ContinueAt = at;
-        record.Add(AgentEntryKind.You, $"Continue at {AgentLimits.Time(at)}");
+        if (on)
+        {
+            record.ContinueAt = at;
+            ArmContinue(record);
+        }
+        else
+        {
+            CancelContinue();
+        }
+
+        record.Add(AgentEntryKind.Limit, on ? $"The task goes on by itself at {AgentLimits.Time(at)}" : "The task waits for your words after the reset");
         SaveTask(record);
-        ArmContinue(record);
         ShowTask();
-        AgentStatus($"The task goes on by itself at {AgentLimits.Time(at)}, also if Link is restarted before then");
+        AgentStatus(on
+            ? $"The task goes on by itself at {AgentLimits.Time(at)}, also if Link is restarted before then"
+            : "The task waits for your words: tick Continue again to let it go on by itself");
     }
 
     /// <summary>
@@ -2089,8 +2128,11 @@ public partial class MainWindow
         }
 
         panel.ShowQuestion(_question);
+        // A task that waits for its agent's limit to reset keeps the card, with the box that ends the wait.
+        if (!live && record.ContinueAt is { } continueAt && record.LastRun is { } stopped) ShowLimitReached(stopped.Provider, continueAt.AddMinutes(-1), canWait: true);
+
         ShowTrainingOf(record, live);
-        panel.ShowMenus(HandOffActions(record), MoreActions());
+        panel.ShowMenus(HandOffActions(record), MoreActions(record));
         panel.ShowCheaper(live || AgentRunning ? null : CheaperHintFor(record), AgentName(AgentProviderKind.Custom));
         panel.ShowFinish(true);
         panel.ShowPlanMode(!live && !AgentRunning && _lastRun is { Task.PlanOnly: true });
@@ -2310,8 +2352,8 @@ public partial class MainWindow
         return task with { RoleId = role?.Id, Skills = skills, Prompt = $"{ProjectRoles.SwitchText(role, skills, record.Workspace)}\n\n{task.Prompt}" };
     }
 
-    /// <summary>The ⋯ menu: what the last run allows (chat, undo), compacting, starting over, and the console.</summary>
-    private IReadOnlyList<PanelAction> MoreActions()
+    /// <summary>The ⋯ menu: what the last run allows (chat, undo), compacting, starting over, the export, and the console.</summary>
+    private IReadOnlyList<PanelAction> MoreActions(AgentTaskRecord record)
     {
         var actions = _afterRun.Where(action => action.Label != "Console").ToList();
         if (!AgentRunning && ResumableTask() is not null)
@@ -2327,8 +2369,42 @@ public partial class MainWindow
                 RequestRestart));
         }
 
+        actions.Add(new PanelAction("Export for analysis",
+            "The task as Markdown, its thread with every run's numbers, steps and answer: copied to paste into ChatGPT in the browser, and saved as a file to attach",
+            () => ExportTask(record)));
         actions.Add(ConsoleAction());
         return actions;
+    }
+
+    /// <summary>
+    /// Export for analysis: the task as Markdown (<see cref="TaskExport"/>) on the clipboard, and in a file of the project's
+    /// data for a chat that takes a long text better as an attachment.
+    /// </summary>
+    private void ExportTask(AgentTaskRecord record)
+    {
+        var text = TaskExport.Markdown(record, AgentName, id => RoleName(id, record.Workspace) ?? "General", _settings.Current.Agent.DefaultProvider, DateTimeOffset.Now);
+        var file = Path.Combine((_taskProject ?? _projects.ActiveProject).DataFolder, "Exports", TaskExport.FileName(record));
+        try
+        {
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
+            File.WriteAllText(file, text);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            SetError($"The task was not exported: {exception.Message}");
+            return;
+        }
+
+        try
+        {
+            Clipboard.SetText(text);
+            AgentStatus($"The task is copied as Markdown ({text.Length / 1024 + 1} KB) to paste into ChatGPT, and saved to {file}");
+        }
+        catch (System.Runtime.InteropServices.ExternalException)
+        {
+            // Another app holds the clipboard: the file is there to attach.
+            AgentStatus($"The task is saved to {file}: the clipboard was busy, attach the file instead");
+        }
     }
 
     /// <summary>

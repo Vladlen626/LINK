@@ -126,6 +126,7 @@ public partial class AgentPanel : UserControl
     private IReadOnlyList<PanelAction> _handOff = [];
     private IReadOnlyList<PanelAction> _more = [];
     private IReadOnlyList<IReadOnlyList<PanelAction>> _setup = [];
+    private PanelToggle? _limitToggle;
     private readonly List<CheckBox> _choices = [];
 
     // The effort box's own tooltip, which a model without effort levels replaces.
@@ -550,11 +551,16 @@ public partial class AgentPanel : UserControl
         UpdateReplyHint();
     }
 
-    /// <summary>A usage limit near or reached, with the ways on; null hides it.</summary>
-    public void ShowLimit(string? text, IReadOnlyList<PanelAction> actions)
+    /// <summary>A usage limit near or reached, with the ways on and the box of what goes on by itself; null hides it.</summary>
+    public void ShowLimit(string? text, IReadOnlyList<PanelAction> actions, PanelToggle? toggle = null)
     {
         LimitCard.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
         LimitText.Text = text ?? string.Empty;
+        _limitToggle = toggle;
+        LimitBox.Visibility = toggle is null ? Visibility.Collapsed : Visibility.Visible;
+        LimitBox.Content = toggle?.Label;
+        LimitBox.ToolTip = toggle?.Hint;
+        LimitBox.IsChecked = toggle?.On == true;
         LimitActions.Children.Clear();
         foreach (var action in actions)
         {
@@ -1171,6 +1177,9 @@ public partial class AgentPanel : UserControl
     private void More_OnClick(object sender, RoutedEventArgs e) => ShowMenu(MoreButton, [_more], PlacementMode.Bottom);
 
     private void Setup_OnClick(object sender, RoutedEventArgs e) => ShowMenu(SetupButton, _setup, PlacementMode.Top);
+
+    // A click only: the box ticked by ShowLimit is no change of the user's.
+    private void LimitBox_OnClick(object sender, RoutedEventArgs e) => _limitToggle?.Changed(LimitBox.IsChecked == true);
 
     /// <summary>A menu of the actions, a line between groups; the current choice of a group is checked.</summary>
     private static void ShowMenu(Button anchor, IReadOnlyList<IReadOnlyList<PanelAction>> groups, PlacementMode placement)

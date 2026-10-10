@@ -47,6 +47,13 @@ carry `usage`, one response over several lines with the same message id).
 - Check a CLI's flags without running a model: `codex -c <key>=<value> features list` (bad values fail to load),
   `codex mcp list`, `claude --help`; a hidden option shows in the binary: `grep -a -o -- "--max-turns <" claude.exe`.
 
+## Team or one agent
+
+`team_vs_solo.py` models a team task against one agent on the 2026-09-30 numbers: all tokens, the Claude window and
+the chance of a right result without the user, by task size, with the break-even and what moves it. Its ranges are
+assumptions at the top of `trial`: put measured ones there (requests of a run, a request's start and growth, review
+turns) once `session-stats.ps1` or a task's Export for analysis gives them. First results: `docs/TOKENS_PLAN.md`.
+
 ## Decide
 
 Rank by share of the task's tokens × how much can go ÷ the risk to quality. In Link's runs the cost was never Link's

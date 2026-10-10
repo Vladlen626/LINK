@@ -672,6 +672,12 @@ public sealed class AgentSettings
     /// <summary>Link starts a fresh session from the task's state where that is cheaper than going on in a big or cold one (see <see cref="Services.CompactRule"/>).</summary>
     public bool AutoCompact { get; set; } = true;
 
+    /// <summary>
+    /// A task stopped by its agent's usage limit goes on by itself a minute after the limit resets. The box on the limit's
+    /// card turns it off and on, and it stays as the user left it: on at first, as in Claude's own app.
+    /// </summary>
+    public bool ContinueAfterLimit { get; set; } = true;
+
     /// <summary>Who serves the tiers of a team plan, and whether the steps go to workers.</summary>
     public TeamSettings Team { get; set; } = new();
 
@@ -774,6 +780,7 @@ public sealed class AgentSettings
         OwnAnswersOnCustom = OwnAnswersOnCustom,
         ContextBudget = ContextBudget,
         AutoCompact = AutoCompact,
+        ContinueAfterLimit = ContinueAfterLimit,
         Team = Team.Clone(),
         LatestModels = new Dictionary<string, string>(LatestModels)
     };

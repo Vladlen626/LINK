@@ -102,6 +102,7 @@ internal static class AgentTests
         WorkerRoutes();
         CompactRuleReasons();
         TaskMetricsCounted();
+        TaskExported();
         RoleSuggestAll();
         StepBriefBuilt();
         TeamRunnerMoves();
@@ -2941,14 +2942,14 @@ internal static class AgentTests
     private static void TeamSettingsKept()
     {
         var fresh = new AgentSettings();
-        Program.Equal("team settings: on, every tier left to the default, no A/B, Link compacts by itself",
-            (fresh.Team.Enabled, fresh.Team.Light, fresh.Team.Standard, fresh.Team.Strong, fresh.Team.Alternate, fresh.AutoCompact),
-            (true, (WorkerChoice?)null, (WorkerChoice?)null, (WorkerChoice?)null, false, true));
+        Program.Equal("team settings: on, every tier left to the default, no A/B, Link compacts by itself, a task goes on after its limit resets",
+            (fresh.Team.Enabled, fresh.Team.Light, fresh.Team.Standard, fresh.Team.Strong, fresh.Team.Alternate, fresh.AutoCompact, fresh.ContinueAfterLimit),
+            (true, (WorkerChoice?)null, (WorkerChoice?)null, (WorkerChoice?)null, false, true, true));
 
         var older = JsonSerializer.Deserialize<AgentSettings>("""{"ContextBudget":300000,"PlanOnDeep":false}""")!;
         older.Normalize();
-        Program.Equal("team settings: settings of an older Link load with the team on and Compact by Link on",
-            (older.Team.Enabled, older.Team.Light, older.AutoCompact, older.ContextBudget), (true, (WorkerChoice?)null, true, 300_000));
+        Program.Equal("team settings: settings of an older Link load with the team on, Compact by Link on and going on after a limit",
+            (older.Team.Enabled, older.Team.Light, older.AutoCompact, older.ContextBudget, older.ContinueAfterLimit), (true, (WorkerChoice?)null, true, 300_000, true));
         var nothing = JsonSerializer.Deserialize<AgentSettings>("""{"Team":null}""")!;
         nothing.Normalize();
         Program.Equal("team settings: a null team is the default one", (nothing.Team.Enabled, nothing.Team.Light), (true, (WorkerChoice?)null));
@@ -2959,12 +2960,15 @@ internal static class AgentTests
         Program.Equal("team settings: a choice is kept, one of an agent or level this Link does not know is the default",
             (odd.Team.Enabled, odd.Team.Light, odd.Team.Standard, odd.Team.Strong), (false, new WorkerChoice(AgentProviderKind.Custom, AgentLevel.Light), (WorkerChoice?)null, (WorkerChoice?)null));
 
-        var copy = new AgentSettings { AutoCompact = false, Team = { Standard = new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Deep), Alternate = true } }.Clone();
+        var copy = new AgentSettings
+        {
+            AutoCompact = false, ContinueAfterLimit = false, Team = { Standard = new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Deep), Alternate = true }
+        }.Clone();
         Program.Equal("team settings: a copy keeps them and is its own",
-            (copy.AutoCompact, copy.Team.Standard, copy.Team.Alternate, copy.Team.For(WorkerTier.Standard), copy.Team.For(WorkerTier.Light)),
-            (false, new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Deep), true, new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Deep), (WorkerChoice?)null));
+            (copy.AutoCompact, copy.ContinueAfterLimit, copy.Team.Standard, copy.Team.Alternate, copy.Team.For(WorkerTier.Standard), copy.Team.For(WorkerTier.Light)),
+            (false, false, new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Deep), true, new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Deep), (WorkerChoice?)null));
         var again = JsonSerializer.Deserialize<AgentSettings>(JsonSerializer.Serialize(copy))!;
-        Program.Equal("team settings: they are saved", (again.Team.Standard, again.Team.Alternate, again.AutoCompact), (copy.Team.Standard, true, false));
+        Program.Equal("team settings: they are saved", (again.Team.Standard, again.Team.Alternate, again.AutoCompact, again.ContinueAfterLimit), (copy.Team.Standard, true, false, false));
 
         AppSettings Load(string json)
         {
@@ -3288,6 +3292,72 @@ internal static class AgentTests
             (TaskMetrics.Of(failed, AgentProviderKind.ClaudeCode).CheckPassed, TaskMetrics.Of(failed, AgentProviderKind.ClaudeCode).Done, TaskMetrics.Of(open, AgentProviderKind.ClaudeCode).CheckPassed,
                 TaskMetrics.Of(open, AgentProviderKind.ClaudeCode).Done, TaskMetrics.Of(new AgentTaskRecord { Goal = "x", Workspace = "w" }, AgentProviderKind.ClaudeCode).Done),
             ((bool?)false, false, (bool?)null, false, false));
+    }
+
+    /// <summary>A task exported for a chat in the browser: its numbers, brief, team plan and thread, in order and readable as Markdown.</summary>
+    private static void TaskExported()
+    {
+        var at = new DateTimeOffset(2026, 10, 8, 10, 0, 0, TimeSpan.Zero);
+        var minute = TimeSpan.FromMinutes(1);
+        var record = new AgentTaskRecord
+        {
+            Goal = "Add the dash", Workspace = "C:\\Work\\Game", CreatedAt = at, UpdatedAt = at + 4 * minute, Mode = TaskMode.Team, Status = AgentTaskStatus.Done,
+            RoleId = "programmer", Brief = "Add the dash.\n```cs\nvar speed = 2;\n```", Handovers = ["Codex takes it over"], LastCheck = "dotnet test: passed\nall green",
+            ChangedFiles = ["Src/Dash.cs"], Images = ["C:\\Shots\\ref.png"],
+            Team = [new TeamStep { Text = "Write the dash", Kind = StepKind.Code, Worker = "Codex", Status = TeamStepStatus.Done, Role = "programmer", Reason = "Code → Codex", Redos = 1 }],
+            Runs =
+            [
+                new AgentRunRecord
+                {
+                    Provider = AgentProviderKind.ClaudeCode, Model = "claude-opus-5-5", Effort = "xhigh", EffortReason = "a plan", Access = AgentAccess.Do, AutoApprove = true,
+                    SessionId = "s1", StartedAt = at, Duration = minute, Outcome = "Done in 1:00", InputTokens = 20_000, CachedTokens = 18_000, OutputTokens = 1_000,
+                    Steps = ["Read Dash.cs"], Words = "## Plan\nStep one"
+                },
+                new AgentRunRecord
+                {
+                    Provider = AgentProviderKind.Codex, Effort = "high", RoleId = "programmer", Step = 1, Kind = StepKind.Code, Tier = WorkerTier.Standard, Access = AgentAccess.Do,
+                    SessionId = "s2", StartedAt = at + 2 * minute, Duration = 2 * minute, Outcome = "Done in 2:00", InputTokens = 5_000, CachedTokens = 0, OutputTokens = 200,
+                    Files = ["Src/Dash.cs"], Words = "Done."
+                }
+            ]
+        };
+        record.Entries.Add(new AgentTaskEntry(at, AgentEntryKind.Brief, "Add the dash"));
+        record.Entries.Add(new AgentTaskEntry(at + minute, AgentEntryKind.Run, "Claude Code: done"));
+        record.Entries.Add(new AgentTaskEntry(at + minute, AgentEntryKind.Said, "The plan is ready"));
+        record.Entries.Add(new AgentTaskEntry(at + minute, AgentEntryKind.HandOff, "Step 1 → Codex"));
+        record.Entries.Add(new AgentTaskEntry(at + 4 * minute, AgentEntryKind.Run, "Codex: done"));
+        record.Entries.Add(new AgentTaskEntry(at + 5 * minute, AgentEntryKind.You, "thanks"));
+        var text = TaskExport.Markdown(record, kind => kind.DefaultName(), id => id is null ? "General" : "Programmer", AgentProviderKind.ClaudeCode, at.AddDays(1));
+        var lines = text.Split('\n');
+        string Line(string start) => lines.FirstOrDefault(line => line.StartsWith(start, StringComparison.Ordinal)) ?? $"(no line {start})";
+
+        Program.Equal("export: the summary tells how the task stands, where, how long and what each agent spent",
+            string.Join("\n", Line("# LINK"), Line("- Status"), Line("- Folder"), Line("- Started"), Line("- Runs"), Line("- Claude Code:"), Line("- Codex:"), Line("- In all"),
+                Line("- Check"), Line("- Images"), Line("- Files")),
+            "# LINK task: Add the dash\n- Status: Done · mode: Team · specialist: Programmer\n- Folder: Game\n" +
+            "- Started 2026-10-08 10:00, last change 2026-10-08 10:04; the agents worked 3:00\n" +
+            "- Runs: 2 (Claude Code 1, Codex 1) · the user's words: 1, 0 of them while a run went\n" +
+            "- Claude Code: 20k in (18k cached), 1k out, ≈ 8.8k\n- Codex: 5k in (0 cached), 200 out, ≈ 6k\n" +
+            "- In all ≈ 14.8k, ≈ 8.8k of them on Claude Code, the default agent\n- Check: dotnet test: passed\n- Images: ref.png\n- Files changed (1): Src/Dash.cs");
+        Program.Equal("export: a brief with a fence of its own is fenced longer, the hand-over after it",
+            (text.Contains("## Brief\n````text\nAdd the dash.\n```cs\nvar speed = 2;\n```\n````\n", StringComparison.Ordinal),
+                text.Contains("## Hand-over 1\n```text\nCodex takes it over\n```\n", StringComparison.Ordinal)),
+            (true, true));
+        Program.Equal("export: the team's step with its worker, standing and why; each run with its setup, numbers and step",
+            string.Join("\n", Line("1. "), Line("   - Why"), Line("### Run 1"), Line("- 2026-10-08 10:00"), Line("- Effort"), Line("### Run 2")),
+            "1. Write the dash — Code, Standard, Programmer, Codex: Done, sent back 1×\n   - Why this worker: Code → Codex\n" +
+            "### Run 1 · Claude Code · claude-opus-5-5 · xhigh · as General · auto\n" +
+            "- 2026-10-08 10:00 · Done in 1:00 · 20k in (18k cached), 1k out\n- Effort chosen by Link: a plan\n" +
+            "### Run 2 · Codex · its own model · high · as Programmer · edits · team step 1 (Code, Standard)");
+        Program.Equal("export: the thread in order, answers quoted so that their headings stay theirs, the answer's own lines once",
+            (text.IndexOf("**The task**", StringComparison.Ordinal) < text.IndexOf("### Run 1", StringComparison.Ordinal),
+                text.Contains("> ## Plan\n> Step one\n", StringComparison.Ordinal), text.Contains("The plan is ready", StringComparison.Ordinal),
+                text.IndexOf("HandOff: Step 1 → Codex", StringComparison.Ordinal) < text.IndexOf("### Run 2", StringComparison.Ordinal),
+                text.EndsWith("**You** · 2026-10-08 10:05\n> thanks\n", StringComparison.Ordinal)),
+            (true, true, false, true, true));
+        Program.Equal("export: the file is named by the task's start and goal, without what a file name cannot hold",
+            (TaskExport.FileName(record), TaskExport.FileName(new AgentTaskRecord { Goal = "Fix: \"a/b\" ?", Workspace = "w", CreatedAt = at })),
+            ("2026-10-08 1000 Add-the-dash.md", "2026-10-08 1000 Fix-a-b.md"));
     }
 
     /// <summary>A reached window the CLI gave no reset for does not hold for ever: only for its own length after it was seen.</summary>

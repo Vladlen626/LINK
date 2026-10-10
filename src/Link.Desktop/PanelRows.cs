@@ -272,6 +272,9 @@ public sealed record AgentChangeRow(string Label, string Path);
 /// <summary>A choice the panel offers in a menu or on a card; the window does the work behind it. A checked one is the current one.</summary>
 public sealed record PanelAction(string Label, string Hint, Action Run, bool Checked = false);
 
+/// <summary>A box the panel offers on a card: whether it is ticked, and what ticking or unticking it does.</summary>
+public sealed record PanelToggle(string Label, string Hint, bool On, Action<bool> Changed);
+
 /// <summary>
 /// A task in the Studio's sidebar: its goal, how it stands and its last words; no record: Link's own run (the map).
 /// <see cref="RoleBrush"/> is the colour of its specialist's jellyfish; <see cref="IsOpen"/> lights the row of the task the
