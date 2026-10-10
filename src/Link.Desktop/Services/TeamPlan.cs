@@ -93,18 +93,31 @@ public static partial class TeamPlan
     public static string ReviewFile => Path.Combine(AppContext.BaseDirectory, "harness", "team-review.md");
 
     /// <summary>
-    /// What the lead's session is asked when a worker has done a step: the request (the text of <see cref="ReviewFile"/>),
-    /// then the step, the worker's answer, the check and what changed: the diff when there is one, else the files to read.
+    /// What a lead's session that has given a verdict before is told instead of the whole request: it knows how. The
+    /// block's shape is told again, should the CLI have compacted the session since.
     /// </summary>
-    public static string ReviewPrompt(string request, int number, TeamStep step, string answer, string? check, IReadOnlyList<string> files, string? diff)
+    public const string ReviewAgain =
+        "Review this step as you did the last one: read only, judge it against your plan, and end your answer with one " +
+        "```link-review block holding {\"verdict\": \"accept|redo|escalate|stop\", \"notes\": \"...\"}, nothing after it.";
+
+    /// <summary>
+    /// What the lead's session is asked when a worker has done a step: the request (the text of <see cref="ReviewFile"/>;
+    /// null for a session that has given a verdict before), then the step, the worker's answer, the check and what
+    /// changed: the diff when there is one, of the worker's run alone where <paramref name="ownDiff"/> (after the lead's
+    /// notes, what changed since them), else the files to read.
+    /// </summary>
+    public static string ReviewPrompt(string? request, int number, TeamStep step, string answer, string? check, IReadOnlyList<string> files,
+        string? diff, bool ownDiff = false)
     {
-        var text = new System.Text.StringBuilder(AgentRules.WithoutNotes(request).Trim())
+        var text = new System.Text.StringBuilder(request is null ? ReviewAgain : AgentRules.WithoutNotes(request).Trim())
             .Append($"\n\n## Step {number}, done by {step.Worker}\n").Append(step.Text.Trim())
             .Append("\n\n## Its answer\n").Append(answer.Trim().Length == 0 ? "(none)" : answer.Trim())
             .Append("\n\n## The project's check\n").Append(check ?? "none is set up")
             .Append("\n\n## Changed files\n").Append(files.Count == 0 ? "(none)" : string.Join('\n', files.Select(file => "- " + file)));
         text.Append(diff is null
             ? "\n\nNo diff: the workspace has no version control Link can ask. Read the changed files."
+            : ownDiff
+            ? $"\n\n## {(step.Redos > 0 ? "What the worker changed after your notes" : "What the worker changed")} (the diff of its run)\n```diff\n{diff.Trim()}\n```"
             : $"\n\n## The diff against the last commit (earlier steps' changes to these files show too)\n```diff\n{diff.Trim()}\n```");
         return text.ToString();
     }

@@ -46,7 +46,9 @@ public partial class MainWindow
         var settings = _settings.Current.Agent;
         var roles = ProjectRoles.In(record.Workspace);
         var role = ProjectRoles.Find(step.Role, record.Workspace) ?? ProjectRoles.Suggest(step.Text, roles);
-        var skills = ProjectRoles.SkillsFor(step.Text, role, ProjectSkills.In(record.Workspace));
+        // A specialist reads its role's skills first, whatever the step's words; a step without one, those its words call for.
+        var workspaceSkills = ProjectSkills.In(record.Workspace);
+        var skills = role is null ? ProjectRoles.SkillsFor(step.Text, null, workspaceSkills) : ProjectRoles.OwnSkills(role, workspaceSkills);
         var (model, effort) = settings.Level(provider, step.Level);
         var number = TeamRunner.Number(record, step);
         var again = step.ReviewNotes is { } notes ? TeamPlan.RedoPrompt(notes) : step.CriticNotes is { } defects ? ArtCritic.RedoPrompt(defects) : null;
@@ -118,7 +120,10 @@ public partial class MainWindow
 
         if (step.Status == TeamStepStatus.Reviewing)
         {
-            var lead = run.Task.ResumeSessionId == record.LeadSession || AgentCoordinator.SessionOf(run) == record.LeadSession;
+            // The lead's session, or the fresh read-only one it reviews in (StartLeadReviewAsync): a worker's words go on in its own.
+            var lead = run.Task.ResumeSessionId is null
+                ? run.Task.Access == AgentAccess.Analyze
+                : run.Task.ResumeSessionId == record.LeadSession || AgentCoordinator.SessionOf(run) == record.LeadSession;
             if (lead) AfterReview(work, step, run, needsYou);
             // Words the user left the worker for after its run went first: the lead reviews what it did then.
             else if (!needsYou) Dispatcher.BeginInvoke(() => _ = StartLeadReviewAsync(work, step, run));
@@ -193,9 +198,10 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The lead reviews the step a worker has done, in its own session and read only: the worker's answer, the check and
-    /// the diff (<paramref name="workerRun"/>), else what the task's record kept of the worker's last run, with the files
-    /// to read. Medium effort: a review reads a diff, it does not plan.
+    /// The lead reviews the step a worker has done, read only: the worker's answer, the check and the diff of its run
+    /// (<paramref name="workerRun"/>), else what the task's record kept of the worker's last run, with the files to read.
+    /// In its own session, told how to review once; a session near its budget or gone cold gives way to a fresh one from
+    /// the task's state. Medium effort: a review reads a diff, it does not plan.
     /// </summary>
     private async Task StartLeadReviewAsync(TaskWork work, TeamStep step, AgentRun? workerRun)
     {
@@ -205,19 +211,29 @@ public partial class MainWindow
         var kept = record.Runs.LastOrDefault(run => run.SessionId == step.SessionId);
         var answer = workerRun?.Result.Summary ?? kept?.Words ?? string.Empty;
         var files = workerRun?.Changes.Select(change => Relative(change.Path, record.Workspace)).ToArray() ?? [.. kept?.Files ?? []];
-        var diff = workerRun is { } done
-            ? await _agents.Changes.DiffAsync(done.Before, done.Changes, stat: false, ReviewDiff, CancellationToken.None)
+        var settings = _settings.Current.Agent;
+        // A lead's session grown big or gone cold is not read again for a review: a fresh one starts from the task's state.
+        var fresh = CompactRule.ForStep(record.Runs.LastOrDefault(run => run.SessionId == record.LeadSession), settings.AutoCompact,
+            settings.ContextBudget, DateTimeOffset.Now);
+        // The diff of the worker's run alone; a fresh session did not see the try before the lead's notes: it gets all the files' changes.
+        var before = workerRun?.Before is { } start && fresh is not null && step.Redos > 0 ? start with { Snapshot = null } : workerRun?.Before;
+        var diff = workerRun is { } done && before is not null
+            ? await _agents.Changes.DiffAsync(before, done.Changes, stat: false, ReviewDiff, CancellationToken.None)
             : null;
         var check = workerRun?.Check is { } result ? (result.Passed ? "passed" : result.ToString()) : null;
         var request = File.Exists(TeamPlan.ReviewFile) ? await File.ReadAllTextAsync(TeamPlan.ReviewFile) : string.Empty;
         if (work.Busy || !_works.Contains(work)) return;
+        // A session that has given a verdict knows how to review: it is told the step alone.
+        var review = TeamPlan.ReviewPrompt(fresh is null && record.ReviewSession == record.LeadSession ? null : request, TeamRunner.Number(record, step), step,
+            answer, check, files, diff, before?.DiffsOwnWork == true);
+        if (fresh is not null) record.Add(AgentEntryKind.HandOff, $"{LeadName(record)} reviews step {TeamRunner.Number(record, step)} in a fresh session from the task's state · {fresh}");
         var efforts = _agents.Provider(lead.Provider).EffortsOf(lead.Model);
         await StartAgentAsync(work, new AgentTask
         {
             Provider = lead.Provider,
             Workspace = record.Workspace,
-            Prompt = TeamPlan.ReviewPrompt(request, TeamRunner.Number(record, step), step, answer, check, files, diff),
-            ResumeSessionId = record.LeadSession,
+            Prompt = fresh is null ? review : $"{TaskState.ReviewBrief(record, record.Workspace, step, AgentName)}\n\n{review}",
+            ResumeSessionId = fresh is null ? record.LeadSession : null,
             Access = AgentAccess.Analyze,
             AllowedTools = AgentCoordinator.Tools(project, record.Workspace, AgentAccess.Analyze),
             Model = lead.Model,
@@ -242,6 +258,8 @@ public partial class MainWindow
             if (!needsYou) OfferReviewDecision(work, step, $"{lead}'s review of step {number} ended without a verdict.");
             return;
         }
+
+        record.ReviewSession = record.LeadSession;
 
         var evidence = _projects.ReadWorkerEvidence(work.Project);
         var move = TeamRunner.Reviewed(record, step, review, Router(evidence), WorkerLabel, evidence);
@@ -334,18 +352,29 @@ public partial class MainWindow
         Dispatcher.BeginInvoke(() => _ = StartCritiqueAsync(work, step, critic, run, frames));
     }
 
-    /// <summary>The art critic judges what an artist's run made for a step: its text, hand-over and saved files, the task's references.</summary>
-    private Task StartCritiqueAsync(TaskWork work, TeamStep step, Worker critic, AgentRun judged, IReadOnlyList<string> frames) =>
-        StartCriticAsync(work, critic, judged, step.Text, step.HandedOver, [.. judged.Changes.Select(change => Relative(change.Path, work.Record.Workspace))],
-            work.Record.Images, frames);
+    /// <summary>
+    /// The art critic judges what an artist's run made for a step: its text, hand-over and saved files, the task's
+    /// references. After a redo the critic that sent the step back judges the new frames in its own session.
+    /// </summary>
+    private Task StartCritiqueAsync(TaskWork work, TeamStep step, Worker critic, AgentRun judged, IReadOnlyList<string> frames)
+    {
+        var record = work.Record;
+        var again = step.CriticSession is { } session && record.Runs.LastOrDefault(run => run.SessionId == session)?.Provider == critic.Provider
+            ? session
+            : null;
+        return StartCriticAsync(work, critic, judged, step.Text, step.HandedOver, [.. judged.Changes.Select(change => Relative(change.Path, record.Workspace))],
+            record.Images, frames, again);
+    }
 
     /// <summary>
-    /// A new session of the art critic: read only, as the Art Critic with its skills and at its role's effort, told the
-    /// task, what was handed over and saved, the user's references and the frames, the first of them attached; never the
-    /// artist's account. After its verdict the user's words go on in the session of <paramref name="judged"/>.
+    /// The art critic, read only and blind to the artist's account: a new session as the Art Critic with its role's
+    /// skills and at its role's effort, told the task, what was handed over and saved, the user's references and the
+    /// frames, the sheets among them attached (else the first frames). Its own session after a redo
+    /// (<paramref name="again"/>) knows all but the new frames and saved files, and judges them at medium effort. After
+    /// its verdict the user's words go on in the session of <paramref name="judged"/>.
     /// </summary>
     private async Task StartCriticAsync(TaskWork work, Worker critic, AgentRun judged, string task, string? handedOver,
-        IReadOnlyList<string> saved, IReadOnlyList<string> references, IReadOnlyList<string> frames)
+        IReadOnlyList<string> saved, IReadOnlyList<string> references, IReadOnlyList<string> frames, string? again = null)
     {
         var request = File.Exists(ArtCritic.RequestFile) ? await File.ReadAllTextAsync(ArtCritic.RequestFile) : string.Empty;
         if (work.Busy || !_works.Contains(work)) return;
@@ -355,20 +384,25 @@ public partial class MainWindow
         var (deepModel, deepEffort) = _settings.Current.Agent.Level(critic.Provider, AgentLevel.Deep);
         var model = critic.Model ?? deepModel;
         var efforts = _agents.Provider(critic.Provider).EffortsOf(model);
+        string? Has(string? effort) => effort is not null && efforts.Any(each => each.Value == effort) ? effort : null;
+        var attached = ArtCritic.Attached(frames, ArtCritic.IsSheet);
         work.Critiqued = judged;
         await StartAgentAsync(work, new AgentTask
         {
             Provider = critic.Provider,
             Workspace = record.Workspace,
-            Prompt = ArtCritic.Prompt(request, task, handedOver, saved, [.. references.Where(File.Exists)], frames),
-            Images = [.. frames.Take(ArtCritic.MostFrames)],
+            Prompt = again is null
+                ? ArtCritic.Prompt(request, task, handedOver, saved, [.. references.Where(File.Exists)], frames, attached)
+                : ArtCritic.AgainPrompt(saved, frames, attached),
+            ResumeSessionId = again,
+            Images = attached,
             Access = AgentAccess.Analyze,
             AllowedTools = AgentCoordinator.Tools(project, record.Workspace, AgentAccess.Analyze),
             Model = model,
-            // Its role's usual effort where the agent has it: judging frames needs no Deep level's longest thinking.
-            Effort = role?.Effort is { } usual && efforts.Any(effort => effort.Value == usual) ? usual : deepEffort,
+            // Its role's usual effort where the agent has it: judging frames needs no Deep level's longest thinking, a second look less.
+            Effort = (again is null ? null : Has("medium")) ?? Has(role?.Effort) ?? deepEffort,
             RoleId = ArtCritic.RoleId,
-            Skills = ProjectRoles.SkillsFor(task, role, ProjectSkills.In(record.Workspace))
+            Skills = ProjectRoles.OwnSkills(role, ProjectSkills.In(record.Workspace))
         }, null);
     }
 
@@ -384,6 +418,7 @@ public partial class MainWindow
         var record = work.Record;
         if (work.Critiqued is { } judged) work.LastRun = judged;
         work.Critiqued = null;
+        step.CriticSession = AgentCoordinator.SessionOf(run) ?? step.CriticSession;
         var number = TeamRunner.Number(record, step);
         var artist = step.Worker;
         var critic = WorkerLabel(new Worker(run.Task.Provider, AgentLevel.Deep, run.Task.Model));

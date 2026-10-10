@@ -40,6 +40,9 @@ public static partial class ProjectRoles
     // So many skills go to one task: more is a reading list, not a pick.
     private const int MostSkills = 4;
 
+    // So many words tie a skill to a task beside the role's own: one word in common ("camera", "Blender") is chance.
+    private const int RelatedWords = 2;
+
     // A word of a skill stands for the letters it starts with, as the roles' keywords are stems.
     private const int StemLength = 5;
 
@@ -163,26 +166,39 @@ public static partial class ProjectRoles
             .Select(each => each.Role)];
 
     /// <summary>
-    /// The skills for a task, at most four: the role's own that the workspace has, then those that go with the brief or
-    /// the role. A skill goes with the brief when a word of its name or description (the first letters of it) begins a
-    /// word of the brief, and with the role when one of the role's keywords is in its description; the more such words,
-    /// the earlier. Names as the workspace has them.
+    /// The skills for a task, at most four: the role's own (<see cref="OwnSkills"/>), then those that go with the brief
+    /// or the role by two words or more. A skill goes with the brief when a word of its name or description (the first
+    /// letters of it) begins a word of the brief, and with the role when one of the role's keywords is in its
+    /// description; the more such words, the earlier. A pack's name is no such word for its skills: "Blender" in a brief
+    /// calls for none of the Blender pack's skills more than another. Names as the workspace has them.
     /// </summary>
     public static IReadOnlyList<string> SkillsFor(string brief, AgentRole? role, IReadOnlyList<ProjectSkill> skills)
     {
+        var picked = OwnSkills(role, skills);
+        var related = skills
+            .Where(skill => !picked.Contains(skill.Name, StringComparer.OrdinalIgnoreCase))
+            .Select(skill => (skill.Name, Score: Related(skill, brief, role)))
+            .Where(each => each.Score >= RelatedWords)
+            .OrderByDescending(each => each.Score)
+            .Select(each => each.Name);
+        return [.. picked.Concat(related).Take(MostSkills)];
+    }
+
+    /// <summary>
+    /// The role's own skills that the workspace has, then the game's add-on of their tool where it has one
+    /// (<c>blender-project</c> beside <c>blender-model</c>): what was learned in this game; at most four. What a team's
+    /// step and the art critic read first, whatever the step's words. Names as the workspace has them.
+    /// </summary>
+    public static IReadOnlyList<string> OwnSkills(AgentRole? role, IReadOnlyList<ProjectSkill> skills)
+    {
+        var declared = role?.Skills ?? [];
         var picked = new List<string>();
-        foreach (var name in role?.Skills ?? [])
+        foreach (var name in declared.Concat(declared.Select(name => name.Split('-')[0] + "-project")))
         {
             if (skills.FirstOrDefault(skill => string.Equals(skill.Name, name, StringComparison.OrdinalIgnoreCase)) is { } own && !picked.Contains(own.Name)) picked.Add(own.Name);
         }
 
-        var related = skills
-            .Where(skill => !picked.Contains(skill.Name, StringComparer.OrdinalIgnoreCase))
-            .Select(skill => (skill.Name, Score: Related(skill, brief, role)))
-            .Where(each => each.Score > 0)
-            .OrderByDescending(each => each.Score)
-            .Select(each => each.Name);
-        return [.. picked.Concat(related).Take(MostSkills)];
+        return [.. picked.Take(MostSkills)];
     }
 
     /// <summary>
@@ -270,13 +286,17 @@ public static partial class ProjectRoles
     private static string[] List(string? value) =>
         value?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
 
-    /// <summary>How many words of the skill's name and description are in the brief, plus the role's keywords in its description.</summary>
+    /// <summary>
+    /// How many words of the skill's name and description are in the brief, plus the role's keywords in its description;
+    /// the name of the skill's pack is none of them.
+    /// </summary>
     private static int Related(ProjectSkill skill, string brief, AgentRole? role)
     {
+        var pack = skill.Pack?[..Math.Min(skill.Pack.Length, StemLength)];
         var stems = skill.Name.Split('-').Where(part => part.Length >= ShortestName)
             .Concat(Word().Matches(skill.Description).Select(match => match.Value))
             .Select(word => word[..Math.Min(word.Length, StemLength)])
-            .Where(stem => !Common.Contains(stem))
+            .Where(stem => !Common.Contains(stem) && !string.Equals(stem, pack, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase);
         return stems.Count(stem => Stems.Found(brief, stem)) +
                (role?.Keywords.Count(keyword => Stems.Found(skill.Description, keyword)) ?? 0);

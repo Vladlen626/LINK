@@ -16,6 +16,9 @@ public static class TaskState
     /// <summary>A worker's next action: its step, which follows the state.</summary>
     internal const string StepBelow = "Your step, below.";
 
+    /// <summary>The next action of the team's lead in a fresh session: its review of a step, which follows the state.</summary>
+    internal const string ReviewBelow = "You lead this team, in a fresh session: review the step below.";
+
     /// <summary>
     /// How much each part of a state may take. A state over <see cref="AgentCoordinator.BriefBudget"/> is cut in this
     /// order, each step on top of the ones before: the older problems, the long decisions, the brief, the files. The
@@ -74,13 +77,7 @@ public static class TaskState
     public static string StepBrief(AgentTaskRecord record, string? numstat, string workspace, TeamStep step, Func<AgentProviderKind, string>? agentName = null)
     {
         var lines = new List<string> { Build(record, numstat, workspace, agentName, StepBelow) };
-        var position = record.Team.IndexOf(step);
-        var handed = record.Team
-            .Select((each, index) => (Step: each, Number: index + 1))
-            .Where(each => (position < 0 || each.Number <= position) && !string.IsNullOrWhiteSpace(each.Step.HandedOver))
-            .Select(each => $"- Step {each.Number} ({each.Step.Worker}): {each.Step.HandedOver!.Trim()}")
-            .ToArray();
-        if (handed.Length > 0) lines.AddRange(["", "## Handed over by earlier steps", .. handed]);
+        lines.AddRange(HandedOver(record, step));
         lines.AddRange(["", "## Your step", step.Text]);
         if (step.Files.Count > 0) lines.Add("files: " + string.Join(", ", step.Files));
         if (step.EscalatedFrom is not null && !string.IsNullOrWhiteSpace(step.Failure)) lines.Add($"The {step.EscalatedFrom} tried this step and failed: {step.Failure.Trim()}");
@@ -94,6 +91,26 @@ public static class TaskState
         }
         lines.Add(TeamPlan.StepEnd);
         return string.Join('\n', lines);
+    }
+
+    /// <summary>
+    /// What a fresh session of the team's lead is told before it reviews <paramref name="step"/>, when the lead's own
+    /// session has grown or gone cold: the task's state, where the plan's steps stand and what the steps before handed
+    /// over. The review follows it.
+    /// </summary>
+    public static string ReviewBrief(AgentTaskRecord record, string workspace, TeamStep step, Func<AgentProviderKind, string>? agentName = null) =>
+        string.Join('\n', [Build(record, null, workspace, agentName, ReviewBelow), .. HandedOver(record, step)]);
+
+    /// <summary>What the steps before <paramref name="step"/> handed over, under a heading of its own; nothing when none said.</summary>
+    private static IReadOnlyList<string> HandedOver(AgentTaskRecord record, TeamStep step)
+    {
+        var position = record.Team.IndexOf(step);
+        var handed = record.Team
+            .Select((each, index) => (Step: each, Number: index + 1))
+            .Where(each => (position < 0 || each.Number <= position) && !string.IsNullOrWhiteSpace(each.Step.HandedOver))
+            .Select(each => $"- Step {each.Number} ({each.Step.Worker}): {each.Step.HandedOver!.Trim()}")
+            .ToArray();
+        return handed.Length > 0 ? ["", "## Handed over by earlier steps", .. handed] : [];
     }
 
     /// <summary>The line the task's history gets when it is compacted, with what the session held when that is known.</summary>

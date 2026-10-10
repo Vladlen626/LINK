@@ -443,6 +443,11 @@ internal static class AgentTests
             Program.Equal("git: the agent's changes are found",
                 string.Join(",", found.OrderBy(change => change.Path).Select(change => $"{Path.GetFileName(change.Path)}:{change.Undoable}")),
                 "clean.txt:True,mine.txt:False,new.txt:True");
+            var diff = await changes.DiffAsync(before, found, stat: false, 20_000, CancellationToken.None) ?? string.Empty;
+            Program.Equal("git: a run's diff is its own work, the user's edit before it not; the user's index is as it was",
+                (before.DiffsOwnWork, diff.Contains("-my edit", StringComparison.Ordinal), diff.Contains("+my edit and the agent's", StringComparison.Ordinal),
+                    diff.Contains("-mine", StringComparison.Ordinal), diff.Contains("+agent", StringComparison.Ordinal), await GitAsync(workspace, "diff", "--cached", "--quiet")),
+                (true, true, true, false, true, 0));
 
             await changes.UndoAsync(before, found, CancellationToken.None);
             Program.Equal("git: undo puts back a clean file", File.ReadAllText(Path.Combine(workspace, "clean.txt")), "clean");
@@ -653,10 +658,12 @@ internal static class AgentTests
         Directory.Delete(folder, recursive: true);
     }
 
-    private static async Task GitAsync(string folder, params string[] arguments)
+    /// <summary>Runs git in the folder; its exit code.</summary>
+    private static async Task<int> GitAsync(string folder, params string[] arguments)
     {
         using var git = Process.Start(new ProcessStartInfo("git", arguments) { WorkingDirectory = folder, UseShellExecute = false, CreateNoWindow = true })!;
         await git.WaitForExitAsync();
+        return git.ExitCode;
     }
 
     private static void ClaudeFixtures()
@@ -1196,7 +1203,10 @@ internal static class AgentTests
         }
     }
 
-    /// <summary>The skills picked for a task: the role's own first, then those whose words are in the brief, at most four.</summary>
+    /// <summary>
+    /// The skills picked for a task: the role's own first, then those that two words or more tie to the brief or the role,
+    /// at most four; a team's step and the critic get the role's own alone, with the game's add-on of their tool.
+    /// </summary>
     private static void RoleSkills()
     {
         ProjectSkill[] skills =
@@ -1211,26 +1221,48 @@ internal static class AgentTests
         var rigger = ProjectRoles.Find("rigger-animator", null)!;
         string Picked(string brief, AgentRole? role, params ProjectSkill[] among) => string.Join(",", ProjectRoles.SkillsFor(brief, role, among.Length > 0 ? among : skills));
 
-        Program.Equal("skills: the role's own first, then the brief's words", Picked("Redo the jump", rigger), "blender-anim,unreal-animbp,jump-tuning");
-        Program.Equal("skills: without a role only the brief's words; none when none match",
-            (Picked("Fix the lighting", null), Picked("Rename the field", null)), ("level-lighting", string.Empty));
+        Program.Equal("skills: two words of the role and the brief tie a skill to the task, the more the earlier",
+            Picked("Animate the jump height in Blender", rigger), "blender-anim,unreal-animbp,jump-tuning");
+        Program.Equal("skills: one word in common is chance; without a role only the brief's words, none when none match",
+            (Picked("Fix the lighting", null), Picked("Fix the lighting of the level", null), Picked("Rename the field", null)), (string.Empty, "level-lighting", string.Empty));
         Program.Equal("skills: the role's skills the workspace lacks are skipped",
-            Picked("Fix the lighting", rigger, skills[2], skills[5]), "level-lighting");
-        Program.Equal("skills: at most four, in the workspace's order on a tie", Picked("jump lighting sound save blender", null), "blender-anim,level-lighting,jump-tuning,save-system");
+            Picked("Fix the lighting of the level", Role("r", "blender-anim"), skills[2], skills[5]), "level-lighting");
+        Program.Equal("skills: at most four, in the workspace's order on a tie",
+            Picked("animate export lighting level jump height save games mix sound", null), "blender-anim,level-lighting,jump-tuning,save-system");
         Program.Equal("skills: the more words of a skill the brief has, the earlier",
-            Picked("Mix the sound of the jump and tune it", null), "sound-mix,jump-tuning");
+            Picked("Mix the sound of the jump height and tune the sound", null), "jump-tuning,sound-mix");
         Program.Equal("skills: a word counts at its start, in any case, and only a name's whole parts or a description's long words",
-            (Picked("JUMPING", null), Picked("a jumper", null), Picked("unjump", null), Picked("an anim", null)), ("jump-tuning", "jump-tuning", string.Empty, "blender-anim"));
+            (Picked("JUMPING HEIGHTS", null), Picked("a jumper's height", null), Picked("unjump unheight", null), Picked("an anim for Blender", null)),
+            ("jump-tuning", "jump-tuning", string.Empty, "blender-anim"));
+        ProjectSkill[] pack = [new("blender-model", "Model props in Blender.", string.Empty, "blender"), new("blender-anim", "Animate rigs in Blender.", string.Empty, "blender")];
+        Program.Equal("skills: a pack's name ties none of its skills to a task, its other words do",
+            (Picked("Model the props in Blender", null, pack), Picked("Model it in Blender", null, pack), Picked("Model it in Blender", null, [new("blender-model", "Model props in Blender.", string.Empty)])),
+            ("blender-model", string.Empty, "blender-model"));
 
         Program.Equal("skills: words any text has tie no skill to a task",
             Picked("Fix the menu in the project, using the docs", null, new ProjectSkill("ue-blueprint", "Edit Blueprint graphs of the project using ue.mjs.", string.Empty)),
             string.Empty);
 
-        AgentRole Role(string id, string skill, params string[] keywords) => new(id, id, string.Empty, keywords, string.IsNullOrEmpty(skill) ? [] : [skill], null, string.Empty, string.Empty);
         ProjectSkill[] measuring = [new("pie-check", "Measure foot sliding in PIE.", string.Empty), new("other", "Something else.", string.Empty)];
-        Program.Equal("skills: a skill whose description has the role's keyword goes with the role",
-            (Picked("Anything", Role("r", string.Empty, "foot slid"), measuring), Picked("Anything", Role("r", string.Empty, "lighting"), measuring)), ("pie-check", string.Empty));
+        Program.Equal("skills: a skill whose description has the role's keywords goes with the role",
+            (Picked("Anything", Role("r", string.Empty, "foot slid", "measur"), measuring), Picked("Anything", Role("r", string.Empty, "foot slid"), measuring),
+                Picked("Anything", Role("r", string.Empty, "lighting"), measuring)),
+            ("pie-check", string.Empty, string.Empty));
         Program.Equal("skills: a role skill is named as the workspace has it, once", Picked("Anything", Role("r", "BLENDER-ANIM"), skills[0], skills[0]), "blender-anim");
+
+        ProjectSkill[] game =
+        [
+            new("art-style", "The game's art profile.", string.Empty, "blender"), new("blender-model", "Model props in Blender.", string.Empty, "blender"),
+            new("blender-project", "This game's Blender lessons, on top of the pack's skills.", string.Empty), new("unreal-project", "This game's Unreal lessons.", string.Empty),
+            new("jump-tuning", "Tune the jump height of the character.", string.Empty)
+        ];
+        AgentRole artist = new("3d-artist", "3D Artist", string.Empty, ["model"], ["blender-model", "art-style", "blender-live"], null, string.Empty, string.Empty);
+        Program.Equal("skills: a step and the critic read their role's own and the game's add-on of its tool, whatever the words; General none",
+            (string.Join(",", ProjectRoles.OwnSkills(artist, game)), string.Join(",", ProjectRoles.OwnSkills(Role("art-critic", "art-style"), game)),
+                ProjectRoles.OwnSkills(null, game).Count),
+            ("blender-model,art-style,blender-project", "art-style", 0));
+
+        AgentRole Role(string id, string skill, params string[] keywords) => new(id, id, string.Empty, keywords, string.IsNullOrEmpty(skill) ? [] : [skill], null, string.Empty, string.Empty);
     }
 
     /// <summary>The specialist and skills in what is saved: older tasks load as General with no skills.</summary>
@@ -3613,6 +3645,10 @@ internal static class AgentTests
             (Why(Run(now, 400_000, minutes(10)), afterLimit: true)?.StartsWith("the session holds 400k of 450k", StringComparison.Ordinal),
                 Why(Run(now, 50_000, TimeSpan.FromHours(3)), afterLimit: true), Why(Run(now, null, TimeSpan.FromHours(3)), afterLimit: true)),
             ((bool?)true, (string?)null, (string?)null));
+        Program.Equal("compact for a step of Link's own: a big session reviews afresh at once, a small one resumes, Settings' word first",
+            (CompactRule.ForStep(Run(now, 400_000, minutes(2)), true, 450_000, now)?.StartsWith("the session holds 400k of 450k", StringComparison.Ordinal),
+                CompactRule.ForStep(Run(now, 50_000, minutes(2)), true, 450_000, now), CompactRule.ForStep(Run(now, 400_000, minutes(2)), false, 450_000, now)),
+            ((bool?)true, (string?)null, (string?)null));
         Program.Equal("compact after a wait: a model's smaller window caps the budget",
             Why(Run(now, 170_000, minutes(10), window: 200_000), afterLimit: true),
             "the session holds 170k of 200k: each step of the next run would re-send it; the task's state is far shorter");
@@ -3819,6 +3855,10 @@ internal static class AgentTests
                 AsWorker(teamState, "Step 1 of the team plan: Model the prop in Blender. Keep the pivots on the hinges.") +
                 "\n\n## Handed over by earlier steps\n- Step 1 (Claude): Content/Dash.fbx" +
                 "\n\n## Your step\nAdd the dash ability to the movement component\nfiles: Source/Movement, Source/Dash.cpp\n" + TeamPlan.StepEnd);
+            Program.Equal("review brief: a fresh lead session is told the team's state, its review as the next action and what earlier steps handed over",
+                TaskState.ReviewBrief(record, workspace, step),
+                teamState.Replace("## Next action\nStep 1 of the team plan: Model the prop in Blender. Keep the pivots on the hinges.\n",
+                    "## Next action\n" + TaskState.ReviewBelow + "\n") + "\n\n## Handed over by earlier steps\n- Step 1 (Claude): Content/Dash.fbx");
             record.Team = [];
             step.EscalatedFrom = "GLM";
             step.Failure = " Failed after 0:42\nerror CS0103: the name 'dash' does not exist ";
@@ -4040,8 +4080,10 @@ internal static class AgentTests
         Program.Equal("unverified: a code step with no file changed is done as before",
             TeamRunner.After(plain, plain.Team[1], true, "Nothing to change.", "", route, Name, new WorkerEvidence(), changed: false), TeamMove.Next);
 
-        Program.Equal("team suggested: two specialists or a list of three things to do",
-            (TeamRunner.Suggests("Do it:\n- import the car\n- add doors\n2. add the trunk", []), TeamRunner.Suggests("- import the car\n- add doors", [])), (true, false));
+        Program.Equal("team suggested: two specialists or a list of four things to do; three are cheaper for one agent",
+            (TeamRunner.Suggests("Do it:\n- import the car\n- add doors\n2. add the trunk\n* paint it", []),
+                TeamRunner.Suggests("Do it:\n- import the car\n- add doors\n2. add the trunk", []), TeamRunner.Suggests("- import the car\n- add doors", [])),
+            (true, false, false));
     }
 
     private static void TrainingCourseRules()
@@ -4140,6 +4182,13 @@ internal static class AgentTests
                 withDiff.Contains("```diff\n+ open()\n```", StringComparison.Ordinal), withoutDiff.Contains("none is set up", StringComparison.Ordinal),
                 withoutDiff.Contains("Read the changed files.", StringComparison.Ordinal)),
             (true, true, true, true, true));
+        var again = TeamPlan.ReviewPrompt(null, 3, step, "Added.", "passed", ["Assets/Doors.cs"], "+ open()", ownDiff: true);
+        var redone = TeamPlan.ReviewPrompt(null, 3, new TeamStep { Text = "Add the doors", Worker = "Codex", Redos = 1 }, "Fixed.", null, [], "+ close()", ownDiff: true);
+        Program.Equal("lead review: a session that gave a verdict is told the step alone, with the diff of the worker's run, after its notes on a redo",
+            (again.StartsWith(TeamPlan.ReviewAgain + "\n\n## Step 3, done by Codex\nAdd the doors", StringComparison.Ordinal),
+                again.Contains("## What the worker changed (the diff of its run)\n```diff\n+ open()\n```", StringComparison.Ordinal),
+                redone.Contains("## What the worker changed after your notes (the diff of its run)\n```diff\n+ close()", StringComparison.Ordinal)),
+            (true, true, true));
         Program.Equal("lead review: the worker's own session is told the notes and to fix in place",
             TeamPlan.RedoPrompt(" Null check ").StartsWith("The team lead reviewed your step and asks for this:\nNull check\nFix it in place", StringComparison.Ordinal), true);
     }
@@ -4166,6 +4215,11 @@ See shots/flat.png. Not crate.blend or a.pngx.")),
             var frames = ArtCritic.Frames([game, "Art/thumb.jpg", "Art/game.png", "Art/crate.blend", "Art/gone.png", "bad\0path.png"], workspace, File.Exists);
             Program.Equal("art critic: frames are the images that exist, full paths, a relative one from the workspace, each once",
                 string.Join("|", frames.Select(frame => Path.GetRelativePath(workspace, frame).Replace('\\', '/'))), "Art/game.png|Art/thumb.jpg");
+            // The mark sheet.py writes into a sheet's PNG between its header and the image data.
+            var sheet = Path.Combine(workspace, "Art", "sheet.png");
+            File.WriteAllBytes(sheet, [.. "PNG IHDR"u8, 0, 0, 0, 10, .. "tEXtLink\0sheet"u8, .. "IDAT"u8]);
+            Program.Equal("art critic: a sheet is known by sheet.py's mark; a frame, a file without it or none is no sheet",
+                (ArtCritic.IsSheet(sheet), ArtCritic.IsSheet(game), ArtCritic.IsSheet(Path.Combine(workspace, "Art", "gone.png"))), (true, false, false));
         }
         finally
         {
@@ -4220,14 +4274,27 @@ See shots/flat.png. Not crate.blend or a.pngx.")),
             ((bool?)false, (bool?)null, (bool?)null, (0, 1)));
 
         var many = Enumerable.Range(1, ArtCritic.MostFrames + 1).Select(index => $"/f/{index}.png").ToArray();
-        var prompt = ArtCritic.Prompt("<!-- note -->Judge it.", "Model the crate", "Art/crate.fbx", ["Art/crate.blend", "Art/crate.fbx"], ["/refs/boat.png"], many);
+        var attached = ArtCritic.Attached(many, _ => false);
+        var prompt = ArtCritic.Prompt("<!-- note -->Judge it.", "Model the crate", "Art/crate.fbx", ["Art/crate.blend", "Art/crate.fbx"], ["/refs/boat.png"], many, attached);
         Program.Equal("art critic: the request without its notes, the task, hand-over, saved files, references and frames, the first attached",
             (prompt.StartsWith("Judge it.\n\n## The task\nModel the crate\n\n## Handed over\nArt/crate.fbx\n\n## Saved files\n- Art/crate.blend\n- Art/crate.fbx\n\n" +
                                "## The user's references\n- /refs/boat.png\n\n## Frames\n- /f/1.png (attached)", StringComparison.Ordinal),
-                prompt.EndsWith($"- /f/{ArtCritic.MostFrames}.png (attached)\n- /f/{ArtCritic.MostFrames + 1}.png", StringComparison.Ordinal)),
-            (true, true));
+                prompt.EndsWith($"- /f/{ArtCritic.MostFrames}.png (attached)\n- /f/{ArtCritic.MostFrames + 1}.png", StringComparison.Ordinal), attached.Count),
+            (true, true, ArtCritic.MostFrames));
         Program.Equal("art critic: without a hand-over, files or references only the task and the frames",
-            ArtCritic.Prompt("Judge it.", "Exam", null, [], [], ["/f/1.png"]), "Judge it.\n\n## The task\nExam\n\n## Frames\n- /f/1.png (attached)");
+            ArtCritic.Prompt("Judge it.", "Exam", null, [], [], ["/f/1.png"], ["/f/1.png"]), "Judge it.\n\n## The task\nExam\n\n## Frames\n- /f/1.png (attached)");
+        string[] glued = ["/f/game.png", "/f/lineup.png", "/f/thumb.png", "/f/views.png"];
+        var sheets = ArtCritic.Attached(glued, frame => frame.EndsWith("lineup.png", StringComparison.Ordinal) || frame.EndsWith("views.png", StringComparison.Ordinal));
+        Program.Equal("art critic: with sheets only they are attached, the frames glued in them are told by path",
+            (string.Join("|", sheets), ArtCritic.Prompt("Judge it.", "Exam", null, [], [], glued, sheets).EndsWith(
+                "## Frames\n- /f/game.png\n- /f/lineup.png (attached)\n- /f/thumb.png\n- /f/views.png (attached)", StringComparison.Ordinal)),
+            ("/f/lineup.png|/f/views.png", true));
+        var again = ArtCritic.AgainPrompt(["Art/crate.blend"], glued, sheets);
+        Program.Equal("art critic: its own session after a redo is told the saved files and the new frames alone, never the artist's account",
+            (again.StartsWith("The artist has worked on the defects you named", StringComparison.Ordinal),
+                again.Contains("link-review block", StringComparison.Ordinal), again.Contains("## Saved files\n- Art/crate.blend\n\n## Frames\n- /f/game.png\n- /f/lineup.png (attached)", StringComparison.Ordinal),
+                again.Contains("## The task", StringComparison.Ordinal)),
+            (true, true, true, false));
         Program.Equal("art critic: the artist's own session is told the defects, the source and the same frames again",
             (ArtCritic.RedoPrompt(" 1. Raise the bow ").StartsWith("The art critic judged your frames and asks for this, worst first:\n1. Raise the bow\nFix it in the source",
                 StringComparison.Ordinal), ArtCritic.RedoPrompt("x").EndsWith(TeamPlan.StepEnd, StringComparison.Ordinal)),

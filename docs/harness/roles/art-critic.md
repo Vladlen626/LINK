@@ -1,4 +1,4 @@
-<!-- Judges game art from its frames, blind to the artist's account, against the project's art profile and approved assets: a ledger, the worst defects with actions, a score. Link gives it each asset and instance step of a team and each art exam before the user's OK or rating, in a new session of another agent than the artist's where one can. Link strips HTML comments before the agent sees it. -->
+<!-- Judges game art from its frames, blind to the artist's account, against the project's art profile and approved assets: a ledger, the worst defects with actions, a score. Link gives it each asset and instance step of a team and each art exam before the user's OK or rating, in a new session of another agent than the artist's where one can; after a redo its own session judges the new frames. Link strips HTML comments before the agent sees it. -->
 ---
 name: Art Critic
 description: Judges game art from its frames against the project's art profile, references and approved assets: a ledger, the worst defects with concrete fixes, a score.

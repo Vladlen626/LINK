@@ -52,6 +52,14 @@ public static class CompactRule
         return Why(last.ContextTokens, budget, idle, last.ContextWindow is { } window ? (int)Math.Min(window, int.MaxValue) : null);
     }
 
+    /// <summary>
+    /// The reason to start a step of Link's own, such as the team lead's review, in a fresh session rather than resume the
+    /// session <paramref name="last"/> ran in: no reply of the user's is taken from it, so a session near its budget
+    /// starts fresh at once. Null: resume, or Settings do not allow it.
+    /// </summary>
+    public static string? ForStep(AgentRunRecord? last, bool autoCompact, int budget, DateTimeOffset now) =>
+        Why(last, autoCompact, budget, now, afterLimit: true);
+
     private static string Idle(TimeSpan idle) =>
         idle.TotalHours >= 48 ? $"{(int)idle.TotalDays} days"
         : idle.TotalMinutes >= 120 ? $"{(int)idle.TotalHours} h"

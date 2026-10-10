@@ -396,8 +396,8 @@
                             </Button>
                         </Grid>
                         <CheckBox x:Name="TeamBox" Margin="0,12,0,0" FontSize="12.5" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Click="TeamBox_OnClick"
-                                  Content="Team: the lead plans the steps, Link gives each to its worker"
-                                  ToolTip="Strong plans, read only; you see each step with its worker and why, then run the team. Steps run one after another"
+                                  Content="Team: the lead plans the steps, Link gives each to its worker · pays off from ~4 steps"
+                                  ToolTip="Strong plans, read only; you see each step with its worker and why, then run the team. Steps run one after another. With fewer than about 4 steps the plan, briefs and reviews cost more than the cheaper workers save: one agent does it for less"
                                   Visibility="Collapsed" />
                         <CheckBox x:Name="TrainBox" Margin="0,8,0,0" FontSize="12.5" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Click="TrainBox_OnClick"
                                   Content="Train the specialist: it studies your sources, then proves its lessons in an exam"

@@ -182,6 +182,9 @@ public sealed class TeamStep
     /// <summary>How many times the lead sent the step back (see <see cref="Services.TeamRunner.MaxRedos"/>).</summary>
     public int Redos { get; set; }
 
+    /// <summary>The art critic's session on the step: after a redo it judges the new frames there, knowing what it asked for.</summary>
+    public string? CriticSession { get; set; }
+
     /// <summary>What the lead asks the worker to change, until the worker's next run takes it; null: nothing.</summary>
     public string? ReviewNotes { get; set; }
 

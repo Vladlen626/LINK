@@ -60,11 +60,18 @@ public static partial class TeamRunner
     public const int MaxRedos = 2;
 
     /// <summary>
+    /// So many things to do in a brief's list make it work for a team: with fewer, the lead's plan, the steps' briefs and
+    /// the reviews cost more than the cheaper workers save (docs/TOKENS_PLAN.md), and one agent does it for less.
+    /// </summary>
+    private const int TeamSteps = 4;
+
+    /// <summary>
     /// Whether a brief is work for a team: it names two or more specialists, as a model that is then rigged, animated
-    /// and put into the game does, or lists three things to do or more. A task for one specialist is done by one agent.
+    /// and put into the game does, or lists <see cref="TeamSteps"/> things to do or more. A task for one specialist is
+    /// done by one agent.
     /// </summary>
     public static bool Suggests(string brief, IReadOnlyList<AgentRole> roles) =>
-        ProjectRoles.SuggestAll(brief, roles).Count >= 2 || ListItem().Count(brief) >= 3;
+        ProjectRoles.SuggestAll(brief, roles).Count >= 2 || ListItem().Count(brief) >= TeamSteps;
 
     /// <summary>
     /// Whether the lead reviews a step its worker has done: reviews are on, the lead's session is known, the worker is

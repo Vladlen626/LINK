@@ -13,6 +13,12 @@ public sealed record WorkspaceBefore(string Workspace, bool IsGit, IReadOnlyDict
     DateTime StartedUtc, bool IsPerforce = false)
 {
     public bool IsVersioned => IsGit || IsPerforce;
+
+    /// <summary>In git: the commit a diff of the run is taken from, so that it shows the run's own work; null: HEAD.</summary>
+    public string? Snapshot { get; init; }
+
+    /// <summary>Whether a diff shows only what was done since: else earlier changes to the same files show too.</summary>
+    public bool DiffsOwnWork => IsGit && Snapshot is not null;
 }
 
 /// <summary>
@@ -25,6 +31,10 @@ public sealed partial class AgentChanges
     private const int BackupsKept = 5;
     // A workspace bigger than this is not copied: the copy would take too long and too much disk.
     private const long BackupLimit = 2L * 1024 * 1024 * 1024;
+    // Pending files are copied into the repository for a diff of the run only up to these (see SnapshotAsync): an asset
+    // would take disk, and so many paths would not fit in a command line.
+    private const long SnapshotFileLimit = 1024 * 1024;
+    private const int SnapshotFilesMost = 200;
     private static readonly HashSet<string> SkippedFolders = new(StringComparer.OrdinalIgnoreCase)
     {
         ".git", ".vs", ".idea", "bin", "obj", "node_modules", "__pycache__",
@@ -43,7 +53,7 @@ public sealed partial class AgentChanges
         if (status is not null)
         {
             var dirty = status.ToDictionary(entry => entry.Path, entry => Fingerprint(entry.Path), StringComparer.OrdinalIgnoreCase);
-            return new WorkspaceBefore(workspace, true, dirty, null, started);
+            return new WorkspaceBefore(workspace, true, dirty, null, started) { Snapshot = await SnapshotAsync(workspace, status, cancellationToken) };
         }
 
         if (IsPerforce(workspace))
@@ -248,6 +258,42 @@ public sealed partial class AgentChanges
         return file.Exists ? $"{file.Length}:{file.LastWriteTimeUtc.Ticks}" : "missing";
     }
 
+    /// <summary>
+    /// The tree a diff of the coming run is taken from: HEAD when no tracked file of the workspace is pending, else HEAD
+    /// with those files as they are now, which git writes into its objects through an index of Link's own (the user's
+    /// index and files stay as they are). Null, and the diff is against HEAD, where a pending file is big or git cannot.
+    /// </summary>
+    private static async Task<string?> SnapshotAsync(string workspace, IReadOnlyList<(string Path, string Code)> status, CancellationToken cancellationToken)
+    {
+        var tracked = status.Where(entry => entry.Code != "??").Select(entry => entry.Path).ToArray();
+        if (tracked.Length == 0) return "HEAD";
+        if (tracked.Length > SnapshotFilesMost || tracked.Any(path => File.Exists(path) && new FileInfo(path).Length > SnapshotFileLimit)) return null;
+        var index = Path.Combine(Path.GetTempPath(), $"link-index-{Guid.NewGuid():N}");
+        var own = new Dictionary<string, string> { ["GIT_INDEX_FILE"] = index };
+        try
+        {
+            // Only the pending files are read: an index without git's notes of the others would have it read them all.
+            if (await GitAsync(workspace, ["read-tree", "HEAD"], cancellationToken, own) is null ||
+                await GitAsync(workspace, ["add", "--", .. tracked.Select(path => Path.GetRelativePath(workspace, path))], cancellationToken, own) is null)
+            {
+                return null;
+            }
+
+            return (await GitAsync(workspace, ["write-tree"], cancellationToken, own))?.Trim() is { Length: > 0 } tree ? tree : null;
+        }
+        finally
+        {
+            try
+            {
+                File.Delete(index);
+            }
+            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+            {
+                // A file left in the temporary folder harms nothing.
+            }
+        }
+    }
+
     /// <summary>The workspace's uncommitted files as full paths with their status code; null when it is not in git.</summary>
     private static async Task<IReadOnlyList<(string Path, string Code)>?> GitStatusAsync(string workspace, CancellationToken cancellationToken)
     {
@@ -272,9 +318,9 @@ public sealed partial class AgentChanges
     }
 
     /// <summary>
-    /// What the agent changed in a git workspace, against the last commit: lines added and removed per file
-    /// (<paramref name="stat"/>), or the diff itself cut at <paramref name="limit"/> characters. Null without git or
-    /// changes; files git does not track yet are only listed.
+    /// What the agent changed in a git workspace, since <paramref name="before"/> where its snapshot tells (else against the
+    /// last commit): lines added and removed per file (<paramref name="stat"/>), or the diff itself cut at
+    /// <paramref name="limit"/> characters. Null without git or changes; files git does not track yet are only listed.
     /// </summary>
     public async Task<string?> DiffAsync(WorkspaceBefore before, IEnumerable<AgentChange> changes, bool stat, int limit,
         CancellationToken cancellationToken)
@@ -283,7 +329,8 @@ public sealed partial class AgentChanges
         if (!before.IsGit) return null;
         var paths = changes.Select(change => Path.GetRelativePath(before.Workspace, change.Path)).ToArray();
         if (paths.Length == 0) return null;
-        string[] arguments = stat ? ["diff", "--no-color", "--numstat", "HEAD", "--", .. paths] : ["diff", "--no-color", "HEAD", "--", .. paths];
+        var from = before.Snapshot ?? "HEAD";
+        string[] arguments = stat ? ["diff", "--no-color", "--numstat", from, "--", .. paths] : ["diff", "--no-color", from, "--", .. paths];
         var diff = (await GitAsync(before.Workspace, arguments, cancellationToken))?.Trim();
         if (string.IsNullOrEmpty(diff)) return null;
         return diff.Length <= limit ? diff : diff[..limit] + $"\n… cut at {limit / 1000} KB of {diff.Length / 1000} KB";
@@ -581,13 +628,14 @@ public sealed partial class AgentChanges
     }
 
     /// <summary>Runs git in the workspace; its output, or null when git is missing or the command failed.</summary>
-    private static async Task<string?> GitAsync(string workspace, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    private static async Task<string?> GitAsync(string workspace, IReadOnlyList<string> arguments, CancellationToken cancellationToken,
+        IReadOnlyDictionary<string, string>? environment = null)
     {
         var output = new System.Text.StringBuilder();
         try
         {
             var result = await AgentProcess.RunAsync(
-                new AgentCommand("git", arguments, workspace, string.Empty),
+                new AgentCommand("git", arguments, workspace, string.Empty) { EnvironmentVariables = environment ?? new Dictionary<string, string>() },
                 line => output.AppendLine(line),
                 null,
                 cancellationToken);

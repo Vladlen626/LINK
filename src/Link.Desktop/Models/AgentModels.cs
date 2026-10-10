@@ -111,6 +111,9 @@ public sealed class AgentTaskRecord
     /// <summary>The team lead's session: it planned the steps and reviews what the workers did; null for no team.</summary>
     public string? LeadSession { get; set; }
 
+    /// <summary>The lead's session that has given a review's verdict: the next review in it is told the step alone.</summary>
+    public string? ReviewSession { get; set; }
+
     /// <summary>The training, when the task is one (<see cref="TaskMode.Training"/>); null otherwise.</summary>
     public TrainingCourse? Training { get; set; }
 

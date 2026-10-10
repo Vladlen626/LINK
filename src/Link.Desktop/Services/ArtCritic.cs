@@ -21,6 +21,15 @@ public static partial class ArtCritic
     /// <summary>So many frames go to the critic as images; it is told the paths of the others, to open what it needs.</summary>
     public const int MostFrames = 6;
 
+    // A sheet's mark lies right after the PNG's header (see IsSheet): so much of the file is read for it.
+    private const int SheetHead = 1024;
+
+    // What a critic's own session is told after a redo, before the new frames.
+    private const string Again =
+        "The artist has worked on the defects you named and rendered its frames again, below. Judge them as before, from " +
+        "the frames and saved files alone: is each defect fixed, and what is the worst now? End your answer with the " +
+        "link-review block, nothing after it.";
+
     /// <summary>So many saved files the critic is told of; more are a list, not a lead.</summary>
     private const int MostSaved = 20;
 
@@ -72,6 +81,33 @@ public static partial class ArtCritic
     }
 
     /// <summary>
+    /// The frames that go to the critic as images: the sheets among them (<paramref name="isSheet"/>) where there are
+    /// any, since a sheet holds the frames it was glued from, which the critic is told by path; else the first
+    /// <see cref="MostFrames"/>.
+    /// </summary>
+    public static IReadOnlyList<string> Attached(IReadOnlyList<string> frames, Func<string, bool> isSheet)
+    {
+        var sheets = frames.Where(isSheet).ToArray();
+        return [.. (sheets.Length > 0 ? sheets : frames).Take(MostFrames)];
+    }
+
+    /// <summary>Whether an image is a sheet that <c>sheet.py</c> glued from frames: it marks the PNG so, in a text chunk after its header.</summary>
+    public static bool IsSheet(string path)
+    {
+        try
+        {
+            using var file = File.OpenRead(path);
+            var head = new byte[SheetHead];
+            var read = file.ReadAtLeast(head, head.Length, throwOnEndOfStream: false);
+            return head.AsSpan(0, read).IndexOf("tEXtLink\0sheet"u8) >= 0;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return false;
+        }
+    }
+
+    /// <summary>
     /// Who judges an artist's work, and why in words. Another subscription agent than the artist's comes first, at Deep,
     /// so that one model's taste does not pass its own blind spots; else the artist's own agent, in a new session that
     /// sees no account of the work either. An agent that cannot judge now (not set up, at its limit, no eyes) or that the
@@ -113,25 +149,42 @@ public static partial class ArtCritic
 
     /// <summary>
     /// What the critic's new session is told: the request (the text of <see cref="RequestFile"/>), the task, what the
-    /// artist handed over and saved, the user's references and the frames by path, the first <see cref="MostFrames"/>
-    /// of them attached as images. Never the artist's account of its work: the critic judges what was made.
+    /// artist handed over and saved, the user's references and the frames by path, those <paramref name="attached"/> as
+    /// images marked so (see <see cref="Attached"/>). Never the artist's account of its work: the critic judges what was made.
     /// </summary>
     public static string Prompt(string request, string task, string? handedOver, IReadOnlyList<string> saved, IReadOnlyList<string> references,
-        IReadOnlyList<string> frames)
+        IReadOnlyList<string> frames, IReadOnlyList<string> attached)
     {
         var text = new StringBuilder(AgentRules.WithoutNotes(request).Trim()).Append("\n\n## The task\n").Append(task.Trim());
         if (handedOver?.Trim() is { Length: > 0 } handed) text.Append("\n\n## Handed over\n").Append(handed);
-        if (saved.Count > 0)
-        {
-            text.Append("\n\n## Saved files\n").AppendJoin('\n', saved.Take(MostSaved).Select(file => "- " + file));
-            if (saved.Count > MostSaved) text.Append($"\n- … and {saved.Count - MostSaved} more");
-        }
-
+        Saved(text, saved);
         if (references.Count > 0) text.Append("\n\n## The user's references\n").AppendJoin('\n', references.Select(image => "- " + image));
-        return text.Append("\n\n## Frames\n")
-            .AppendJoin('\n', frames.Select((frame, index) => $"- {frame}{(index < MostFrames ? " (attached)" : string.Empty)}"))
-            .ToString();
+        return Framed(text, frames, attached);
     }
+
+    /// <summary>
+    /// What the critic's own session is told when the artist has redone the step it sent back: the files saved now and
+    /// the new frames, attached as <see cref="Prompt"/> does. The session knows the task, the profile and the defects it
+    /// named; it still sees no account of the artist's.
+    /// </summary>
+    public static string AgainPrompt(IReadOnlyList<string> saved, IReadOnlyList<string> frames, IReadOnlyList<string> attached)
+    {
+        var text = new StringBuilder(Again);
+        Saved(text, saved);
+        return Framed(text, frames, attached);
+    }
+
+    private static void Saved(StringBuilder text, IReadOnlyList<string> saved)
+    {
+        if (saved.Count == 0) return;
+        text.Append("\n\n## Saved files\n").AppendJoin('\n', saved.Take(MostSaved).Select(file => "- " + file));
+        if (saved.Count > MostSaved) text.Append($"\n- … and {saved.Count - MostSaved} more");
+    }
+
+    private static string Framed(StringBuilder text, IReadOnlyList<string> frames, IReadOnlyList<string> attached) =>
+        text.Append("\n\n## Frames\n")
+            .AppendJoin('\n', frames.Select(frame => $"- {frame}{(attached.Contains(frame, StringComparer.OrdinalIgnoreCase) ? " (attached)" : string.Empty)}"))
+            .ToString();
 
     /// <summary>What the artist's own session is told when the critic sends its step back: the defects, the source, the same frames again.</summary>
     public static string RedoPrompt(string notes) =>
