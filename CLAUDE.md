@@ -54,7 +54,8 @@ The same harness Link gives its agents, for work on this repo.
   steps) and `Training` (study → exam → proven lessons into skills), their flows in `MainWindow.Team/Training`. The agent's rules,
   tasks and roles are `docs/harness/**/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel`
   in `StudioWindow`, beside `HarnessInspector`.
-- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat, Capture, Voice, Sizing, Panel, Agent, Studio.
+- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat, Capture, Voice, Sizing, Panel, Agent, Works (the
+  tasks at work side by side; edits go one run at a time per folder), Studio.
 - `ChatPageWindow` the embedded ChatGPT page (WebView2). Never hide or minimize the window — it waits off screen, or
   ChatGPT is throttled to a few characters a second. Only the page inside rests, out of its engine's sight, while
   LINK does not need it (`IChatPage.Rest`); it is awake for every request.

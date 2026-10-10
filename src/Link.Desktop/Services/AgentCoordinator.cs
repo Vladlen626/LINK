@@ -56,8 +56,8 @@ public sealed record AgentRun(
 
 /// <summary>
 /// Runs agent tasks for the window: builds the task from an input snapshot and the confirmation card, notes the
-/// workspace before Do, runs the provider, checks the result with the project's command and finds what changed. One
-/// task at a time.
+/// workspace before Do, runs the provider, checks the result with the project's command and finds what changed. Runs
+/// of several tasks go side by side; the window lets only one at a time edit a folder (<see cref="Edits"/>).
 /// </summary>
 public sealed class AgentCoordinator
 {
@@ -177,6 +177,27 @@ public sealed class AgentCoordinator
     public static string? SessionOf(AgentRun run) => run.Result.SessionId ?? run.Task.ResumeSessionId;
 
     /// <summary>
+    /// Whether a run edits its folder: Do, not a plan. Only its changes are found by comparing the folder with how it was
+    /// before, so two such runs in one folder would take each other's edits for their own; a read-only run changes
+    /// nothing but the answer Link writes for it.
+    /// </summary>
+    public static bool Edits(AgentTask task) => task.Access == AgentAccess.Do && !task.PlanOnly;
+
+    /// <summary>Whether two folders are one, or one is inside the other: runs that edit them would edit the same files.</summary>
+    public static bool SameFolder(string folder, string other)
+    {
+        var (one, two) = (Normal(folder), Normal(other));
+        return one.StartsWith(two, StringComparison.OrdinalIgnoreCase) || two.StartsWith(one, StringComparison.OrdinalIgnoreCase);
+
+        // With its separator at the end, as a drive's root has it: C:\Work2\ does not start with C:\Work\.
+        static string Normal(string path)
+        {
+            var full = Path.GetFullPath(path);
+            return Path.EndsInDirectorySeparator(full) ? full : full + Path.DirectorySeparatorChar;
+        }
+    }
+
+    /// <summary>
     /// The brief another agent takes the task over with. Neither CLI can resume the other's session, so the new one is
     /// told, from the task's record: the task as it began, what the user said on the way, the first agent's plan, the
     /// files changed (with lines added and removed where git tells them), the last check, how the first agent ended and
@@ -279,8 +300,9 @@ public sealed class AgentCoordinator
         IReadOnlyList<AgentChange> changes;
         try
         {
-            // A stopped run is compared too: the user sees what it changed before Stop.
-            changes = await _changes.CompareAsync(before, CancellationToken.None);
+            // A stopped run is compared too: the user sees what it changed before Stop. What differs after a read-only
+            // run is another task's or the user's, never its own.
+            changes = Edits(task) ? await _changes.CompareAsync(before, CancellationToken.None) : [];
         }
         catch (IOException exception)
         {

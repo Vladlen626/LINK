@@ -46,6 +46,7 @@ internal static class AgentTests
         }
         await CopyRestoreAsync();
         await MapAsync();
+        await FolderRunsAsync();
         ProjectCheck();
         await CheckCommandAsync();
         await CheckRetriesAsync();
@@ -377,6 +378,45 @@ internal static class AgentTests
         {
             DeleteFolder(root);
         }
+    }
+
+    /// <summary>
+    /// Tasks side by side: runs that edit go one at a time in a folder, and a folder inside another is the same; what
+    /// changes while a read-only run reads is never its own.
+    /// </summary>
+    private static async Task FolderRunsAsync()
+    {
+        var root = TempFolder();
+        var workspace = Path.Combine(root, "game");
+        Program.Equal("folders: the same folder, one inside the other, a drive's root, and a sibling",
+            (AgentCoordinator.SameFolder(workspace, workspace + Path.DirectorySeparatorChar), AgentCoordinator.SameFolder(Path.Combine(workspace, "Art"), workspace),
+                AgentCoordinator.SameFolder(Path.GetPathRoot(workspace)!, workspace), AgentCoordinator.SameFolder(workspace, workspace + "2")),
+            (true, true, true, false));
+        Program.Equal("folders: Do edits, its plan and read only do not",
+            (Edits(AgentAccess.Do, plan: false), Edits(AgentAccess.Do, plan: true), Edits(AgentAccess.Analyze, plan: false)), (true, false, false));
+        try
+        {
+            Directory.CreateDirectory(workspace);
+            File.WriteAllText(Path.Combine(workspace, "a.txt"), "a");
+            // Another task's run writes a file while this one works.
+            var agents = new AgentCoordinator([new ScriptedProvider((task, _) =>
+            {
+                File.WriteAllText(Path.Combine(task.Workspace, $"other-{task.Access}.txt"), "theirs");
+                return new AgentResult { SessionId = "s1", Succeeded = true };
+            })], new AgentChanges(Path.Combine(root, "backups")), _ => { });
+            var task = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = workspace, Prompt = "look" };
+            var read = await agents.RunAsync(task, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
+            var edit = await agents.RunAsync(task with { Access = AgentAccess.Do }, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
+            Program.Equal("folders: a read-only run reports no change of another's; a run that edits finds what changed during it",
+                (read.Changes.Count, string.Join(",", edit.Changes.Select(change => Path.GetFileName(change.Path)))), (0, "other-Do.txt"));
+        }
+        finally
+        {
+            DeleteFolder(root);
+        }
+
+        static bool Edits(AgentAccess access, bool plan) =>
+            AgentCoordinator.Edits(new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = "w", Prompt = "p", Access = access, PlanOnly = plan });
     }
 
     private static async Task GitUndoAsync()

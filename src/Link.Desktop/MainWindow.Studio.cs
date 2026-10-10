@@ -31,7 +31,10 @@ public partial class MainWindow
     {
         var studio = new StudioWindow(_settings.Current.Studio, tasks);
         studio.ApplyGlass(_settings.Current.Opacity);
-        studio.CompactRequested += () => _ = CompactTask();
+        studio.CompactRequested += () =>
+        {
+            if (_open is { } work) _ = CompactTask(work);
+        };
         studio.InspectorOpened += () => RefreshStudio();
         studio.OpenFileRequested += ShowFile;
         studio.ConsoleRequested += ShowAgentConsole;
@@ -55,8 +58,8 @@ public partial class MainWindow
     private void RefreshStudio(bool live = false)
     {
         if (_studio is not { } studio) return;
-        var context = _task is { } task ? ContextLine(task) ?? "Context not told yet" : null;
-        studio.ShowHeader(_projects.ActiveProject.Name, context, _task is not null && !AgentRunning && ResumableTask() is not null);
+        var context = _open is { } work ? ContextLine(work.Record) ?? "Context not told yet" : null;
+        studio.ShowHeader(_projects.ActiveProject.Name, context, _open is { Busy: false, Waiting: null } open && ResumableTask(open) is not null);
         if (!studio.InspectorOpen || live && Environment.TickCount64 - _inspectorBuiltAt < LiveInspectorEvery.TotalMilliseconds) return;
         _inspectorBuiltAt = Environment.TickCount64;
         studio.ShowHarness(CurrentHarness());
@@ -65,8 +68,8 @@ public partial class MainWindow
     /// <summary>The folder the Studio's harness is of: the open task's, else the project's workspace; null when there is none.</summary>
     private string? StudioWorkspace()
     {
-        var project = _task is null ? _projects.ActiveProject : _taskProject ?? _projects.ActiveProject;
-        return _task?.Workspace ?? (project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null);
+        var project = _open?.Project ?? _projects.ActiveProject;
+        return _open?.Record.Workspace ?? (project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null);
     }
 
     /// <summary>Export team pack…: the workspace's roles and skills to a .linkpack file the user names.</summary>
@@ -132,7 +135,7 @@ public partial class MainWindow
     /// <summary>Another project is shown: the Studio lists its tasks (the list, unless its own task is open) and its harness.</summary>
     private void RefreshStudioProject()
     {
-        if (_agentPanel is not null && _shownTask is not null && _taskProject?.Id != _projects.ActiveProject.Id) ShowTaskList();
+        if (_agentPanel is not null && _shown is not null && _shown.Project.Id != _projects.ActiveProject.Id) ShowTaskList();
         else RefreshTaskList();
         RefreshStudio();
     }

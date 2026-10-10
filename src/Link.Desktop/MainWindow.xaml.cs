@@ -236,7 +236,7 @@ public partial class MainWindow : Window
         }
 
         _sendCancellation?.Cancel();
-        _agentCancellation?.Cancel();
+        StopAllRuns();
         _attempts.Forget();
         ClearContext(prune: true);
     }
@@ -270,7 +270,7 @@ public partial class MainWindow : Window
     }
 
     private LinkState State =>
-        _sending || AgentRunning ? LinkState.Working
+        _sending || AnyRunning ? LinkState.Working
         : _connectionState == ChatConnectionState.SignInRequired ? LinkState.NeedsDecision
         : _unseen ?? LinkState.Idle;
 
