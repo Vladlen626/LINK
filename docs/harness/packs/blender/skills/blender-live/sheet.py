@@ -25,6 +25,10 @@ for i, (p, t) in enumerate(zip(ins, tiles)):
     g.paste(t, (x + (tw - t.width) // 2, y + (th - t.height) // 2))
     dr.rectangle((x, y, x + tw - 1, y + th - 1), outline=(90, 90, 90))
     dr.text((x + 6, y + 4), os.path.splitext(os.path.basename(p))[0], fill=(255, 255, 0))
+# An agent pays for an image by its pixels on every later request of its session: past ~1600 px it sees no more.
+if max(g.size) > 1600:
+    k = 1600 / max(g.size)
+    g = g.resize((int(g.width * k), int(g.height * k)), Image.LANCZOS)
 mark = PngImagePlugin.PngInfo()
 mark.add_text("Link", "sheet")
 g.save(out, pnginfo=mark)

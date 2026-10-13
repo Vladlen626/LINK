@@ -29,8 +29,8 @@ public sealed record HarnessInput(
 {
     public AgentTaskRecord? Task { get; init; }
 
-    /// <summary>The access of the run: user tasks change things, read only is Link's own answers.</summary>
-    public AgentAccess Access { get; init; } = AgentAccess.Do;
+    /// <summary>A plan first only reads; every other run may change files.</summary>
+    public bool PlanOnly { get; init; }
 
     public bool AutoApprove { get; init; }
 
@@ -45,6 +45,9 @@ public sealed record HarnessInput(
 
     /// <summary>The project's stats, the busiest group first (<see cref="AgentStatsReport"/>).</summary>
     public IReadOnlyList<StatsRow> Stats { get; init; } = [];
+
+    /// <summary>Team against solo per kind of work, from the measured tasks (<see cref="Services.TeamVsSolo"/>).</summary>
+    public IReadOnlyList<string> TeamVsSolo { get; init; } = [];
 
     /// <summary>Names an agent as Settings does; null: the default names.</summary>
     public Func<AgentProviderKind, string>? AgentName { get; init; }
@@ -62,6 +65,22 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
 
     // A skill's description cut for the list.
     private const int DescriptionShown = 110;
+
+    // Past these the map and a skill are condensed, as the agent's rules ask; the inspector says when they are not.
+    private const int MapLines = 120;
+    private const int SkillLines = 150;
+
+    private static int Lines(string path)
+    {
+        try
+        {
+            return File.ReadLines(path).Count();
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return 0;
+        }
+    }
 
     public static HarnessView Build(HarnessInput input)
     {
@@ -155,8 +174,13 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
     {
         if (workspace is null) return new HarnessSection("Project memory", "No workspace chosen");
         var map = ProjectMap.PathIn(workspace);
+        var lines = File.Exists(map) ? Lines(map) : 0;
         return File.Exists(map)
-            ? new HarnessSection("Project memory", $"{ProjectMap.RelativePath} · exists") { FilePath = map }
+            ? new HarnessSection("Project memory", $"{ProjectMap.RelativePath} · {Plural(lines, "line")}")
+            {
+                FilePath = map,
+                Note = lines > MapLines ? $"Past ~{MapLines} lines every new session pays for it: a Light task \"condense {ProjectMap.RelativePath}\" keeps it lean" : null
+            }
             : new HarnessSection("Project memory", $"{ProjectMap.RelativePath} · missing")
             {
                 Note = "Without it the agent searches the folders itself; the Map button of the Project tab has it written"
@@ -179,8 +203,11 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
         var first = input.Task?.Skills ?? [];
         bool ReadFirst(ProjectSkill skill) => first.Contains(skill.Name, StringComparer.OrdinalIgnoreCase);
         var marked = skills.Count(ReadFirst);
+        // The project's own skills grow with each task; a pack's are the tool's and changed in a copy (see the rules).
+        var grown = skills.Where(skill => skill.Pack is null && Lines(skill.FilePath) > SkillLines).Select(skill => skill.Name).ToArray();
         return new HarnessSection("Skills", Plural(skills.Count, "skill") + (marked > 0 ? $" · {marked} to read first" : string.Empty))
         {
+            Note = grown.Length > 0 ? $"Past ~{SkillLines} lines, read in every session that needs them: {string.Join(", ", grown)}; a Light task \"condense\" each keeps them lean" : null,
             Detail = string.Join('\n', skills.Select(skill =>
                 skill.Name + (ReadFirst(skill) ? " (read first)" : string.Empty) +
                 (skill.Description.Length > 0 ? ": " + Shortened(skill.Description, DescriptionShown) : string.Empty)))
@@ -214,7 +241,7 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
     private static HarnessSection Tools(HarnessInput input)
     {
         var servers = input.Workspace is null ? [] : CliAgentProvider.McpServerNames(input.Workspace);
-        var access = input.Access != AgentAccess.Do ? "read only"
+        var access = input.PlanOnly ? "plan: reads, then the plan runs with edits"
             : input.AutoApprove ? "auto: edits and commands without asking"
             : "edits: other commands ask you";
         return new HarnessSection("Tools and MCP", servers.Count == 0 ? "No MCP servers" : "MCP: " + string.Join(", ", servers))
@@ -242,7 +269,8 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
             ? new HarnessSection("Stats", "No runs yet")
             : new HarnessSection("Stats", Plural(input.Stats.Sum(row => row.Runs), "run") + " in this project")
             {
-                Note = string.Join('\n', input.Stats.Take(StatsShown).Select(Line))
+                Note = string.Join('\n', input.Stats.Take(StatsShown).Select(Line)) +
+                       (input.TeamVsSolo.Count > 0 ? "\nTeam vs solo, a done task:\n" + string.Join('\n', input.TeamVsSolo) : string.Empty)
             };
 
     /// <summary>"Rigger · Claude Code · opus — 3 tasks, 1 done, 3 failed, 2:30 a run, 127k tokens a run, 3 steers".</summary>

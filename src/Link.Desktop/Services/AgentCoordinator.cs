@@ -7,7 +7,6 @@ namespace Link.Desktop.Services;
 public sealed record AgentPlan(
     AgentProviderKind Provider,
     string Workspace,
-    AgentAccess Access,
     bool PlanFirst,
     bool BackupBeforeDo,
     string Goal)
@@ -33,7 +32,7 @@ public sealed record AgentPlan(
     /// <summary>The project the card was opened for: a new task belongs to it, whichever project is active when Run is pressed.</summary>
     public Guid ProjectId { get; init; }
 
-    /// <summary>A team does the task: the lead plans it first, read only, and Link gives each step to its worker.</summary>
+    /// <summary>A team does the task: the lead plans it first and Link gives each step to its worker.</summary>
     public bool Team { get; init; }
 
     /// <summary>A training of the card's specialist: it studies the goal's sources, then proves its lessons in exams.</summary>
@@ -87,25 +86,24 @@ public sealed class AgentCoordinator
 
     /// <summary>
     /// The task the card describes: the goal first, then what Link knows of the project (task and state) and the
-    /// snapshot's text context; its screenshots go as images. The project's read tools are always allowed, its Do tools
-    /// only in Do. With edits and a check, the agent is told that Link runs the check, as the card says.
+    /// snapshot's text context; its screenshots go as images. With a check, the agent is told that Link runs it, as the
+    /// card says.
     /// </summary>
     public static AgentTask BuildTask(AgentPlan plan, InputSnapshot snapshot, LinkProject project)
     {
         var (words, images) = Words(snapshot with { Text = plan.Goal }, newTask: true);
         var prompt = new StringBuilder(words);
-        if (plan.Access == AgentAccess.Do && project.CheckCommand is { } check) prompt.Append("\n\n").Append(CheckNote(check));
+        if (project.CheckCommand is { } check) prompt.Append("\n\n").Append(CheckNote(check));
         return new AgentTask
         {
             Provider = plan.Provider,
             Workspace = plan.Workspace,
             Prompt = prompt.ToString(),
-            Access = plan.Access,
             PlanOnly = plan.PlanFirst,
             Images = images,
-            AllowedTools = Tools(project, plan.Workspace, plan.Access),
+            AllowedTools = Tools(project, plan.Workspace),
             CheckCommand = project.CheckCommand,
-            AutoApprove = plan.AutoApprove && plan.Access == AgentAccess.Do,
+            AutoApprove = plan.AutoApprove,
             Model = plan.Model,
             Effort = plan.Effort,
             RoleId = plan.RoleId,
@@ -140,25 +138,24 @@ public sealed class AgentCoordinator
     }
 
     /// <summary>
-    /// The tool rules Claude Code may use without asking: the project's read list, its Do list with edits, and in a
-    /// Perforce workspace the p4 commands its rules ask for.
+    /// The tool rules Claude Code may use without asking: the project's list, and in a Perforce workspace the p4
+    /// commands its rules ask for.
     /// </summary>
-    public static IReadOnlyList<string> Tools(LinkProject project, string workspace, AgentAccess access) =>
-        (access == AgentAccess.Do ? project.AgentReadTools.Concat(project.AgentDoTools) : project.AgentReadTools)
-        .Concat(PerforceTools(workspace, access))
-        .Distinct(StringComparer.Ordinal)
-        .ToArray();
+    public static IReadOnlyList<string> Tools(LinkProject project, string workspace) =>
+        project.AgentDoTools
+            .Concat(PerforceTools(workspace))
+            .Distinct(StringComparer.Ordinal)
+            .ToArray();
 
     /// <summary>
-    /// In a Perforce workspace: the p4 commands that only look, always, and those that open files for the agent's own
-    /// edits, with edits. Submitting, reverting and syncing stay the user's. Codex is let through its sandbox instead.
+    /// In a Perforce workspace: the p4 commands that look and those that open files for the agent's own edits.
+    /// Submitting, reverting and syncing stay the user's. Codex is let through its sandbox instead.
     /// </summary>
-    public static IReadOnlyList<string> PerforceTools(string workspace, AgentAccess access)
+    public static IReadOnlyList<string> PerforceTools(string workspace)
     {
         if (!AgentChanges.IsPerforce(workspace)) return [];
-        string[] looking = ["opened", "diff", "fstat", "filelog", "where", "have", "info", "changes", "describe", "status"];
-        string[] opening = ["edit", "add", "delete", "move"];
-        return (access == AgentAccess.Do ? looking.Concat(opening) : looking).Select(command => $"Bash(p4 {command}:*)").ToArray();
+        string[] commands = ["opened", "diff", "fstat", "filelog", "where", "have", "info", "changes", "describe", "status", "edit", "add", "delete", "move"];
+        return commands.Select(command => $"Bash(p4 {command}:*)").ToArray();
     }
 
     /// <summary>
@@ -177,11 +174,10 @@ public sealed class AgentCoordinator
     public static string? SessionOf(AgentRun run) => run.Result.SessionId ?? run.Task.ResumeSessionId;
 
     /// <summary>
-    /// Whether a run edits its folder: Do, not a plan. Only its changes are found by comparing the folder with how it was
-    /// before, so two such runs in one folder would take each other's edits for their own; a read-only run changes
-    /// nothing but the answer Link writes for it.
+    /// Whether a run edits its folder: any but a plan. Only its changes are found by comparing the folder with how it was
+    /// before, so two such runs in one folder would take each other's edits for their own; a plan changes nothing.
     /// </summary>
-    public static bool Edits(AgentTask task) => task.Access == AgentAccess.Do && !task.PlanOnly;
+    public static bool Edits(AgentTask task) => !task.PlanOnly;
 
     /// <summary>Whether two folders are one, or one is inside the other: runs that edit them would edit the same files.</summary>
     public static bool SameFolder(string folder, string other)
@@ -281,12 +277,12 @@ public sealed class AgentCoordinator
     {
         var before = previous?.Before ?? await _changes.CaptureAsync(
             task.Workspace,
-            backup && task.Access == AgentAccess.Do && !task.PlanOnly,
+            backup && Edits(task),
             cancellationToken);
         var provider = Provider(task.Provider);
         var result = await provider.RunAsync(task, progress, cancellationToken);
         AgentCheckResult? check = null;
-        for (var retry = 0; task.CheckCommand is { } command && task.Access == AgentAccess.Do && !task.PlanOnly && result.Succeeded; retry++)
+        for (var retry = 0; task.CheckCommand is { } command && Edits(task) && result.Succeeded; retry++)
         {
             check = await CheckAsync(command, task.Workspace, retry, progress, cancellationToken);
             if (!check.ForTheAgent || retry == CheckRetries || result.SessionId is not { } session) break;
@@ -300,8 +296,8 @@ public sealed class AgentCoordinator
         IReadOnlyList<AgentChange> changes;
         try
         {
-            // A stopped run is compared too: the user sees what it changed before Stop. What differs after a read-only
-            // run is another task's or the user's, never its own.
+            // A stopped run is compared too: the user sees what it changed before Stop. What differs after a plan is
+            // another task's or the user's, never its own.
             changes = Edits(task) ? await _changes.CompareAsync(before, CancellationToken.None) : [];
         }
         catch (IOException exception)
@@ -321,8 +317,8 @@ public sealed class AgentCoordinator
     }
 
     /// <summary>
-    /// Start over with a note: the run's session is asked once, read only, what it tried and why it did not work; the
-    /// task returned is for a new session, with the original goal and images, that note, and the access, folder and
+    /// Start over with a note: the run's session is asked once, in plan mode, what it tried and why it did not work; the
+    /// task returned is for a new session, with the original goal and images, that note, and the Auto, folder and
     /// check of the run. Without a session to ask it goes without a note; null when Stop ended the asking.
     /// <paramref name="askedOf"/> is the agent that writes the note when it is not the run's own (Claude Code and the
     /// custom model read each other's sessions); the new session is the run's own agent's.
@@ -342,8 +338,7 @@ public sealed class AgentCoordinator
             {
                 Provider = asker,
                 ResumeSessionId = session,
-                Access = AgentAccess.Analyze,
-                PlanOnly = false,
+                PlanOnly = true,
                 Prompt = NoteRequest,
                 Images = [],
                 AllowedTools = [],
@@ -422,7 +417,7 @@ public sealed class AgentCoordinator
         return start < 0 || end <= start ? text : text[(start + 1)..end].Trim();
     }
 
-    /// <summary>Writes a read-only task's answer to its file: the one change, made by Link and shown in Activity.</summary>
+    /// <summary>Writes the answer of a task with an answer file (the map) to that file, as Link's change shown in Activity.</summary>
     private static async Task<AgentChange?> WriteAnswerAsync(string workspace, string file, string answer, IProgress<AgentEvent> progress)
     {
         var text = Unfenced(answer);

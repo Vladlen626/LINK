@@ -21,13 +21,10 @@ public sealed class LinkProject
     /// <summary>The folder the project's work lives in, chosen by the user; null until chosen.</summary>
     public string? WorkspaceRoot { get; set; }
 
-    /// <summary>
-    /// Tool rules Claude Code may use without asking here, in Analyze as well: tools that only look, such as a Blender
-    /// scene summary. Nothing that runs code or changes files.
-    /// </summary>
+    /// <summary>The read-only runs' rules of an older Link: <see cref="Normalize"/> moves them into <see cref="AgentDoTools"/>.</summary>
     public List<string> AgentReadTools { get; set; } = [];
 
-    /// <summary>Tool rules allowed only in Do: builds, exports, running code; "always for this project" adds here.</summary>
+    /// <summary>Tool rules Claude Code may use without asking here: builds, exports, running code; "always for this project" adds here.</summary>
     public List<string> AgentDoTools { get; set; } = [];
 
     /// <summary>
@@ -54,8 +51,8 @@ public sealed class LinkProject
     private const int MaxChats = 40;
 
     /// <summary>
-    /// Settles what older or hand-edited JSON may leave blank. Rules that change files or run any command, which an
-    /// older Link let into the read-only list, move to the Do list: read only stays read only.
+    /// Settles what older or hand-edited JSON may leave blank. The rules of an older Link's read-only list join the one
+    /// list: no run is read only now.
     /// </summary>
     public void Normalize()
     {
@@ -80,10 +77,8 @@ public sealed class LinkProject
         }
 
         CheckCommand = string.IsNullOrWhiteSpace(CheckCommand) ? null : CheckCommand.Trim();
-        var changing = AgentReadTools.Where(AgentPermissions.ChangesThings).ToArray();
-        if (changing.Length == 0) return;
-        AgentReadTools.RemoveAll(AgentPermissions.ChangesThings);
-        AgentDoTools.AddRange(changing.Where(rule => !AgentDoTools.Contains(rule)));
+        AgentDoTools.AddRange(AgentReadTools.Where(rule => !AgentDoTools.Contains(rule)));
+        AgentReadTools.Clear();
     }
 
     public override string ToString() => Name;

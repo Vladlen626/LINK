@@ -97,7 +97,7 @@ public static partial class TeamPlan
     /// block's shape is told again, should the CLI have compacted the session since.
     /// </summary>
     public const string ReviewAgain =
-        "Review this step as you did the last one: read only, judge it against your plan, and end your answer with one " +
+        "Review this step as you did the last one: change nothing, judge it against your plan, and end your answer with one " +
         "```link-review block holding {\"verdict\": \"accept|redo|escalate|stop\", \"notes\": \"...\"}, nothing after it.";
 
     /// <summary>

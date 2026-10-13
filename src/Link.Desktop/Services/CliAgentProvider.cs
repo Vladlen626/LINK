@@ -63,7 +63,7 @@ public abstract class CliAgentProvider : IAgentProvider
         var executable = FindExecutable() ?? throw new InvalidOperationException(NotFound);
         if (NotReady is { } reason) throw new InvalidOperationException(reason);
         var parser = CreateParser(task);
-        var loops = new AgentLoopDetector(task.Access == AgentAccess.Do && !task.PlanOnly);
+        var loops = new AgentLoopDetector(!task.PlanOnly);
         var clock = Stopwatch.StartNew();
         TimeSpan? firstEvent = null;
         var command = new AgentCommand(executable, Arguments(task), task.Workspace, StandardInput(task))
@@ -77,6 +77,7 @@ public abstract class CliAgentProvider : IAgentProvider
         {
             // stdout and stderr are read on two threads; the parser and the loop check take one line at a time.
             var turn = new Lock();
+            string? named = null;
             void Report(IReadOnlyList<AgentEvent> events)
             {
                 foreach (var agentEvent in events)
@@ -85,6 +86,8 @@ public abstract class CliAgentProvider : IAgentProvider
                     progress.Report(agentEvent);
                     if (loops.Add(agentEvent) is { } loop) progress.Report(loop);
                 }
+
+                if (parser.SessionId is { } session && session != named) progress.Report(new AgentEvent(AgentEventKind.Session, named = session));
             }
 
             process = await AgentProcess.RunAsync(
@@ -143,7 +146,7 @@ public abstract class CliAgentProvider : IAgentProvider
         // Runs compare only with the same model and effort.
         var setup = (task.Model is { } model ? $", {model}" : string.Empty) +
                     (result.Model is { } ran && ran != task.Model ? $" ({ran})" : string.Empty) + (task.Effort is { } effort ? $", effort {effort}" : string.Empty);
-        _log($"[Agent] {Name}, {task.Access}{kind}{setup}: {outcome}; " +
+        _log($"[Agent] {Name}{(task.Judge ? ", judge" : string.Empty)}{kind}{setup}: {outcome}; " +
              $"session {result.SessionId ?? "none"}, first event {first}, {Seconds(clock.Elapsed)}, " +
              $"{result.ChangedFiles.Count} files, denials: {(result.Denials.Count == 0 ? "none" : string.Join(", ", result.Denials))}; " +
              LogStats(result.Stats) +

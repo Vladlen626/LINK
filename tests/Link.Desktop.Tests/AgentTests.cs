@@ -159,32 +159,28 @@ internal static class AgentTests
         var run = new AgentRun(
             new AgentTask
             {
-                Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Fix", Access = AgentAccess.Do,
+                Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Fix",
                 Images = [@"C:\shot.png"], Model = "opus", Effort = "high", AutoApprove = true
             },
             new WorkspaceBefore(@"C:\Work", true, new Dictionary<string, string>(), null, DateTime.UtcNow),
             new AgentResult { SessionId = "s1", Succeeded = true },
             []);
         var next = AgentCoordinator.ContinueTask(run, "  and the jump too \n");
-        Program.Equal("continue: the same session, access, model and effort, the reply as the prompt, no images",
-            (next!.ResumeSessionId, next.Prompt, next.Access, next.Model, next.Effort, next.AutoApprove, next.Images.Count),
-            ("s1", "and the jump too", AgentAccess.Do, "opus", "high", true, 0));
+        Program.Equal("continue: the same session, model and effort, the reply as the prompt, no images",
+            (next!.ResumeSessionId, next.Prompt, next.Model, next.Effort, next.AutoApprove, next.Images.Count),
+            ("s1", "and the jump too", "opus", "high", true, 0));
         Program.Equal("continue: words given while the agent worked say it was stopped for them",
             AgentCoordinator.Interrupted("  use the old jump  ").Contains("stopped you to say this:\nuse the old jump\n"), true);
         Program.Equal("continue: nothing without a reply or a session",
             (AgentCoordinator.ContinueTask(run, "  ") is null, AgentCoordinator.ContinueTask(run with { Result = new AgentResult() }, "go") is null), (true, true));
 
-        Program.Equal("permissions: file tools and a whole shell change things, one command or a read does not",
-            string.Join(",", new[] { "Edit", "Write", "PowerShell", "Bash", "Bash(git log:*)", "PowerShell(uv run:*)", "Read", "mcp__blender__get_scene" }
-                .Select(rule => AgentPermissions.ChangesThings(rule) ? "c" : "r")),
-            "c,c,c,c,r,r,r,r");
         var project = new LinkProject
         {
             Name = "Bigsteps", DataFolder = @"C:\Data", AgentReadTools = ["Edit", "Write", "PowerShell", "Read"], AgentDoTools = ["Write"]
         };
         project.Normalize();
-        Program.Equal("permissions: what an older Link let into read only moves to the Do list",
-            (string.Join(",", project.AgentReadTools), string.Join(",", project.AgentDoTools)), ("Read", "Write,Edit,PowerShell"));
+        Program.Equal("permissions: an older Link's read-only list joins the one list, without repeats",
+            (string.Join(",", project.AgentReadTools), string.Join(",", project.AgentDoTools)), ("", "Write,Edit,PowerShell,Read"));
 
         var settings = new AgentSettings { ClaudeModel = " opus ", CodexEffort = " ", DefaultAccess = (AgentAccessChoice)9 };
         settings.Normalize();
@@ -206,7 +202,6 @@ internal static class AgentTests
             Workspace = @"C:\Work\Sample",
             Prompt = "Fix the rounding",
             Images = ["shot.png"],
-            Access = AgentAccess.Do,
             AllowedTools = ["Read"],
             CheckCommand = "dotnet test"
         };
@@ -217,16 +212,16 @@ internal static class AgentTests
 
         var fresh = (await agents.StartOverAsync(looped, origin, (null, null), CancellationToken.None))!.Value;
         var ask = agent.Tasks.Single();
-        Program.Equal("start over: the note is asked in the same session, read only, with no tools or images",
-            (ask.ResumeSessionId, ask.Access, ask.AllowedTools.Count, ask.Images.Count), ("s1", AgentAccess.Analyze, 0, 0));
+        Program.Equal("start over: the note is asked in the same session, in plan mode, with no tools or images",
+            (ask.ResumeSessionId, ask.PlanOnly, ask.AllowedTools.Count, ask.Images.Count), ("s1", true, 0, 0));
         Program.Equal("start over: a new session with the original goal and images, and the note",
             (fresh.Task.ResumeSessionId, fresh.Task.Prompt, fresh.Task.Images.Count, fresh.Note),
             ((string?)null, "Fix the rounding\n\nA note from an earlier attempt at this task, which did not work out:\n" + Note, 1, Note));
         Program.Equal("start over: the note is Link's own answer, without MCP servers; the new session is the user's work with them",
             (ask.WithoutMcp, fresh.Task.WithoutMcp), (true, false));
-        Program.Equal("start over: the access, folder, allowed tools and check of the run go on",
-            (fresh.Task.Access, fresh.Task.Workspace, string.Join(",", fresh.Task.AllowedTools), fresh.Task.CheckCommand),
-            (AgentAccess.Do, @"C:\Work\Sample", "Read,Bash(dotnet test)", "dotnet test"));
+        Program.Equal("start over: the folder, allowed tools and check of the run go on, not plan mode",
+            (fresh.Task.PlanOnly, fresh.Task.Workspace, string.Join(",", fresh.Task.AllowedTools), fresh.Task.CheckCommand),
+            (false, @"C:\Work\Sample", "Read,Bash(dotnet test)", "dotnet test"));
 
         var stopping = new AgentCoordinator([new ScriptedProvider((_, _) => new AgentResult { Stopped = true })], agents.Changes, _ => { });
         Program.Equal("start over: Stop while the note is asked starts nothing", (await stopping.StartOverAsync(looped, origin, (null, null), CancellationToken.None)).HasValue, false);
@@ -241,12 +236,9 @@ internal static class AgentTests
     {
         var project = new LinkProject { Name = "Nori", DataFolder = "C:\\Data", CheckCommand = "dotnet build" };
         var snapshot = new InputSnapshot { ProjectId = project.Id, ProjectName = project.Name, Text = "Fix the camera" };
-        var edits = AgentCoordinator.BuildTask(new AgentPlan(AgentProviderKind.Codex, "C:\\Work", AgentAccess.Do, false, false, "Fix the camera"), snapshot, project);
-        Program.Equal("check: with edits the agent is told that Link runs the check",
+        var edits = AgentCoordinator.BuildTask(new AgentPlan(AgentProviderKind.Codex, "C:\\Work", false, false, "Fix the camera"), snapshot, project);
+        Program.Equal("check: the agent is told that Link runs the check",
             edits.Prompt.EndsWith(AgentCoordinator.CheckNote("dotnet build"), StringComparison.Ordinal) && edits.Prompt.Contains("`dotnet build`"), true);
-        var readOnly = AgentCoordinator.BuildTask(new AgentPlan(AgentProviderKind.Codex, "C:\\Work", AgentAccess.Analyze, false, false, "Fix the camera"), snapshot, project);
-        Program.Equal("check: read only is told nothing of it", readOnly.Prompt, "Fix the camera");
-
         var old = JsonSerializer.Deserialize<LinkProject>("""{"Name":"Nori","DataFolder":"C:\\Data"}""")!;
         old.Normalize();
         Program.Equal("project: older JSON loads without a check", old.CheckCommand, null);
@@ -304,7 +296,6 @@ internal static class AgentTests
                 Provider = AgentProviderKind.ClaudeCode,
                 Workspace = workspace,
                 Prompt = "fix",
-                Access = AgentAccess.Do,
                 Images = ["shot.png"],
                 CheckCommand = "findstr /c:fixed state.txt"
             };
@@ -324,7 +315,7 @@ internal static class AgentTests
             Program.Equal("check: two retries, then the red check ends the task",
                 (never.Tasks.Count, red.Check?.Outcome, red.Check?.ExitCode), (3, (AgentCheckOutcome?)AgentCheckOutcome.Failed, (int?)5));
 
-            foreach (var (name, quiet) in new[] { ("read only", task with { Access = AgentAccess.Analyze }), ("a plan", task with { PlanOnly = true }) })
+            foreach (var (name, quiet) in new[] { ("a plan", task with { PlanOnly = true }) })
             {
                 var agent = new ScriptedProvider((_, _) => new AgentResult { SessionId = "s3", Succeeded = true });
                 var none = await new AgentCoordinator([agent], changes, _ => { }).RunAsync(quiet, false, null, new SyncProgress(_ => { }), CancellationToken.None);
@@ -392,8 +383,8 @@ internal static class AgentTests
             (AgentCoordinator.SameFolder(workspace, workspace + Path.DirectorySeparatorChar), AgentCoordinator.SameFolder(Path.Combine(workspace, "Art"), workspace),
                 AgentCoordinator.SameFolder(Path.GetPathRoot(workspace)!, workspace), AgentCoordinator.SameFolder(workspace, workspace + "2")),
             (true, true, true, false));
-        Program.Equal("folders: Do edits, its plan and read only do not",
-            (Edits(AgentAccess.Do, plan: false), Edits(AgentAccess.Do, plan: true), Edits(AgentAccess.Analyze, plan: false)), (true, false, false));
+        Program.Equal("folders: a run edits, a plan does not",
+            (Edits(plan: false), Edits(plan: true)), (true, false));
         try
         {
             Directory.CreateDirectory(workspace);
@@ -401,22 +392,22 @@ internal static class AgentTests
             // Another task's run writes a file while this one works.
             var agents = new AgentCoordinator([new ScriptedProvider((task, _) =>
             {
-                File.WriteAllText(Path.Combine(task.Workspace, $"other-{task.Access}.txt"), "theirs");
+                File.WriteAllText(Path.Combine(task.Workspace, $"other-{task.PlanOnly}.txt"), "theirs");
                 return new AgentResult { SessionId = "s1", Succeeded = true };
             })], new AgentChanges(Path.Combine(root, "backups")), _ => { });
             var task = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = workspace, Prompt = "look" };
-            var read = await agents.RunAsync(task, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
-            var edit = await agents.RunAsync(task with { Access = AgentAccess.Do }, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
-            Program.Equal("folders: a read-only run reports no change of another's; a run that edits finds what changed during it",
-                (read.Changes.Count, string.Join(",", edit.Changes.Select(change => Path.GetFileName(change.Path)))), (0, "other-Do.txt"));
+            var read = await agents.RunAsync(task with { PlanOnly = true }, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
+            var edit = await agents.RunAsync(task, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
+            Program.Equal("folders: a plan reports no change of another's; a run that edits finds what changed during it",
+                (read.Changes.Count, string.Join(",", edit.Changes.Select(change => Path.GetFileName(change.Path)))), (0, "other-False.txt"));
         }
         finally
         {
             DeleteFolder(root);
         }
 
-        static bool Edits(AgentAccess access, bool plan) =>
-            AgentCoordinator.Edits(new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = "w", Prompt = "p", Access = access, PlanOnly = plan });
+        static bool Edits(bool plan) =>
+            AgentCoordinator.Edits(new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = "w", Prompt = "p", PlanOnly = plan });
     }
 
     private static async Task GitUndoAsync()
@@ -549,20 +540,19 @@ internal static class AgentTests
             var nested = Directory.CreateDirectory(Path.Combine(workspace, "Content")).FullName;
             Program.Equal("p4: a folder below a .p4config is in Perforce, one elsewhere is not",
                 (AgentChanges.IsPerforce(nested), AgentChanges.IsPerforce(Path.GetTempPath())), (true, false));
-            var project = new LinkProject { Name = "Game", DataFolder = workspace, AgentReadTools = ["Read"] };
-            Program.Equal("p4: edits may open files, read only only looks",
-                (AgentCoordinator.Tools(project, nested, AgentAccess.Do).Contains("Bash(p4 edit:*)"),
-                    AgentCoordinator.Tools(project, nested, AgentAccess.Analyze).Contains("Bash(p4 edit:*)"),
-                    AgentCoordinator.Tools(project, nested, AgentAccess.Analyze).Contains("Bash(p4 opened:*)")),
-                (true, false, true));
+            var project = new LinkProject { Name = "Game", DataFolder = workspace, AgentDoTools = ["Read"] };
+            Program.Equal("p4: the agent may look and open files, beside the project's rules",
+                (AgentCoordinator.Tools(project, nested).Contains("Bash(p4 edit:*)"), AgentCoordinator.Tools(project, nested).Contains("Bash(p4 opened:*)"),
+                    AgentCoordinator.Tools(project, nested).Contains("Read")),
+                (true, true, true));
             Program.Equal("p4: never submit, revert or sync on the agent's own",
-                AgentCoordinator.Tools(project, nested, AgentAccess.Do).Any(rule => rule.Contains("submit") || rule.Contains("revert") || rule.Contains("sync")),
+                AgentCoordinator.Tools(project, nested).Any(rule => rule.Contains("submit") || rule.Contains("revert") || rule.Contains("sync")),
                 false);
             var codex = new CodexProvider(() => new AgentSettings(), _ => { });
-            var task = new AgentTask { Provider = AgentProviderKind.Codex, Workspace = nested, Prompt = "Fix", Access = AgentAccess.Do };
-            Program.Equal("p4: Codex with edits may reach the Perforce server, read only stays shut",
+            var task = new AgentTask { Provider = AgentProviderKind.Codex, Workspace = nested, Prompt = "Fix" };
+            Program.Equal("p4: Codex may reach the Perforce server, a plan stays shut",
                 (string.Join(' ', codex.Arguments(task)).Contains("-c sandbox_workspace_write.network_access=true"),
-                    string.Join(' ', codex.Arguments(task with { Access = AgentAccess.Analyze })).Contains("network_access")),
+                    string.Join(' ', codex.Arguments(task with { PlanOnly = true })).Contains("network_access")),
                 (true, false));
         }
         finally
@@ -1182,9 +1172,9 @@ internal static class AgentTests
                 (ProjectRoles.SwitchText(null, [], workspace).Contains("without a specialist role"), ProjectRoles.SwitchText(null, [], workspace).Contains("## Your role")), (true, false));
 
             var withRole = AgentRules.Before("Fix it", workspace, listSkills: true, rigger, ["blender-anim"]);
-            var order = new[] { "# Agent rules", "## Your role: Rigger / Animator", "Read first: .agents/skills/blender-anim/SKILL.md", "## Skills of this workspace", "\n\n# Task\n\nFix it" }
+            var order = new[] { "# Agent rules", "## Skills of this workspace", "## Your role: Rigger / Animator", "Read first: .agents/skills/blender-anim/SKILL.md", "\n\n# Task\n\nFix it" }
                 .Select(part => withRole.IndexOf(part, StringComparison.Ordinal)).ToArray();
-            Program.Equal("role text: in a new session after the rules, before the skills list and the task",
+            Program.Equal("role text: in a new session after the rules and the skills list, before the task",
                 (order.All(at => at >= 0), order.SequenceEqual(order.Order()), withRole.EndsWith("\n\n# Task\n\nFix it", StringComparison.Ordinal)), (true, true, true));
             var plain = AgentRules.Before("Fix it", workspace, listSkills: false);
             Program.Equal("role text: General with no skills adds nothing, nor do skills the workspace lacks",
@@ -1439,15 +1429,15 @@ internal static class AgentTests
 
             var last = new AgentTask
             {
-                Provider = AgentProviderKind.Codex, Workspace = workspace, Prompt = "Continue", Access = AgentAccess.Do, AutoApprove = true, ResumeSessionId = "s1",
+                Provider = AgentProviderKind.Codex, Workspace = workspace, Prompt = "Continue", AutoApprove = true, ResumeSessionId = "s1",
                 Model = "gpt-6-sol", Effort = "high", CheckCommand = "dotnet test", PlanOnly = true, AnswerFile = "docs/map.md",
                 RoleId = "qa-playtest", Skills = ["old"], Images = [@"C:\old.png"]
             };
             var task = AgentCoordinator.CompactTask(last, record, "  # Task state, edited \n", [@"C:\shot.png"]);
-            Program.Equal("compact: a new session of the same agent with its model, effort, access and check, the edited state as the prompt",
-                (task.Provider, task.ResumeSessionId, task.Prompt, task.Model, task.Effort, task.Access, task.AutoApprove, task.CheckCommand, task.PlanOnly, task.AnswerFile,
+            Program.Equal("compact: a new session of the same agent with its model, effort, Auto and check, the edited state as the prompt",
+                (task.Provider, task.ResumeSessionId, task.Prompt, task.Model, task.Effort, task.AutoApprove, task.CheckCommand, task.PlanOnly, task.AnswerFile,
                     string.Join(",", task.Images)),
-                (AgentProviderKind.Codex, (string?)null, "# Task state, edited", "gpt-6-sol", "high", AgentAccess.Do, true, "dotnet test", false, (string?)null, @"C:\shot.png"));
+                (AgentProviderKind.Codex, (string?)null, "# Task state, edited", "gpt-6-sol", "high", true, "dotnet test", false, (string?)null, @"C:\shot.png"));
             Program.Equal("compact: the task's specialist and skills, not the last run's",
                 (task.RoleId, string.Join(",", task.Skills)), ("rigger-animator", "blender-anim"));
 
@@ -1631,7 +1621,7 @@ internal static class AgentTests
         var claude = new ClaudeCodeProvider(() => settings, _ => { });
         var task = new AgentTask
         {
-            Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Access = AgentAccess.Do, Model = "glm-4.7", Effort = "high"
+            Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Model = "glm-4.7", Effort = "high"
         };
         var arguments = custom.Arguments(task);
         Program.Equal("custom provider: --model is passed and --effort never, the rest is Claude Code's",
@@ -1725,7 +1715,7 @@ internal static class AgentTests
         var fresh = (await agents.StartOverAsync(run, origin, ("glm-4.7-flash", null), CancellationToken.None, AgentProviderKind.Custom))!.Value;
         var ask = custom.Tasks.Single();
         Program.Equal("custom start over: the custom model is asked in the session, on its own model and no effort",
-            (claude.Tasks.Count, ask.Provider, ask.ResumeSessionId, ask.Model, ask.Effort, ask.Access), (0, AgentProviderKind.Custom, "s1", "glm-4.7-flash", (string?)null, AgentAccess.Analyze));
+            (claude.Tasks.Count, ask.Provider, ask.ResumeSessionId, ask.Model, ask.Effort, ask.PlanOnly), (0, AgentProviderKind.Custom, "s1", "glm-4.7-flash", (string?)null, true));
         Program.Equal("custom start over: the new session is the run's own agent's, with the note",
             (fresh.Task.Provider, fresh.Task.ResumeSessionId, fresh.Note), (AgentProviderKind.ClaudeCode, (string?)null, "Tried it twice."));
     }
@@ -1829,7 +1819,7 @@ internal static class AgentTests
         var log = new List<string>();
         var events = new List<AgentEvent>();
         var result = await new FakeProvider("claude-loop.jsonl", new AgentSettings { ClaudePath = Environment.ProcessPath }, log.Add)
-            .RunAsync(Task() with { Access = AgentAccess.Do }, new SyncProgress(events.Add), CancellationToken.None);
+            .RunAsync(Task(), new SyncProgress(events.Add), CancellationToken.None);
         var label = events.FindIndex(e => e.Kind == AgentEventKind.Loop);
         Program.Equal("loop run: the label comes right after the third identical read",
             label > 0 && events[label - 1] is { Kind: AgentEventKind.Tool, Detail: "Read" } && events.Count(e => e.Kind == AgentEventKind.Loop) == 2, true);
@@ -1861,33 +1851,31 @@ internal static class AgentTests
         var claude = new ClaudeCodeProvider(() => settings, _ => { });
         var codex = new CodexProvider(() => settings, _ => { });
         var analyze = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Explain" };
-        var line = string.Join(' ', claude.Arguments(analyze));
-        Program.Equal("Claude Analyze runs in dontAsk", line.Contains("--permission-mode dontAsk"), true);
+        Program.Equal("Claude never runs in dontAsk: no run is read only",
+            (string.Join(' ', claude.Arguments(analyze)).Contains("dontAsk"), claude.Arguments(analyze).Contains("acceptEdits")), (false, true));
         Program.Equal("Claude never bypasses permissions",
-            new[] { analyze, analyze with { Access = AgentAccess.Do }, analyze with { PlanOnly = true } }
+            new[] { analyze, analyze with { AutoApprove = true }, analyze with { PlanOnly = true } }
                 .Any(task => string.Join(' ', claude.Arguments(task)).Contains("bypass", StringComparison.OrdinalIgnoreCase)),
             false);
-        var doTask = analyze with { Access = AgentAccess.Do, ResumeSessionId = "s1", AllowedTools = ["Bash(dotnet test)"] };
-        Program.Equal("Claude Do accepts edits, resumes and ends with the allowed tools",
+        var doTask = analyze with { ResumeSessionId = "s1", AllowedTools = ["Bash(dotnet test)"] };
+        Program.Equal("Claude accepts edits, resumes and ends with the allowed tools",
             string.Join(' ', claude.Arguments(doTask)).EndsWith("--resume s1 --allowedTools Bash(dotnet test)") &&
             claude.Arguments(doTask).Contains("acceptEdits"),
             true);
-        Program.Equal("Claude plan-first runs in plan mode even with Do",
+        Program.Equal("Claude plan-first runs in plan mode",
             claude.Arguments(doTask with { PlanOnly = true }).Contains("plan"), true);
 
-        Program.Equal("Codex Analyze is read-only",
-            string.Join(' ', codex.Arguments(analyze with { Provider = AgentProviderKind.Codex })).Contains("--sandbox read-only"), true);
-        Program.Equal("Codex Do writes only the workspace",
-            string.Join(' ', codex.Arguments(analyze with { Access = AgentAccess.Do })).Contains("--sandbox workspace-write"), true);
+        Program.Equal("Codex writes only the workspace",
+            string.Join(' ', codex.Arguments(analyze)).Contains("--sandbox workspace-write"), true);
         var featuresOff = string.Join(' ', CodexProvider.FeaturesOff.Select(feature => $"-c features.{feature}=false"));
         Program.Equal("Codex resume sets the sandbox through config and keeps the desktop app's extras off",
             string.Join(' ', codex.Arguments(analyze with { ResumeSessionId = "t1" })),
-            $"exec resume t1 --json --skip-git-repo-check -c sandbox_mode=read-only {featuresOff} -");
+            $"exec resume t1 --json --skip-git-repo-check -c sandbox_mode=workspace-write {featuresOff} -");
         Program.Equal("Codex: a new session runs without the desktop app's plugins, computer use and subagents",
             string.Join(' ', codex.Arguments(analyze)).Contains(featuresOff) && featuresOff.Contains("features.plugins=false") &&
             featuresOff.Contains("features.computer_use=false") && featuresOff.Contains("features.multi_agent=false"), true);
         Program.Equal("Codex plan-first stays read-only",
-            codex.Arguments(analyze with { Access = AgentAccess.Do, PlanOnly = true }).Contains("read-only"), true);
+            codex.Arguments(analyze with { PlanOnly = true }).Contains("read-only"), true);
 
         // Model, effort, auto and subagents.
         var chosen = analyze with { Model = "claude-opus-5-5", Effort = "high" };
@@ -1895,18 +1883,18 @@ internal static class AgentTests
             string.Join(' ', claude.Arguments(chosen)).Contains("--model claude-opus-5-5 --effort high --disallowedTools Agent Task"), true);
         Program.Equal("Claude without a model or effort leaves them to its own settings",
             claude.Arguments(analyze).Any(argument => argument is "--model" or "--effort"), false);
-        Program.Equal("Claude read only denies the file tools whatever the project allows",
-            string.Join(' ', claude.Arguments(analyze)).Contains("--disallowedTools Agent Task AskUserQuestion Edit Write NotebookEdit") &&
-            !string.Join(' ', claude.Arguments(analyze with { Access = AgentAccess.Do })).Contains("Write"), true);
-        Program.Equal("Claude auto runs in its auto mode, only with edits",
-            (claude.Arguments(analyze with { Access = AgentAccess.Do, AutoApprove = true }).Contains("auto"),
-                claude.Arguments(analyze with { AutoApprove = true }).Contains("auto")), (true, false));
+        Program.Equal("Claude plan-first denies the file tools whatever the project allows",
+            string.Join(' ', claude.Arguments(analyze with { PlanOnly = true })).Contains("--disallowedTools Agent Task AskUserQuestion Edit Write NotebookEdit") &&
+            !string.Join(' ', claude.Arguments(analyze)).Contains("Write"), true);
+        Program.Equal("Claude auto runs in its auto mode, not in a plan",
+            (claude.Arguments(analyze with { AutoApprove = true }).Contains("auto"),
+                claude.Arguments(analyze with { AutoApprove = true, PlanOnly = true }).Contains("auto")), (true, false));
         var codexChosen = string.Join(' ', codex.Arguments(analyze with { Provider = AgentProviderKind.Codex, Model = "gpt-6-sol", Effort = "xhigh", ResumeSessionId = "t1" }));
         Program.Equal("Codex takes the model and effort through config, on resume too",
             codexChosen.Contains("-c model=gpt-6-sol -c model_reasoning_effort=xhigh"), true);
-        Program.Equal("Codex auto sends what would leave the sandbox to its automatic review, only with edits",
-            (string.Join(' ', codex.Arguments(analyze with { Access = AgentAccess.Do, AutoApprove = true })).Contains("-c approval_policy=on-request -c approvals_reviewer=auto_review"),
-                string.Join(' ', codex.Arguments(analyze with { AutoApprove = true })).Contains("approval")), (true, false));
+        Program.Equal("Codex auto sends what would leave the sandbox to its automatic review, not in a plan",
+            (string.Join(' ', codex.Arguments(analyze with { AutoApprove = true })).Contains("-c approval_policy=on-request -c approvals_reviewer=auto_review"),
+                string.Join(' ', codex.Arguments(analyze with { AutoApprove = true, PlanOnly = true })).Contains("approval")), (true, false));
 
         var game = TempFolder();
         try
@@ -2028,8 +2016,8 @@ internal static class AgentTests
         var events = new List<AgentEvent>();
         var result = await new FakeProvider("stream", new AgentSettings { ClaudePath = Environment.ProcessPath }, log.Add)
             .RunAsync(Task(), new SyncProgress(events.Add), CancellationToken.None);
-        Program.Equal("fake CLI: events arrive in order, junk skipped",
-            string.Join(",", events.Select(e => e.Kind)), "Status,Tool,Output,Completed");
+        Program.Equal("fake CLI: events arrive in order, junk skipped, the session named as soon as it is known",
+            string.Join(",", events.Select(e => e.Kind)), "Status,Session,Tool,Output,Completed");
         Program.Equal("fake CLI: a clean exit succeeds", result.Succeeded, true);
         Program.Equal("fake CLI: the session id is kept", result.SessionId, "fake-session");
         Program.Equal("fake CLI: the run's numbers are in the result", (result.Stats.Turns, result.Stats.ToolCalls, result.Stats.Searches), (1, 1, 1));
@@ -2067,7 +2055,6 @@ internal static class AgentTests
             Provider = AgentProviderKind.ClaudeCode,
             Workspace = @"C:\Work",
             Prompt = "These tools are allowed now: Bash(x). Continue the task.",
-            Access = AgentAccess.Do,
             AutoApprove = true,
             ResumeSessionId = "s1",
             CheckCommand = "dotnet test"
@@ -2096,9 +2083,9 @@ internal static class AgentTests
         Program.Equal("hand-over brief: a long task keeps to its budget by its oldest steps, the user's words stay",
             trimmed.Length <= AgentCoordinator.BriefBudget && trimmed.Contains("keep the pose") && !trimmed.Contains("file1.cs"), true);
         var task = AgentCoordinator.HandOffTask(first, AgentProviderKind.Codex, brief, []);
-        Program.Equal("hand-over: a new session of the other agent, in the same folder with the same access and check",
-            (task.Provider, task.ResumeSessionId, task.Workspace, task.Access, task.AutoApprove, task.CheckCommand, task.Prompt),
-            (AgentProviderKind.Codex, (string?)null, @"C:\Work", AgentAccess.Do, true, "dotnet test", brief));
+        Program.Equal("hand-over: a new session of the other agent, in the same folder with the same Auto and check",
+            (task.Provider, task.ResumeSessionId, task.Workspace, task.AutoApprove, task.CheckCommand, task.Prompt),
+            (AgentProviderKind.Codex, (string?)null, @"C:\Work", true, "dotnet test", brief));
         Program.Equal("return: the first agent is told what the other did",
             AgentCoordinator.ReturnBrief(record, "Codex", numstat: null).StartsWith("While you were away, Codex worked on this task", StringComparison.Ordinal),
             true);
@@ -2162,7 +2149,7 @@ internal static class AgentTests
     {
         var (result, events) = await RunFakeAsync("fail");
         Program.Equal("fake CLI: a non-zero exit fails", (result.Succeeded, result.ExitCode), (false, 3));
-        Program.Equal("fake CLI: a broken-off line is skipped", events.Count, 1);
+        Program.Equal("fake CLI: a broken-off line is skipped", events.Count(e => e.Kind != AgentEventKind.Session), 1);
         Program.Equal("fake CLI: stderr explains a failure without a result", result.Summary, "fake failure on stderr");
     }
 
@@ -2472,7 +2459,7 @@ internal static class AgentTests
             File.WriteAllText(ProjectMap.PathIn(workspace), "# Map");
             Program.Equal("harness memory: a map that is there opens",
                 (Section(HarnessView.Build(Input()), "Project memory").Value, Section(HarnessView.Build(Input()), "Project memory").FilePath),
-                ("docs/map.md · exists", ProjectMap.PathIn(workspace)));
+                ("docs/map.md · 1 line", ProjectMap.PathIn(workspace)));
             Program.Equal("harness memory: no workspace",
                 Section(HarnessView.Build(Input() with { Workspace = null }), "Project memory").Value, "No workspace chosen");
 
@@ -2517,8 +2504,8 @@ internal static class AgentTests
             Program.Equal("harness tools: the MCP servers by the workspace's .mcp.json, auto access",
                 (tools.Value, tools.FilePath, tools.Note!.Split('\n')[0]),
                 ("MCP: unreal, blender", Path.Combine(workspace, ".mcp.json"), "Access: auto: edits and commands without asking"));
-            Program.Equal("harness tools: read only",
-                Section(HarnessView.Build(Input() with { Access = AgentAccess.Analyze }), "Tools and MCP").Note!.Split('\n')[0], "Access: read only");
+            Program.Equal("harness tools: a plan",
+                Section(HarnessView.Build(Input() with { PlanOnly = true }), "Tools and MCP").Note!.Split('\n')[0], "Access: plan: reads, then the plan runs with edits");
             File.WriteAllText(Path.Combine(workspace, ".mcp.json"), "{ not json");
             Program.Equal("harness tools: a .mcp.json that cannot be read gives no servers",
                 Section(HarnessView.Build(Input()), "Tools and MCP").Value, "No MCP servers");
@@ -3381,13 +3368,13 @@ internal static class AgentTests
             [
                 new AgentRunRecord
                 {
-                    Provider = AgentProviderKind.ClaudeCode, Model = "claude-opus-5-5", Effort = "xhigh", EffortReason = "a plan", Access = AgentAccess.Do, AutoApprove = true,
+                    Provider = AgentProviderKind.ClaudeCode, Model = "claude-opus-5-5", Effort = "xhigh", EffortReason = "a plan", AutoApprove = true,
                     SessionId = "s1", StartedAt = at, Duration = minute, Outcome = "Done in 1:00", InputTokens = 20_000, CachedTokens = 18_000, OutputTokens = 1_000,
                     Steps = ["Read Dash.cs"], Words = "## Plan\nStep one"
                 },
                 new AgentRunRecord
                 {
-                    Provider = AgentProviderKind.Codex, Effort = "high", RoleId = "programmer", Step = 1, Kind = StepKind.Code, Tier = WorkerTier.Standard, Access = AgentAccess.Do,
+                    Provider = AgentProviderKind.Codex, Effort = "high", RoleId = "programmer", Step = 1, Kind = StepKind.Code, Tier = WorkerTier.Standard,
                     SessionId = "s2", StartedAt = at + 2 * minute, Duration = 2 * minute, Outcome = "Done in 2:00", InputTokens = 5_000, CachedTokens = 0, OutputTokens = 200,
                     Files = ["Src/Dash.cs"], Words = "Done."
                 }
@@ -4133,9 +4120,9 @@ internal static class AgentTests
                 Training.OpenExam(course), Training.Verdict(course, open, proven)),
             (ExamResult.Pass, "1,3", 1, TrainingStage.Promoting, (TrainingExam?)null, "Exam 1 rated 4 of 5: passed · proven: lessons 1, 3"));
         var failed = Course();
-        Program.Equal("training: below 4 the exam fails, the lessons stay candidates with one exam more, and the next words set another exam",
+        Program.Equal("training: below 4 the exam fails, the lessons stay candidates with one exam more, and words go on with the specialist, not into an exam",
             (Training.Rate(failed, failed.Exams[0], 3).Count, failed.Exams[0].Result, failed.Lessons[0].Status, failed.Lessons[0].Exams, failed.Stage),
-            (0, ExamResult.Fail, LessonStatus.Candidate, 1, TrainingStage.AwaitsExam));
+            (0, ExamResult.Fail, LessonStatus.Candidate, 1, TrainingStage.BetweenExams));
         var empty = Course();
         empty.Exams[0].Files = [];
         Program.Equal("training: an exam that changed no file is unverified whatever the rating, and counts for no lesson",
@@ -4226,12 +4213,12 @@ See shots/flat.png. Not crate.blend or a.pngx.")),
             DeleteFolder(workspace);
         }
 
-        AgentTask Run(string? role, AgentAccess access, params string[] skills) =>
-            new() { Provider = AgentProviderKind.ClaudeCode, Workspace = "w", Prompt = "p", RoleId = role, Access = access, Skills = skills };
-        Program.Equal("art critic: it judges read only as itself; art is the work of a specialist by the art profile's skill",
-            (ArtCritic.Judges(Run("art-critic", AgentAccess.Analyze)), ArtCritic.Judges(Run("art-critic", AgentAccess.Do)), ArtCritic.Judges(Run("3d-artist", AgentAccess.Analyze)),
-                ArtCritic.Judgeable(Run("3d-artist", AgentAccess.Do, "blender-model", "Art-Style")), ArtCritic.Judgeable(Run("3d-artist", AgentAccess.Do, "blender-model")),
-                ArtCritic.Judgeable(Run("art-critic", AgentAccess.Analyze, "art-style")), ArtCritic.Judged(new AgentRunRecord { RoleId = "art-critic", Access = AgentAccess.Analyze })),
+        AgentTask Run(string? role, bool judge, params string[] skills) =>
+            new() { Provider = AgentProviderKind.ClaudeCode, Workspace = "w", Prompt = "p", RoleId = role, Judge = judge, Skills = skills };
+        Program.Equal("art critic: it judges as Link's judge in its own role; art is the work of a specialist by the art profile's skill",
+            (ArtCritic.Judges(Run("art-critic", true)), ArtCritic.Judges(Run("art-critic", false)), ArtCritic.Judges(Run("3d-artist", true)),
+                ArtCritic.Judgeable(Run("3d-artist", false, "blender-model", "Art-Style")), ArtCritic.Judgeable(Run("3d-artist", false, "blender-model")),
+                ArtCritic.Judgeable(Run("art-critic", true, "art-style")), ArtCritic.Judged(new AgentRunRecord { RoleId = "art-critic", Judge = true })),
             (true, false, false, true, false, false, true));
 
         var settings = new AgentSettings();

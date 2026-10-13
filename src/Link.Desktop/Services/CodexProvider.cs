@@ -5,7 +5,7 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// Codex CLI through <c>codex exec --json</c>. Analyze and a plan run in the <c>read-only</c> sandbox, Do in
+/// Codex CLI through <c>codex exec --json</c>. A plan runs in the <c>read-only</c> sandbox, every other run in
 /// <c>workspace-write</c>; <c>danger-full-access</c> is never used. Codex has no plan mode, so a plan is asked for in
 /// words and the sandbox keeps it from changing anything.
 /// </summary>
@@ -286,7 +286,7 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
 
     public override IReadOnlyList<string> Arguments(AgentTask task)
     {
-        var sandbox = task.Access == AgentAccess.Do && !task.PlanOnly ? "workspace-write" : "read-only";
+        var sandbox = task.PlanOnly ? "read-only" : "workspace-write";
         // A project folder need not be a git repository (a Blender project rarely is).
         var arguments = new List<string> { "exec" };
         if (task.ResumeSessionId is { } session) arguments.AddRange(["resume", session]);

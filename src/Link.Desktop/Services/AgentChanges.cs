@@ -42,6 +42,9 @@ public sealed partial class AgentChanges
         "Library", "Temp", "Intermediate", "Saved", "DerivedDataCache", "Binaries"
     };
 
+    // Folders of a Unity project (Assets beside ProjectSettings) that its editor writes by itself.
+    private static readonly HashSet<string> UnityWrites = new(StringComparer.OrdinalIgnoreCase) { "Logs", "UserSettings" };
+
     private readonly string _backupsRoot;
 
     public AgentChanges(string backupsRoot) => _backupsRoot = backupsRoot;
@@ -238,13 +241,20 @@ public sealed partial class AgentChanges
                 continue;
             }
 
+            // An open Unity editor rewrites its project's logs, user settings and IDE projects all the time: they are not
+            // the agent's work (a task once showed 787 "changed" files of them).
+            var unity = entries.Any(entry => entry is DirectoryInfo { Name: "Assets" }) && entries.Any(entry => entry is DirectoryInfo { Name: "ProjectSettings" });
             foreach (var entry in entries)
             {
                 if (entry is DirectoryInfo child)
                 {
-                    if (!SkippedFolders.Contains(child.Name) && !child.Attributes.HasFlag(FileAttributes.ReparsePoint)) folders.Push(child);
+                    if (!SkippedFolders.Contains(child.Name) && !(unity && UnityWrites.Contains(child.Name)) &&
+                        !child.Attributes.HasFlag(FileAttributes.ReparsePoint))
+                    {
+                        folders.Push(child);
+                    }
                 }
-                else if (entry is FileInfo file)
+                else if (entry is FileInfo file && !(unity && file.Extension is ".csproj" or ".sln"))
                 {
                     yield return file;
                 }

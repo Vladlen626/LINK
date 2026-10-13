@@ -12,8 +12,8 @@ public static partial class AgentRules
     public static string File => Path.Combine(AppContext.BaseDirectory, "harness", "agent-rules.md");
 
     /// <summary>
-    /// A new session's input: the rules, the specialist's role and the skills picked for the task, the workspace's skills
-    /// when the agent does not find them itself, then the task.
+    /// A new session's input: the rules, the workspace's skills when the agent does not find them
+    /// itself, the specialist's role and the skills picked for the task, then the task.
     /// </summary>
     public static string Before(string task, string workspace, bool listSkills, AgentRole? role = null, IReadOnlyList<string>? picked = null)
     {
@@ -35,7 +35,6 @@ public static partial class AgentRules
         {
             if (ReadHarness(Path.Combine(pack.Folder, "rules.md")) is { Length: > 0 } packRules) input.Append("\n\n").Append(packRules);
         }
-        if (ProjectRoles.SessionText(role, picked ?? [], workspace) is { Length: > 0 } specialist) input.Append("\n\n").Append(specialist);
         var skills = listSkills ? ProjectSkills.In(workspace) : [];
         if (skills.Count > 0)
         {
@@ -48,6 +47,8 @@ public static partial class AgentRules
             }
         }
 
+        // The role changes from step to step and the workspace's skills do not: the stable part goes first, for the cache.
+        if (ProjectRoles.SessionText(role, picked ?? [], workspace) is { Length: > 0 } specialist) input.Append("\n\n").Append(specialist);
         return input.Append("\n\n# Task\n\n").Append(task).ToString();
     }
 

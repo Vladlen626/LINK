@@ -1044,9 +1044,9 @@ public partial class AgentPanel : UserControl
         CheckText.Text = $"After the edits Link runs the check itself, and the agent is told so: {card.CheckCommand}. " +
                          $"While it fails, the agent gets its output, {AgentCoordinator.CheckRetries} times at most.";
         CheckText.Visibility = card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
-        PlanFirstBox.Content = "Plan first: read only, then you run the plan";
+        PlanFirstBox.Content = "Plan first: a plan, then you run it";
         PlanFirstBox.ToolTip = "The agent only reads and proposes a plan, on Settings' Strong model; you run it, on the model above, in the same session";
-        // A team always plans first, on the lead; a training studies first, read only.
+        // A team always plans first, on the lead; a training studies first.
         PlanFirstBox.IsEnabled = !Team && !Train;
         RunButton.IsEnabled = card.Workspace is not null;
         RunButton.Content = card.RunLabel ?? (Team ? "Plan the team" : Train ? "Start training" : PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
@@ -1094,7 +1094,6 @@ public partial class AgentPanel : UserControl
         var plan = new AgentPlan(
             agent.Kind,
             workspace,
-            AgentAccess.Do,
             Team || (!Train && PlanFirstBox.Visibility == Visibility.Visible && PlanFirstBox.IsChecked == true),
             BackupBox.Visibility == Visibility.Visible && BackupBox.IsChecked == true,
             GoalBox.Text.Trim())

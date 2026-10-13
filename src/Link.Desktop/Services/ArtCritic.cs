@@ -37,11 +37,11 @@ public static partial class ArtCritic
 
     public static string RequestFile => Path.Combine(AppContext.BaseDirectory, "harness", "art-review.md");
 
-    /// <summary>Whether a run is the critic's judgement: read only, as the critic.</summary>
-    public static bool Judges(AgentTask task) => task.RoleId == RoleId && task.Access == AgentAccess.Analyze;
+    /// <summary>Whether a run is the critic's judgement: Link's judge, as the critic.</summary>
+    public static bool Judges(AgentTask task) => task.RoleId == RoleId && task.Judge;
 
     /// <summary>Whether a run the task's record kept was the critic's judgement (see <see cref="Judges"/>).</summary>
-    public static bool Judged(AgentRunRecord run) => run.RoleId == RoleId && run.Access == AgentAccess.Analyze;
+    public static bool Judged(AgentRunRecord run) => run.RoleId == RoleId && run.Judge;
 
     /// <summary>Whether a run made art the critic judges: its specialist works by <see cref="StyleSkill"/> and is not the critic.</summary>
     public static bool Judgeable(AgentTask task) =>

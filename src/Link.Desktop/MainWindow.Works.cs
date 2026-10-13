@@ -140,6 +140,38 @@ public partial class MainWindow
         AgentStatus(work == _open ? text : $"«{Shorten(work.Record.Goal, 40)}»: {text}");
 
     /// <summary>Link closes: every agent stops, and so does Link's own step.</summary>
+    /// <summary>
+    /// Link closes while agents work: each run goes into its task's record now, with the session it got, since Link
+    /// will not see it end. Without this a task taken up later went on in an older session (the study, not its exam).
+    /// </summary>
+    private void KeepRunsCutShort()
+    {
+        foreach (var work in _works)
+        {
+            if (work.Run is not { } live) continue;
+            var task = live.Task;
+            work.Record.Runs.Add(new AgentRunRecord
+            {
+                Provider = task.Provider,
+                Model = task.Model,
+                Effort = task.Effort,
+                EffortReason = task.EffortReason,
+                RoleId = task.RoleId,
+                Judge = task.Judge,
+                AutoApprove = task.AutoApprove,
+                SessionId = live.SessionId ?? task.ResumeSessionId,
+                StartedAt = live.StartedAt,
+                Duration = live.Clock.Elapsed,
+                Outcome = "Stopped: Link closed mid-run",
+                Steps = [.. live.Steps.TakeLast(StepsKeptPerRun)],
+                Files = [.. live.Files.Select(path => Relative(path, work.Record.Workspace))]
+            });
+            work.Record.Status = AgentTaskStatus.Stopped;
+            work.Record.Add(AgentEntryKind.HandOff, "Link closed while the agent worked: your next words go on in its session");
+            SaveTask(work);
+        }
+    }
+
     private void StopAllRuns()
     {
         foreach (var work in _works)
@@ -243,6 +275,9 @@ public partial class MainWindow
         public HashSet<string> Files { get; } = new(StringComparer.OrdinalIgnoreCase);
         public (long? Tokens, long? Window) Context { get; set; }
         public bool LimitOffered { get; set; }
+
+        // The session as the CLI named it on the way: kept with the task should Link close before the run ends.
+        public string? SessionId { get; set; }
     }
 
     /// <summary>A run that waits for another run's edits in its folder: what starts it, why it waits, and since when.</summary>

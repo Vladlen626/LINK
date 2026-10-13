@@ -4,7 +4,7 @@ using Link.Desktop.Services;
 namespace Link.Desktop;
 
 /// <summary>
-/// The team in the Studio: the lead plans the task read only, the user sees each step with its worker and why and runs
+/// The team in the Studio: the lead plans the task, the user sees each step with its worker and why and runs
 /// the team, then Link gives the steps to their workers one after another, each in a new session that starts from the
 /// task's state and what the steps before handed over. The decisions are <see cref="TeamRunner"/>'s; this only starts
 /// runs and shows where the team stands.
@@ -52,23 +52,27 @@ public partial class MainWindow
         var (model, effort) = settings.Level(provider, step.Level);
         var number = TeamRunner.Number(record, step);
         var again = step.ReviewNotes is { } notes ? TeamPlan.RedoPrompt(notes) : step.CriticNotes is { } defects ? ArtCritic.RedoPrompt(defects) : null;
-        var redo = again is not null && step.SessionId is { } session ? (Prompt: again, Session: session) : default;
+        // A step sent up a tier has a session of another agent, which this worker cannot resume.
+        var redo = again is not null && OwnSession(record, step.SessionId, provider) is { } session ? (Prompt: again, Session: session) : default;
+        // The worker that did the step before as the same specialist goes on in its session: no second onboarding, no rereading.
+        var goOn = redo.Session is null ? GoesOnFrom(record, step, provider, role, roles) : null;
+        if (goOn is not null) redo = (TaskState.NextStep(step), goOn);
         var prompt = redo.Session is null ? TaskState.StepBrief(record, null, record.Workspace, step, AgentName) : redo.Prompt;
         step.ReviewNotes = null;
         step.CriticNotes = null;
         step.Status = TeamStepStatus.Running;
-        if (redo.Session is null)
+        if (redo.Session is null || goOn is not null)
         {
             record.Add(AgentEntryKind.HandOff,
-                $"Step {number} → {step.Worker}{(role is null ? string.Empty : " as " + role.Name)}: {TeamPlan.Headline(step.Text).Title} · {step.Reason}");
+                $"Step {number} → {step.Worker}{(role is null ? string.Empty : " as " + role.Name)}{(goOn is null ? string.Empty : ", in its session of the step before")}: " +
+                $"{TeamPlan.Headline(step.Text).Title} · {step.Reason}");
         }
 
         record.RoleId = role?.Id;
         record.Skills = [.. skills];
         SaveTask(work);
-        // The card's access and Auto, as the lead's run kept them.
+        // The card's Auto, as the lead's run kept it.
         var lead = record.Runs.FirstOrDefault();
-        var access = lead?.Access ?? AgentAccess.Do;
         var task = new AgentTask
         {
             Provider = provider,
@@ -77,8 +81,7 @@ public partial class MainWindow
             ResumeSessionId = redo.Session,
             // The user's references; a session sent back has them already.
             Images = StepKinds.IsArt(step.Kind) && redo.Session is null ? [.. record.Images.Where(File.Exists)] : [],
-            Access = access,
-            AllowedTools = AgentCoordinator.Tools(project, record.Workspace, access),
+            AllowedTools = AgentCoordinator.Tools(project, record.Workspace),
             CheckCommand = project.CheckCommand,
             AutoApprove = lead?.AutoApprove ?? settings.DefaultAccess == AgentAccessChoice.Auto,
             Model = step.Model ?? model,
@@ -89,7 +92,30 @@ public partial class MainWindow
         // The copy of a folder without version control is made once, before the team's first edits.
         work.BackupBeforeDo = backup;
         if (redo.Session is null) work.Origin = task;
+        // Start over begins a new session, which needs the whole brief.
+        else if (goOn is not null) work.Origin = task with { Prompt = TaskState.StepBrief(record, null, record.Workspace, step, AgentName), ResumeSessionId = null };
         await StartAgentAsync(work, task, null, phase: EffortPhase.New);
+    }
+
+    /// <summary><paramref name="session"/> when it is a session of <paramref name="provider"/> in this task; null otherwise.</summary>
+    private static string? OwnSession(AgentTaskRecord record, string? session, AgentProviderKind provider) =>
+        session is not null && record.Runs.LastOrDefault(run => run.SessionId == session) is { } ran && ran.Provider == provider ? session : null;
+
+    /// <summary>
+    /// The session of the step just before <paramref name="step"/> when the same worker (agent, model, level) did it as the
+    /// same specialist, on art or not alike, and it has not grown big or gone cold (<see cref="CompactRule"/>); null: a new session.
+    /// </summary>
+    private string? GoesOnFrom(AgentTaskRecord record, TeamStep step, AgentProviderKind provider, AgentRole? role, IReadOnlyList<AgentRole> roles)
+    {
+        var at = record.Team.IndexOf(step);
+        if (at < 1 || step.EscalatedFrom is not null || record.Team[at - 1] is not { Status: TeamStepStatus.Done } before) return null;
+        var beforeRole = ProjectRoles.Find(before.Role, record.Workspace) ?? ProjectRoles.Suggest(before.Text, roles);
+        if (before.Provider != provider || before.Model != step.Model || before.Level != step.Level || beforeRole?.Id != role?.Id
+            || StepKinds.IsArt(before.Kind) != StepKinds.IsArt(step.Kind)
+            || OwnSession(record, before.SessionId, provider) is not { } session) return null;
+        var settings = _settings.Current.Agent;
+        var last = record.Runs.LastOrDefault(run => run.SessionId == session);
+        return CompactRule.ForStep(last, settings.AutoCompact, settings.ContextBudget, DateTimeOffset.Now) is null ? session : null;
     }
 
     /// <summary>
@@ -120,9 +146,9 @@ public partial class MainWindow
 
         if (step.Status == TeamStepStatus.Reviewing)
         {
-            // The lead's session, or the fresh read-only one it reviews in (StartLeadReviewAsync): a worker's words go on in its own.
+            // The lead's session, or the fresh one it reviews in (StartLeadReviewAsync): a worker's words go on in its own.
             var lead = run.Task.ResumeSessionId is null
-                ? run.Task.Access == AgentAccess.Analyze
+                ? run.Task.Judge
                 : run.Task.ResumeSessionId == record.LeadSession || AgentCoordinator.SessionOf(run) == record.LeadSession;
             if (lead) AfterReview(work, step, run, needsYou);
             // Words the user left the worker for after its run went first: the lead reviews what it did then.
@@ -198,7 +224,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The lead reviews the step a worker has done, read only: the worker's answer, the check and the diff of its run
+    /// The lead reviews the step a worker has done, told to change nothing: the worker's answer, the check and the diff of its run
     /// (<paramref name="workerRun"/>), else what the task's record kept of the worker's last run, with the files to read.
     /// In its own session, told how to review once; a session near its budget or gone cold gives way to a fresh one from
     /// the task's state. Medium effort: a review reads a diff, it does not plan.
@@ -234,8 +260,9 @@ public partial class MainWindow
             Workspace = record.Workspace,
             Prompt = fresh is null ? review : $"{TaskState.ReviewBrief(record, record.Workspace, step, AgentName)}\n\n{review}",
             ResumeSessionId = fresh is null ? record.LeadSession : null,
-            Access = AgentAccess.Analyze,
-            AllowedTools = AgentCoordinator.Tools(project, record.Workspace, AgentAccess.Analyze),
+            Judge = true,
+            AllowedTools = AgentCoordinator.Tools(project, record.Workspace),
+            AutoApprove = record.Runs.FirstOrDefault()?.AutoApprove ?? _settings.Current.Agent.DefaultAccess == AgentAccessChoice.Auto,
             Model = lead.Model,
             Effort = efforts.Any(effort => effort.Value == "medium") ? "medium" : lead.Effort
         }, null);
@@ -367,7 +394,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The art critic, read only and blind to the artist's account: a new session as the Art Critic with its role's
+    /// The art critic, told to change nothing and blind to the artist's account: a new session as the Art Critic with its role's
     /// skills and at its role's effort, told the task, what was handed over and saved, the user's references and the
     /// frames, the sheets among them attached (else the first frames). Its own session after a redo
     /// (<paramref name="again"/>) knows all but the new frames and saved files, and judges them at medium effort. After
@@ -396,8 +423,10 @@ public partial class MainWindow
                 : ArtCritic.AgainPrompt(saved, frames, attached),
             ResumeSessionId = again,
             Images = attached,
-            Access = AgentAccess.Analyze,
-            AllowedTools = AgentCoordinator.Tools(project, record.Workspace, AgentAccess.Analyze),
+            Judge = true,
+            AllowedTools = AgentCoordinator.Tools(project, record.Workspace),
+            // As the artist's run: on Auto it may run the project's checks and renders to see for itself.
+            AutoApprove = judged.Task.AutoApprove,
             Model = model,
             // Its role's usual effort where the agent has it: judging frames needs no Deep level's longest thinking, a second look less.
             Effort = (again is null ? null : Has("medium")) ?? Has(role?.Effort) ?? deepEffort,
@@ -414,10 +443,12 @@ public partial class MainWindow
     /// </summary>
     private void AfterCritique(TaskWork work, TeamStep step, AgentRun run, bool needsYou)
     {
-        if (needsYou) return;
-        var record = work.Record;
+        if (work.Question is not null) return;
+        // After a limit too the user's words go on with the artist's work, never in the critic's session.
         if (work.Critiqued is { } judged) work.LastRun = judged;
         work.Critiqued = null;
+        if (needsYou) return;
+        var record = work.Record;
         step.CriticSession = AgentCoordinator.SessionOf(run) ?? step.CriticSession;
         var number = TeamRunner.Number(record, step);
         var artist = step.Worker;

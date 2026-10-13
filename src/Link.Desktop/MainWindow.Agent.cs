@@ -22,6 +22,10 @@ public partial class MainWindow
     private static readonly Regex LimitReached = new(
         @"\b(usage|rate|session|weekly|daily|5-hour|five-hour) limit\b|hit your (usage )?limit|limit reached|out of (credits|usage)|quota",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // A run that ends on one of these failed in the service, not in the work ("Failed to authenticate. API Error: 403").
+    private static readonly Regex ServiceError = new(
+        @"\bAPI Error\b|Failed to authenticate|overloaded_error|Internal server error|ECONNRESET|ETIMEDOUT|stream disconnected",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly TimeSpan ActivityFlush = TimeSpan.FromMilliseconds(100);
     // So many of the task's last steps are kept with it, for an agent that takes it over.
     private const int StepsHandedOn = 40;
@@ -53,7 +57,7 @@ public partial class MainWindow
     // The specialist's name in the header, which is drawn at every tick of a run: its file is read once, not at each.
     private (string? Id, string? Workspace, string? Name) _roleName;
     // The project's stats for the inspector, which reads them again only after a task is saved.
-    private (Guid Project, IReadOnlyList<StatsRow> Rows)? _stats;
+    private (Guid Project, IReadOnlyList<StatsRow> Rows, IReadOnlyList<string> TeamVsSolo)? _stats;
 
     /// <summary>
     /// The agent a new card, the map and Link's own answers start on: Settings' default, or the other one only while the
@@ -141,7 +145,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The workspace's Map button: the agent looks through the folder read only and Link writes its answer to
+    /// The workspace's Map button: the agent looks through the folder, told to change nothing, and Link writes its answer to
     /// docs/map.md, the one change, shown and undone like any other. Link's own answer, on Quick: a run of its own
     /// in the Studio, beside the tasks at work, which it leaves as they are.
     /// </summary>
@@ -186,7 +190,7 @@ public partial class MainWindow
             Provider = provider,
             Workspace = workspace,
             Prompt = prompt,
-            AllowedTools = AgentCoordinator.Tools(project, workspace, AgentAccess.Analyze),
+            AllowedTools = AgentCoordinator.Tools(project, workspace),
             AnswerFile = ProjectMap.RelativePath,
             Model = model,
             Effort = effort,
@@ -531,11 +535,21 @@ public partial class MainWindow
         // The input went to the agent: like a sent message, it leaves the prompt.
         if (PromptBox.Text.Trim() == snapshot.Text) ClearSentInput(PromptBox.Text);
         var agent = _settings.Current.Agent;
-        // A team is planned by its lead, the Strong worker on its Deep level, read only (OfferTeam routes the plan).
+        // The agent works in English; the user sees what it was given in the task's brief.
+        var written = plan.Goal;
+        plan = plan with { Goal = await InEnglishAsync(plan.Goal, project) };
+        // Measuring team against solo: by turns for each kind of work, the strong agent alone takes a team's task.
+        var measured = plan.Team && agent.Team.Alternate;
+        if (measured && !TeamVsSolo.TeamsTurn(_projects.ReadAgentTasks(project), StepKinds.Of(written.Split('\n')[0])))
+        {
+            plan = plan with { Team = false, Provider = WorkerRouting.Workers(agent, WorkerStateOf)[WorkerTier.Strong]?.Provider ?? plan.Provider };
+        }
+
+        // A team is planned by its lead, the Strong worker on its Deep level (OfferTeam routes the plan).
         var lead = plan.Team ? WorkerRouting.Workers(agent, WorkerStateOf)[WorkerTier.Strong] : null;
         if (lead is not null) plan = plan with { Provider = lead.Provider, PlanFirst = true, RoleId = null, Skills = [] };
-        // A training's study only reads: its exams edit, with the card's Auto.
-        else if (plan.Train) plan = plan with { Access = AgentAccess.Analyze, PlanFirst = false };
+        // A training studies straight away, with the card's access, as its exams do.
+        else if (plan.Train) plan = plan with { PlanFirst = false };
         // A plan is made on the strongest model and carried out with the card's, in the same session.
         var planSetup = (plan.Model, plan.Effort);
         var (model, effort) = lead is not null ? agent.Level(lead.Provider, lead.Level)
@@ -552,17 +566,18 @@ public partial class MainWindow
             origin = origin with { Prompt = TeamPlan.Prompt(brief, request, evidence, ProjectRoles.In(plan.Workspace)) };
         }
 
-        // A training studies first, read only: its lessons wait for an exam (see MainWindow.Training).
+        // A training studies first: its lessons wait for an exam (see MainWindow.Training).
         TrainingCourse? course = null;
         if (plan.Train && lead is null) (origin, course) = await TrainingStartAsync(origin, plan, project, attachedFiles);
         var record = new AgentTaskRecord
         {
-            Goal = Shorten(plan.Goal.Split('\n')[0].Trim(), 200),
+            Goal = Shorten(written.Split('\n')[0].Trim(), 200),
             Brief = brief,
             Workspace = plan.Workspace,
             AutoEffort = plan.AutoEffort,
             RoleId = plan.RoleId,
             Skills = [.. plan.Skills],
+            Measured = measured,
             Mode = lead is not null ? TaskMode.Team : course is not null ? TaskMode.Training : TaskMode.Solo,
             Training = course,
             Images = [.. origin.Images]
@@ -570,6 +585,8 @@ public partial class MainWindow
         var how = lead is not null ? $"\n(team: {WorkerLabel(lead)} plans the steps)"
             : course is not null ? "\n(training: study first, then an exam)"
             : plan.PlanFirst ? "\n(plan first)" : string.Empty;
+        if (measured && lead is null) how += "\n(team vs solo: alone this time, to compare)";
+        if (!ReferenceEquals(written, plan.Goal)) how += "\n(translated into English by ChatGPT)";
         record.Add(AgentEntryKind.Brief, goal.Trim() + ImagesNote(origin.Images) + how);
         var work = new TaskWork(record, project) { BackupBeforeDo = plan.BackupBeforeDo, PlanSetup = planSetup, Origin = origin };
         work.AttachedFiles.AddRange(attachedFiles);
@@ -671,8 +688,7 @@ public partial class MainWindow
         var state = TaskState.CompactContinue(record, null, record.Workspace, words, AgentName);
         var task = AgentCoordinator.CompactTask(template, record, state, images) with
         {
-            Access = AgentAccess.Do,
-            AllowedTools = AgentCoordinator.Tools(work.Project, template.Workspace, AgentAccess.Do)
+            AllowedTools = AgentCoordinator.Tools(work.Project, template.Workspace)
         };
         record.Add(AgentEntryKind.You, words + ImagesNote(images));
         _ = StartCompactedAsync(work, task, why, phase);
@@ -788,8 +804,11 @@ public partial class MainWindow
         ShowTaskInPanel();
         // A team left mid-way goes on from the step it is on; a question it ended on is answered first.
         if (record.Team.Count > 0 && work.Question is null) OfferTeamGoOn(work);
-        // A study that drew its lessons still offers the exam.
-        if (record.Training is { Stage: TrainingStage.Learning, Lessons.Count: > 0 } course && work.Question is null) OfferExam(work, course);
+        // A study that drew its lessons, or a training between exams, still offers the exam.
+        if (record.Training is { Stage: TrainingStage.Learning or TrainingStage.BetweenExams, Lessons.Count: > 0 } course && work.Question is null)
+        {
+            OfferExam(work, course);
+        }
         _ = ShowChangesAsync(record);
         UpdateRouteButton();
         AgentStatus(work.EarlierSession is null
@@ -814,11 +833,10 @@ public partial class MainWindow
                 Provider = last.Provider,
                 Workspace = record.Workspace,
                 Prompt = record.Goal,
-                Access = last.Access,
                 AutoApprove = last.AutoApprove,
                 Model = last.Model,
                 Effort = last.Effort,
-                AllowedTools = AgentCoordinator.Tools(project, record.Workspace, last.Access),
+                AllowedTools = AgentCoordinator.Tools(project, record.Workspace),
                 CheckCommand = project.CheckCommand,
                 RoleId = record.RoleId,
                 Skills = record.Skills,
@@ -923,13 +941,17 @@ public partial class MainWindow
         UpdateAgentPill();
         UpdateRouteButton();
         RefreshTaskList();
-        var progress = new Progress<AgentEvent>(live.Pending.Add);
+        var progress = new Progress<AgentEvent>(agentEvent =>
+        {
+            if (agentEvent.Kind == AgentEventKind.Session) live.SessionId = agentEvent.Text;
+            else live.Pending.Add(agentEvent);
+        });
         AgentRun? ended = null;
         Exception? failure = null;
         try
         {
             var run = await _agents.RunAsync(task, work.BackupBeforeDo, since, progress, live.Stop.Token);
-            if (run.Before is { IsVersioned: false, Backup: null } && work.BackupBeforeDo && task.Access == AgentAccess.Do && since is null)
+            if (run.Before is { IsVersioned: false, Backup: null } && work.BackupBeforeDo && AgentCoordinator.Edits(task) && since is null)
             {
                 live.Pending.Add(new AgentEvent(AgentEventKind.Error, "No copy was made: the workspace is over 2 GB."));
             }
@@ -976,9 +998,13 @@ public partial class MainWindow
             work.SteerWith = null;
             var images = work.SteerImages;
             work.SteerImages = [];
-            if (ended is not null && WordsAfter(work, ended, AgentCoordinator.Interrupted(words)) is { } next)
+            // Words while the art critic judged stop it and go on with the work it judged (AfterCritique), which was not interrupted.
+            var critic = ended is not null && ArtCritic.Judges(ended.Task);
+            var after = critic ? work.LastRun : ended;
+            if (after is not null && WordsAfter(work, after,
+                    critic ? WithCriticNotes(work, words, AgentCoordinator.SessionOf(after)) : AgentCoordinator.Interrupted(words)) is { } next)
             {
-                _ = StartAgentAsync(work, next with { Images = images }, ended, phase: EffortPhase.Steer);
+                _ = StartAgentAsync(work, next with { Images = images }, after, phase: critic ? EffortPhase.Reply : EffortPhase.Steer);
             }
             else
             {
@@ -1050,7 +1076,11 @@ public partial class MainWindow
         AgentStatus($"{provider.Name} writes {OwnWhat(task)} · Stop is in the Studio");
         UpdateAgentPill();
         RefreshTaskList();
-        var progress = new Progress<AgentEvent>(live.Pending.Add);
+        var progress = new Progress<AgentEvent>(agentEvent =>
+        {
+            if (agentEvent.Kind == AgentEventKind.Session) live.SessionId = agentEvent.Text;
+            else live.Pending.Add(agentEvent);
+        });
         AgentRun? ended = null;
         Exception? failure = null;
         try
@@ -1098,7 +1128,7 @@ public partial class MainWindow
         var live = own.Live;
         panel.ShowTaskView($"Link writes {OwnWhat(task)}", $"{_projects.ActiveProject.Name} · {task.Workspace}", null);
         panel.SetStatus(live is not null ? "working" : own.Status, (Brush)FindResource(live is not null ? "BusyOrbBrush" : own.Dot));
-        panel.SetHeader(live is not null ? AgentHeader(live) : $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort)} · read only");
+        panel.SetHeader(live is not null ? AgentHeader(live) : $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort)} · answer");
         panel.ShowPlan([]);
         panel.ShowChanges(string.Empty, string.Empty);
         panel.ShowThread([own.Turn]);
@@ -1307,9 +1337,8 @@ public partial class MainWindow
         {
             Model = plan.Model,
             Effort = plan.Effort,
-            Access = AgentAccess.Do,
             AutoApprove = plan.AutoApprove,
-            AllowedTools = AgentCoordinator.Tools(work.Project, template.Workspace, AgentAccess.Do),
+            AllowedTools = AgentCoordinator.Tools(work.Project, template.Workspace),
             RoleId = plan.RoleId,
             Skills = plan.Skills
         };
@@ -1390,9 +1419,8 @@ public partial class MainWindow
         {
             Model = plan.Model,
             Effort = plan.Effort,
-            Access = AgentAccess.Do,
             AutoApprove = plan.AutoApprove,
-            AllowedTools = AgentCoordinator.Tools(work.Project, template.Workspace, AgentAccess.Do)
+            AllowedTools = AgentCoordinator.Tools(work.Project, template.Workspace)
         };
         // Start over begins from the state, not from the session that has grown.
         await StartCompactedAsync(work, task, null, EffortPhase.Reply);
@@ -1410,14 +1438,21 @@ public partial class MainWindow
         var template = ResumableTask(work)?.Task ?? work.Origin;
         if (back?.SessionId is not { } session || template is null) return;
         // Whoever worked last is who the first agent is told of.
-        var prompt = AgentCoordinator.ReturnBrief(record, AgentName(record.LastRun?.Provider ?? Other(provider)), await NumstatAsync(work));
-        record.Add(AgentEntryKind.HandOff, $"Back to {AgentName(provider)}, its own session");
+        var numstat = await NumstatAsync(work);
+        var settings = _settings.Current.Agent;
+        // Its session is often hours old by then: grown big or gone cold, a fresh one starts from the task's state instead.
+        var fresh = CompactRule.ForStep(back, settings.AutoCompact, settings.ContextBudget, DateTimeOffset.Now);
+        var prompt = fresh is null
+            ? AgentCoordinator.ReturnBrief(record, AgentName(record.LastRun?.Provider ?? Other(provider)), numstat)
+            : TaskState.CompactBrief(record, numstat, record.Workspace, AgentName);
+        record.Add(AgentEntryKind.HandOff, fresh is null ? $"Back to {AgentName(provider)}, its own session"
+            : $"Back to {AgentName(provider)}, a fresh session from the task's state · {fresh}");
         record.Handovers.Add($"── Back to {AgentName(provider)} ──\n{prompt}");
         if (work.LastRun is null) work.BackupBeforeDo = true;
         await StartAgentAsync(work, template with
         {
             Provider = provider,
-            ResumeSessionId = session,
+            ResumeSessionId = fresh is null ? session : null,
             Prompt = prompt,
             Model = back.Model,
             Effort = back.Effort,
@@ -1591,9 +1626,9 @@ public partial class MainWindow
     {
         var task = live.Task;
         var access = task.PlanOnly ? "plan"
-            : task.AnswerFile is { } file ? $"read only, {Path.GetFileName(file)}"
-            : task.Access == AgentAccess.Do ? task.AutoApprove ? "auto" : "edits"
-            : "read only";
+            : task.AnswerFile is { } file ? $"answer to {Path.GetFileName(file)}"
+            : task.Judge ? "judge"
+            : task.AutoApprove ? "auto" : "edits";
         var elapsed = live.Clock.Elapsed;
         return $"{RoleWords(task.RoleId, task.Workspace)}{_agents.Provider(task.Provider).Name} · " +
                $"{SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason)} · {access} · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
@@ -1647,7 +1682,7 @@ public partial class MainWindow
 
     private string RunLine(AgentRunRecord run, string workspace) =>
         $"{RoleWords(run.RoleId, workspace)}{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason, run.RanModel)} · " +
-        $"{(run.Access != AgentAccess.Do ? "read only" : run.AutoApprove ? "auto" : "edits")}";
+        $"{(run.Judge ? "judge" : run.AutoApprove ? "auto" : "edits")}";
 
     /// <summary>Where the task works: its project, the folder and, in Perforce, its changelist.</summary>
     private static string WhereLine(TaskWork work) =>
@@ -1722,9 +1757,13 @@ public partial class MainWindow
         var checkFailed = !stopped && run.Check is { Passed: false };
         var limitReached = !result.Succeeded && !stopped &&
                            (LimitReached.IsMatch(result.Summary) || _limits.ReachedUntil(task.Provider) is not null);
-        // A limit is no failure of the work: Auto effort does not raise the next run for it.
+        // The service, not the work, failed (a sign-in, an API or network error): the same words go again once it is back.
+        var serviceError = !result.Succeeded && !stopped && !limitReached && ServiceError.IsMatch(result.Summary);
+        // A limit or a service error is no failure of the work: Auto effort does not raise the next run for it, and no
+        // critic judges it.
         var ending = stopped ? $"Stopped after {elapsed}"
             : limitReached ? $"Stopped at the usage limit after {elapsed}"
+            : serviceError ? $"Stopped by a service error after {elapsed}"
             : !result.Succeeded ? $"Failed after {elapsed}"
             : checkFailed ? $"Check failed after {elapsed}"
             : $"Done in {elapsed}";
@@ -1738,7 +1777,7 @@ public partial class MainWindow
         var text = checkFailed ? CheckReport(task, run.Check!) + (said.Length > 0 ? "\n\n" + said : string.Empty) : said;
         // After a failure, or a Stop in a loop; a Stop without a loop was the user's own choice, and a task done in the
         // end got past its loop. A limit has its own card.
-        var failed = !stopped && !limitReached && (!result.Succeeded || checkFailed);
+        var failed = !stopped && !limitReached && !serviceError && (!result.Succeeded || checkFailed);
         work.AfterRun = new[]
         {
             new PanelAction("Discuss in chat", "The result, the changed files and their diff go with your next question to ChatGPT",
@@ -1758,7 +1797,7 @@ public partial class MainWindow
 
         var decision = OfferDecision(work, run);
         var needsYou = decision || work.Question is not null;
-        RecordRun(work, live, run, ending, text, checkFailed ? text : answer, needsYou, stopped, checkFailed, spent);
+        RecordRun(work, live, run, ending, text, checkFailed ? text : answer, needsYou, stopped || serviceError, checkFailed, spent);
         // The header counts the lines of one task, the open one: another's are counted when it is opened.
         if (work == _open) _ = ShowChangesAsync(record);
         ShowTask(work);
@@ -1766,7 +1805,7 @@ public partial class MainWindow
         if (record.Training is not null) AfterTrainingRun(work, run, needsYou: work.Question is not null || decision || limitReached);
         // A training shares the skills its exam's lessons went into once they are written, not on the way.
         if (!needsYou && work.Decision is null && record.LastRun is { } done && WorkerEvidence.Verdict(done) == true && TeamRunner.Current(record) is null &&
-            record.Training is null or { Stage: TrainingStage.AwaitsExam })
+            record.Training is null or { Stage: TrainingStage.AwaitsExam or TrainingStage.BetweenExams })
         {
             OfferShare(work);
         }
@@ -1863,7 +1902,7 @@ public partial class MainWindow
             Step = step is null ? null : TeamRunner.Number(record, step),
             Kind = step?.Kind,
             Tier = step?.Tier,
-            Access = task.Access,
+            Judge = task.Judge,
             AutoApprove = task.AutoApprove,
             SessionId = AgentCoordinator.SessionOf(run),
             StartedAt = DateTimeOffset.Now - stats.Duration,
@@ -1892,7 +1931,8 @@ public partial class MainWindow
         }
         if (run.Check is { } check)
         {
-            record.LastCheck = $"{task.CheckCommand}: {check}" + (check.Tail.Length > 0 ? "\n" + string.Join('\n', check.Tail.Split('\n').TakeLast(20)) : string.Empty);
+            // A passed check's output tells the next session nothing, and the state carries it into every step.
+            record.LastCheck = $"{task.CheckCommand}: {check}" + (!check.Passed && check.Tail.Length > 0 ?"\n" + string.Join('\n', check.Tail.Split('\n').TakeLast(20)) : string.Empty);
             record.Add(AgentEntryKind.Check, $"{task.CheckCommand}: {check}");
         }
 
@@ -2472,21 +2512,20 @@ public partial class MainWindow
         // What the agent has now: the run under way, else the last run, else what the card would start from.
         AgentProviderKind provider;
         string? model, effort, reason;
-        AgentAccess access;
-        bool autoApprove;
+        bool planOnly, autoApprove;
         if (_open?.Run?.Task is { } running)
         {
-            (provider, model, effort, reason, access, autoApprove) = (running.Provider, running.Model, running.Effort, running.EffortReason, running.Access, running.AutoApprove);
+            (provider, model, effort, reason, planOnly, autoApprove) = (running.Provider, running.Model, running.Effort, running.EffortReason, running.PlanOnly, running.AutoApprove);
         }
         else if (record?.LastRun is { } last)
         {
-            (provider, model, effort, reason, access, autoApprove) = (last.Provider, last.Model, last.Effort, last.EffortReason, last.Access, last.AutoApprove);
+            (provider, model, effort, reason, planOnly, autoApprove) = (last.Provider, last.Model, last.Effort, last.EffortReason, false, last.AutoApprove);
         }
         else
         {
             provider = StartProvider;
             (model, effort) = settings.Level(provider, AgentLevel.Standard);
-            (reason, access, autoApprove) = (null, AgentAccess.Do, settings.DefaultAccess == AgentAccessChoice.Auto);
+            (reason, planOnly, autoApprove) = (null, false, settings.DefaultAccess == AgentAccessChoice.Auto);
         }
 
         var agent = _agents.Provider(provider);
@@ -2504,13 +2543,14 @@ public partial class MainWindow
             settings.ContextBudget)
         {
             Task = record,
-            Access = access,
+            PlanOnly = planOnly,
             AutoApprove = autoApprove,
             ContextUsed = used,
             ContextWindow = window,
             CheckCommand = project.CheckCommand,
-            ToolRules = workspace is null ? [] : AgentCoordinator.Tools(project, workspace, access),
+            ToolRules = workspace is null ? [] : AgentCoordinator.Tools(project, workspace),
             Stats = ProjectStats(project, workspace),
+            TeamVsSolo = _stats?.TeamVsSolo ?? [],
             AgentName = AgentName
         });
     }
@@ -2520,9 +2560,10 @@ public partial class MainWindow
     {
         if (_stats is { } known && known.Project == project.Id) return known.Rows;
         var roles = ProjectRoles.In(workspace);
-        var rows = AgentStatsReport.For(_projects.ReadAgentTasks(project), AgentName,
+        var tasks = _projects.ReadAgentTasks(project);
+        var rows = AgentStatsReport.For(tasks, AgentName,
             id => id is null ? "General" : roles.FirstOrDefault(role => string.Equals(role.Id, id, StringComparison.OrdinalIgnoreCase))?.Name ?? id);
-        _stats = (project.Id, rows);
+        _stats = (project.Id, rows, TeamVsSolo.Lines(tasks, _settings.Current.Agent.DefaultProvider));
         return rows;
     }
 
@@ -2589,8 +2630,8 @@ public partial class MainWindow
     };
 
     /// <summary>
-    /// What only the user can decide after a run: retry with edits what read only did not let the agent do, carry out a
-    /// plan, or allow what Claude was refused and go on. Returns whether a decision is offered.
+    /// What only the user can decide after a run: carry out a plan, or allow what Claude was refused and go on. Returns
+    /// whether a decision is offered.
     /// </summary>
     private bool OfferDecision(TaskWork work, AgentRun run)
     {
@@ -2604,49 +2645,18 @@ public partial class MainWindow
         {
             return false;
         }
-        // Changing files or running any command is never allowed in read only: it is a retry with edits.
-        var claude = task.Provider.RunsOnClaudeCode();
-        var readOnly = task.Access == AgentAccess.Analyze;
-        if (readOnly && !task.PlanOnly && result.Denials.Count > 0 && (!claude || result.Denials.Any(AgentPermissions.ChangesThings)))
-        {
-            var rules = claude ? result.Denials : [];
-            OfferChoice(work,
-                $"{_agents.Provider(task.Provider).Name} needs to change files or run commands, and read only does not let it. " +
-                $"Retry with edits in {task.Workspace}?",
-                "Retry with edits",
-                canRemember: claude,
-                () =>
-                {
-                    if (_rememberAllowance) RememberAllowance(work.Project, AgentAccess.Do, rules);
-                    // A copy of a workspace without version control is made before the edits, as the card does by default.
-                    work.BackupBeforeDo = true;
-                    _ = StartAgentAsync(work, task with
-                    {
-                        ResumeSessionId = session,
-                        Access = AgentAccess.Do,
-                        AllowedTools = task.AllowedTools.Concat(rules).Concat(AgentCoordinator.PerforceTools(task.Workspace, AgentAccess.Do))
-                            .Distinct(StringComparer.Ordinal).ToArray(),
-                        Prompt = "You may change files in the workspace now. Carry out the task." +
-                                 (task.CheckCommand is { } check ? " " + AgentCoordinator.CheckNote(check) : string.Empty),
-                        Images = []
-                    }, null, phase: EffortPhase.Reply);
-                });
-            return true;
-        }
-
         // A plan's run is refused whatever changes things: that is plan mode, not a missing permission, and allowing a
         // tool would only repeat the refusal. What the user decides is whether to carry the plan out.
         if (task.PlanOnly && result.Succeeded && record.Mode == TaskMode.Team && OfferTeam(work, run)) return true;
         if (task.PlanOnly && result.Succeeded)
         {
-            var edits = task.Access == AgentAccess.Do;
             // The plan was made on the strongest model; it is carried out with the card's, in the same session.
             var (model, effort) = _settings.Current.Agent.PlanOnDeep ? work.PlanSetup : (task.Model, task.Effort);
             var auto = record.AutoEffort && _settings.Current.Agent.AutoEffort;
             // On Auto the plan's run picks its effort when it starts, as it does for each run. The plan read only; the
             // copy before edits is made now.
             OfferChoice(work,
-                (edits ? "The plan is above. Carry it out with edits in the workspace?" : "The plan is above. Carry it out, read only?") +
+                "The plan is above. Carry it out with edits in the workspace?" +
                 (auto ? " Link picks its effort."
                     : (model, effort) != (task.Model, task.Effort) ? $" It runs on {SetupWords(task.Provider, model, effort)}." : string.Empty),
                 "Run the plan",
@@ -2667,18 +2677,16 @@ public partial class MainWindow
             return true;
         }
 
-        // In read only, only what looks can be allowed.
-        var allowable = result.Denials.Where(rule => !readOnly || !AgentPermissions.ChangesThings(rule)).ToArray();
-        if (claude && allowable.Length > 0)
+        if (task.Provider.RunsOnClaudeCode() && result.Denials.Count > 0)
         {
-            IReadOnlyList<string> rules = allowable;
+            var rules = result.Denials;
             OfferChoice(work,
                 $"{AgentName(task.Provider)} was not allowed: {string.Join(", ", rules)}. Allow {(rules.Count == 1 ? "it" : "them")} and continue?",
                 "Allow and retry",
                 canRemember: true,
                 () =>
                 {
-                    if (_rememberAllowance) RememberAllowance(work.Project, task.Access, rules);
+                    if (_rememberAllowance) RememberAllowance(work.Project, rules);
                     var allowed = task.AllowedTools.Concat(rules).Distinct(StringComparer.Ordinal).ToArray();
                     record.Add(AgentEntryKind.You, $"Allowed {string.Join(", ", rules)}");
                     _ = StartAgentAsync(work, task with
@@ -2696,16 +2704,11 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// "Always for this project": in Do the rules join the Do list, in read only the read list, except a rule that
-    /// changes things, which belongs to Do whatever the access. The project is the task's, which the user may have left.
+    /// "Always for this project": the rules join the project's list. The project is the task's, which the user may have left.
     /// </summary>
-    private void RememberAllowance(LinkProject project, AgentAccess access, IEnumerable<string> rules)
+    private void RememberAllowance(LinkProject project, IEnumerable<string> rules)
     {
-        foreach (var rule in rules)
-        {
-            var list = access == AgentAccess.Do || AgentPermissions.ChangesThings(rule) ? project.AgentDoTools : project.AgentReadTools;
-            if (!list.Contains(rule)) list.Add(rule);
-        }
+        foreach (var rule in rules.Where(rule => !project.AgentDoTools.Contains(rule))) project.AgentDoTools.Add(rule);
 
         _projects.Save();
     }

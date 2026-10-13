@@ -24,6 +24,10 @@ dialog: a question or a request for permission ends it, and the user's answer co
   before working around it. A workaround that slows every run (waits, slow motion, retries) costs more than the fix;
   the cause and the fix go into the skill.
 - Temporary files of checks (frames, logs, browser profiles) go to the system's temp folder, not the project.
+- Every request of a run re-sends the whole session, so what enters it stays there: read the part of a file you need
+  (a range, a grep), not a whole big file; a script longer than a screen is written once to a file and changed by edits,
+  never re-sent whole; open an image once, at the size its question needs (a sheet, not its frames one by one; an image
+  given with the task is not opened again).
 - An asset the user made by hand (an animation, a model, a texture, a level) is not overwritten under its name: make
   yours beside it and switch to it, so theirs stays to go back to.
 
@@ -70,12 +74,13 @@ dialog: a question or a request for permission ends it, and the user's answer co
   skill past ~150 lines is condensed before it grows.
 - Remove what this task proved wrong or replaced: a merged skill, a superseded helper, a check's temporary actor or
   file. A skill this task did not need stays: it is for other work.
-- Only what this task proved; nothing to keep: change nothing. Name in your answer what you kept, rewrote and removed.
-- In read only, write nothing: name what is worth keeping in your answer.
+- Only what this task proved; nothing to keep: change nothing. Name in your answer what you kept, rewrote and removed.
 
 ## How to answer
 - At the end: what you did, what changed (files or objects), what you checked and how, what is left. No preamble and
   no retelling of the steps.
 - In English, whatever language the task is in (it costs fewer tokens); names of tools, files and code as they are.
+  The same for what you write on the way: thinking, notes, the map, skills, comments and commit messages; text the user
+  wrote in another language is quoted as it is, and old text is not translated only for that.
 - Markdown, which Link shows formatted: a bold label or a short heading per part, lists for several things, `code` for
   names and paths, a fenced block only for code or commands; no tables wider than the panel.

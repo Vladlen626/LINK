@@ -2,7 +2,7 @@ namespace Link.Desktop.Services;
 
 /// <summary>
 /// The project map: a short docs/map.md in the workspace (what is where, how to build and check, naming) that agents
-/// read instead of searching the folders. On the user's request an agent looks through the workspace read only and
+/// read instead of searching the folders. On the user's request an agent looks through the workspace, changing nothing, and
 /// answers with the map; Link writes the answer, so that the file is the only change.
 /// </summary>
 public static class ProjectMap

@@ -177,14 +177,18 @@
                             <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Context budget" />
                             <ComboBox x:Name="ContextBudgetCombo" Grid.Row="2" Grid.Column="1" Width="190" HorizontalAlignment="Left"
                                       ToolTip="The agent's CLI compacts its session near this many tokens; the model's own window caps it" />
-                            <StackPanel Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center" Orientation="Horizontal">
+                            <WrapPanel Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center" Orientation="Horizontal">
                                 <CheckBox x:Name="AutoEffortBox" VerticalAlignment="Center" Content="Auto effort"
                                           ToolTip="Link picks each run's effort: high to plan, medium to carry out a plan, the agent's own word for its next step, one step up after a failure. An effort you choose on the card stays for the task." />
                                 <CheckBox x:Name="LeadReviewBox" Margin="24,0,0,0" VerticalAlignment="Center" Content="Team lead reviews each step"
-                                          ToolTip="In a team, the lead reads the diff of each step Codex or Haiku did and accepts it, sends it back with notes (twice at most) or gives it to a stronger worker. A short read-only turn of the lead's own session." />
+                                          ToolTip="In a team, the lead reads the diff of each step Codex or Haiku did and accepts it, sends it back with notes (twice at most) or gives it to a stronger worker. A short turn of the lead's own session, which changes nothing." />
                                 <CheckBox x:Name="ArtReviewBox" Margin="24,0,0,0" VerticalAlignment="Center" Content="Art critic"
-                                          ToolTip="An art critic, another agent than the artist's where one can, judges the frames of each art step of a team and of each art exam before you do: a ledger, the worst defects, a score 1-5. Read only and blind to the artist's account; it sends a step back twice at most. Your rating of an exam tells Link which critic agrees with you." />
-                            </StackPanel>
+                                          ToolTip="An art critic, another agent than the artist's where one can, judges the frames of each art step of a team and of each art exam before you do: a ledger, the worst defects, a score 1-5. It changes nothing and is blind to the artist's account; it sends a step back twice at most. Your rating of an exam tells Link which critic agrees with you." />
+                                <CheckBox x:Name="AlternateBox" Margin="24,0,0,0" VerticalAlignment="Center" Content="Measure team vs solo"
+                                          ToolTip="A task that would go to the team goes, by turns for each kind of work, to the team or to the strong agent alone. The Harness inspector's Stats then compare their tokens per task." />
+                                <CheckBox x:Name="AutoLowerBox" Margin="24,0,0,0" VerticalAlignment="Center" Content="Cheaper proven worker"
+                                          ToolTip="A team step goes a tier down by itself where the cheaper worker has proven itself on that kind of step in this project (3 done or more, at most 20% failed). Off: Link only suggests it in the step's reason." />
+                            </WrapPanel>
                             <TextBlock Grid.Row="4" Margin="0,6,0,0" Text="Claude Code" />
                             <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,6,0,0">
                                 <TextBlock x:Name="ClaudeStatusText" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Text="Checking…" />

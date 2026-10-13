@@ -4,16 +4,18 @@ using Link.Desktop.Services;
 namespace Link.Desktop;
 
 /// <summary>
-/// A specialist's training in the Studio: it studies the user's sources read only and draws candidate lessons; on
-/// "Ready for exam" the user's next words are an exam, done by a new session of the specialist with the lessons and
-/// not the sources; the user rates it, and the lessons a passed exam applied are written into skills in its session.
+/// A specialist's training in the Studio: it studies the user's sources and draws candidate lessons; on "Ready for
+/// exam" the user's next words are an exam, done by a new session of the specialist with the lessons and not the
+/// sources; the user rates it, and the lessons a passed exam applied are written into skills in its session. Between
+/// exams the user's words go on in the last session, never into a new exam by themselves.
 /// The decisions are <see cref="Training"/>'s; this only starts runs and shows where the training stands.
 /// </summary>
 public partial class MainWindow
 {
     /// <summary>
-    /// A new training: the card's agent studies as the card's specialist, read only, with the web to read; the course
-    /// keeps the topic, the sources and the card's Auto for the exams.
+    /// A new training: the card's agent studies as the card's specialist with the card's access and the web to read: a
+    /// read-only study could not fetch a page another way or do what the user asked of it on the way. The course keeps
+    /// the topic, the sources and the card's Auto for the exams.
     /// </summary>
     private static async Task<(AgentTask Study, TrainingCourse Course)> TrainingStartAsync(AgentTask study, AgentPlan plan, LinkProject project,
         IReadOnlyList<string> files)
@@ -28,11 +30,9 @@ public partial class MainWindow
         return (study with
         {
             Prompt = Training.LearnPrompt(study.Prompt, request),
-            Access = AgentAccess.Analyze,
             PlanOnly = false,
-            AllowedTools = [.. AgentCoordinator.Tools(project, plan.Workspace, AgentAccess.Analyze).Concat(Training.WebTools).Distinct(StringComparer.Ordinal)],
-            CheckCommand = null,
-            AutoApprove = false
+            AllowedTools = [.. AgentCoordinator.Tools(project, plan.Workspace).Concat(Training.WebTools).Distinct(StringComparer.Ordinal)],
+            CheckCommand = null
         }, course);
     }
 
@@ -70,20 +70,27 @@ public partial class MainWindow
                 exam.SessionId = AgentCoordinator.SessionOf(run) ?? exam.SessionId;
                 Training.ReadExam(run.Result.Summary, exam);
                 exam.Files = [.. exam.Files.Union(run.Changes.Select(change => Relative(change.Path, record.Workspace)), StringComparer.OrdinalIgnoreCase)];
+                // Only a run that ended well and made something is judged again: a talk, a Stop or a failure (an API
+                // error) leaves the critic's last score, and does not spend another critic's run.
+                var remade = run.Changes.Count > 0 && run.Result is { Succeeded: true, Stopped: false };
                 // A score of the work before this run says nothing of it now.
-                (exam.CriticScore, exam.CriticNotes, exam.CriticProvider, exam.CriticModel) = (null, null, null, null);
+                if (remade) (exam.CriticScore, exam.CriticNotes, exam.CriticProvider, exam.CriticModel) = (null, null, null, null);
                 SaveTask(work);
                 ShowTask(work);
-                if (!needsYou) CritiqueExam(work, course, exam, run);
+                if (!needsYou && remade) CritiqueExam(work, course, exam, run);
                 break;
             case TrainingStage.Promoting when !needsYou && WorkerEvidence.Verdict(record.LastRun!) == true:
-                course.Stage = TrainingStage.AwaitsExam;
+                course.Stage = TrainingStage.BetweenExams;
                 var left = course.Lessons.Count(lesson => lesson.Status == LessonStatus.Candidate);
                 record.Add(AgentEntryKind.HandOff, "The proven lessons are written into the skills · " + (left > 0
-                    ? $"{Plural(left, "candidate lesson")} wait for an exam: your next words set it"
+                    ? $"{Plural(left, "candidate lesson")} wait for an exam"
                     : "every lesson is proven: Finish the training"));
                 SaveTask(work);
                 ShowTask(work);
+                OfferExam(work, course);
+                break;
+            case TrainingStage.BetweenExams when !needsYou:
+                OfferExam(work, course);
                 break;
         }
     }
@@ -106,18 +113,33 @@ public partial class MainWindow
             : $"Exam {number}: {WorkerLabel(critic)} judges its frames before you rate it, blind to its answer · {why}");
         SaveTask(work);
         ShowTask(work);
-        if (critic is not null) Dispatcher.BeginInvoke(() => _ = StartCriticAsync(work, critic, run, exam.Brief, null, exam.Files, exam.Images, frames));
+        if (critic is not null) Dispatcher.BeginInvoke(() => _ = StartCriticAsync(work, critic, run, ExamAsked(record, exam), null, exam.Files, exam.Images, frames));
+    }
+
+    /// <summary>
+    /// What the exam asks now: its brief and the user's words to it since. A critic told the brief alone once judged a
+    /// Matiz against the wide car the user had replaced with it.
+    /// </summary>
+    private static string ExamAsked(AgentTaskRecord record, TrainingExam exam)
+    {
+        var later = record.Entries
+            .Where(entry => entry.Kind == AgentEntryKind.You && entry.At > exam.At.AddSeconds(5) && !entry.Text.StartsWith("Rated exam", StringComparison.Ordinal))
+            .Select(entry => "- " + entry.Text.Replace("(steer now) ", string.Empty, StringComparison.Ordinal))
+            .ToArray();
+        return later.Length == 0 ? exam.Brief : $"{exam.Brief}\n\nThe user's words since, the later ones count:\n{string.Join('\n', later)}";
     }
 
     /// <summary>
     /// The art critic's run on an exam ended: its score and defects go beside the rating, and the user's words after it go
-    /// on in the exam's session. A question of the critic's waits for the user's answer in its session.
+    /// on in the exam's session, after a Stop or a limit too. Only a question of the critic's waits for the user's answer
+    /// in its session.
     /// </summary>
     private void AfterExamCritique(TaskWork work, TrainingCourse course, TrainingExam exam, AgentRun run, bool needsYou)
     {
-        if (needsYou) return;
+        if (work.Question is not null) return;
         if (work.Critiqued is { } judged) work.LastRun = judged;
         work.Critiqued = null;
+        if (needsYou) return;
         var record = work.Record;
         var number = course.Exams.IndexOf(exam) + 1;
         var critic = WorkerLabel(new Worker(run.Task.Provider, AgentLevel.Deep, run.Task.Model));
@@ -137,10 +159,18 @@ public partial class MainWindow
         ShowTask(work);
     }
 
-    /// <summary>The study has drawn its lessons: words go on talking them over, "Ready for exam" makes the next words the exam.</summary>
-    private void OfferExam(TaskWork work, TrainingCourse course) =>
+    /// <summary>
+    /// The study has drawn its lessons, or an exam is done with: words go on with the specialist, "Ready for exam" makes
+    /// the next words the exam. Nothing is offered once no lesson is left to prove.
+    /// </summary>
+    private void OfferExam(TaskWork work, TrainingCourse course)
+    {
+        var left = course.Lessons.Count(lesson => lesson.Status == LessonStatus.Candidate);
+        if (left == 0) return;
         OfferChoice(work,
-            $"{Plural(course.Lessons.Count, "candidate lesson")} in Lessons above. Talk them over with the specialist below, or set the exam: " +
+            (course.Exams.Count == 0
+                ? $"{Plural(left, "candidate lesson")} in Lessons above. Talk them over with the specialist below, or set the exam: "
+                : $"{Plural(left, "candidate lesson")} left. Your words go on with the specialist (talk the exam over, fix the work, improve its skills), or set the next exam: ") +
             "a real task of this project with references, done by a new session that has these lessons and not the sources.",
             "Ready for exam",
             canRemember: false,
@@ -151,6 +181,7 @@ public partial class MainWindow
                 SaveTask(work);
                 ShowTask(work);
             });
+    }
 
     /// <summary>
     /// The user's words set the exam: a new session of the training's agent as its specialist, with edits, told the
@@ -178,8 +209,7 @@ public partial class MainWindow
             Prompt = Training.ExamPrompt(request, course, ProjectRoles.Find(record.RoleId, record.Workspace), words) +
                      (project.CheckCommand is { } check ? "\n\n" + AgentCoordinator.CheckNote(check) : string.Empty),
             Images = images,
-            Access = AgentAccess.Do,
-            AllowedTools = AgentCoordinator.Tools(project, record.Workspace, AgentAccess.Do),
+            AllowedTools = AgentCoordinator.Tools(project, record.Workspace),
             CheckCommand = project.CheckCommand,
             AutoApprove = course.AutoApprove,
             Model = learner?.Model,
@@ -226,6 +256,7 @@ public partial class MainWindow
         SaveTask(work);
         ShowTask(work);
         if (proven.Count > 0) _ = StartPromoteAsync(work, course, exam, proven);
+        else OfferExam(work, course);
     }
 
     /// <summary>
@@ -239,23 +270,29 @@ public partial class MainWindow
         var record = work.Record;
         if (exam.SessionId is not { } session || record.Runs.LastOrDefault(run => run.SessionId == session) is not { } last)
         {
-            course.Stage = TrainingStage.AwaitsExam;
+            course.Stage = TrainingStage.BetweenExams;
             record.Add(AgentEntryKind.HandOff, "The exam's session is gone: write the proven lessons into the skills by hand, or set another exam");
             SaveTask(work);
             ShowTask(work);
+            OfferExam(work, course);
             return;
         }
 
         var project = work.Project;
         var efforts = _agents.Provider(last.Provider).EffortsOf(last.Model);
+        var settings = _settings.Current.Agent;
+        // The exam's session holds a whole task: grown big or gone cold, it is not re-read to write a few lessons.
+        var fresh = CompactRule.ForStep(last, settings.AutoCompact, settings.ContextBudget, DateTimeOffset.Now);
+        var promote = Training.PromotePrompt(request, proven);
+        if (fresh is not null) record.Add(AgentEntryKind.HandOff, $"The proven lessons go into skills in a fresh session from the task's state · {fresh}");
         await StartAgentAsync(work, new AgentTask
         {
             Provider = last.Provider,
             Workspace = record.Workspace,
-            Prompt = Training.PromotePrompt(request, proven),
-            ResumeSessionId = session,
-            Access = AgentAccess.Do,
-            AllowedTools = AgentCoordinator.Tools(project, record.Workspace, AgentAccess.Do),
+            Prompt = fresh is null ? promote
+                : $"{TaskState.FreshBrief(record, null, record.Workspace, "Write the proven lessons below into the skills.", AgentName)}\n\n{promote}",
+            ResumeSessionId = fresh is null ? session : null,
+            AllowedTools = AgentCoordinator.Tools(project, record.Workspace),
             AutoApprove = course.AutoApprove,
             Model = last.Model,
             Effort = efforts.Any(effort => effort.Value == "low") ? "low" : last.Effort,
@@ -286,6 +323,7 @@ public partial class MainWindow
         {
             TrainingStage.AwaitsExam => "The exam: a real task with references (attach images); a new session does it with the candidate lessons",
             TrainingStage.Exam when exam is not null => "A revision: the exam's session goes on with your words before you rate it",
+            TrainingStage.BetweenExams => "Your words go on with the specialist in its last session; Ready for exam sets the next exam",
             _ => null
         });
     }

@@ -15,8 +15,8 @@ public sealed partial class AgentLoopDetector
     // A third identical error in a row: whatever the agent tries between them does not get past it.
     private const int RepeatedErrors = 3;
 
-    // A dozen searches with no change: the agent keeps looking instead of doing. A read-only run only looks, so this
-    // counts only where it may change files.
+    // A dozen searches with no change: the agent keeps looking instead of doing. A plan only looks, so this counts only
+    // where it may change files.
     private const int SearchesWithoutChange = 12;
 
     // The end of an error holds its cause; the start of a long build log is the same every time.

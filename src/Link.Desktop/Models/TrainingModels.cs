@@ -13,7 +13,13 @@ public enum TrainingStage
     Exam = 2,
 
     /// <summary>The exam passed: its session writes the lessons it proved into skills.</summary>
-    Promoting = 3
+    Promoting = 3,
+
+    /// <summary>
+    /// An exam rated and done with: the user's words go on in the last session (to talk it over, fix the work, improve
+    /// the skills) until "Ready for exam" makes the next words an exam again.
+    /// </summary>
+    BetweenExams = 4
 }
 
 public enum LessonStatus

@@ -190,7 +190,7 @@ public static class TaskExport
         text.Append("### Run ").Append(number).Append(" · ").Append(agentName(run.Provider)).Append(" · ").Append(run.Model ?? "its own model");
         if (run.RanModel is { } ran) text.Append(" (").Append(ran).Append(')');
         text.Append(" · ").Append(run.Effort ?? "its own effort").Append(" · as ").Append(roleName(run.RoleId))
-            .Append(" · ").Append(run.Access != AgentAccess.Do ? "read only" : run.AutoApprove ? "auto" : "edits");
+            .Append(" · ").Append(run.Judge ? "judge" : run.AutoApprove ? "auto" : "edits");
         if (run.Step is { } step) text.Append(" · team step ").Append(step).Append(run.Kind is { } kind ? $" ({kind}, {run.Tier})" : string.Empty);
         text.AppendLine();
         // The outcome tells the time: "Done in 3:12".

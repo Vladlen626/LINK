@@ -35,6 +35,21 @@ cameras, compared with the references, and a stage that fails is fixed there, no
 5. Detail: handles, lamps, seams, bolts - only on a form that passed, denser where the eye goes, sparse on flat areas.
 6. Game-ready: topology, UVs, normals, materials, pivots, export and the engine check (below).
 
+Each stage is its own run of the build script (a stage switch), rendered and compared before the next is written: a
+whole model written in one go and seen only at the end was the primitive-looking result. The blockout is checked over
+the references themselves: each reference as a camera background (an Image Empty in the view's ortho camera, 50%
+opacity) scaled by one known size (wheelbase, height), rendered with the mesh over it; then 4–6 key ratios (length to
+height, wheel to body, cabin to bonnet) measured on the picture and on the mesh, the gaps listed in the answer.
+
+## Building forms, not boxes
+- Main masses come from cross-sections and profile curves (a side profile and a few sections lofted or bridged), or a
+  low cage under Subdivision with creases: surfaces that curve and run into each other. Booleans of boxes give flat
+  slabs with seams; keep them for cuts (panel lines, openings, vents).
+- Bevels follow the part: wide soft radii on the big masses, tight ones on panel edges and lips, none where two parts
+  only touch (faceted: wide and narrow chamfers instead of radii). One chamfer on every edge reads as aggressive and
+  machine-made, whatever the finish.
+- The same for interiors and small parts: a seat is a cushion with a crown and a roll, not two boxes at an angle.
+
 ## Finish and colour
 - The profile's `finish` decides the surface. `faceted`: hard edges and flat faces; light, shadow and colour zones are
   carved as faces - a cut, a chamfer, a step, each zone with its palette colour - not left to smoothing or a texture;

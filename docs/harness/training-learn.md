@@ -1,9 +1,11 @@
 <!-- What a training's study is asked, after the user's topic and sources. Link strips HTML comments before the agent
 sees it. The lessons go to the Lessons card; no worker sees them until an exam the user rates 4-5 proves them. -->
-You are being trained: study the sources above as the specialist you are, read only, change nothing. Read every link
-(WebFetch) and attached file in full; a PDF that Read cannot open: `uv run --no-project --with pypdf python -c
-"import pypdf,sys; print('\n'.join(p.extract_text() or '' for p in pypdf.PdfReader(sys.argv[1]).pages))" <file>`.
-A video you cannot watch: say so and use its description or transcript if there is one.
+You are being trained: study the sources above as the specialist you are. The study changes no project file and no
+skill: lessons go into skills only once an exam proves them. Read every link (WebFetch) and attached file in full; a
+page WebFetch cannot get (a bot check, a 403): try `curl` once, then say so and go on. A PDF that Read cannot open:
+`uv run --no-project --with pypdf python -c "import pypdf,sys; print('\n'.join(p.extract_text() or '' for p in
+pypdf.PdfReader(sys.argv[1]).pages))" <file>`. A video you cannot watch: say so and use its description or transcript
+if there is one.
 
 Then read the skills you were told to read first, and compare: what the sources teach that they do not say yet, and
 which mistakes of yours it would fix (a model built of primitives, a flat silhouette, details before the form, a check

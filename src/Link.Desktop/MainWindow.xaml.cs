@@ -236,6 +236,7 @@ public partial class MainWindow : Window
         }
 
         _sendCancellation?.Cancel();
+        KeepRunsCutShort();
         StopAllRuns();
         _attempts.Forget();
         ClearContext(prune: true);

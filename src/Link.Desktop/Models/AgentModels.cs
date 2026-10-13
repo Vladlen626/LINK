@@ -26,13 +26,6 @@ public static class AgentProviderKinds
     };
 }
 
-/// <summary>What an agent may do in the workspace. Analyze only reads; Do is chosen for one task, never by default.</summary>
-public enum AgentAccess
-{
-    Analyze,
-    Do
-}
-
 /// <summary>
 /// One task of the user's, as the Task tab shows it: the goal and the brief Link gave, every run of every agent on it,
 /// the user's words on the way, checks and hand-overs, the agent's plan and the files changed. Kept in the project's
@@ -105,6 +98,9 @@ public sealed class AgentTaskRecord
     /// <summary>Who did the task: one agent, a team plan or one routed worker. A task of an older Link is Solo.</summary>
     public TaskMode Mode { get; set; } = TaskMode.Solo;
 
+    /// <summary>A team task, or one given to the strong agent alone in its place, while Settings measure team against solo.</summary>
+    public bool Measured { get; set; }
+
     /// <summary>The team plan as Link routed it, step by step; empty unless <see cref="Mode"/> is Team.</summary>
     public List<TeamStep> Team { get; set; } = [];
 
@@ -145,7 +141,6 @@ public sealed class AgentTaskRecord
                 Provider = session.Provider,
                 Model = session.Model,
                 Effort = session.Effort,
-                Access = session.Access,
                 AutoApprove = session.AutoApprove,
                 SessionId = session.SessionId,
                 StartedAt = session.UpdatedAt,
@@ -192,7 +187,9 @@ public sealed record AgentRunRecord
     public StepKind? Kind { get; init; }
     public WorkerTier? Tier { get; init; }
 
-    public AgentAccess Access { get; init; }
+    /// <summary>The run judged another's work (the art critic, the lead's review): the user's words never go on in it.</summary>
+    public bool Judge { get; init; }
+
     public bool AutoApprove { get; init; }
     public string? SessionId { get; init; }
     public DateTimeOffset StartedAt { get; init; } = DateTimeOffset.Now;
@@ -327,7 +324,6 @@ public sealed class AgentSessionRecord
     /// <summary>The task the session began with, as the card's goal said it.</summary>
     public required string Goal { get; init; }
 
-    public AgentAccess Access { get; init; }
     public bool AutoApprove { get; init; }
     public string? Model { get; init; }
     public string? Effort { get; init; }
@@ -349,8 +345,8 @@ public sealed record AgentChoice(string Value, string Label)
 }
 
 /// <summary>
-/// What the task card offers first; Settings chooses it. The user's tasks always change things: read only is Link's
-/// own, for the answers it writes (a map). The numbers stay those of older settings.
+/// What the task card offers first; Settings chooses it. Every run may change things. The numbers stay those of older
+/// settings.
 /// </summary>
 public enum AgentAccessChoice
 {
@@ -361,33 +357,31 @@ public enum AgentAccessChoice
     Auto = 2
 }
 
-/// <summary>Claude Code's tool rules as Link sorts them: what only looks and what changes things.</summary>
+/// <summary>Claude Code's tool rules as Link sorts them.</summary>
 public static class AgentPermissions
 {
-    /// <summary>Claude Code's tools that change files; read only denies them whatever the project's rules allow.</summary>
+    /// <summary>Claude Code's tools that change files; a plan denies them whatever the project's rules allow.</summary>
     public static readonly IReadOnlyList<string> EditTools = ["Edit", "Write", "NotebookEdit"];
-
-    /// <summary>
-    /// Whether a rule lets the agent change things: a file tool, or a whole shell (any command, not one command such as
-    /// <c>Bash(git log:*)</c>). Such a rule belongs to edits, never to read only.
-    /// </summary>
-    public static bool ChangesThings(string rule)
-    {
-        var tool = rule.Split('(')[0].Trim();
-        return EditTools.Contains(tool) || tool is "MultiEdit" || (!rule.Contains('(') && tool is "Bash" or "PowerShell");
-    }
 }
 
-/// <summary>One run of an agent: what to do, where and with what access. A resumed run continues its session.</summary>
+/// <summary>
+/// One run of an agent: what to do and where. Every run may change files (no run is read only: a session the user talks
+/// to must be able to do what they ask); a plan first only reads. A resumed run continues its session.
+/// </summary>
 public sealed record AgentTask
 {
     public required AgentProviderKind Provider { get; init; }
     public required string Workspace { get; init; }
     public required string Prompt { get; init; }
-    public AgentAccess Access { get; init; } = AgentAccess.Analyze;
 
-    /// <summary>Plan first: the agent only reads and answers with a plan, whatever the access.</summary>
+    /// <summary>Plan first: the agent only reads and answers with a plan.</summary>
     public bool PlanOnly { get; init; }
+
+    /// <summary>
+    /// Link's judge of another's work (the art critic, the lead's review): told to change nothing, and the user's words
+    /// after it go on with the work it judged, never in its session.
+    /// </summary>
+    public bool Judge { get; init; }
 
     /// <summary>The session to continue; null starts a new one.</summary>
     public string? ResumeSessionId { get; init; }
@@ -439,11 +433,11 @@ public sealed record AgentTask
 
     /// <summary>
     /// A file of the workspace, relative to it, that Link writes the agent's answer to, such as the project map: the
-    /// only change of a read-only task, made by Link rather than by the agent.
+    /// agent is told to change nothing, and Link makes this change.
     /// </summary>
     public string? AnswerFile { get; init; }
 
-    /// <summary>The project's check, run in the workspace after Do; while it fails, the agent gets its output to fix.</summary>
+    /// <summary>The project's check, run in the workspace after the run; while it fails, the agent gets its output to fix.</summary>
     public string? CheckCommand { get; init; }
 
     /// <summary>
@@ -486,7 +480,10 @@ public enum AgentEventKind
     Context,
 
     Completed,
-    Error
+    Error,
+
+    /// <summary>The CLI named its session; <see cref="AgentEvent.Text"/> is its id. Link keeps it should it close mid-run.</summary>
+    Session
 }
 
 /// <summary>

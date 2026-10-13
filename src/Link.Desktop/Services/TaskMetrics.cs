@@ -89,3 +89,38 @@ public static class TaskMetrics
             task.LastCheck is null ? null : task.Status != AgentTaskStatus.CheckFailed && last?.Outcome.StartsWith("Check failed", StringComparison.Ordinal) != true);
     }
 }
+
+/// <summary>Team against the strong agent alone, from the tasks Settings measured (<see cref="TeamSettings.Alternate"/>).</summary>
+public static class TeamVsSolo
+{
+    /// <summary>
+    /// Whether the team's turn has come for a measured task of <paramref name="kind"/>: yes unless the last measured one
+    /// of that kind went to the team. <paramref name="tasks"/> in any order.
+    /// </summary>
+    public static bool TeamsTurn(IEnumerable<AgentTaskRecord> tasks, StepKind kind) =>
+        tasks.Where(task => task.Measured && StepKinds.Of(task.Goal) == kind)
+            .MaxBy(task => task.CreatedAt)?.Mode != TaskMode.Team;
+
+    /// <summary>
+    /// One line per kind of work measured both ways, over the tasks that ended done: "Code — team 1.2M ≈ (strong 0.4M) a
+    /// task × 3, solo 0.9M ≈ × 4". Empty while no kind has both.
+    /// </summary>
+    public static IReadOnlyList<string> Lines(IEnumerable<AgentTaskRecord> tasks, AgentProviderKind strong)
+    {
+        var done = tasks.Where(task => task.Measured).Select(task => TaskMetrics.Of(task, strong)).Where(metric => metric.Done).ToArray();
+        return
+        [
+            .. done.GroupBy(metric => metric.Kind)
+                .Where(kind => kind.Any(metric => metric.Mode == TaskMode.Team) && kind.Any(metric => metric.Mode == TaskMode.Solo))
+                .OrderBy(kind => kind.Key)
+                .Select(kind => $"{kind.Key} — team {Average(kind, TaskMode.Team)}, solo {Average(kind, TaskMode.Solo)}")
+        ];
+    }
+
+    private static string Average(IEnumerable<TaskMetric> metrics, TaskMode mode)
+    {
+        var of = metrics.Where(metric => metric.Mode == mode).ToArray();
+        return $"{AgentContext.Tokens((long)of.Average(metric => metric.Equivalent))} ≈ " +
+               $"(strong {AgentContext.Tokens((long)of.Average(metric => metric.StrongEquivalent))}) a task × {of.Length}";
+    }
+}

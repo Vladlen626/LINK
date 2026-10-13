@@ -78,7 +78,16 @@ public static class TaskState
     {
         var lines = new List<string> { Build(record, numstat, workspace, agentName, StepBelow) };
         lines.AddRange(HandedOver(record, step));
-        lines.AddRange(["", "## Your step", step.Text]);
+        lines.AddRange(["", .. StepLines(step, "## Your step")]);
+        return string.Join('\n', lines);
+    }
+
+    /// <summary>What the worker's own session, which did the step before as the same specialist, is told for its next step: the step alone.</summary>
+    public static string NextStep(TeamStep step) => string.Join('\n', StepLines(step, "## Your next step"));
+
+    private static List<string> StepLines(TeamStep step, string heading)
+    {
+        var lines = new List<string> { heading, step.Text };
         if (step.Files.Count > 0) lines.Add("files: " + string.Join(", ", step.Files));
         if (step.EscalatedFrom is not null && !string.IsNullOrWhiteSpace(step.Failure)) lines.Add($"The {step.EscalatedFrom} tried this step and failed: {step.Failure.Trim()}");
         if (!string.IsNullOrWhiteSpace(step.ReviewNotes))
@@ -90,7 +99,7 @@ public static class TaskState
             lines.Add($"The art critic judged the frames of an earlier try of this step, whose changes are in the workspace, and asks for this: {step.CriticNotes.Trim()}");
         }
         lines.Add(TeamPlan.StepEnd);
-        return string.Join('\n', lines);
+        return lines;
     }
 
     /// <summary>
@@ -100,6 +109,13 @@ public static class TaskState
     /// </summary>
     public static string ReviewBrief(AgentTaskRecord record, string workspace, TeamStep step, Func<AgentProviderKind, string>? agentName = null) =>
         string.Join('\n', [Build(record, null, workspace, agentName, ReviewBelow), .. HandedOver(record, step)]);
+
+    /// <summary>
+    /// What a fresh session is told before a request of Link's own (<paramref name="next"/>, such as writing proven
+    /// lessons), when the session that would have taken it has grown or gone cold: the task's state with that as its next action.
+    /// </summary>
+    public static string FreshBrief(AgentTaskRecord record, string? numstat, string workspace, string next, Func<AgentProviderKind, string>? agentName = null) =>
+        Build(record, numstat, workspace, agentName, next);
 
     /// <summary>What the steps before <paramref name="step"/> handed over, under a heading of its own; nothing when none said.</summary>
     private static IReadOnlyList<string> HandedOver(AgentTaskRecord record, TeamStep step)

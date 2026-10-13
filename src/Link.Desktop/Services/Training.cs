@@ -139,7 +139,7 @@ public static partial class Training
     /// The user's rating of the exam under way. No file changed: unverified, whatever the rating. From
     /// <see cref="PassRating"/>: passed, and each lesson it applied counts a pass and is proven; below: failed, and the
     /// lessons stay candidates. Returns the lessons this exam proved; with any, the training goes on to write them into
-    /// skills, else it waits for the next exam.
+    /// skills, else the user's words go on with the specialist until the next exam is set.
     /// </summary>
     public static IReadOnlyList<TrainingLesson> Rate(TrainingCourse course, TrainingExam exam, int rating)
     {
@@ -159,7 +159,7 @@ public static partial class Training
             }
         }
 
-        course.Stage = proven.Count > 0 ? TrainingStage.Promoting : TrainingStage.AwaitsExam;
+        course.Stage = proven.Count > 0 ? TrainingStage.Promoting : TrainingStage.BetweenExams;
         return proven;
     }
 

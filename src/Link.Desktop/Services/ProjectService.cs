@@ -103,7 +103,7 @@ public sealed class ProjectService
         var tasks = File.Exists(AgentTasksFile(project)) || !File.Exists(AgentSessionsFile(project))
             ? AtomicJsonFile.Read<List<AgentTaskRecord>>(AgentTasksFile(project), _json) ?? []
             : (AtomicJsonFile.Read<List<AgentSessionRecord>>(AgentSessionsFile(project), _json) ?? [])
-                .Where(session => session.SessionId.Length > 0 && Enum.IsDefined(session.Provider) && Enum.IsDefined(session.Access))
+                .Where(session => session.SessionId.Length > 0 && Enum.IsDefined(session.Provider))
                 .Select(AgentTaskRecord.FromSession)
                 .ToList();
         // A record a newer Link or a hand wrote, with something this Link does not know, is skipped.

@@ -14,10 +14,13 @@ where they fit. The user rates the result, not your words: what counts is the sa
   with an art profile first the gameplay camera, the thumbnail and the lineup) and critique it against the references
   and the rubric, worst problem first; fix what you can and say what is left. An art critic judges the frames you
   list in `sheet` before the user rates them, without your answer: list every frame that shows the work.
-- Apply a lesson only where it fits the task; do not force one in. Say for each lesson you applied what it changed.
+- The user judges the model in the editor's viewport, from any angle and close up: look at it that way too (holes,
+  torn or folded faces, parts poking through) before you hand in. Passing checks do not make it look good; the result
+  is the goal, the checks only help.
+- Apply a lesson only where it fits the task; do not force one in, and do not turn the work into a checklist of them.
 
 Answer in short: what you made and where it is saved, what you took from the references, the critique and what you
-fixed after it. End with one block, nothing after it; `applied` holds the numbers of the lessons you applied,
+fixed after it; the lessons only as the numbers in the block. End with one block, nothing after it; `applied` holds the numbers of the lessons you applied,
 `scores` your honest 1-5 per scale of the rubric, `sheet` the paths of the review sheet and other frames:
 ```link-exam
 {"applied": [1, 3], "scores": {"Silhouette": 4, "Proportions": 3}, "sheet": ["C:/Users/me/AppData/Local/Temp/blender_shots/sheet.png"]}
