@@ -1876,8 +1876,8 @@ public partial class MainWindow
         : "ErrorBrush");
 
     /// <summary>
-    /// The run joins the task's record: its own tokens (a Codex session reports its total, so the runs before in that
-    /// session are taken off), its steps, files and answer for the thread, the check, and how the task stands.
+    /// The run joins the task's record: its own tokens and cost (a Codex session reports its total tokens and a resumed
+    /// Claude session its total cost, so the runs before in that session are taken off), its steps, files and answer for the thread, the check, and how the task stands.
     /// </summary>
     private void RecordRun(TaskWork work, LiveRun live, AgentRun run, string ending, string text, string answer, bool needsYou, bool stopped,
         bool checkFailed, IReadOnlyList<UsageSpent> spent)
@@ -1911,7 +1911,9 @@ public partial class MainWindow
             InputTokens = Less(stats.InputTokens, earlier.Sum(previous => previous.InputTokens ?? 0)),
             CachedTokens = Less(stats.CachedTokens, earlier.Sum(previous => previous.CachedTokens ?? 0)),
             OutputTokens = Less(stats.OutputTokens, earlier.Sum(previous => previous.OutputTokens ?? 0)),
-            CostUsd = stats.CostUsd,
+            CostUsd = stats.CostUsd is { } cost && task.ResumeSessionId is { } resumed
+                ? Math.Max(0, cost - record.Runs.Where(previous => previous.SessionId == resumed).Sum(previous => previous.CostUsd ?? 0))
+                : stats.CostUsd,
             ContextTokens = stats.ContextTokens,
             ContextWindow = stats.ContextWindow,
             Looped = result.Loops.Count > 0,

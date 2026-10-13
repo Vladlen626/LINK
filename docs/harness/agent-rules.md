@@ -71,10 +71,12 @@ dialog: a question or a request for permission ends it, and the user's answer co
   to use it); a helper script that work needs again into the project's tools, named in its skill, not the temp folder.
 - Keep it true and short: what changed is rewritten where it stands, never answered by a note that contradicts the
   rest; a skill says how it is now, not its history; each thing is said in one place, the others point to it; a
-  skill past ~150 lines is condensed before it grows.
+  skill past ~150 lines is condensed before it grows. `docs/map.md` is an index every session reads first: up to ~100
+  short lines of what is where and the commands; how an asset or a system is made goes into its skill, and the map
+  points to it.
 - Remove what this task proved wrong or replaced: a merged skill, a superseded helper, a check's temporary actor or
   file. A skill this task did not need stays: it is for other work.
-- Only what this task proved; nothing to keep: change nothing. Name in your answer what you kept, rewrote and removed.
+- Only what this task proved; nothing to keep: change nothing. Name in your answer what you kept, rewrote and removed.
 
 ## How to answer
 - At the end: what you did, what changed (files or objects), what you checked and how, what is left. No preamble and
