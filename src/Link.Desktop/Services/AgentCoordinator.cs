@@ -173,12 +173,6 @@ public sealed class AgentCoordinator
     /// </summary>
     public static string? SessionOf(AgentRun run) => run.Result.SessionId ?? run.Task.ResumeSessionId;
 
-    /// <summary>
-    /// Whether a run edits its folder: any but a plan. Only its changes are found by comparing the folder with how it was
-    /// before, so two such runs in one folder would take each other's edits for their own; a plan changes nothing.
-    /// </summary>
-    public static bool Edits(AgentTask task) => !task.PlanOnly;
-
     /// <summary>Whether two folders are one, or one is inside the other: runs that edit them would edit the same files.</summary>
     public static bool SameFolder(string folder, string other)
     {
@@ -264,8 +258,8 @@ public sealed class AgentCoordinator
 
     /// <summary>
     /// Runs a task and returns it with what it changed. <paramref name="previous"/>: the run this one continues, whose
-    /// "before" still holds. A copy is made before Do in a workspace without git when <paramref name="backup"/> says so.
-    /// After Do the project's check runs; while it fails, the agent continues its session with the check's output, up to
+    /// "before" still holds. A copy is made before it in a workspace without git when <paramref name="backup"/> says so.
+    /// After it (not after a plan) the project's check runs; while it fails, the agent continues its session with the check's output, up to
     /// <see cref="CheckRetries"/> times, and the run returned is the last one with the numbers of all.
     /// </summary>
     public async Task<AgentRun> RunAsync(
@@ -277,12 +271,12 @@ public sealed class AgentCoordinator
     {
         var before = previous?.Before ?? await _changes.CaptureAsync(
             task.Workspace,
-            backup && Edits(task),
+            backup,
             cancellationToken);
         var provider = Provider(task.Provider);
         var result = await provider.RunAsync(task, progress, cancellationToken);
         AgentCheckResult? check = null;
-        for (var retry = 0; task.CheckCommand is { } command && Edits(task) && result.Succeeded; retry++)
+        for (var retry = 0; task.CheckCommand is { } command && !task.PlanOnly && result.Succeeded; retry++)
         {
             check = await CheckAsync(command, task.Workspace, retry, progress, cancellationToken);
             if (!check.ForTheAgent || retry == CheckRetries || result.SessionId is not { } session) break;
@@ -296,9 +290,8 @@ public sealed class AgentCoordinator
         IReadOnlyList<AgentChange> changes;
         try
         {
-            // A stopped run is compared too: the user sees what it changed before Stop. What differs after a plan is
-            // another task's or the user's, never its own.
-            changes = Edits(task) ? await _changes.CompareAsync(before, CancellationToken.None) : [];
+            // A stopped run is compared too: the user sees what it changed before Stop.
+            changes = await _changes.CompareAsync(before, CancellationToken.None);
         }
         catch (IOException exception)
         {
@@ -317,7 +310,7 @@ public sealed class AgentCoordinator
     }
 
     /// <summary>
-    /// Start over with a note: the run's session is asked once, in plan mode, what it tried and why it did not work; the
+    /// Start over with a note: the run's session is asked once, in three turns at most, what it tried and why it did not work; the
     /// task returned is for a new session, with the original goal and images, that note, and the Auto, folder and
     /// check of the run. Without a session to ask it goes without a note; null when Stop ended the asking.
     /// <paramref name="askedOf"/> is the agent that writes the note when it is not the run's own (Claude Code and the
@@ -338,7 +331,7 @@ public sealed class AgentCoordinator
             {
                 Provider = asker,
                 ResumeSessionId = session,
-                PlanOnly = true,
+                PlanOnly = false,
                 Prompt = NoteRequest,
                 Images = [],
                 AllowedTools = [],

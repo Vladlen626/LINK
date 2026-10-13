@@ -357,16 +357,9 @@ public enum AgentAccessChoice
     Auto = 2
 }
 
-/// <summary>Claude Code's tool rules as Link sorts them.</summary>
-public static class AgentPermissions
-{
-    /// <summary>Claude Code's tools that change files; a plan denies them whatever the project's rules allow.</summary>
-    public static readonly IReadOnlyList<string> EditTools = ["Edit", "Write", "NotebookEdit"];
-}
-
 /// <summary>
-/// One run of an agent: what to do and where. Every run may change files (no run is read only: a session the user talks
-/// to must be able to do what they ask); a plan first only reads. A resumed run continues its session.
+/// One run of an agent: what to do and where. Every run may change files and keeps all its tools (no run is read only:
+/// a session the user talks to must be able to do what they ask). A resumed run continues its session.
 /// </summary>
 public sealed record AgentTask
 {
@@ -374,7 +367,7 @@ public sealed record AgentTask
     public required string Workspace { get; init; }
     public required string Prompt { get; init; }
 
-    /// <summary>Plan first: the agent only reads and answers with a plan.</summary>
+    /// <summary>Plan first: the agent is asked for a plan before the work (in words, with all its tools), and the user runs it.</summary>
     public bool PlanOnly { get; init; }
 
     /// <summary>
@@ -423,10 +416,10 @@ public sealed record AgentTask
     public IReadOnlyList<AgentPlanItem> Plan { get; init; } = [];
 
     /// <summary>
-    /// A guard against a run that goes on and on (Claude Code's <c>--max-turns</c>): each turn spends the provider's
-    /// subscription. Well above real work: measured tasks took 21–71 tool calls, so 40 would stop them mid-way.
+    /// Claude Code's <c>--max-turns</c> for Link's own short asks (a note); null for real work, which a cap cut off mid-way
+    /// (a Blender model takes hundreds of tool calls). Stop and the loop labels guard a run that goes on and on.
     /// </summary>
-    public int MaxTurns { get; init; } = 150;
+    public int? MaxTurns { get; init; }
 
     /// <summary>The tokens near which the CLI compacts the session by itself (Settings' Context budget); null leaves it alone.</summary>
     public int? ContextBudget { get; init; }

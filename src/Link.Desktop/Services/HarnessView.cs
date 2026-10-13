@@ -241,7 +241,7 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
     private static HarnessSection Tools(HarnessInput input)
     {
         var servers = input.Workspace is null ? [] : CliAgentProvider.McpServerNames(input.Workspace);
-        var access = input.PlanOnly ? "plan: reads, then the plan runs with edits"
+        var access = input.PlanOnly ? "plan first, then the plan runs"
             : input.AutoApprove ? "auto: edits and commands without asking"
             : "edits: other commands ask you";
         return new HarnessSection("Tools and MCP", servers.Count == 0 ? "No MCP servers" : "MCP: " + string.Join(", ", servers))

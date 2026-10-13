@@ -737,8 +737,8 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Plan mode off: the session's next words go on with the task's access, on the model a plan is carried out with. In
-    /// plan mode Claude Code refuses whatever changes things, so allowing a tool there does not help.
+    /// Plan mode off: the session's next words go on as work, on the model a plan is carried out with; in a plan they are
+    /// asked for a plan again.
     /// </summary>
     private void LeavePlanMode()
     {
@@ -873,7 +873,7 @@ public partial class MainWindow
     {
         // One run at a time for a task: words that come while it works steer it or wait for its end.
         if (work.Busy || !_works.Contains(work)) return;
-        if (AgentCoordinator.Edits(task) && FolderBusy(work, task.Workspace) is { } why)
+        if (FolderBusy(work, task.Workspace) is { } why)
         {
             WaitForFolder(work, why, () => StartAgentAsync(work, task, previous, note, phase));
             return;
@@ -951,7 +951,7 @@ public partial class MainWindow
         try
         {
             var run = await _agents.RunAsync(task, work.BackupBeforeDo, since, progress, live.Stop.Token);
-            if (run.Before is { IsVersioned: false, Backup: null } && work.BackupBeforeDo && AgentCoordinator.Edits(task) && since is null)
+            if (run.Before is { IsVersioned: false, Backup: null } && work.BackupBeforeDo && since is null)
             {
                 live.Pending.Add(new AgentEvent(AgentEventKind.Error, "No copy was made: the workspace is over 2 GB."));
             }
@@ -971,7 +971,7 @@ public partial class MainWindow
             live.Stop.Dispose();
             if (!AnyRunning) _activityTimer.Stop();
             // The other tasks in the folder find it as this run left it.
-            if (AgentCoordinator.Edits(task)) EditedBy(work, task.Workspace);
+            EditedBy(work, task.Workspace);
             ReportState();
         }
 
@@ -2645,16 +2645,14 @@ public partial class MainWindow
         {
             return false;
         }
-        // A plan's run is refused whatever changes things: that is plan mode, not a missing permission, and allowing a
-        // tool would only repeat the refusal. What the user decides is whether to carry the plan out.
+        // After a plan the user decides whether to carry it out.
         if (task.PlanOnly && result.Succeeded && record.Mode == TaskMode.Team && OfferTeam(work, run)) return true;
         if (task.PlanOnly && result.Succeeded)
         {
             // The plan was made on the strongest model; it is carried out with the card's, in the same session.
             var (model, effort) = _settings.Current.Agent.PlanOnDeep ? work.PlanSetup : (task.Model, task.Effort);
             var auto = record.AutoEffort && _settings.Current.Agent.AutoEffort;
-            // On Auto the plan's run picks its effort when it starts, as it does for each run. The plan read only; the
-            // copy before edits is made now.
+            // On Auto the plan's run picks its effort when it starts, as it does for each run.
             OfferChoice(work,
                 "The plan is above. Carry it out with edits in the workspace?" +
                 (auto ? " Link picks its effort."

@@ -1045,7 +1045,7 @@ public partial class AgentPanel : UserControl
                          $"While it fails, the agent gets its output, {AgentCoordinator.CheckRetries} times at most.";
         CheckText.Visibility = card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
         PlanFirstBox.Content = "Plan first: a plan, then you run it";
-        PlanFirstBox.ToolTip = "The agent only reads and proposes a plan, on Settings' Strong model; you run it, on the model above, in the same session";
+        PlanFirstBox.ToolTip = "The agent proposes a plan before the work, on Settings' Strong model; you run it, on the model above, in the same session";
         // A team always plans first, on the lead; a training studies first.
         PlanFirstBox.IsEnabled = !Team && !Train;
         RunButton.IsEnabled = card.Workspace is not null;

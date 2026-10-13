@@ -5,9 +5,8 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// Codex CLI through <c>codex exec --json</c>. A plan runs in the <c>read-only</c> sandbox, every other run in
-/// <c>workspace-write</c>; <c>danger-full-access</c> is never used. Codex has no plan mode, so a plan is asked for in
-/// words and the sandbox keeps it from changing anything.
+/// Codex CLI through <c>codex exec --json</c>. Every run is in the <c>workspace-write</c> sandbox, a plan first too (it is
+/// asked for in words); <c>read-only</c> and <c>danger-full-access</c> are never used.
 /// </summary>
 public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
     : CliAgentProvider(settings, log, console)
@@ -278,15 +277,13 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
     /// What a task in a workspace does without. The Codex desktop app's plugins (with their skills and computer
     /// control), connected apps, plugin suggestions, computer and browser use ride along on every request, and in 12
     /// of 14 measured runs the agent read the computer-use plugin's guide (~10k tokens) to look at the game it was
-    /// building, once for 33 minutes; mouse control goes only through an explicit choice. Subagents work out of
-    /// Activity's sight and outside the task's numbers (none of the 14 runs used them). MCP servers of the user's
-    /// config, such as Blender, stay.
+    /// building, once for 33 minutes; mouse control goes only through an explicit choice. Subagents are the agent's own
+    /// choice, as for Claude Code. MCP servers of the user's config, such as Blender, stay.
     /// </summary>
-    internal static readonly string[] FeaturesOff = ["plugins", "apps", "tool_suggest", "computer_use", "browser_use", "multi_agent"];
+    internal static readonly string[] FeaturesOff = ["plugins", "apps", "tool_suggest", "computer_use", "browser_use"];
 
     public override IReadOnlyList<string> Arguments(AgentTask task)
     {
-        var sandbox = task.PlanOnly ? "read-only" : "workspace-write";
         // A project folder need not be a git repository (a Blender project rarely is).
         var arguments = new List<string> { "exec" };
         if (task.ResumeSessionId is { } session) arguments.AddRange(["resume", session]);
@@ -295,10 +292,10 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
         // resume takes no --sandbox or --cd: the sandbox is set through config (an unquoted value is read as a string),
         // the folder is the working one.
         arguments.AddRange(task.ResumeSessionId is null
-            ? ["--json", "--skip-git-repo-check", "--sandbox", sandbox, "--cd", task.Workspace]
-            : ["--json", "--skip-git-repo-check", "-c", $"sandbox_mode={sandbox}"]);
+            ? ["--json", "--skip-git-repo-check", "--sandbox", "workspace-write", "--cd", task.Workspace]
+            : ["--json", "--skip-git-repo-check", "-c", "sandbox_mode=workspace-write"]);
         // Perforce opens files for edit through its server, so p4 in a Perforce workspace needs the network.
-        if (sandbox == "workspace-write" && AgentChanges.IsPerforce(task.Workspace))
+        if (AgentChanges.IsPerforce(task.Workspace))
         {
             arguments.AddRange(["-c", "sandbox_workspace_write.network_access=true"]);
         }
@@ -321,7 +318,7 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
         if (task.ContextBudget is { } budget) arguments.AddRange(["-c", $"model_auto_compact_token_limit={budget * 9 / 10}"]);
         // Auto: what would leave the sandbox (the network, a file outside the workspace) goes to Codex's automatic
         // review instead of failing, as --approve-for-me does; resume takes it only through config.
-        if (task.AutoApprove && sandbox == "workspace-write")
+        if (task.AutoApprove)
         {
             arguments.AddRange(["-c", "approval_policy=on-request", "-c", "approvals_reviewer=auto_review"]);
         }
@@ -418,11 +415,6 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
 
         static string Literal(string value) => $"'{value}'";
     }
-
-    public override string Input(AgentTask task) =>
-        task.PlanOnly
-            ? "Make a plan only: read what you need, change nothing, and answer with the steps you would take.\n\n" + task.Prompt
-            : task.Prompt;
 
     /// <summary>
     /// Codex's Windows sandbox runs commands as a user of its own, so git calls the user's repository "dubious
@@ -535,7 +527,7 @@ public sealed partial class CodexEventParser : AgentEventParser
             case "command_execution":
                 var output = Text(item, "aggregated_output");
                 if (failed || Number(item, "exit_code") != 0) ToolFailed("command", output, events);
-                if (failed && IsSandboxRefusal(output)) Denied("workspace-write", events, "The read-only sandbox refused a change");
+                if (failed && IsSandboxRefusal(output)) Denied("workspace-write", events, "The sandbox refused a change");
                 break;
             case "file_change" when item.TryGetProperty("changes", out var changes) && changes.ValueKind == JsonValueKind.Array:
                 var paths = changes.EnumerateArray().Select(change => Text(change, "path")).Where(path => path.Length > 0).ToArray();
@@ -567,12 +559,12 @@ public sealed partial class CodexEventParser : AgentEventParser
         }
     }
 
-    /// <summary>Codex tells a write the read-only sandbox blocked only in its log: "patch rejected: writing is blocked…".</summary>
+    /// <summary>Codex tells a write its sandbox blocked (outside the workspace) only in its log: "patch rejected: writing is blocked…".</summary>
     public override IReadOnlyList<AgentEvent> ReadError(string line)
     {
         if (!line.Contains("blocked by read-only sandbox", StringComparison.OrdinalIgnoreCase) || Denials.Count > 0) return [];
         var events = new List<AgentEvent>();
-        Denied("workspace-write", events, "The read-only sandbox refused a change");
+        Denied("workspace-write", events, "The sandbox refused a change");
         return events;
     }
 

@@ -214,10 +214,21 @@ public abstract class CliAgentProvider : IAgentProvider
     /// What the CLI gets on stdin: a new session starts with the agent's rules and the task's specialist and skills, a
     /// resumed one has them.
     /// </summary>
-    public string StandardInput(AgentTask task) =>
-        task.ResumeSessionId is null
-            ? AgentRules.Before(Input(task), task.Workspace, !FindsSkills, ProjectRoles.Find(task.RoleId, task.Workspace), task.Skills)
-            : Input(task);
+    public string StandardInput(AgentTask task)
+    {
+        var input = task.PlanOnly ? PlanRequest + Input(task) : Input(task);
+        return task.ResumeSessionId is null
+            ? AgentRules.Before(input, task.Workspace, !FindsSkills, ProjectRoles.Find(task.RoleId, task.Workspace), task.Skills)
+            : input;
+    }
+
+    /// <summary>
+    /// What a plan first is asked, before the task: in words, not by a read-only mode, so the agent keeps all its tools
+    /// (it may run a script to measure, say). The user runs the plan in the same session.
+    /// </summary>
+    public const string PlanRequest =
+        "First a plan, not the work: look at what you need, then answer with the steps you would take, and stop there. " +
+        "Do not make the change yet: the user reads the plan and runs it.\n\n";
 
     public abstract AgentEventParser CreateParser(AgentTask task);
 

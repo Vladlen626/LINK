@@ -6,7 +6,7 @@ namespace Link.Desktop.Services;
 /// <summary>
 /// Claude Code in print mode with stream-json events. A run is in <c>acceptEdits</c> (a command not allowed by the
 /// project's rules is refused and listed in the result), or in <c>auto</c> on Auto, where Claude Code's own check stops
-/// risky actions; a plan runs in <c>plan</c>. <c>dontAsk</c> and <c>bypassPermissions</c> are never used.
+/// risky actions. No run is read only: <c>plan</c>, <c>dontAsk</c> and <c>bypassPermissions</c> are never used.
 /// The custom model is this provider pointed at another server (<see cref="CustomModelProvider"/>).
 /// </summary>
 public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
@@ -43,20 +43,18 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
 
     public override IReadOnlyList<string> Arguments(AgentTask task)
     {
-        var mode = task.PlanOnly ? "plan" : task.AutoApprove ? "auto" : "acceptEdits";
+        // A plan first is asked for in words (CliAgentProvider.PlanRequest), not by plan mode: the agent keeps all its tools.
         var arguments = new List<string>
         {
             "-p", "--output-format", "stream-json", "--verbose",
-            "--permission-mode", mode,
-            "--max-turns", task.MaxTurns.ToString(System.Globalization.CultureInfo.InvariantCulture)
+            "--permission-mode", task.AutoApprove ? "auto" : "acceptEdits"
         };
+        if (task.MaxTurns is { } turns) arguments.AddRange(["--max-turns", turns.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
         if (task.Model is { } model) arguments.AddRange(["--model", model]);
         if (task.Effort is { } effort) arguments.AddRange(["--effort", effort]);
-        // No subagents: they work out of Activity's sight and outside the task's numbers. Task is the tool's old name.
-        // No AskUserQuestion: a run has no dialog, so a question ends the answer as a link-ask block, which the Task
-        // tab shows as a choice. A plan stays a plan whatever the project's rules allow: a denial wins.
-        arguments.AddRange(["--disallowedTools", "Agent", "Task", "AskUserQuestion"]);
-        if (task.PlanOnly) arguments.AddRange(AgentPermissions.EditTools);
+        // No AskUserQuestion: a run has no dialog to answer it, so a question ends the answer as a link-ask block, which the
+        // Task tab shows as a choice. Subagents are the agent's own choice.
+        arguments.AddRange(["--disallowedTools", "AskUserQuestion"]);
         // MCP servers come only from the workspace's .mcp.json, as for Codex: otherwise the user's claude.ai
         // connectors ride along too, such as a docs app in a game task. Link's own answers get none.
         arguments.Add("--strict-mcp-config");

@@ -7,7 +7,7 @@ namespace Link.Desktop;
 
 // Tasks at work side by side: each task Link holds keeps its own sessions, run and cards, and its agent works while the
 // Studio shows another. Edits in one folder go one run at a time, as a run's changes are found by comparing the folder
-// with how it was before (AgentCoordinator.Edits); reading and planning run beside them.
+// with how it was before: any run may change files.
 public partial class MainWindow
 {
     // The tasks Link holds while it runs: each one opened, started or taken up again, until it is finished.
@@ -43,7 +43,7 @@ public partial class MainWindow
     /// </summary>
     private string? FolderBusy(TaskWork? work, string folder)
     {
-        if (_works.FirstOrDefault(other => other != work && other.Run is { } live && AgentCoordinator.Edits(live.Task) &&
+        if (_works.FirstOrDefault(other => other != work && other.Run is { } live &&
                                            AgentCoordinator.SameFolder(live.Task.Workspace, folder)) is { } busy)
         {
             return $"«{Shorten(busy.Record.Goal, 60)}» edits in this folder now";
