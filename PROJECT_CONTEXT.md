@@ -318,7 +318,7 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
 - Agent Studio (2026-10-07/08, концепт и ответы пользователя; план — [docs/STUDIO_PLAN.md](docs/STUDIO_PLAN.md)).
   Задачи агентов — отдельное окно Studio (AgentPanel посередине, колонка Harness справа), панель оверлея — Chats и
   проект, её кнопка Tasks открывает Studio. Бюджет контекста задаёт Link: одно число в `settings.json` для всех
-  агентов (450k по умолчанию; Claude Code и своя модель — `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, Codex —
+  агентов (Auto by default since 2026-10-13: the CLI's own window, which Claude Code calls best for cost; a set number goes as `CLAUDE_CODE_AUTO_COMPACT_WINDOW`, Codex —
   `model_auto_compact_token_limit` = 90 %), дальше автокомпакт CLI; Compact Link — новая сессия из состояния задачи,
   которое Link собирает сам, без модели. Effort Auto меняет только effort, никогда модель или агента; выше Extra high —
   только вручную; лимит — не провал. Специалисты — встроенные роли (`docs/harness/roles`, копируются к Link.exe) и

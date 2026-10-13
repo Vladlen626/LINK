@@ -17,19 +17,20 @@ public static class CompactRule
     /// <summary>
     /// The reason to start fresh instead of resuming, in words for the task's history; null: resume. The session holds
     /// <paramref name="contextTokens"/> (null: not told). <paramref name="budget"/> is Settings' Context budget, capped
-    /// by the model's <paramref name="window"/> where the custom model holds less. The session counts as too big at 80%
-    /// of it; as cold when it was idle for an hour (the cache has expired) and holds at least 100k and a quarter of it.
+    /// by the model's <paramref name="window"/> (on Auto, 0, the window alone: see <see cref="AgentContext.Limit"/>). The
+    /// session counts as too big at 80% of it; as cold when it was idle for an hour (the cache has expired) and holds at
+    /// least 100k and a quarter of a set budget.
     /// </summary>
     public static string? Why(long? contextTokens, int budget, TimeSpan idle, int? window = null)
     {
         if (contextTokens is not { } held) return null;
-        var limit = Math.Min(budget, window ?? budget);
-        if (held * 100 >= limit * NearEnd)
+        var limit = AgentContext.Limit(budget, window);
+        if (limit is { } near && held * 100 >= near * NearEnd)
         {
-            return $"the session holds {AgentContext.Tokens(held)} of {AgentContext.Tokens(limit)}: each step of the next run would re-send it; the task's state is far shorter";
+            return $"the session holds {AgentContext.Tokens(held)} of {AgentContext.Tokens(near)}: each step of the next run would re-send it; the task's state is far shorter";
         }
 
-        if (held >= Math.Max(ColdFloor, limit * ColdShare / 100) && idle >= CacheLasts)
+        if (held >= Math.Max(ColdFloor, budget > 0 ? (limit ?? 0) * ColdShare / 100 : 0) && idle >= CacheLasts)
         {
             return $"the session's cache has expired ({Idle(idle)} idle): re-sending {AgentContext.Tokens(held)} would cost more than starting from the task's state";
         }

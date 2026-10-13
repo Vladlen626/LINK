@@ -82,9 +82,12 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
             ? task.Prompt
             : task.Prompt + "\n\nImages attached to this task (open them with Read):\n" + string.Join('\n', task.Images);
 
-    /// <summary>The budget is Claude Code's auto-compact window: it compacts near it, and never above the model's own window.</summary>
+    /// <summary>
+    /// A set budget is Claude Code's auto-compact window: it compacts near it, and never above the model's own window.
+    /// On Auto Link sets nothing: Claude Code's own window is tuned for the model, and a wider one re-sends more.
+    /// </summary>
     public override IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task) =>
-        task.ContextBudget is { } budget
+        task.ContextBudget is { } budget and > 0
             ? new Dictionary<string, string> { ["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture) }
             : new Dictionary<string, string>();
 

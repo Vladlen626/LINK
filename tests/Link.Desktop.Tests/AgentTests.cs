@@ -881,15 +881,18 @@ internal static class AgentTests
     private static void ContextBudget()
     {
         var settings = new AgentSettings();
-        Program.Equal("budget: 450k by default, in older settings too", (settings.ContextBudget, JsonSerializer.Deserialize<AgentSettings>("{}")!.ContextBudget), (450_000, 450_000));
+        Program.Equal("budget: Auto (0) by default, in older settings too", (settings.ContextBudget, JsonSerializer.Deserialize<AgentSettings>("{}")!.ContextBudget), (0, 0));
         var normalized = new[] { 0, -1, 49_999, 2_000_001, 50_000, 550_000, 2_000_000 }.Select(budget =>
         {
             var each = new AgentSettings { ContextBudget = budget };
             each.Normalize();
             return each.ContextBudget;
         });
-        Program.Equal("budget: 50k to 2M is kept, anything else is the default",
-            string.Join(", ", normalized), "450000, 450000, 450000, 450000, 50000, 550000, 2000000");
+        Program.Equal("budget: Auto and 50k to 2M are kept, anything else is Auto",
+            string.Join(", ", normalized), "0, 0, 0, 0, 50000, 550000, 2000000");
+        Program.Equal("budget: on Auto the limit is the model's window, a set budget is capped by it",
+            (AgentContext.Limit(0, 1_000_000), AgentContext.Limit(0, null), AgentContext.Limit(400_000, 200_000), AgentContext.Line(150_000, null, 0)),
+            ((long?)1_000_000, (long?)null, (long?)200_000, "Context 150k"));
         Program.Equal("budget: a copy keeps it", new AgentSettings { ContextBudget = 800_000 }.Clone().ContextBudget, 800_000);
 
         var claude = new ClaudeCodeProvider(() => settings, _ => { });
@@ -897,8 +900,9 @@ internal static class AgentTests
         var task = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Explain" };
         Program.Equal("budget: Claude Code compacts at it, through its auto-compact window",
             (claude.EnvironmentVariables(task with { ContextBudget = 400_000 }).GetValueOrDefault("CLAUDE_CODE_AUTO_COMPACT_WINDOW"),
-                claude.EnvironmentVariables(task).ContainsKey("CLAUDE_CODE_AUTO_COMPACT_WINDOW")),
-            ("400000", false));
+                claude.EnvironmentVariables(task).ContainsKey("CLAUDE_CODE_AUTO_COMPACT_WINDOW"),
+                claude.EnvironmentVariables(task with { ContextBudget = 0 }).ContainsKey("CLAUDE_CODE_AUTO_COMPACT_WINDOW")),
+            ("400000", false, false));
         Program.Equal("budget: Claude Code takes no argument for it",
             claude.Arguments(task with { ContextBudget = 400_000 }).SequenceEqual(claude.Arguments(task)), true);
 
@@ -906,7 +910,7 @@ internal static class AgentTests
         Program.Equal("budget: Codex compacts at nine tenths of it, on resume too, and without a budget leaves it alone",
             (string.Join(' ', codex.Arguments(codexTask with { ContextBudget = 400_000 })).Contains("-c model_auto_compact_token_limit=360000"),
                 string.Join(' ', codex.Arguments(codexTask with { ContextBudget = 400_000, ResumeSessionId = "t1" })).Contains("-c model_auto_compact_token_limit=360000"),
-                string.Join(' ', codex.Arguments(codexTask)).Contains("compact")),
+                string.Join(' ', codex.Arguments(codexTask)).Contains("compact") || string.Join(' ', codex.Arguments(codexTask with { ContextBudget = 0 })).Contains("compact")),
             (true, true, false));
     }
 
@@ -3030,12 +3034,13 @@ internal static class AgentTests
             return settings;
         }
 
-        Program.Equal("budget: 450k is the default in new and older settings",
-            (AgentSettings.DefaultContextBudget, new AppSettings().SchemaVersion, Load("""{"SchemaVersion":7}""").Agent.ContextBudget), (450_000, 9, 450_000));
-        Program.Equal("budget: schema 8 turns last night's default 550k into 450k, and nothing else; the schema is 9 now",
-            (Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":550000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":800000}}""").Agent.ContextBudget,
-                Load("""{"SchemaVersion":8,"Agent":{"ContextBudget":550000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":550000}}""").SchemaVersion),
-            (450_000, 800_000, 550_000, 9));
+        Program.Equal("budget: Auto is the default in new and older settings",
+            (AgentSettings.DefaultContextBudget, new AppSettings().SchemaVersion, Load("""{"SchemaVersion":7}""").Agent.ContextBudget), (0, 10, 0));
+        Program.Equal("budget: the old defaults 550k and 450k become Auto, a chosen budget stays; the schema is 10 now",
+            (Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":550000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":9,"Agent":{"ContextBudget":450000}}""").Agent.ContextBudget,
+                Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":800000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":8,"Agent":{"ContextBudget":550000}}""").Agent.ContextBudget,
+                Load("""{"SchemaVersion":10,"Agent":{"ContextBudget":450000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":550000}}""").SchemaVersion),
+            (0, 0, 800_000, 550_000, 450_000, 10));
 
         static string Light(AppSettings settings) =>
             $"{settings.Agent.ClaudeLight.Model} {settings.Agent.ClaudeLight.Effort} | {settings.Agent.CodexLight.Model ?? "-"} {settings.Agent.CodexLight.Effort}";

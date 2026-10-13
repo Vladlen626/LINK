@@ -115,7 +115,7 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
 
     /// <summary>"Context budget 400k · 5 skills · MCP: unreal, blender": what else goes with a run, as the card's muted line says it.</summary>
     public static string CardLine(int contextBudget, int skills, IReadOnlyList<string> mcpServers) =>
-        $"Context budget {AgentContext.Tokens(contextBudget)} · {(skills == 0 ? "no skills" : Plural(skills, "skill"))} · " +
+        $"Context budget {AgentContext.Budget(contextBudget)} · {(skills == 0 ? "no skills" : Plural(skills, "skill"))} · " +
         (mcpServers.Count == 0 ? "no MCP servers" : "MCP: " + string.Join(", ", mcpServers));
 
     private static HarnessSection Setup(HarnessInput input, AgentRole? role)
@@ -129,16 +129,17 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
 
     private static HarnessSection Context(HarnessInput input)
     {
-        var note = $"Budget {AgentContext.Tokens(input.ContextBudget)}: the agent's CLI compacts its session near it, or at the model's window if that is smaller";
+        var note = input.ContextBudget > 0
+            ? $"Budget {AgentContext.Tokens(input.ContextBudget)}: the agent's CLI compacts its session near it, or at the model's window if that is smaller"
+            : "Budget Auto: the agent's CLI compacts its session by its own window for the model";
         var compacted = input.Task is null ? 0 : TaskState.CompactCount(input.Task);
         if (compacted > 0) note += $"\nCompacted {(compacted == 1 ? "once" : $"{compacted} times")}";
         if (input.ContextUsed is not { } used) return new HarnessSection("Context", "Not told yet") { Note = note };
-        // The same limit the line says: the budget, or the model's window if that is smaller.
-        var limit = Math.Min(input.ContextBudget, input.ContextWindow ?? input.ContextBudget);
+        var limit = AgentContext.Limit(input.ContextBudget, input.ContextWindow);
         return new HarnessSection("Context", AgentContext.Usage(used, input.ContextWindow, input.ContextBudget))
         {
             Note = note,
-            Meter = limit > 0 ? Math.Clamp((double)used / limit, 0, 1) : null
+            Meter = limit > 0 ? Math.Clamp((double)used / limit.Value, 0, 1) : null
         };
     }
 

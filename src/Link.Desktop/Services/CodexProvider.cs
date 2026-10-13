@@ -314,8 +314,9 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
 
         if (task.Model is { } model) arguments.AddRange(["-c", $"model={model}"]);
         if (task.Effort is { } effort) arguments.AddRange(["-c", $"model_reasoning_effort={effort}"]);
-        // A tenth below the budget, so that the session is compacted before it reaches it; the model's window caps it.
-        if (task.ContextBudget is { } budget) arguments.AddRange(["-c", $"model_auto_compact_token_limit={budget * 9 / 10}"]);
+        // A tenth below a set budget, so that the session is compacted before it reaches it; the model's window caps it.
+        // On Auto Codex keeps its own limit for the model.
+        if (task.ContextBudget is { } budget and > 0) arguments.AddRange(["-c", $"model_auto_compact_token_limit={budget * 9 / 10}"]);
         // Auto: what would leave the sandbox (the network, a file outside the workspace) goes to Codex's automatic
         // review instead of failing, as --approve-for-me does; resume takes it only through config.
         if (task.AutoApprove)

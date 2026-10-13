@@ -14,6 +14,9 @@ public sealed class CustomModelProvider : ClaudeCodeProvider
     private const string NoImages = "Screenshots were left out: this model does not read images.";
 
     // Claude Code asks for a model by the name of its family; the custom model answers to all of them.
+    // The window Claude Code takes for a model it does not know.
+    private const int UnknownModelWindow = 200_000;
+
     private static readonly string[] ModelVariables =
     [
         "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL", "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"
@@ -87,7 +90,7 @@ public sealed class CustomModelProvider : ClaudeCodeProvider
         var model = Prepared(task).Model ?? string.Empty;
         foreach (var name in ModelVariables) variables[name] = model;
         // Claude Code takes a model it does not know for a 200k one: where the server's holds less, it compacts by that.
-        if (task.ContextBudget is { } budget && Custom.Info.ContextWindow is { } window && window < budget)
+        if (Custom.Info.ContextWindow is { } window && window < (task.ContextBudget is { } budget and > 0 ? budget : UnknownModelWindow))
         {
             variables["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = window.ToString(CultureInfo.InvariantCulture);
         }

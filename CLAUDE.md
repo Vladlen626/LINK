@@ -8,7 +8,7 @@ and current-app context to a linked AI chat (ChatGPT in LINK's own off-screen We
 C#, .NET 10, WPF, one assembly.
 
 ## Working with the user
-- Reply in Russian, briefly, result first. Code, comments and commit messages stay in English.
+- Everything in English (replies, docs, code, commits): the user's choice, it saves tokens. Briefly, result first.
 - The user tests desktop UI, microphone and real ChatGPT flows themselves: finish with a short numbered checklist
   of what to try instead of long self-verification (at most ~10 minutes of own checks).
 

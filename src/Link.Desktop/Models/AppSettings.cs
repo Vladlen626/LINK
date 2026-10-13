@@ -8,7 +8,7 @@ public sealed class AppSettings
     // Described as warm: the easiest to listen to all day. Any prebuilt voice speaks Russian.
     private const string DefaultGeminiVoice = "Sulafat";
 
-    public int SchemaVersion { get; set; } = 9;
+    public int SchemaVersion { get; set; } = 10;
     public double Opacity { get; set; } = DefaultGlassTint;
     public AppTheme Theme { get; set; } = AppTheme.System;
     public bool BlurBackground { get; set; } = true;
@@ -86,10 +86,12 @@ public sealed class AppSettings
         }
         // 7: Hide replaced the collapsed capsule. Its IsCollapsed flag is no longer read, so Link opens in full.
         // 8: the Context budget's default went from 550k to 450k; a saved 550k is the old default, not a choice.
-        if (SchemaVersion < 8 && Agent.ContextBudget == 550_000) Agent.ContextBudget = AgentSettings.DefaultContextBudget;
+        if (SchemaVersion < 8 && Agent.ContextBudget == 550_000) Agent.ContextBudget = 450_000;
         // 9: the Light levels' defaults became the team's cheap workers (Haiku 5.5, Codex's Luna); the old defaults move.
         if (SchemaVersion < 9) Agent.MoveOldLightDefaults();
-        SchemaVersion = 9;
+        // 10: the Context budget's default became Auto, the CLI's own window; a saved 450k is the old default, not a choice.
+        if (SchemaVersion < 10 && Agent.ContextBudget == 450_000) Agent.ContextBudget = AgentSettings.DefaultContextBudget;
+        SchemaVersion = 10;
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.2, 1.0) : DefaultGlassTint;
         if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);

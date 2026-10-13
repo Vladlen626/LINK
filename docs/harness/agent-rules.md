@@ -82,7 +82,8 @@ dialog: a question or a request for permission ends it, and the user's answer co
 - At the end: what you did, what changed (files or objects), what you checked and how, what is left. No preamble and
   no retelling of the steps.
 - In English, whatever language the task is in (it costs fewer tokens); names of tools, files and code as they are.
-  The same for what you write on the way: thinking, notes, the map, skills, comments and commit messages; text the user
-  wrote in another language is quoted as it is, and old text is not translated only for that.
+  The same for what you write on the way: thinking, notes, the map, skills, comments and commit messages. A section of
+  the map, a skill or a doc you rewrite is rewritten in English; text the user wrote in another language is quoted as it
+  is.
 - Markdown, which Link shows formatted: a bold label or a short heading per part, lists for several things, `code` for
   names and paths, a fenced block only for code or commands; no tables wider than the panel.

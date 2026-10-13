@@ -654,11 +654,12 @@ public sealed class AgentSettings
     /// <summary>Link's own answers (a map, a note) run on the custom model, not on the subscription agent.</summary>
     public bool OwnAnswersOnCustom { get; set; }
 
-    public const int DefaultContextBudget = 450_000;
+    /// <summary>Auto: each CLI compacts by its own window for the model, which it tunes for cost and quality.</summary>
+    public const int DefaultContextBudget = 0;
 
     /// <summary>
     /// The tokens near which an agent's CLI compacts its session by itself, so that a long task does not grow without
-    /// end; the CLI caps it at the model's own window.
+    /// end; the CLI caps it at the model's own window. 0 is Auto (<see cref="DefaultContextBudget"/>).
     /// </summary>
     public int ContextBudget { get; set; } = DefaultContextBudget;
 
@@ -678,7 +679,7 @@ public sealed class AgentSettings
     {
         if (!Enum.IsDefined(DefaultProvider) || DefaultProvider == AgentProviderKind.Custom) DefaultProvider = AgentProviderKind.ClaudeCode;
         if (!Enum.IsDefined(DefaultAccess)) DefaultAccess = AgentAccessChoice.Auto;
-        if (ContextBudget is < 50_000 or > 2_000_000) ContextBudget = DefaultContextBudget;
+        if (ContextBudget is not 0 and (< 50_000 or > 2_000_000)) ContextBudget = DefaultContextBudget;
         ClaudePath = Trimmed(ClaudePath);
         CodexPath = Trimmed(CodexPath);
         ClaudeModel = Trimmed(ClaudeModel);

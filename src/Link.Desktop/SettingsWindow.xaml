@@ -176,7 +176,7 @@
                             </ComboBox>
                             <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Context budget" />
                             <ComboBox x:Name="ContextBudgetCombo" Grid.Row="2" Grid.Column="1" Width="190" HorizontalAlignment="Left"
-                                      ToolTip="The agent's CLI compacts its session near this many tokens; the model's own window caps it" />
+                                      ToolTip="Auto: each CLI compacts its session by its own window for the model, tuned for cost and quality. A number: the CLI compacts near it instead; a wider one re-sends more on every step" />
                             <WrapPanel Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center" Orientation="Horizontal">
                                 <CheckBox x:Name="AutoEffortBox" VerticalAlignment="Center" Content="Auto effort"
                                           ToolTip="Link picks each run's effort: high to plan, medium to carry out a plan, the agent's own word for its next step, one step up after a failure. An effort you choose on the card stays for the task." />
