@@ -126,7 +126,10 @@ public enum TeamStepStatus
     Reviewing = 5,
 
     /// <summary>The artist is done and the art critic judges its frames: its verdict decides the step.</summary>
-    Critique = 6
+    Critique = 6,
+
+    /// <summary>The user skipped the step: the team is through it, and nothing counts for its worker.</summary>
+    Skipped = 7
 }
 
 /// <summary>
@@ -139,6 +142,15 @@ public sealed class TeamStep
     public StepKind Kind { get; set; } = StepKind.Code;
     public WorkerTier Tier { get; set; } = WorkerTier.Standard;
 
+    /// <summary>The tier the lead's plan asked for; null: the kind's own. The step is routed by it again.</summary>
+    public WorkerTier? Asked { get; set; }
+
+    /// <summary>The user chose the step's worker on the plan card: Link does not route it again, but a tier up after failures.</summary>
+    public bool Pinned { get; set; }
+
+    /// <summary>The user sent the step back to be done again: an earlier try's changes may be in the workspace.</summary>
+    public bool Repeated { get; set; }
+
     /// <summary>The worker as the panel names it, such as "Haiku 5.5" or "Codex".</summary>
     public string Worker { get; set; } = string.Empty;
 
@@ -146,6 +158,9 @@ public sealed class TeamStep
     public AgentProviderKind? Provider { get; set; }
 
     public AgentLevel Level { get; set; } = AgentLevel.Standard;
+
+    /// <summary>The agent the plan named for the step, as the user asked (one agent against another); null: the tier's own. A tier up keeps it.</summary>
+    public AgentProviderKind? Agent { get; set; }
 
     /// <summary>The model of that level when the step was routed; null: the CLI's own. The evidence counts by it: Haiku and Opus are two workers.</summary>
     public string? Model { get; set; }

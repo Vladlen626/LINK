@@ -13,21 +13,30 @@ public partial class MainWindow
 {
     /// <summary>
     /// The lead's plan has come: its steps are routed to workers and shown as the task's plan, and the user is asked to
-    /// run the team. Words instead go on in the lead's session, which may answer with a new plan. False when the answer
-    /// holds no plan: then it is an ordinary plan, carried out by the lead.
+    /// run the team. A plan of the steps left (a re-plan) keeps the steps the team is through. Words instead go on in the
+    /// lead's session, which may answer with a new plan. False when the answer holds no plan and the task has no team
+    /// yet: then it is an ordinary plan, carried out by the lead; a team's plan stays as it was.
     /// </summary>
     private bool OfferTeam(TaskWork work, AgentRun run)
     {
         var record = work.Record;
         var roles = ProjectRoles.In(record.Workspace);
         var (_, planned) = TeamPlan.Split(run.Result.Summary, roles);
-        if (planned.Count == 0) return false;
+        if (planned.Count == 0)
+        {
+            if (record.Team.Count == 0) return false;
+            record.Add(AgentEntryKind.HandOff, "The lead gave no new plan: the team's plan stays as it was");
+            OfferTeamGoOn(work);
+            return true;
+        }
+
         var evidence = _projects.ReadWorkerEvidence(work.Project);
-        record.Team = TeamRunner.Steps(planned, Router(evidence), WorkerLabel);
+        var kept = record.Team.TakeWhile(TeamRunner.Over).Count();
+        record.Team = TeamRunner.Replanned(record, planned, Router(evidence), WorkerLabel);
         // The lead's session goes on: it reviews what the workers do.
         record.LeadSession = AgentCoordinator.SessionOf(run);
-        record.Add(AgentEntryKind.HandOff, $"Team plan: {Plural(record.Team.Count, "step")} · " +
-                                           string.Join(", ", record.Team.GroupBy(step => step.Worker).Select(group => $"{group.Key} {group.Count()}")));
+        record.Add(AgentEntryKind.HandOff, (kept == 0 ? "Team plan: " : $"New plan from step {kept + 1}: ") + $"{Plural(record.Team.Count - kept, "step")} · " +
+                                           string.Join(", ", record.Team.Skip(kept).GroupBy(step => step.Worker).Select(group => $"{group.Key} {group.Count()}")));
         OfferTeamGoOn(work);
         return true;
     }
@@ -40,8 +49,19 @@ public partial class MainWindow
     /// </summary>
     private async Task StartTeamStepAsync(TaskWork work, TeamStep step, bool backup = false)
     {
-        if (work.Busy || step.Provider is not { } provider) return;
+        if (work.Busy) return;
         var record = work.Record;
+        // Steps routed while a worker could not work go to one that can now, a limit having reset or an agent set up since.
+        var rerouted = TeamRunner.Reroute(record, Router(_projects.ReadWorkerEvidence(work.Project)), WorkerLabel,
+            provider => WorkerStateOf(provider) == WorkerState.Ready);
+        foreach (var (each, before) in rerouted) record.Add(AgentEntryKind.HandOff, $"Step {TeamRunner.Number(record, each)}: {before} → {each.Worker} · {each.Reason}");
+        if (step.Provider is not { } provider)
+        {
+            record.Add(AgentEntryKind.HandOff, $"Step {TeamRunner.Number(record, step)}: no worker can take it now · {step.Reason} · choose one with its worker chip in Plan");
+            SaveTask(work);
+            ShowTask(work);
+            return;
+        }
         var project = work.Project;
         var settings = _settings.Current.Agent;
         var roles = ProjectRoles.In(record.Workspace);
@@ -218,6 +238,7 @@ public partial class MainWindow
                 OfferOk(work, step);
                 break;
             case TeamMove.Paused when !needsYou:
+            case TeamMove.Failed:
                 OfferTeamGoOn(work);
                 break;
         }
@@ -304,6 +325,7 @@ public partial class MainWindow
         ShowTask(work);
         if (move is TeamMove.Next or TeamMove.Redo or TeamMove.Escalated) GoOnWithTeam(work);
         else if (move == TeamMove.Stopped) OfferReviewDecision(work, step, $"{lead} stopped the team at step {number}{notes}.");
+        else if (move == TeamMove.Failed) OfferTeamGoOn(work);
     }
 
     /// <summary>
@@ -536,12 +558,27 @@ public partial class MainWindow
 
     /// <summary>
     /// A team that stopped mid-way (a Stop, a limit, Link restarted): "Go on" runs the step it is on in a new session. A
-    /// team that has not started yet is offered its run, with the copy before its first edits.
+    /// team that has not started yet is offered its run, with the copy before its first edits. A failed step is offered
+    /// again, and its worker chip in Plan changes the worker, skips it or re-plans.
     /// </summary>
     private void OfferTeamGoOn(TaskWork work)
     {
         var record = work.Record;
-        if (work.Busy || TeamRunner.Current(record) is not { Status: not TeamStepStatus.Failed } step) return;
+        if (work.Busy || TeamRunner.Current(record) is not { } step) return;
+        if (step.Status == TeamStepStatus.Failed)
+        {
+            var failed = TeamRunner.Number(record, step);
+            OfferChoice(work, $"Step {failed} failed: {Shorten(step.Text, 160)} ({step.Worker}). Try it again, or use its worker chip in Plan " +
+                              "to give it another worker, skip it or re-plan the steps left.", "Try it again", canRemember: false, () =>
+            {
+                record.Add(AgentEntryKind.You, $"Try step {failed} again");
+                TeamRunner.RunAgain(step);
+                SaveTask(work);
+                _ = StartTeamStepAsync(work, step);
+            });
+            return;
+        }
+
         if (step.Status is TeamStepStatus.AwaitsOk or TeamStepStatus.Critique)
         {
             OfferOk(work, step);
@@ -570,10 +607,140 @@ public partial class MainWindow
     private IReadOnlyList<AgentPlanItem> TeamPlanItems(AgentTaskRecord record) =>
         TeamRunner.PlanItems(record, id => ProjectRoles.Find(id, record.Workspace)?.Name);
 
+    /// <summary>
+    /// The menu of a team's step on the plan card: who does it (an agent set up, at a level, or Link's pick), then what
+    /// can be done with it where it stands: run it again, skip it, go back to it, re-plan the steps left. While a run is
+    /// under way only the steps after the one it works on change. After a change the team goes on by the user's word.
+    /// </summary>
+    private IReadOnlyList<IReadOnlyList<PanelAction>> TeamStepMenu(AgentTaskRecord record, int index)
+    {
+        if (_works.FirstOrDefault(each => each.Record == record) is not { } work || index >= record.Team.Count) return [];
+        var step = record.Team[index];
+        var number = index + 1;
+        var current = TeamRunner.Current(record);
+        var busy = work.Busy || work.Waiting is not null;
+        if (busy && (current is null || index <= record.Team.IndexOf(current)))
+        {
+            return [[new PanelAction("Stop the run first to change this step", "While a run works on a step, only the steps after it change", () => { })]];
+        }
+
+        var groups = new List<IReadOnlyList<PanelAction>>();
+        if (!TeamRunner.Over(step)) groups.Add(WorkerChoices(work, step));
+        var actions = new List<PanelAction>();
+        if (step.Status == TeamStepStatus.Failed || step == current && step.Status != TeamStepStatus.Waiting)
+        {
+            actions.Add(new PanelAction("Run it again from the start", "A new session of its worker, told an earlier try's changes may be in the workspace",
+                () => ChangeTeam(work, $"Step {number} again from the start", () => TeamRunner.RunAgain(step))));
+        }
+
+        if (!TeamRunner.Over(step))
+        {
+            var needing = TeamRunner.Needing(record, step);
+            actions.Add(new PanelAction(
+                needing.Count == 0 ? "Skip this step" : $"Skip this step (step {string.Join(", ", needing)} uses its files)",
+                "The team is through it with nothing done; the next worker is told it was skipped",
+                () => ChangeTeam(work, $"Skip step {number}", () =>
+                {
+                    if (TeamRunner.Skip(record, step) == TeamMove.Finished) record.Add(AgentEntryKind.HandOff, "The team is through all its steps");
+                })));
+        }
+        else if (!busy)
+        {
+            actions.Add(new PanelAction("Back to this step", "It and the steps after it run again; the files stay as they are, and its worker checks what is there",
+                () => ChangeTeam(work, $"Back to step {number}", () => TeamRunner.BackTo(record, step))));
+        }
+
+        groups.Add(actions);
+        if (!busy)
+        {
+            groups.Add([new PanelAction("Re-plan the steps left…", "Your next words go to the team's lead: the steps done stay, it plans the rest anew", () =>
+            {
+                work.Replanning = true;
+                ShowTask(work);
+            })]);
+        }
+
+        return groups;
+    }
+
+    /// <summary>
+    /// Who can do the step: Link's pick by the plan, or each agent set up at each of its levels (the custom model at its
+    /// one), with the model and effort Settings give that level. The step's own choice is checked.
+    /// </summary>
+    private IReadOnlyList<PanelAction> WorkerChoices(TaskWork work, TeamStep step)
+    {
+        var record = work.Record;
+        var settings = _settings.Current.Agent;
+        var number = TeamRunner.Number(record, step);
+        var route = Router(_projects.ReadWorkerEvidence(work.Project));
+        var choices = new List<PanelAction>
+        {
+            new("Link picks the worker", "By the plan's tier and the kind of step, as Settings and the project's record stand",
+                () => ChangeTeam(work, $"Step {number}: Link picks the worker", () => TeamRunner.Choose(step, null, route, WorkerLabel)), !step.Pinned)
+        };
+        foreach (var provider in new[] { AgentProviderKind.ClaudeCode, AgentProviderKind.Codex, AgentProviderKind.Custom }.Where(each => WorkerStateOf(each) != WorkerState.NotSet))
+        {
+            foreach (var level in provider == AgentProviderKind.Custom ? [AgentLevel.Standard] : Enum.GetValues<AgentLevel>())
+            {
+                var (model, effort) = settings.Level(provider, level);
+                var worker = new Worker(provider, level, model);
+                var label = provider == AgentProviderKind.Custom ? ShortName(provider) : $"{ShortName(provider)} {level}: {SetupWords(provider, model, effort)}";
+                choices.Add(new PanelAction(label, WorkerStateOf(provider) == WorkerState.LimitReached ? "At its usage limit now" : "This agent at this level, kept on a tier up",
+                    () => ChangeTeam(work, $"Step {number} → {label}", () => TeamRunner.Choose(step, worker, route, WorkerLabel)),
+                    step.Pinned && step.Provider == provider && step.Level == level));
+            }
+        }
+
+        return choices;
+    }
+
+    /// <summary>A change the user made to the team's plan: told in the thread and kept; a team at rest then waits for the user's word to go on.</summary>
+    private void ChangeTeam(TaskWork work, string said, Action change)
+    {
+        change();
+        work.Record.Add(AgentEntryKind.Note, said);
+        SaveTask(work);
+        ShowTask(work);
+        if (!work.Busy && work.Waiting is null) OfferTeamGoOn(work);
+    }
+
+    /// <summary>
+    /// The user's words to re-plan the steps left go to the lead's own session, as a plan only run: its plan replaces the
+    /// steps the team is not through (<see cref="OfferTeam"/>). Without that session, or with one grown big or gone
+    /// cold, a fresh session of the team's strong worker starts from the task's state and is told how to plan.
+    /// </summary>
+    private async Task StartReplanAsync(TaskWork work, string words, IReadOnlyList<string> images)
+    {
+        var record = work.Record;
+        var settings = _settings.Current.Agent;
+        var lead = record.Runs.LastOrDefault(run => run.SessionId == record.LeadSession);
+        var fresh = lead is null || CompactRule.ForStep(lead, settings.AutoCompact, settings.ContextBudget, DateTimeOffset.Now) is not null;
+        var request = fresh && File.Exists(TeamPlan.TaskFile) ? await File.ReadAllTextAsync(TeamPlan.TaskFile) : null;
+        if (work.Busy || !_works.Contains(work)) return;
+        var provider = lead?.Provider ?? WorkerRouting.Workers(settings, WorkerStateOf)[WorkerTier.Strong].Provider;
+        var (model, effort) = lead is not null ? (lead.Model, lead.Effort) : settings.Level(provider, AgentLevel.Deep);
+        var prompt = TeamPlan.ReplanPrompt(words, record, request, ProjectRoles.In(record.Workspace));
+        record.Add(AgentEntryKind.You, "(re-plan) " + words + ImagesNote(images));
+        if (fresh) record.Add(AgentEntryKind.HandOff, "The lead re-plans in a fresh session from the task's state");
+        await StartAgentAsync(work, new AgentTask
+        {
+            Provider = provider,
+            Workspace = record.Workspace,
+            Prompt = fresh ? $"{TaskState.FreshBrief(record, null, record.Workspace, "Re-plan the team's steps left, as asked below.", AgentName)}\n\n{prompt}" : prompt,
+            ResumeSessionId = fresh ? null : record.LeadSession,
+            PlanOnly = true,
+            Images = images,
+            AllowedTools = AgentCoordinator.Tools(work.Project, record.Workspace),
+            AutoApprove = record.Runs.FirstOrDefault()?.AutoApprove ?? settings.DefaultAccess == AgentAccessChoice.Auto,
+            Model = model,
+            Effort = effort
+        }, null);
+    }
+
     /// <summary>Routing as Settings, the project's evidence and the agents' state stand now.</summary>
     private TeamRunner.Router Router(WorkerEvidence evidence) =>
-        (kind, asked) => WorkerRouting.Route(kind, asked, _settings.Current.Agent, WorkerStateOf, evidence, ShortName,
-            provider => _agents.Provider(provider).Capabilities.Images);
+        (kind, asked, agent) => WorkerRouting.Route(kind, asked, _settings.Current.Agent, WorkerStateOf, evidence, ShortName,
+            provider => _agents.Provider(provider).Capabilities.Images, agent);
 
     /// <summary>Whether an agent can take a step now: set up and found, and not at its usage limit.</summary>
     private WorkerState WorkerStateOf(AgentProviderKind provider)

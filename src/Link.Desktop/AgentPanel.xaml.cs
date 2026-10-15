@@ -113,10 +113,15 @@ public partial class AgentPanel : UserControl
     private readonly HashSet<string> _skillsOn = new(StringComparer.OrdinalIgnoreCase);
     private bool _running;
     private bool _planning;
+    private bool _replanning;
     private bool _hasTask;
     private bool _replyShown;
     private bool _planOpen = true;
     private readonly HashSet<string> _openSteps = [];
+    private readonly HashSet<string> _openWords = [];
+
+    // The menu of a team's step, by its place in the plan; null: the plan's chips open nothing.
+    private Func<int, IReadOnlyList<IReadOnlyList<PanelAction>>>? _stepMenu;
     private int _planDone;
     private int _planCount;
     private string _planTitle = "Plan";
@@ -168,6 +173,9 @@ public partial class AgentPanel : UserControl
 
     /// <summary>Plan mode off: the session's next words go on with edits.</summary>
     public event Action? PlanModeOffRequested;
+
+    /// <summary>The user calls off re-planning: the next words go on as usual.</summary>
+    public event Action? ReplanOffRequested;
     public event Action<string>? OpenFileRequested;
 
     public event Action? NewTaskRequested;
@@ -360,6 +368,8 @@ public partial class AgentPanel : UserControl
     /// <summary>The task's thread, oldest first, scrolled to its end: the latest is what counts.</summary>
     public void ShowThread(IReadOnlyList<object> items)
     {
+        // Words opened stay open while the thread is drawn again.
+        foreach (var words in items.OfType<ThreadUser>()) words.Open = _openWords.Contains(words.Key);
         ThreadList.ItemsSource = items;
         Dispatcher.BeginInvoke(ThreadScroll.ScrollToEnd, System.Windows.Threading.DispatcherPriority.Background);
     }
@@ -416,20 +426,33 @@ public partial class AgentPanel : UserControl
         UpdateComposer();
     }
 
+    /// <summary>Whether the next words re-plan the team's steps left with its lead: its chip calls that off.</summary>
+    public void ShowReplan(bool replanning)
+    {
+        _replanning = replanning;
+        ReplanButton.Visibility = replanning ? Visibility.Visible : Visibility.Collapsed;
+        UpdateReplyHint();
+        UpdateComposer();
+        if (replanning) ReplyBox.Focus();
+    }
+
     /// <summary>
     /// The agent's plan as it last wrote it, as its own app shows it: ✓ done, ● under way (in the agent's words for it,
     /// when it gave any), ○ to do; a step by its first sentence, the rest a click away. A team's step also names who does
     /// it and as which specialist, in the colour of that specialist's jellyfish, found by name among
-    /// <paramref name="roles"/>, and why that worker under its words.
+    /// <paramref name="roles"/>, and why that worker under its words. Its worker chip opens <paramref name="stepMenu"/>
+    /// for the step, made when it is clicked.
     /// </summary>
-    public void ShowPlan(IReadOnlyList<AgentPlanItem> plan, IReadOnlyList<AgentRole>? roles = null, string title = "Plan")
+    public void ShowPlan(IReadOnlyList<AgentPlanItem> plan, IReadOnlyList<AgentRole>? roles = null, string title = "Plan",
+        Func<int, IReadOnlyList<IReadOnlyList<PanelAction>>>? stepMenu = null)
     {
         _planTitle = title;
+        _stepMenu = stepMenu;
         var done = (Brush)FindResource("SuccessBrush");
         var muted = (Brush)FindResource("MutedBrush");
         var accent = (Brush)FindResource("AccentBrush");
         var text = (Brush)FindResource("TextBrush");
-        PlanList.ItemsSource = plan.Select(item =>
+        PlanList.ItemsSource = plan.Select((item, index) =>
         {
             var (mark, markBrush, words, brush) = item.Done ? ("✓", done, item.Text, muted)
                 : item.Active ? ("●", accent, item.Doing ?? item.Text, text)
@@ -445,7 +468,7 @@ public partial class AgentPanel : UserControl
             // A step opened stays open while the plan is drawn again as the team moves on.
             return new PlanRow(mark, markBrush, title, brush)
             {
-                Detail = detail, Worker = item.Worker ?? string.Empty, RoleName = item.Role ?? string.Empty, RoleBrush = color,
+                Detail = detail, Worker = item.Worker ?? string.Empty, RoleName = item.Role ?? string.Empty, RoleBrush = color, Index = index,
                 Open = _openSteps.Contains(title)
             };
         }).ToArray();
@@ -626,6 +649,8 @@ public partial class AgentPanel : UserControl
             ? $"Steer {_replyTarget} now: Enter stops the step and goes on with your words · Tab: after this step"
             : answering
                 ? $"Answer {_replyTarget} in your own words"
+                : _replanning
+                ? "Tell the team's lead what to change: the steps done stay, it plans the rest anew"
                 : _planning
                     ? $"Reply to {_replyTarget}: the session stays in plan mode, reading and planning only"
                     : _replyHint ?? $"Reply to {_replyTarget}: the same session goes on with your words";
@@ -645,8 +670,8 @@ public partial class AgentPanel : UserControl
     /// </summary>
     private void UpdateComposer()
     {
-        var chips = !_running && (PlanModeButton.Visibility == Visibility.Visible || HandOffButton.Visibility == Visibility.Visible
-            || FinishButton.Visibility == Visibility.Visible);
+        var chips = !_running && (PlanModeButton.Visibility == Visibility.Visible || ReplanButton.Visibility == Visibility.Visible
+            || HandOffButton.Visibility == Visibility.Visible || FinishButton.Visibility == Visibility.Visible);
         ReplyEditor.Visibility = _replyShown ? Visibility.Visible : Visibility.Collapsed;
         ContinueButton.Visibility = _replyShown ? Visibility.Visible : Visibility.Collapsed;
         SetupButton.Visibility = _replyShown && _setup.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -1205,12 +1230,27 @@ public partial class AgentPanel : UserControl
         ShowPlanLabel();
     }
 
+    // The chip sits in the row's button: its click is the menu's alone, not the row's opening too.
+    private void PlanWorker_OnClick(object sender, RoutedEventArgs e)
+    {
+        e.Handled = true;
+        if (sender is Button { DataContext: PlanRow row } chip && _stepMenu is { } menu) ShowMenu(chip, menu(row.Index), PlacementMode.Bottom);
+    }
+
     private void PlanRow_OnClick(object sender, RoutedEventArgs e)
     {
         if (sender is not FrameworkElement { DataContext: PlanRow row }) return;
         row.Open = !row.Open;
         if (row.Open) _openSteps.Add(row.Title);
         else _openSteps.Remove(row.Title);
+    }
+
+    private void UserWords_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: ThreadUser words }) return;
+        words.Open = !words.Open;
+        if (words.Open) _openWords.Add(words.Key);
+        else _openWords.Remove(words.Key);
     }
 
     private void TurnSteps_OnClick(object sender, RoutedEventArgs e)
@@ -1270,6 +1310,8 @@ public partial class AgentPanel : UserControl
     private void Cheaper_OnClick(object sender, RoutedEventArgs e) => CheaperRequested?.Invoke();
 
     private void PlanMode_OnClick(object sender, RoutedEventArgs e) => PlanModeOffRequested?.Invoke();
+
+    private void Replan_OnClick(object sender, RoutedEventArgs e) => ReplanOffRequested?.Invoke();
 
     private void OpenFile_OnClick(object sender, RoutedEventArgs e)
     {

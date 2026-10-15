@@ -6,11 +6,12 @@ namespace Link.Desktop.Services;
 
 /// <summary>
 /// A step of the lead's team plan: what to do, its kind, the tier the lead asked for (null: Link routes by the kind),
-/// why, the files or folders it names, the specialist's role id (null: Link suggests one by the step's words), and
-/// whether the team pauses after it for the user's OK.
+/// why, the files or folders it names, the specialist's role id (null: Link suggests one by the step's words), whether
+/// the team pauses after it for the user's OK, and the agent the user named for it (null: the tier's own).
 /// </summary>
 public sealed record PlannedStep(
-    string Text, StepKind Kind, WorkerTier? Worker, string Why, IReadOnlyList<string> Files, string? Role = null, bool Check = false);
+    string Text, StepKind Kind, WorkerTier? Worker, string Why, IReadOnlyList<string> Files, string? Role = null, bool Check = false,
+    AgentProviderKind? Agent = null);
 
 /// <summary>What the lead decides about a step a worker did, as its review asks.</summary>
 public enum ReviewVerdict
@@ -82,12 +83,41 @@ public static partial class TeamPlan
     /// workers did in this project before (<see cref="WorkerEvidence.Summary"/>).
     /// </summary>
     public static string Prompt(string task, string request, IReadOnlyList<string> evidence, IReadOnlyList<AgentRole>? roles = null) =>
-        task.Trim() + "\n\n" + AgentRules.WithoutNotes(request) +
-        (roles?.Where(StepRole).ToArray() is { Length: > 0 } specialists
-            ? "\n\nSpecialists for a step's \"role\":\n" + string.Join('\n', specialists.Select(role => $"- {role.Id}: {role.Name}. {role.Description}"))
-            : string.Empty) +
+        task.Trim() + "\n\n" + AgentRules.WithoutNotes(request) + Specialists(roles) +
         "\n\nWhat workers did in this project before:" +
         (evidence.Count == 0 ? " nothing yet" : "\n" + string.Join('\n', evidence.Select(line => "- " + line)));
+
+    /// <summary>
+    /// What the lead is asked when the user re-plans the steps left: the user's words, where the plan stands and what
+    /// its steps handed over, that the steps the team is through before the current one stay, and the request for a plan
+    /// (<paramref name="request"/>; null for the lead's own session, which knows it, though the block's shape is told
+    /// again). Its link-plan block holds the steps from the current one on.
+    /// </summary>
+    public static string ReplanPrompt(string words, AgentTaskRecord record, string? request, IReadOnlyList<AgentRole>? roles = null)
+    {
+        var kept = record.Team.TakeWhile(TeamRunner.Over).Count();
+        var handed = record.Team.Select((step, index) => (step, index))
+            .Where(each => !string.IsNullOrWhiteSpace(each.step.HandedOver))
+            .Select(each => $"- Step {each.index + 1}: {each.step.HandedOver!.Trim()}").ToArray();
+        var text = new System.Text.StringBuilder("The user asks you, the team's lead, to re-plan the steps left. Read what you need, change nothing.")
+            .Append("\n\n## The user\n").Append(words.Trim())
+            .Append("\n\n## The plan as it stands\n").Append(string.Join('\n', TeamRunner.StateLines(record)));
+        if (handed.Length > 0) text.Append("\n\n## Handed over so far\n").Append(string.Join('\n', handed));
+        text.Append("\n\n").Append(kept == 0
+            ? "No step is done yet: the new plan replaces the whole plan."
+            : $"{(kept == 1 ? "Step 1 is done and stays" : $"Steps 1–{kept} are done and stay")}. The new plan replaces the rest: " +
+              $"plan only the steps from step {kept + 1} on.");
+        text.Append(request is null
+            ? "\nEnd your answer with one ```link-plan block of those steps, as before (step, kind, worker, agent, role, check, why, files), nothing after it."
+            : "\n\n" + AgentRules.WithoutNotes(request).Trim() + Specialists(roles));
+        return text.ToString();
+    }
+
+    // The specialists a step can be given to, all but the art critic (Link's own); nothing when the workspace has none.
+    private static string Specialists(IReadOnlyList<AgentRole>? roles) =>
+        roles?.Where(StepRole).ToArray() is { Length: > 0 } specialists
+            ? "\n\nSpecialists for a step's \"role\":\n" + string.Join('\n', specialists.Select(role => $"- {role.Id}: {role.Name}. {role.Description}"))
+            : string.Empty;
 
     /// <summary>The request for a review of a step, beside Link.exe like <see cref="TaskFile"/>.</summary>
     public static string ReviewFile => Path.Combine(AppContext.BaseDirectory, "harness", "team-review.md");
@@ -195,7 +225,8 @@ public static partial class TeamPlan
                     AgentQuestion.Text(element, "why")?.Trim() ?? string.Empty,
                     Files(element),
                     roles.FirstOrDefault(role => StepRole(role) && string.Equals(role.Id, AgentQuestion.Text(element, "role")?.Trim(), StringComparison.OrdinalIgnoreCase))?.Id,
-                    Check(element));
+                    Check(element),
+                    Agent(AgentQuestion.Text(element, "agent")));
             default:
                 return null;
         }
@@ -205,6 +236,14 @@ public static partial class TeamPlan
     private static StepKind? PlanKind(string? name) => ByName<StepKind>(name) is { } kind && kind != StepKind.Critique ? kind : null;
 
     private static bool StepRole(AgentRole role) => !string.Equals(role.Id, ArtCritic.RoleId, StringComparison.OrdinalIgnoreCase);
+
+    // The subscription agents by the names a lead writes; the custom model is the user's to choose in Settings.
+    private static AgentProviderKind? Agent(string? name) => name?.Trim().ToLowerInvariant() switch
+    {
+        "claude" or "claude code" or "claudecode" => AgentProviderKind.ClaudeCode,
+        "codex" or "gpt" => AgentProviderKind.Codex,
+        _ => null
+    };
 
     private static int? Score(JsonElement review) =>
         review.TryGetProperty("score", out var score) && score.ValueKind == JsonValueKind.Number && score.TryGetDouble(out var value)

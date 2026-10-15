@@ -687,6 +687,9 @@ internal static class AgentTests
                 CodexEventParser.Unwrap(@"""C:\Windows\System32\WindowsPowerShell\v1.0\powershell.exe"" -NoProfile -Command 'Get-Content ''a b.txt'''"),
                 CodexEventParser.Unwrap("dotnet build")),
             ("p4 set P4CONFIG=.p4config", "Get-Content 'a b.txt'", "dotnet build"));
+        Program.Equal("Codex: PowerShell the agent calls inside Codex's own shows the command, its escaped backslashes single",
+            CodexEventParser.Unwrap("""powershell.exe -Command "\"C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe\" -Command '& \"C:\\Blender\\blender.exe\" -b'" """),
+            """& "C:\Blender\blender.exe" -b""");
         Program.Equal("Codex: the last message is the summary", read.Parser.Summary.Contains("81 lines"), true);
         Program.Equal("Codex: a turn completes", read.Events[^1].Kind, AgentEventKind.Completed);
         Program.Equal("Codex: reading changes nothing", read.Parser.ChangedFiles.Count, 0);
@@ -2331,6 +2334,16 @@ internal static class AgentTests
         Program.Equal("steps: the line starts with what the group did first",
             StepGroups.Summarize(["≡ Read: a.cs", "▸ Skill: map"]), "Read 1 file, used 1 tool");
         Program.Equal("steps: the agent's words and notes are no tool call", (StepGroups.Summarize(["Said something", "· Session started", "⚠ Not allowed", "✗ Error"]), StepGroups.KindOf("$5 fee")), ("", (ToolKind?)null));
+        const string Workspace = @"C:\Users\me\projects\Game\";
+        const string Temp = @"C:\Users\me\AppData\Local\Temp\";
+        string Tidy(string row) => StepGroups.Tidy(row, Workspace, Temp);
+        Program.Equal("steps: a cd into the workspace goes, its files show relative, a cd elsewhere stays, temp files show as %TEMP%",
+            (Tidy("$ Bash: cd /c/Users/me/projects/Game; cat docs/map.md"), Tidy("$ cd \"C:\\Users\\me\\projects\\Game\" && dotnet build"),
+                Tidy(@"≡ Read: C:\Users\me\projects\Game\Art\kid.jpg"), Tidy("$ Bash: cd /c/Users/me/projects/Game/Art/refs; ls"),
+                Tidy("$ Bash: cd /c/Users/me/LinkPacks; cat a.md"), Tidy(@"≡ Read: C:\Users\me\AppData\Local\Temp\masks.png"),
+                Tidy("✎ Write: C:/Users/me/projects/Game/tools/kit.py"), Tidy("Said C:\\Users\\me\\projects\\Game\\x.cs")),
+            ("$ Bash: cat docs/map.md", "$ dotnet build", @"≡ Read: Art\kid.jpg", "$ Bash: cd Art/refs; ls",
+                "$ Bash: cd /c/Users/me/LinkPacks; cat a.md", @"≡ Read: %TEMP%\masks.png", "✎ Write: tools/kit.py", "Said x.cs"));
         Program.Equal("steps: a tool row of an earlier Link, marked ▸ only, counts as a tool used",
             StepGroups.Summarize(["▸ Bash: ls", "▸ Edit: a.cs", "▸ Read: a.cs"]), "Used 3 tools");
     }
@@ -2957,6 +2970,13 @@ internal static class AgentTests
             """, specialists);
         Program.Equal("team plan: a role is one of the workspace's, in the role's own spelling, an unknown one is none; check is true or \"true\", anything else is no check",
             Specialists(specialist), "3d-artist/True|rigger-animator/False|rigger-animator/True|-/False|-/False|-/False");
+        Program.Equal("team plan: a step's agent is Claude or Codex by the names a lead writes; another word or none is the tier's own",
+            string.Join("|", TeamPlan.Split("""
+                ```link-plan
+                [{"step": "A", "agent": "codex"}, {"step": "B", "agent": "Claude"}, {"step": "C", "agent": "GPT"}, {"step": "D", "agent": "custom"}, {"step": "E"}]
+                ```
+                """).Steps.Select(step => step.Agent?.ToString() ?? "-")),
+            "Codex|ClaudeCode|Codex|-|-");
         Program.Equal("team plan: without the roles of the workspace no role is taken", TeamPlan.Split("```link-plan\n[{\"step\": \"Model it\", \"role\": \"3d-artist\"}]\n```").Steps[0].Role, (string?)null);
 
         var (rest, last) = TeamPlan.Split("First:\n```link-plan\n[{\"step\": \"Old\"}]\n```\nThen:\n```link-plan\n[{\"step\": \"New\"}]\n```");
@@ -3274,6 +3294,16 @@ internal static class AgentTests
         Program.Equal("route: an Asset step in the default setup, where Codex sees images, goes to Claude at Strong and to Codex when Claude is out",
             (Route(StepKind.Asset), Route(StepKind.Asset, null, null, Unavailable(AgentProviderKind.ClaudeCode))),
             ("Strong ClaudeCode | Asset → Claude", "Strong Codex | Asset: Claude limit reached → Codex (Strong)"));
+        string Named(AgentProviderKind agent, StepKind kind, WorkerTier? asked, Func<AgentProviderKind, WorkerState>? state = null)
+        {
+            var (tier, worker, reason) = WorkerRouting.Route(kind, asked, settings, state ?? ready, new WorkerEvidence(), Name, agent: agent);
+            return $"{tier} {worker?.Provider.ToString() ?? "nobody"} {worker?.Level} | {reason}";
+        }
+        Program.Equal("route: an agent the plan named (one against another) takes the step at the tier's level, and has no stand-in",
+            (Named(AgentProviderKind.Codex, StepKind.Asset, WorkerTier.Strong), Named(AgentProviderKind.ClaudeCode, StepKind.Code, null),
+                Named(AgentProviderKind.Codex, StepKind.Asset, WorkerTier.Strong, Unavailable(AgentProviderKind.Codex))),
+            ("Strong Codex Deep | Asset: the plan chose Strong Codex → Codex", "Standard ClaudeCode Standard | Code: the plan chose Claude → Claude",
+                "Strong nobody  | Asset: the plan chose Strong Codex, Codex limit reached → no agent can take it now"));
         Program.Equal("route: a step that failed goes one tier up, none above Strong",
             (WorkerRouting.Escalate(WorkerTier.Light), WorkerRouting.Escalate(WorkerTier.Standard), WorkerRouting.Escalate(WorkerTier.Strong)),
             ((WorkerTier?)WorkerTier.Standard, (WorkerTier?)WorkerTier.Strong, (WorkerTier?)null));
@@ -3954,7 +3984,7 @@ internal static class AgentTests
             [WorkerTier.Strong] = new(AgentProviderKind.ClaudeCode, AgentLevel.Deep, "claude-opus-5-5")
         };
         var noStrong = false;
-        TeamRunner.Router route = (kind, asked) =>
+        TeamRunner.Router route = (kind, asked, _) =>
         {
             var tier = asked ?? (kind == StepKind.Mechanical ? WorkerTier.Light : WorkerTier.Standard);
             return tier == WorkerTier.Strong && noStrong ? (tier, null, "Claude Code not set up") : (tier, workers[tier], $"{kind} work");
@@ -4002,6 +4032,72 @@ internal static class AgentTests
         Program.Equal("team run: a step only the user can judge waits for their OK, and the OK finishes the team",
             (TeamRunner.After(record, third, true, "Tuned.", "", route, Name, evidence), third.Status, TeamRunner.Approve(record, third), TeamRunner.Current(record)),
             (TeamMove.AwaitOk, TeamStepStatus.AwaitsOk, TeamMove.Finished, (TeamStep?)null));
+
+        TeamRunner.Router byAgent = (_, asked, agent) => (asked ?? WorkerTier.Standard, new Worker(agent ?? AgentProviderKind.ClaudeCode, AgentLevel.Standard, null), "");
+        var contest = new AgentTaskRecord { Goal = "Contest", Workspace = @"C:\Game", Mode = TaskMode.Team };
+        contest.Team = TeamRunner.Steps([new PlannedStep("Model A", StepKind.Asset, WorkerTier.Standard, "", [], Agent: AgentProviderKind.Codex)], byAgent, Name);
+        var contestant = contest.Team[0];
+        TeamRunner.After(contest, contestant, false, "", "no", byAgent, Name, evidence);
+        Program.Equal("team run: the agent the plan named is kept on the step, and a tier up goes to it again",
+            (contestant.Agent, TeamRunner.After(contest, contestant, false, "", "no", byAgent, Name, evidence), contestant.Tier, contestant.Provider),
+            (AgentProviderKind.Codex, TeamMove.Escalated, WorkerTier.Strong, AgentProviderKind.Codex));
+
+        var skipping = Planned();
+        skipping.Team[2].Files.Add("Source/Dash.cs");
+        var skipped = skipping.Team[1];
+        Program.Equal("team control: a step that names a file a later step names is needed by it",
+            (string.Join(",", TeamRunner.Needing(skipping, skipped)), TeamRunner.Needing(skipping, skipping.Team[2]).Count), ("3", 0));
+        Program.Equal("team control: a skipped step is over, tells the next worker so, and the plan card shows it done",
+            (TeamRunner.Skip(skipping, skipped), skipped.HandedOver, TeamRunner.Current(skipping)?.Text, TeamRunner.PlanItems(skipping, _ => null)[1] is { Done: true, Text: "Skipped: Add the dash" }),
+            (TeamMove.Next, "Skipped by the user: nothing was done", "Rename the sprites", true));
+
+        var back = Planned();
+        TeamRunner.After(back, back.Team[0], true, "Handed over: sprites", "", route, Name, new WorkerEvidence());
+        back.Team[0].SessionId = "s1";
+        back.Team[1].SessionId = "s2";
+        TeamRunner.After(back, back.Team[1], false, "", "broke", route, Name, new WorkerEvidence());
+        TeamRunner.BackTo(back, back.Team[0]);
+        Program.Equal("team control: back to a done step, it and each later step that ran wait again from a first try, told an earlier try's changes may be there",
+            string.Join("|", back.Team.Select(step => $"{step.Status}/{step.Repeated}/{step.HandedOver ?? "-"}/{step.SessionId ?? "-"}/{step.Failures}/{step.Failure ?? "-"}")),
+            "Waiting/True/-/-/0/-|Waiting/True/-/-/0/-|Waiting/False/-/-/0/-");
+        Program.Equal("team control: the brief of a step sent back says to check what the earlier try left",
+            TaskState.StepBrief(back, null, @"C:\Game", back.Team[0]).Contains("earlier try's changes may be in the workspace"), true);
+
+        var choosing = Planned();
+        var chosenStep = choosing.Team[1];
+        TeamRunner.After(choosing, chosenStep, false, "", "no", route, Name, new WorkerEvidence());
+        noStrong = true;
+        TeamRunner.After(choosing, chosenStep, false, "", "no", route, Name, new WorkerEvidence());
+        noStrong = false;
+        var failedFirst = chosenStep.Status;
+        TeamRunner.Choose(chosenStep, new Worker(AgentProviderKind.Codex, AgentLevel.Deep, null), route, Name);
+        Program.Equal("team control: the user's worker for a failed step pins it at its level's tier, and the step waits to run again",
+            (failedFirst, chosenStep.Status, chosenStep.Provider, chosenStep.Tier, chosenStep.Pinned, chosenStep.Reason, chosenStep.Failures),
+            (TeamStepStatus.Failed, TeamStepStatus.Waiting, AgentProviderKind.Codex, WorkerTier.Strong, true, "Code: you chose Codex (Deep)", 0));
+        Program.Equal("team control: a pinned step is not routed again, though its agent cannot work now",
+            TeamRunner.Reroute(choosing, route, Name, _ => false).Count, 0);
+        TeamRunner.Choose(chosenStep, null, route, Name);
+        Program.Equal("team control: Link picks again by the plan's tier and the kind",
+            (chosenStep.Pinned, chosenStep.Worker, chosenStep.Tier), (false, "Codex", WorkerTier.Standard));
+
+        var limited = Planned();
+        limited.Team[2].Provider = null;
+        var rerouted = TeamRunner.Reroute(limited, route, Name, provider => provider != AgentProviderKind.Codex);
+        Program.Equal("team control: a waiting step with no worker is routed again; one whose worker cannot work is tried, and kept when routing gives the same",
+            (string.Join(",", rerouted.Select(each => $"{TeamRunner.Number(limited, each.Step)}:{each.Before}→{each.Step.Worker}")), limited.Team[2].Provider),
+            ("3:Opus 5.5→Opus 5.5", AgentProviderKind.ClaudeCode));
+
+        var replan = Planned();
+        TeamRunner.After(replan, replan.Team[0], true, "Handed over: sprites in Content/Sprites", "", route, Name, new WorkerEvidence());
+        TeamRunner.Skip(replan, replan.Team[2]);
+        var prompt = TeamPlan.ReplanPrompt("Make the dash two steps", replan, null);
+        replan.Team = TeamRunner.Replanned(replan, [new PlannedStep("Add the dash input", StepKind.Code, null, "", []), new PlannedStep("Tune it", StepKind.Design, null, "", [])], route, Name);
+        Program.Equal("team control: a new plan keeps the steps the team is through before the current one and replaces the rest",
+            string.Join("|", replan.Team.Select(step => $"{step.Text}/{step.Status}")), "Rename the sprites/Done|Add the dash input/Waiting|Tune it/Waiting");
+        Program.Equal("team control: the lead is asked to re-plan from the first step not done, told the user's words and what was handed over",
+            (prompt.Contains("Step 1 is done and stays"),prompt.Contains("plan only the steps from step 2 on"), prompt.Contains("Make the dash two steps"),
+                prompt.Contains("- Step 1: sprites in Content/Sprites"), prompt.Contains("```link-plan")),
+            (true, true, true, true, true));
 
         var stuck = Planned();
         noStrong = true;
@@ -4321,7 +4417,7 @@ See shots/flat.png. Not crate.blend or a.pngx.")),
     private static void ArtCritiqueMoves()
     {
         var artist = new Worker(AgentProviderKind.ClaudeCode, AgentLevel.Deep, "claude-opus-5-5");
-        TeamRunner.Router route = (_, asked) => (asked ?? WorkerTier.Strong, artist, "art");
+        TeamRunner.Router route = (_, asked, _) => (asked ?? WorkerTier.Strong, artist, "art");
         static string Name(Worker worker) => "Opus 5.5";
         AgentTaskRecord Planned(bool check = true)
         {

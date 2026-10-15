@@ -67,6 +67,8 @@ public static class WorkerRouting
     /// worker that cannot work now (not set up, at its limit) is replaced by the other subscription agent at the same
     /// level (Claude Code and Codex stand in for each other); the step rises a tier only where the worker failed the
     /// kind here, or neither can work. Above Strong there is no worker, and the reason says why.
+    /// An agent the plan named (<paramref name="agent"/>, as the user asked: one agent against another) serves every tier
+    /// at the level of the tier's own worker, and has no stand-in: another agent would not be the one asked for.
     /// <paramref name="agentName"/> names an agent in the reason (default <see cref="ShortName"/>).
     /// </summary>
     public static (WorkerTier Tier, Worker? Worker, string Reason) Route(
@@ -76,17 +78,20 @@ public static class WorkerRouting
         Func<AgentProviderKind, WorkerState> state,
         WorkerEvidence evidence,
         Func<AgentProviderKind, string>? agentName = null,
-        Func<AgentProviderKind, bool>? seesImages = null)
+        Func<AgentProviderKind, bool>? seesImages = null,
+        AgentProviderKind? agent = null)
     {
         agentName ??= ShortName;
         seesImages ??= provider => provider != AgentProviderKind.Custom;
         var workers = Workers(settings, state);
+        if (agent is { } named) workers = workers.ToDictionary(pair => pair.Key, pair => Of(settings, named, pair.Value.Level));
         var parts = new List<string>();
         string? hint = null;
         var floor = kind == StepKind.Design || StepKinds.IsArt(kind) ? WorkerTier.Standard : WorkerTier.Light;
         var tier = asked ?? StepKinds.TierOf(kind);
         var below = tier > floor ? workers[tier - 1] : null;
-        if (asked is { } plan) parts.Add($"the plan chose {plan}");
+        var chosen = string.Join(' ', new[] { asked?.ToString(), agent is { } by ? agentName(by) : null }.OfType<string>());
+        if (chosen.Length > 0) parts.Add($"the plan chose {chosen}");
         if (tier < floor)
         {
             parts.Add($"{kind} goes no lower than {floor}");
@@ -114,7 +119,7 @@ public static class WorkerRouting
             var failedHere = away is null ? FailedHere(kind, worker, evidence, agentName) : null;
             if (away is null && failedHere is null) return (tier, worker, Reason(kind, parts, agentName(worker.Provider), hint));
             if (!parts.Contains(away ?? failedHere!)) parts.Add(away ?? failedHere!);
-            if (away is not null && StandIn(kind, worker, settings, state, evidence, seesImages, agentName, parts) is { } stand)
+            if (away is not null && agent is null && StandIn(kind, worker, settings, state, evidence, seesImages, agentName, parts) is { } stand)
             {
                 return (tier, stand, Reason(kind, parts, $"{agentName(stand.Provider)} ({tier})", hint));
             }

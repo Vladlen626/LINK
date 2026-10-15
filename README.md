@@ -149,6 +149,10 @@ Studio коротко:
    Вердикт с оценкой 1–5: принять, вернуть художнику с дефектами (не больше двух раз) или оставить вам с замечаниями;
    ваши слова после вердикта (и во время его работы — они его останавливают) идут художнику вместе с ними. Галка **Art critic** в Settings → Agents. Под настройками —
    строка `Context budget Auto · 5 skills · MCP: unreal` и **Harness**.
+   The worker chip of a team step opens its menu: another worker (Link's pick, or Claude / Codex / the custom model at
+   a level), run it again, skip it (it names the later steps that use its files), back to a done step, or **Re-plan
+   the steps left…** (your next words go to the lead; done steps stay). A plan step may name its agent
+   (`"agent": "codex"`), for one agent against another. A failed step offers **Try it again**.
    **Train the specialist** (вместо Team, нужен специалист): цель — тема и источники (ссылки в тексте, PDF и
    картинки вложениями). Специалист изучает их (веб — без вопросов, файлы проекта и skills не меняет) и пишет до 8 **уроков-кандидатов**:
    правило, причина, в какой skill и для всех ли игр. Они в карточке **Lessons** вместо плана; рабочие агенты их не

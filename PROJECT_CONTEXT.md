@@ -436,6 +436,10 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    Explorer). Решения пользователя: план — шаг строкой с раскрытием, «What Link gave» убран (есть Harness →
    Injected context); skills — пакетный skill общий, проект дополняет его своим `<пакет>-project`, общие уроки — в
    пакет и через `share-packs` в git для коллег; Link обновляет неизменённые файлы пакетов.
+   Team control (15.10, after the Codex-vs-Claude contest ran Codex's steps on Opus) —
+   [docs/TEAM_CONTROL_PLAN.md](docs/TEAM_CONTROL_PLAN.md): a plan step may name its agent; the step's worker chip
+   changes its worker, runs it again, skips it, goes back to it or re-plans the rest with the lead; a failed step is
+   offered again. Stages 1–3 built, not yet tried by the user; undo on going back and the sandbox note are open.
 10. **Обучение специалистов** (PDF пользователя «LINK Agent Training», 09.10) — [docs/TRAINING_PLAN.md](docs/TRAINING_PLAN.md).
    Решение: прочитанное — не навык; урок попадает в skill только после экзамена на настоящей задаче пользователя.
    Сделан MVP (TR.1–TR.4, 09.10, ждёт проверки пользователем): галка **Train** на карточке, учёба только чтением

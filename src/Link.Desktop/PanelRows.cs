@@ -10,10 +10,50 @@ namespace Link.Desktop;
 
 // What the panel's lists and threads show, one record per row; the panels draw them and the card fills them.
 
-/// <summary>The user's words in a thread: a task's brief, a reply or a correction, a question to the chat.</summary>
-public sealed record ThreadUser(string Text, string Time, string Carried = "")
+/// <summary>
+/// The user's words in a thread: a task's brief, a reply or a correction, a question to the chat. Long words show
+/// folded to their first lines; a click shows them all and folds them again.
+/// </summary>
+public sealed class ThreadUser(string text, string time, string carried = "") : INotifyPropertyChanged
 {
+    private const int FoldedLines = 8;
+    private const int FoldedLength = 600;
+    private readonly string? _folded = Fold(text.Trim());
+    private bool _open;
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string Text => _open || _folded is null ? text : _folded;
+    public string Time => time;
+    public string Carried => carried;
     public Visibility CarriedVisibility => Carried.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+    public Visibility ToggleVisibility => _folded is null ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>The same words at the same time, when the thread is drawn again.</summary>
+    public string Key => time + "\n" + text;
+    public string ToggleLabel => _open ? "Show less ▴" : "Show all ▾";
+
+    public bool Open
+    {
+        get => _open;
+        set
+        {
+            if (_open == value || _folded is null) return;
+            _open = value;
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Text)));
+            PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(ToggleLabel)));
+        }
+    }
+
+    // The first lines up to a length, cut at a space; null when the words are short enough to show whole.
+    private static string? Fold(string words)
+    {
+        var lines = words.Split('\n');
+        if (lines.Length <= FoldedLines && words.Length <= FoldedLength) return null;
+        var start = string.Join('\n', lines.Take(FoldedLines));
+        if (start.Length > FoldedLength) start = start[..(start.LastIndexOf(' ', FoldedLength) is > FoldedLength / 2 and var space ? space : FoldedLength)];
+        return start.TrimEnd() + "…";
+    }
 }
 
 /// <summary>A line between the turns of a task: a hand-over, another model, a limit, the task finished.</summary>
@@ -208,6 +248,10 @@ public sealed class PlanRow(string mark, Brush markBrush, string title, Brush br
     public string Worker { get; init; } = string.Empty;
     public string RoleName { get; init; } = string.Empty;
     public Brush? RoleBrush { get; init; }
+
+    /// <summary>The step's place in the plan, from 0: its worker chip opens the step's menu.</summary>
+    public int Index { get; init; }
+
     public Visibility WorkerVisibility => Worker.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     public Visibility RoleVisibility => RoleName.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     public string Chevron => Detail.Length == 0 ? string.Empty : _open ? "▾" : "▸";

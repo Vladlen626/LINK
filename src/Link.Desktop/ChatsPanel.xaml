@@ -16,6 +16,10 @@
                     Background="{StaticResource ActiveContextBrush}">
                 <StackPanel>
                     <TextBox Style="{StaticResource ReadTextStyle}" Text="{Binding Text, Mode=OneWay}" />
+                    <Button Margin="-6,3,0,0" Padding="6,1" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
+                            Click="UserWords_OnClick" Visibility="{Binding ToggleVisibility}">
+                        <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding ToggleLabel}" />
+                    </Button>
                     <TextBlock Margin="0,3,0,0" FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Carried}"
                                TextWrapping="Wrap" Visibility="{Binding CarriedVisibility}" />
                     <TextBlock Margin="0,3,0,0" HorizontalAlignment="Right" FontSize="10.5" Foreground="{StaticResource MutedBrush}"

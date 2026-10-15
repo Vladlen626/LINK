@@ -50,8 +50,11 @@ public enum TeamMove
 /// </summary>
 public static partial class TeamRunner
 {
-    /// <summary>Who takes a step of a kind, at the tier asked for (null: the kind's own), and why (see <see cref="WorkerRouting.Route"/>).</summary>
-    public delegate (WorkerTier Tier, Worker? Worker, string Reason) Router(StepKind kind, WorkerTier? asked);
+    /// <summary>
+    /// Who takes a step of a kind, at the tier asked for (null: the kind's own), by the agent the plan named (null: the
+    /// tier's own), and why (see <see cref="WorkerRouting.Route"/>).
+    /// </summary>
+    public delegate (WorkerTier Tier, Worker? Worker, string Reason) Router(StepKind kind, WorkerTier? asked, AgentProviderKind? agent);
 
     /// <summary>A failure is told to the next worker in this many characters at most.</summary>
     private const int FailureLength = 600;
@@ -84,13 +87,26 @@ public static partial class TeamRunner
     public static List<TeamStep> Steps(IReadOnlyList<PlannedStep> planned, Router route, Func<Worker, string> workerName) =>
         [.. planned.Select(step =>
         {
-            var routed = new TeamStep { Text = step.Text, Kind = step.Kind, Files = [.. step.Files], Role = step.Role, Check = step.Check };
-            Assign(routed, route(step.Kind, step.Worker), workerName);
+            var routed = new TeamStep
+            {
+                Text = step.Text, Kind = step.Kind, Files = [.. step.Files], Role = step.Role, Check = step.Check, Agent = step.Agent, Asked = step.Worker
+            };
+            Assign(routed, route(step.Kind, step.Worker, step.Agent), workerName);
             return routed;
         })];
 
-    /// <summary>The step the team is on: the first that is not done (under way, waiting for the user, failed, or next); null when all are done.</summary>
-    public static TeamStep? Current(AgentTaskRecord record) => record.Team.FirstOrDefault(step => step.Status != TeamStepStatus.Done);
+    /// <summary>
+    /// The lead's new plan for the steps left: the steps the team is through before the current one stay, the rest give
+    /// way to <paramref name="planned"/>. For a first plan, or one before the team ran, that is all of it.
+    /// </summary>
+    public static List<TeamStep> Replanned(AgentTaskRecord record, IReadOnlyList<PlannedStep> planned, Router route, Func<Worker, string> workerName) =>
+        [.. record.Team.TakeWhile(Over), .. Steps(planned, route, workerName)];
+
+    /// <summary>Whether the team is through the step: done, or skipped by the user.</summary>
+    public static bool Over(TeamStep step) => step.Status is TeamStepStatus.Done or TeamStepStatus.Skipped;
+
+    /// <summary>The step the team is on: the first it is not through (under way, waiting for the user, failed, or next); null when all are.</summary>
+    public static TeamStep? Current(AgentTaskRecord record) => record.Team.FirstOrDefault(step => !Over(step));
 
     /// <summary>The step's number as the plan shows it, from 1.</summary>
     public static int Number(AgentTaskRecord record, TeamStep step) => record.Team.IndexOf(step) + 1;
@@ -211,13 +227,118 @@ public static partial class TeamRunner
     }
 
     /// <summary>
+    /// The user chose the step's worker on the plan card: that agent at that level, kept when Link routes the plan again
+    /// and on a tier up. Null: Link picks again, by the plan's tier and the kind. A failed step can run again then.
+    /// </summary>
+    public static void Choose(TeamStep step, Worker? worker, Router route, Func<Worker, string> workerName)
+    {
+        step.Pinned = worker is not null;
+        step.Agent = worker?.Provider;
+        if (worker is null)
+        {
+            Assign(step, route(step.Kind, step.Asked, null), workerName);
+        }
+        else
+        {
+            var tier = worker.Level switch { AgentLevel.Light => WorkerTier.Light, AgentLevel.Deep => WorkerTier.Strong, _ => WorkerTier.Standard };
+            Assign(step, (tier, worker, $"{step.Kind}: you chose {workerName(worker)} ({worker.Level})"), workerName);
+        }
+
+        if (step.Status == TeamStepStatus.Failed) RunAgain(step);
+    }
+
+    /// <summary>
+    /// The step waits to run again in a new session, from its first try: its tries, notes and hand-over are cleared, and
+    /// a step that ran is marked <see cref="TeamStep.Repeated"/>, so that its worker looks at what the earlier try left.
+    /// What a failed worker ended in stays for the next.
+    /// </summary>
+    public static void RunAgain(TeamStep step)
+    {
+        step.Repeated = step.Repeated || step.SessionId is not null || step.Status != TeamStepStatus.Waiting;
+        step.Status = TeamStepStatus.Waiting;
+        step.Failures = 0;
+        step.Redos = 0;
+        step.SessionId = null;
+        step.CriticSession = null;
+        step.ReviewNotes = null;
+        step.CriticNotes = null;
+        step.HandedOver = null;
+        step.Unverified = false;
+    }
+
+    /// <summary>
+    /// The user skips the step: the team is through it, nothing counts for its worker, and the next worker is told it was
+    /// skipped (after a try, that its changes may be in the workspace).
+    /// </summary>
+    public static TeamMove Skip(AgentTaskRecord record, TeamStep step)
+    {
+        step.HandedOver = step.Repeated || step.SessionId is not null || step.Status != TeamStepStatus.Waiting
+            ? "Skipped by the user after a try: its changes may be in the workspace"
+            : "Skipped by the user: nothing was done";
+        step.Status = TeamStepStatus.Skipped;
+        step.ReviewNotes = null;
+        step.CriticNotes = null;
+        return Current(record) is null ? TeamMove.Finished : TeamMove.Next;
+    }
+
+    /// <summary>
+    /// The user goes back to a step the team is through: it and every step after it that ran or was skipped wait again
+    /// (see <see cref="RunAgain"/>), without what earlier failures told; the files stay as they are.
+    /// </summary>
+    public static void BackTo(AgentTaskRecord record, TeamStep step)
+    {
+        foreach (var each in record.Team.Skip(record.Team.IndexOf(step)).Where(each => each.Status != TeamStepStatus.Waiting || each.SessionId is not null))
+        {
+            var skipped = each.Status == TeamStepStatus.Skipped && each.SessionId is null && !each.Repeated;
+            RunAgain(each);
+            each.Repeated = !skipped;
+            each.Failure = null;
+            each.EscalatedFrom = null;
+        }
+    }
+
+    /// <summary>The numbers of the later steps that name a file or folder of the step's: skipping it may leave them without what they need.</summary>
+    public static IReadOnlyList<int> Needing(AgentTaskRecord record, TeamStep step)
+    {
+        static string Norm(string path) => path.Replace('\\', '/').Trim('/').ToLowerInvariant();
+        bool Shares(string one, string other) =>
+            one == other || one.StartsWith(other + "/", StringComparison.Ordinal) || other.StartsWith(one + "/", StringComparison.Ordinal);
+        var own = step.Files.Select(Norm).Where(path => path.Length > 0).ToArray();
+        var at = record.Team.IndexOf(step);
+        return [.. record.Team.Select((each, index) => (each, index)).Skip(at + 1)
+            .Where(later => later.each.Files.Select(Norm).Any(path => own.Any(mine => Shares(mine, path))))
+            .Select(later => later.index + 1)];
+    }
+
+    /// <summary>
+    /// Steps still waiting whose worker cannot work now (<paramref name="canWork"/>: not set up, at its limit) or that have
+    /// none are routed again as the plan asked, so that a limit that has reset or a worker set up since takes them; a
+    /// step whose worker the user chose keeps it. The steps that changed, with the worker each had.
+    /// </summary>
+    public static IReadOnlyList<(TeamStep Step, string Before)> Reroute(AgentTaskRecord record, Router route, Func<Worker, string> workerName,
+        Func<AgentProviderKind, bool> canWork)
+    {
+        var changed = new List<(TeamStep, string)>();
+        foreach (var step in record.Team.Where(step => step.Status == TeamStepStatus.Waiting && !step.Pinned && (step.Provider is not { } provider || !canWork(provider))))
+        {
+            var routed = route(step.Kind, step.Asked, step.Agent);
+            if (routed.Worker is null || (routed.Worker.Provider == step.Provider && routed.Worker.Level == step.Level)) continue;
+            var before = step.Worker;
+            Assign(step, routed, workerName);
+            changed.Add((step, before));
+        }
+
+        return changed;
+    }
+
+    /// <summary>
     /// The team plan as the task's plan card shows it: done, under way or waiting for the user's OK, and to do; each
     /// step with its worker (after an escalation "Haiku 5.5 → Codex"), its specialist's name and why that worker.
     /// </summary>
     public static IReadOnlyList<AgentPlanItem> PlanItems(AgentTaskRecord record, Func<string?, string?> roleName) =>
         [.. record.Team.Select(step => new AgentPlanItem(
-            step.Status == TeamStepStatus.Failed ? "Failed: " + step.Text : step.Text,
-            step.Status == TeamStepStatus.Done,
+            step.Status switch { TeamStepStatus.Failed => "Failed: ", TeamStepStatus.Skipped => "Skipped: ", _ => string.Empty } + step.Text,
+            Over(step),
             step.Status is TeamStepStatus.Running or TeamStepStatus.AwaitsOk or TeamStepStatus.Reviewing or TeamStepStatus.Critique,
             step.Status switch
             {
@@ -235,14 +356,14 @@ public static partial class TeamRunner
         // A step by its first sentence: each worker gets its own step in full, the others' would only cost tokens.
         record.Team.Select((step, index) =>
             $"- [{(step.Status == TeamStepStatus.Done ? "x" : " ")}] {index + 1}. {TeamPlan.Headline(step.Text).Title} ({step.Worker}" +
-            (step.Status is TeamStepStatus.Failed or TeamStepStatus.AwaitsOk ? $", {step.Status}" : string.Empty) + ")");
+            (step.Status is TeamStepStatus.Failed or TeamStepStatus.AwaitsOk or TeamStepStatus.Skipped ? $", {step.Status}" : string.Empty) + ")");
 
     /// <summary>The step goes a tier up, to a new session of that tier's worker; with no tier or worker left it fails.</summary>
     private static TeamMove Up(TeamStep step, Router route, Func<Worker, string> workerName)
     {
         if (WorkerRouting.Escalate(step.Tier) is { } up)
         {
-            Assign(step, route(step.Kind, up), workerName);
+            Assign(step, route(step.Kind, up, step.Agent), workerName);
             step.Failures = 0;
             step.SessionId = null;
             if (step.Provider is not null) return TeamMove.Escalated;

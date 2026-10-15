@@ -402,6 +402,12 @@ public partial class MainWindow
             if (_open is { } work) _ = ShowHandOffCardAsync(work, AgentProviderKind.Custom);
         };
         panel.PlanModeOffRequested += LeavePlanMode;
+        panel.ReplanOffRequested += () =>
+        {
+            if (_open is not { } work) return;
+            work.Replanning = false;
+            ShowTask(work);
+        };
         panel.OpenFileRequested += ShowFile;
         panel.NewTaskRequested += () => _ = OpenNewTaskCardAsync();
         panel.TaskSelected += OpenAgentTask;
@@ -623,6 +629,14 @@ public partial class MainWindow
             return;
         }
 
+        // Re-plan, chosen in a team step's menu: the words go to the lead for a new plan of the steps left.
+        if (work.Replanning)
+        {
+            work.Replanning = false;
+            _ = StartReplanAsync(work, text, images);
+            return;
+        }
+
         // A training ready for its exam: the words set it, in a new session.
         if (work.Record.Training is { Stage: TrainingStage.AwaitsExam } course)
         {
@@ -745,7 +759,7 @@ public partial class MainWindow
         if (_open is not { Busy: false, Waiting: null, LastRun: { Task.PlanOnly: true } run } work) return;
         var (model, effort) = _settings.Current.Agent.PlanOnDeep ? work.PlanSetup : (run.Task.Model, run.Task.Effort);
         work.LastRun = work.PlanLeft = run with { Task = run.Task with { PlanOnly = false, Model = model, Effort = effort } };
-        work.Record.Add(AgentEntryKind.You, "Plan mode off");
+        work.Record.Add(AgentEntryKind.Note, "Plan mode off");
         SaveTask(work);
         ShowTask(work);
         AgentStatus("Plan mode is off: your next words go on with edits in the same session");
@@ -1138,6 +1152,7 @@ public partial class MainWindow
         panel.ShowMenus([], OwnActions(own));
         panel.ShowFinish(false);
         panel.ShowPlanMode(false);
+        panel.ShowReplan(false);
         panel.SetRunning(live is not null);
         // Link's own answer takes no words.
         panel.ShowReply(false, live is not null ? null : "Link's own answer: the file is written. The tasks are on the left.");
@@ -1489,6 +1504,7 @@ public partial class MainWindow
     {
         AgentEventKind.Completed or AgentEventKind.Artifact or AgentEventKind.ToolFailed or AgentEventKind.Plan or AgentEventKind.Limit
             or AgentEventKind.Context => null,
+        AgentEventKind.Status when agentEvent.Detail == AgentEvent.SessionStart => null,
         AgentEventKind.Tool => StepGroups.Step(agentEvent),
         AgentEventKind.Output => agentEvent.Text,
         AgentEventKind.NeedsInput => "⚠ " + agentEvent.Text,
@@ -1546,10 +1562,14 @@ public partial class MainWindow
         live.Pending.Clear();
         // Link's own answer is no step of a task: an agent that takes a task over is not told of it.
         if (work is not null) RememberSteps(work, events);
-        var steps = events.Select(StepText).OfType<string>().Select(step => Shorten(step, 1200)).ToArray();
+        var workspace = live.Task.Workspace;
+        var steps = events.Select(StepText).OfType<string>().Select(step => Shorten(StepGroups.Tidy(step, workspace), 1200)).ToArray();
         live.Steps.AddRange(steps.Select(step => Shorten(step, 300)));
         live.Turn.AddSteps(steps.Select(StepRow));
-        if (events.LastOrDefault(agentEvent => agentEvent.Kind is AgentEventKind.Tool or AgentEventKind.Status) is { } current) live.Turn.Current = current.Text;
+        if (events.LastOrDefault(agentEvent => agentEvent.Kind is AgentEventKind.Tool or AgentEventKind.Status) is { } current)
+        {
+            live.Turn.Current = current.Kind == AgentEventKind.Tool ? StepGroups.Tidy(StepGroups.Step(current), workspace)[2..] : current.Text;
+        }
         if (work is not null && events.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Plan) is { } plan)
         {
             work.Record.Plan = [.. plan.Plan];
@@ -1647,8 +1667,9 @@ public partial class MainWindow
             return;
         }
 
-        var plan = record.Team.Count > 0 ? TeamPlanItems(record) : record.Plan;
-        _agentPanel?.ShowPlan(plan, PlanRoles(plan, record.Workspace));
+        var team = record.Team.Count > 0;
+        var plan = team ? TeamPlanItems(record) : record.Plan;
+        _agentPanel?.ShowPlan(plan, PlanRoles(plan, record.Workspace), stepMenu: team ? index => TeamStepMenu(record, index) : null);
     }
 
     private static IReadOnlyList<AgentRole>? PlanRoles(IReadOnlyList<AgentPlanItem> plan, string workspace) =>
@@ -2178,7 +2199,8 @@ public partial class MainWindow
         if (waiting is null) panel.ShowLimit(work.Limit?.Text, work.Limit?.Actions ?? [], work.Limit?.Toggle);
         panel.ShowMenus(work.Busy || waiting is not null ? [] : HandOffActions(work), MoreActions(work));
         panel.ShowFinish(true);
-        panel.ShowPlanMode(!work.Busy && waiting is null && work.LastRun is { Task.PlanOnly: true });
+        panel.ShowPlanMode(!work.Busy && waiting is null && work.LastRun is { Task.PlanOnly: true } && !work.Replanning);
+        panel.ShowReplan(!work.Busy && waiting is null && work.Replanning);
         if (work.Asking is { } asking) panel.ShowStep(asking.Step, running: true);
         else if (live is not null) panel.ShowReply(true);
         else if (waiting is not null) panel.ShowReply(false, $"This task waits: {waiting.Why}. Its run starts by itself once that one ends; Stop calls it off.");
@@ -2641,8 +2663,9 @@ public partial class MainWindow
         var record = work.Record;
         ClearChoice(work);
         if (result.Stopped || result.SessionId is not { } session) return false;
-        // The team lead's review and the art critic only read: their verdict decides (AfterTeamStep, AfterTrainingRun), not a card of this.
-        if (TeamRunner.Current(record) is { Status: TeamStepStatus.Reviewing or TeamStepStatus.Critique } ||
+        // The team lead's review and the art critic only read: their verdict decides (AfterTeamStep, AfterTrainingRun), not a card of
+        // this. A plan asked for meanwhile (a re-plan) is offered.
+        if (!task.PlanOnly && TeamRunner.Current(record) is { Status: TeamStepStatus.Reviewing or TeamStepStatus.Critique } ||
             record.Training is not null && ArtCritic.Judges(task))
         {
             return false;

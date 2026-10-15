@@ -134,6 +134,10 @@
                     <Border Padding="14,10" CornerRadius="14,14,4,14" Background="{StaticResource ActiveContextBrush}">
                         <StackPanel>
                             <TextBox Style="{StaticResource ReadTextStyle}" Text="{Binding Text, Mode=OneWay}" />
+                            <Button Margin="-6,4,0,0" Padding="6,1" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
+                                    Click="UserWords_OnClick" Visibility="{Binding ToggleVisibility}">
+                                <TextBlock FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding ToggleLabel}" />
+                            </Button>
                             <TextBlock Margin="0,4,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Carried}"
                                        TextWrapping="Wrap" Visibility="{Binding CarriedVisibility}" />
                         </StackPanel>
@@ -479,10 +483,14 @@
                                                                TextTrimming="CharacterEllipsis" />
                                                     <!-- A team's step: who does it, and as which specialist. -->
                                                     <StackPanel Grid.Column="2" Margin="10,0,0,0" VerticalAlignment="Center" Orientation="Horizontal">
-                                                        <Border Margin="0,0,8,0" Padding="6,1" VerticalAlignment="Center" CornerRadius="6"
-                                                                Background="{StaticResource SubtleGlassBrush}" Visibility="{Binding WorkerVisibility}">
-                                                            <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Worker}" />
-                                                        </Border>
+                                                        <!-- The worker chip opens the step's menu: another worker, again, skip, back, re-plan. -->
+                                                        <Button Margin="0,0,8,0" Padding="0" VerticalAlignment="Center" Style="{StaticResource GhostButtonStyle}"
+                                                                Visibility="{Binding WorkerVisibility}" Click="PlanWorker_OnClick"
+                                                                ToolTip="Change who does this step, run it again, skip it, go back to it, or re-plan the steps left">
+                                                            <Border Padding="6,1" CornerRadius="6" Background="{StaticResource SubtleGlassBrush}">
+                                                                <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Worker}" />
+                                                            </Border>
+                                                        </Button>
                                                         <StackPanel Orientation="Horizontal" Visibility="{Binding RoleVisibility}">
                                                             <Control Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center" Focusable="False"
                                                                      Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" />
@@ -607,6 +615,9 @@
                             <Button x:Name="PlanModeButton" Style="{StaticResource GhostChipStyle}" Click="PlanMode_OnClick" Content="Plan mode ✕"
                                     Visibility="Collapsed"
                                     ToolTip="The session only reads and plans: edits, editor calls and commands are refused in it, whatever is allowed. Turn it off: your next words go on with edits, in the same session" />
+                            <Button x:Name="ReplanButton" Style="{StaticResource GhostChipStyle}" Click="Replan_OnClick" Content="Re-plan ✕"
+                                    Visibility="Collapsed"
+                                    ToolTip="Your next words go to the team's lead: the steps done stay, it plans the rest anew. Click to send words as usual" />
                             <Button x:Name="HandOffButton" Style="{StaticResource GhostChipStyle}" Click="HandOff_OnClick" Content="Hand off ▾"
                                     ToolTip="The other agent in a new session with a brief you see first, or the first agent back in its own session" />
                             <Button x:Name="FinishButton" Style="{StaticResource GhostChipStyle}" Click="Finish_OnClick" Content="Finish"

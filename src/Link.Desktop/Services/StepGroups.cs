@@ -1,3 +1,4 @@
+using System.Text.RegularExpressions;
 using Link.Desktop.Models;
 
 namespace Link.Desktop.Services;
@@ -23,6 +24,27 @@ public static class StepGroups
 {
     /// <summary>The row of a tool call: the mark of what it does, then its words.</summary>
     public static string Step(AgentEvent call) => $"{Mark(call)} {call.Text}";
+
+    /// <summary>
+    /// A row without what only repeats the obvious: a <c>cd</c> into the <paramref name="workspace"/> before a command
+    /// goes, its files show relative to it, and the <paramref name="temp"/> folder (default: the user's) as %TEMP%. Each
+    /// path is met as Windows, forward-slash and Git Bash (<c>/c/…</c>) write it.
+    /// </summary>
+    public static string Tidy(string row, string? workspace, string? temp = null)
+    {
+        foreach (var (folder, shown) in new[] { (workspace, string.Empty), (temp ?? Path.GetTempPath(), "%TEMP%${sep}") })
+        {
+            if (string.IsNullOrWhiteSpace(folder) || folder.TrimEnd('\\', '/') is not { Length: > 3 } root) continue;
+            var forward = root.Replace('\\', '/');
+            var spellings = new[] { root, forward, root.Replace("\\", "\\\\"), forward[1] == ':' ? $"/{char.ToLowerInvariant(forward[0])}{forward[2..]}" : forward }
+                .Distinct().Select(Regex.Escape);
+            var any = $"(?:{string.Join('|', spellings)})";
+            if (shown.Length == 0) row = Regex.Replace(row, $@"^(. (?:[\w.-]+: )?)(?:cd|Set-Location)\s+[""']?{any}[""']?\s*(?:;|&&)\s*", "$1", RegexOptions.IgnoreCase);
+            row = Regex.Replace(row, $@"{any}(?<sep>\\\\|[\\/])", shown, RegexOptions.IgnoreCase);
+        }
+
+        return row;
+    }
 
     private static char Mark(AgentEvent call) => call.Detail switch
     {

@@ -94,6 +94,11 @@ public partial class ChatsPanel : UserControl
     private void OpenThread_OnClick(object sender, RoutedEventArgs e) => OpenChatRequested?.Invoke();
     private void Back_OnClick(object sender, RoutedEventArgs e) => ShowListView();
 
+    private void UserWords_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is FrameworkElement { DataContext: ThreadUser words }) words.Open = !words.Open;
+    }
+
     private void ChatRow_OnClick(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: ChatRow row }) ChatSelected?.Invoke(row);

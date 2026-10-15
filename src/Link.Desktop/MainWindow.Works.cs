@@ -221,6 +221,9 @@ public partial class MainWindow
         // The run whose plan mode was turned off: while it is the last run, the next words carry its plan out.
         public AgentRun? PlanLeft { get; set; }
 
+        // The user chose Re-plan in a team step's menu: the next words go to the lead for a new plan of the steps left.
+        public bool Replanning { get; set; }
+
         // The agent's question at the end of its last run: a choice until it is answered.
         public AgentQuestion? Question { get; set; }
 

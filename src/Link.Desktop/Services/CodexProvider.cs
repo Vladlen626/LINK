@@ -466,7 +466,7 @@ public sealed partial class CodexEventParser : AgentEventParser
         {
             case "thread.started":
                 SessionId = Text(root, "thread_id");
-                events.Add(new AgentEvent(AgentEventKind.Status, "Session started"));
+                events.Add(new AgentEvent(AgentEventKind.Status, "Session started", AgentEvent.SessionStart));
                 break;
             // The agent's own plan, whole each time it changes: the Task tab shows it as a list.
             case "item.started" or "item.updated" or "item.completed" when root.TryGetProperty("item", out var list) &&
@@ -574,12 +574,23 @@ public sealed partial class CodexEventParser : AgentEventParser
         output.Contains("read-only", StringComparison.OrdinalIgnoreCase);
 
     /// <summary>
-    /// Codex runs each command through PowerShell, as <c>powershell.exe -Command "…"</c> or, lately, as
-    /// <c>"…\powershell.exe" '…'</c>; the row shows the command itself.
+    /// Codex runs each command through PowerShell, as <c>powershell.exe -Command "…"</c> (its quotes and backslashes
+    /// escaped) or, lately, as <c>"…\powershell.exe" '…'</c>; an agent may call PowerShell itself inside that. The row
+    /// shows the command itself.
     /// </summary>
-    internal static string Unwrap(string command) => ShellCommand().Match(command) is not { Success: true } match ? command
-        : match.Groups["double"].Success ? match.Groups["double"].Value.Replace("\\\"", "\"")
-        : match.Groups["single"].Value.Replace("''", "'");
+    internal static string Unwrap(string command)
+    {
+        for (var layer = 0; layer < 3 && ShellCommand().Match(command) is { Success: true } match; layer++)
+        {
+            command = match.Groups["double"].Success ? Escaped().Replace(match.Groups["double"].Value, "$1") : match.Groups["single"].Value.Replace("''", "'");
+        }
+
+        return command;
+    }
+
+    // A backslash that escapes a quote or a backslash inside the double-quoted command.
+    [GeneratedRegex(@"\\([""\\])")]
+    private static partial Regex Escaped();
 
     /// <summary>A failure often carries the API's JSON; its inner message is what the user can act on.</summary>
     private static string Message(string text)

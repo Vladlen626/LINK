@@ -121,7 +121,9 @@ public sealed class AgentTaskRecord
 
     public void Add(AgentEntryKind kind, string text)
     {
-        Entries.Add(new AgentTaskEntry(DateTimeOffset.Now, kind, text.Length <= 600 ? text : text[..600] + "…"));
+        // The user's own words are kept whole, to be read again; Link's lines are short by nature.
+        var length = kind is AgentEntryKind.Brief or AgentEntryKind.You ? 20_000 : 600;
+        Entries.Add(new AgentTaskEntry(DateTimeOffset.Now, kind, text.Length <= length ? text : text[..length] + "…"));
         UpdatedAt = DateTimeOffset.Now;
     }
 
@@ -259,7 +261,10 @@ public enum AgentEntryKind
     Finished,
 
     /// <summary>The agent could not start: no run, no session.</summary>
-    NoStart
+    NoStart,
+
+    /// <summary>A change the user made with Link's controls (a mode, the team's plan): a line of the thread, not their words to the agent.</summary>
+    Note
 }
 
 /// <summary>
@@ -485,6 +490,9 @@ public enum AgentEventKind
 /// </summary>
 public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail = null)
 {
+    /// <summary>The <see cref="Detail"/> of a status that only says the session began: no step of the thread.</summary>
+    public const string SessionStart = "session";
+
     /// <summary>A tool call that only looks around: it finds, lists or reads files.</summary>
     public bool IsSearch { get; init; }
 

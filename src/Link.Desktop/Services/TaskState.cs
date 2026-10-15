@@ -90,6 +90,7 @@ public static class TaskState
         var lines = new List<string> { heading, step.Text };
         if (step.Files.Count > 0) lines.Add("files: " + string.Join(", ", step.Files));
         if (step.EscalatedFrom is not null && !string.IsNullOrWhiteSpace(step.Failure)) lines.Add($"The {step.EscalatedFrom} tried this step and failed: {step.Failure.Trim()}");
+        if (step.Repeated) lines.Add("The user sent this step back to be done again: an earlier try's changes may be in the workspace. Check them, keep what is right, and finish the step.");
         if (!string.IsNullOrWhiteSpace(step.ReviewNotes))
         {
             lines.Add($"The team lead reviewed an earlier try of this step, whose changes are in the workspace, and asks for this: {step.ReviewNotes.Trim()}");

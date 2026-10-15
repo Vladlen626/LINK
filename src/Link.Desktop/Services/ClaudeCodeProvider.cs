@@ -192,7 +192,9 @@ public sealed class ClaudeEventParser(bool priced = true, IReadOnlyList<AgentPla
             case "system" when Text(root, "subtype") == "init":
                 SessionId = Text(root, "session_id");
                 if (Text(root, "model") is { Length: > 0 } model) Model = model;
-                events.Add(new AgentEvent(AgentEventKind.Status, Describe(root)));
+                var (started, servers) = Describe(root);
+                // The model is in the run's header: a start shows as a step only with the MCP servers it found.
+                events.Add(new AgentEvent(AgentEventKind.Status, started, servers ? null : AgentEvent.SessionStart));
                 break;
             // Claude Code compacted the session by itself, near the budget or at the model's window.
             case "system" when Text(root, "subtype") == "compact_boundary":
@@ -459,13 +461,13 @@ public sealed class ClaudeEventParser(bool priced = true, IReadOnlyList<AgentPla
             : [];
 
     /// <summary>The model and the MCP servers the session started with, as the provider reports them.</summary>
-    private static string Describe(JsonElement init)
+    private static (string Text, bool Servers) Describe(JsonElement init)
     {
         var model = Text(init, "model");
         var servers = init.TryGetProperty("mcp_servers", out var list) && list.ValueKind == JsonValueKind.Array
             ? list.EnumerateArray().Select(server => $"{Text(server, "name")} ({Text(server, "status")})").ToArray()
             : [];
         var text = model.Length > 0 ? $"Model {model}" : "Session started";
-        return servers.Length > 0 ? $"{text}; MCP: {string.Join(", ", servers)}" : text;
+        return servers.Length > 0 ? ($"{text}; MCP: {string.Join(", ", servers)}", true) : (text, false);
     }
 }
