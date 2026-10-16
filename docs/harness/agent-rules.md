@@ -23,6 +23,11 @@ dialog: a question or a request for permission ends it, and the user's answer co
 - A step is slow (a call, a build, a test): time it and find the cause (a setting, a throttle, a wrong address)
   before working around it. A workaround that slows every run (waits, slow motion, retries) costs more than the fix;
   the cause and the fix go into the skill.
+- A tool the work needs is down or busy (an editor closed or in Play, a server stopped): do what you can without it,
+  then ask the user with a link-ask block. Do not wait on it longer than ~2 minutes: an agent once polled an editor
+  in Play for 30 minutes.
+- A check that failed before your change too (a frame budget the whole scene misses): measure it with and without
+  your work once, report the difference, and write the known failure into `docs/map.md` so no later step chases it.
 - Temporary files of checks (frames, logs, browser profiles) go to the system's temp folder, not the project.
 - Every request of a run re-sends the whole session, so what enters it stays there: read the part of a file you need
   (a range, a grep), not a whole big file; a script longer than a screen is written once to a file and changed by edits,

@@ -375,6 +375,22 @@ public static partial class TeamRunner
 
     private static string Short(string failure) => failure.Length <= FailureLength ? failure : failure[..FailureLength] + "…";
 
+    /// <summary>
+    /// The earlier step whose work <paramref name="step"/> builds on: the latest one its words name ("the step-1 blockout",
+    /// "step 2's atlas"); the one just before when they name none; null when they name only others, or it is the first.
+    /// </summary>
+    public static TeamStep? BuildsOn(AgentTaskRecord record, TeamStep step)
+    {
+        var at = record.Team.IndexOf(step);
+        if (at < 1) return null;
+        var named = StepNumber().Matches(step.Text).Select(match => int.Parse(match.Groups[1].Value)).Where(number => number >= 1 && number <= at).ToList();
+        return named.Count == 0 ? record.Team[at - 1] : record.Team[named.Max() - 1];
+    }
+
+    // "step 1", "step-2", "Step 3's".
+    [GeneratedRegex(@"\bstep[- ](\d{1,2})\b", RegexOptions.IgnoreCase)]
+    private static partial Regex StepNumber();
+
     // A line of a list: "- model the car", "2. add the doors".
     [GeneratedRegex(@"^[ \t]*(?:[-*•]|\d+[.)])[ \t]+\S", RegexOptions.Multiline)]
     private static partial Regex ListItem();

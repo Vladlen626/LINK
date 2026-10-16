@@ -1,4 +1,5 @@
 using System.Diagnostics;
+using System.Text.RegularExpressions;
 
 namespace Link.Desktop.Services;
 
@@ -12,6 +13,13 @@ public static class ClaudeAccounts
     public static string Root => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Link", "ClaudeAccounts");
 
     private static string OwnProjects => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "projects");
+
+    /// <summary>
+    /// The folder of a workspace's memory where it exists. Through an account's junction Claude Code takes it for a folder
+    /// outside its own and refuses to write it (agents met "Not allowed: Write" there), so a run is given it.
+    /// </summary>
+    public static string? MemoryFolder(string workspace) =>
+        Path.Combine(OwnProjects, Regex.Replace(workspace, "[^A-Za-z0-9]", "-"), "memory") is var folder && Directory.Exists(folder) ? folder : null;
 
     /// <summary>The other accounts, by their folders' names.</summary>
     public static IReadOnlyList<string> Names() =>

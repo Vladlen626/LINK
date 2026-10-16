@@ -27,8 +27,9 @@ public static partial class ArtCritic
     // What a critic's own session is told after a redo, before the new frames.
     private const string Again =
         "The artist has worked on the defects you named and rendered its frames again, below. Judge them as before, from " +
-        "the frames and saved files alone: is each defect fixed, and what is the worst now? End your answer with the " +
-        "link-review block, nothing after it.";
+        "the frames and saved files alone: is each defect fixed, and did anything get worse? Accept when they are fixed " +
+        "and nothing regressed. A new defect sends it back only when it is as bad as those were; a smaller one, or an " +
+        "unclear point, goes to the user in your notes. End your answer with the link-review block, nothing after it.";
 
     /// <summary>So many saved files the critic is told of; more are a list, not a lead.</summary>
     private const int MostSaved = 20;

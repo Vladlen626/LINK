@@ -84,7 +84,7 @@ public partial class MainWindow
         if (redo.Session is null || goOn is not null)
         {
             record.Add(AgentEntryKind.HandOff,
-                $"Step {number} → {step.Worker}{(role is null ? string.Empty : " as " + role.Name)}{(goOn is null ? string.Empty : ", in its session of the step before")}: " +
+                $"Step {number} → {step.Worker}{(role is null ? string.Empty : " as " + role.Name)}{(goOn is null ? string.Empty : ", in the session of the step it builds on")}: " +
                 $"{TeamPlan.Headline(step.Text).Title} · {step.Reason}");
         }
 
@@ -120,13 +120,14 @@ public partial class MainWindow
         session is not null && record.Runs.LastOrDefault(run => run.SessionId == session) is { } ran && ran.Provider == provider ? session : null;
 
     /// <summary>
-    /// The session of the step just before <paramref name="step"/> when the same worker (agent, model, level) did it as the
-    /// same specialist, on art or not alike, and it has not grown big or gone cold (<see cref="CompactRule"/>); null: a new session.
+    /// The session of the step <paramref name="step"/> builds on (<see cref="TeamRunner.BuildsOn"/>) when the same worker
+    /// (agent, model, level) did it as the same specialist, on art or not alike, and it has not grown big or gone cold
+    /// (<see cref="CompactRule"/>); null: a new session. Only the role alike once carried a tree step's session into a
+    /// character step.
     /// </summary>
     private string? GoesOnFrom(AgentTaskRecord record, TeamStep step, AgentProviderKind provider, AgentRole? role, IReadOnlyList<AgentRole> roles)
     {
-        var at = record.Team.IndexOf(step);
-        if (at < 1 || step.EscalatedFrom is not null || record.Team[at - 1] is not { Status: TeamStepStatus.Done } before) return null;
+        if (step.EscalatedFrom is not null || TeamRunner.BuildsOn(record, step) is not { Status: TeamStepStatus.Done } before) return null;
         var beforeRole = ProjectRoles.Find(before.Role, record.Workspace) ?? ProjectRoles.Suggest(before.Text, roles);
         if (before.Provider != provider || before.Model != step.Model || before.Level != step.Level || beforeRole?.Id != role?.Id
             || StepKinds.IsArt(before.Kind) != StepKinds.IsArt(step.Kind)
@@ -363,7 +364,16 @@ public partial class MainWindow
             return (null, null, []);
         }
 
-        var frames = ArtCritic.Frames(ArtCritic.Named(run.Result.Summary), record.Workspace, File.Exists);
+        // A run that only went on after an allowed command ("same as before") names no frames: those its session named last stand.
+        var session = AgentCoordinator.SessionOf(run);
+        var named = ArtCritic.Named(run.Result.Summary);
+        if (named.Count == 0 && session is not null)
+        {
+            named = record.Runs.Where(each => each.SessionId == session).Reverse().Select(each => ArtCritic.Named(each.Words))
+                .FirstOrDefault(each => each.Count > 0) ?? [];
+        }
+
+        var frames = ArtCritic.Frames(named, record.Workspace, File.Exists);
         if (frames.Count == 0) return (null, "it named no frames, so no art critic judged it", []);
         var (critic, why) = CriticFor(new Worker(provider, step.Level, step.Model), evidence);
         return (critic, why, frames);

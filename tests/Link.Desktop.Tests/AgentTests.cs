@@ -3547,6 +3547,11 @@ internal static class AgentTests
                 TaskState.StepBrief(record, null, workspace, new TeamStep { Text = "Rename it" }), state + "\n\n## Your step\nRename it\n" + TeamPlan.StepEnd);
             record.Team = [new TeamStep { Text = "Model the prop in Blender. Keep the pivots on the hinges.", Worker = "Claude", HandedOver = "Content/Dash.fbx" },
                 new TeamStep { Text = "Rig it", Worker = "Codex", HandedOver = "  " }, step, new TeamStep { Text = "Wire it", Worker = "GLM", HandedOver = "not yet" }];
+            var later = new TeamStep { Text = "Rig the game model (after the user approved the step-1 blockout); colour it by step 2's atlas" };
+            var builds = new AgentTaskRecord { Goal = "Peak", Workspace = workspace, Team = [record.Team[0], record.Team[1], new TeamStep { Text = "Trees" }, later, new TeamStep { Text = "Wire it" }] };
+            Program.Equal("builds on: the latest earlier step a step names, else the one just before; none for the first",
+                (TeamRunner.BuildsOn(builds, later), TeamRunner.BuildsOn(builds, builds.Team[4]), TeamRunner.BuildsOn(builds, builds.Team[0])),
+                (builds.Team[1], later, (TeamStep?)null));
             var teamState = TaskState.Build(record, null, workspace);
             Program.Equal("step brief: a team's state is where its steps stand, each by its first sentence; the next action is the current step in full",
                 (teamState.Contains("- [ ] 1. Model the prop in Blender. (Claude)\n- [ ] 2. Rig it (Codex)"),

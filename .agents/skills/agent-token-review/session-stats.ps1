@@ -63,7 +63,9 @@ if ($Agent -eq 'codex') {
 }
 else {
   $folder = if ($Like) { $Like -replace '[^A-Za-z0-9]', '-' } else { '' }
-  $files = Get-ChildItem "$env:USERPROFILE\.claude\projects" -Recurse -Filter '*.jsonl' |
+  # Link runs Claude under its own accounts (CLAUDE_CONFIG_DIR), so their logs are there too.
+  $roots = @("$env:USERPROFILE\.claude\projects") + @(Get-ChildItem "$env:LOCALAPPDATA\Link\ClaudeAccounts\*\projects" -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName })
+  $files = Get-ChildItem $roots -Recurse -Filter '*.jsonl' |
     Where-Object { $_.LastWriteTime -ge $since -and (-not $folder -or $_.Directory.Name -like "*$folder*") }
   foreach ($f in $files) {
     $s = NewStats

@@ -8,7 +8,9 @@ param(
   [string]$Since = '',
   [int]$Top = 12
 )
-$root = if ($Agent -eq 'codex') { "$env:USERPROFILE\.codex\sessions" } else { "$env:USERPROFILE\.claude\projects" }
+# Link runs Claude under its own accounts (CLAUDE_CONFIG_DIR), so their logs are there too.
+$root = if ($Agent -eq 'codex') { "$env:USERPROFILE\.codex\sessions" } else {
+  @("$env:USERPROFILE\.claude\projects") + @(Get-ChildItem "$env:LOCALAPPDATA\Link\ClaudeAccounts\*\projects" -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName }) }
 $file = Get-ChildItem $root -Recurse -Filter "*$Session*.jsonl" | Select-Object -First 1
 if (-not $file) { throw "No $Agent session log like *$Session*" }
 

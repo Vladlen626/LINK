@@ -38,7 +38,9 @@ on Windows costing 2 s a connection), not by telling the model to hurry.
 
 Logs: Codex `~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl` (`session_meta` names the folder, `token_count` the usage
 of each request); Claude Code `~/.claude/projects/<folder with - for \ and :>/<session>.jsonl` (`assistant` lines
-carry `usage`, one response over several lines with the same message id).
+carry `usage`, one response over several lines with the same message id); Link's runs under its other accounts log in
+`%LocalAppData%\Link\ClaudeAccounts\<account>\projects\`, which the scripts search too. A team task's step goes to a
+session: the newest log files of the workspace folder, one per step (a step that went on in another's shares it).
 
 ## Read what rides along
 

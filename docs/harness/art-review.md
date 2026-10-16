@@ -15,6 +15,9 @@ and saved files, and change nothing: no file, no skill. You do not see the artis
 3. The ledger: each requirement of the task and each line of the rubric - pass, fail or unclear, with the frame that
    shows it; unclear when no frame does, and say which frame would.
 4. The 1-3 worst defects, worst first, each as an action the artist can do without you: what, where and how much.
+   A defect is what a frame shows wrong. An unclear line, a missing frame or measurement, a timing or a performance
+   number is not one: name it in `notes` for the user, never as a reason to send the work back (an artist once spent
+   hours of two redos on GPU timings a critic asked for).
 
 End your answer with one block, nothing after it:
 ```link-review

@@ -73,6 +73,8 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
             if (Path.Combine(pack.Folder, "skills") is var skills && Directory.Exists(skills)) arguments.AddRange(["--add-dir", skills]);
         }
 
+        if (ClaudeAccounts.MemoryFolder(task.Workspace) is { } memory) arguments.AddRange(["--add-dir", memory]);
+
         // Last: the option takes every argument after it.
         if (task.AllowedTools.Count > 0) arguments.AddRange(task.AllowedTools.Prepend("--allowedTools"));
         return arguments;
