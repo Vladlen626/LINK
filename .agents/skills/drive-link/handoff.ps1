@@ -1,7 +1,7 @@
-# Drives the user's own Link through UI Automation, at the user's request: in the Bigsteps project, open the latest
+# Drives the user's own Link through UI Automation, at the user's request: in the given project, open the latest
 # task in the Studio, Hand off to Claude Code, add the user's words to the brief on the card, and press Run.
 # ASCII only: Windows PowerShell 5.1 runs it; the Russian words come from a UTF-8 file.
-param([string]$Project = 'Bigsteps', [string]$Extra, [switch]$NoRun)
+param([Parameter(Mandatory = $true)] [string]$Project, [string]$Extra, [switch]$NoRun)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type @"

@@ -15,7 +15,7 @@ unasked is refused, and Link's agents spend the user's limits.
 2. Write the user's words for the agent into a UTF-8 file (they are appended to the brief Link builds from the task).
 3. First without Run, to see the card:
    ```powershell
-   & .agents\skills\drive-link\handoff.ps1 -Project Bigsteps -Extra <words.txt> -NoRun
+   & .agents\skills\drive-link\handoff.ps1 -Project <name> -Extra <words.txt> -NoRun
    ```
    It waits until nobody has typed for 15 s (the card takes the keyboard), opens the Studio (the side panel's Studio button), the newest task, Hand off ▾ →
    Claude Code · new session, and appends the words to the brief.
@@ -26,7 +26,7 @@ unasked is refused, and Link's agents spend the user's limits.
 ## Give a new task
 
 ```powershell
-& .agents\skills\drive-link\newtask.ps1 -Project Bigsteps -Goal <goal.txt> [-Agent 'Claude Code'|Codex] [-NoRun]
+& .agents\skills\drive-link\newtask.ps1 -Project <name> -Goal <goal.txt> [-Agent 'Claude Code'|Codex] [-NoRun]
 ```
 It waits for 15 s without typing, opens the Studio (the side panel's Studio button), New task, picks the agent if
 asked, puts the goal from the UTF-8 file into `GoalBox`, prints the card (agent, model, effort, access, plan first,
@@ -35,7 +35,7 @@ what goes along) and presses Run. After `-NoRun` the card stays open: invoke `Ru
 ## Send words to a task's session
 
 ```powershell
-& .agents\skills\drive-link\reply.ps1 -Project Bigsteps -Words <words.txt> [-NoSend]
+& .agents\skills\drive-link\reply.ps1 -Project <name> -Words <words.txt> [-NoSend]
 ```
 It waits for 15 s without typing, opens the Studio (the side panel's Studio button) — the task Link shows there, or else the newest of the list — puts the
 words into `ReplyBox` and invokes `ContinueButton` (Send). It prints the task's goal and whether the `Plan mode ✕`

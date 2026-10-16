@@ -1,7 +1,7 @@
 # Drives the user's own Link through UI Automation, at the user's request: in the project, open the newest task in
 # Tasks and send words to its session (the reply box, then Send), as the user would.
 # ASCII only: Windows PowerShell 5.1 runs it; the words come from a UTF-8 file.
-param([string]$Project = 'Bigsteps', [string]$Words, [switch]$NoSend)
+param([Parameter(Mandatory = $true)] [string]$Project, [string]$Words, [switch]$NoSend)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type @"

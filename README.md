@@ -12,6 +12,22 @@
 
 **UI для пользователя — Link. Встроенная страница ChatGPT, CLI агентов — внутренняя реализация.**
 
+## Быстрый старт
+
+1. Нужны Windows 11 x64, [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) и аккаунт
+   ChatGPT. Для агентов — установленные [Claude Code](https://docs.claude.com/en/docs/claude-code) и/или
+   [Codex CLI](https://github.com/openai/codex) с вашей подпиской; для голоса — Visual C++ Redistributable 2022 x64.
+2. Скачайте `Link-<версия>-win-x64.zip` из [Releases](../../releases), распакуйте в свою папку и запустите `Link.exe`.
+   Сборка не подписана: Windows SmartScreen может предупредить — «Подробнее» → «Выполнить в любом случае».
+3. Дальше — **Welcome to LINK** и [первый запуск](#установка-и-первый-запуск): вход в ChatGPT, папка проекта, агент.
+
+Собрать самому — [ниже](#установка-и-первый-запуск). Лицензия — [MIT](LICENSE).
+
+> **Дисклеймер.** Неофициальный проект, не связан с OpenAI или Anthropic. Link управляет веб-страницей ChatGPT в
+> своём окне от вашего имени: это может расходиться с условиями OpenAI, а при смене разметки ChatGPT — ломаться.
+> Агенты работают в вашей папке с выданным им доступом и тратят вашу подписку. Всё — на ваш риск, без гарантий.
+> Данные (вход ChatGPT, история, снимки экрана) остаются локально в `%LocalAppData%\Link`.
+
 ## Как работать с Link
 
 ### 1. Спросить
@@ -294,7 +310,8 @@ cost, Codex's too. It needs Node (`npx`), which Claude Code's npm install brings
 
 ## Установка и первый запуск
 
-Нужны Windows 11 и .NET 10 SDK:
+Готовая сборка — в [Releases](../../releases) (см. [быстрый старт](#быстрый-старт)). Собрать самому — нужны
+Windows 11 и .NET 10 SDK:
 
 ```powershell
 dotnet build Link.sln --configuration Release

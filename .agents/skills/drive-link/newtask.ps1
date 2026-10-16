@@ -1,7 +1,7 @@
 # Drives the user's own Link through UI Automation, at the user's request: in the project Link shows, Studio -> New
 # task, the goal from a UTF-8 file, the agent picked on the card (or its default), and Run.
 # ASCII only: Windows PowerShell 5.1 runs it; the Russian goal comes from a UTF-8 file.
-param([string]$Project = 'Bigsteps', [Parameter(Mandatory = $true)] [string]$Goal, [string]$Agent = '', [switch]$NoRun)
+param([Parameter(Mandatory = $true)] [string]$Project, [Parameter(Mandatory = $true)] [string]$Goal, [string]$Agent = '', [switch]$NoRun)
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName UIAutomationClient, UIAutomationTypes
 Add-Type @"
