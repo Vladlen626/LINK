@@ -1,6 +1,6 @@
 name: Release
 
-# A tag like v1.0.0 builds and checks Link, then attaches the zipped Link.exe folder to a GitHub release.
+# A tag like v1.0.0 builds and checks Link, then attaches a zipped self-contained Link.exe folder to a GitHub release.
 on:
   push:
     tags: ['v*']
@@ -19,11 +19,14 @@ jobs:
       - run: dotnet restore Link.sln
       - run: dotnet build Link.sln --configuration Release --no-restore
       - run: dotnet run --project tests/Link.Desktop.Tests --configuration Release --no-build
+      # Self-contained: friends run Link.exe without installing the .NET runtime. Link's UI is English, so the
+      # runtime's translated messages for other languages stay out.
+      - run: dotnet publish src/Link.Desktop --configuration Release --self-contained -p:SatelliteResourceLanguages=en -o publish
       - name: Zip and publish
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           $zip = "Link-${{ github.ref_name }}-win-x64.zip"
-          Compress-Archive -Path src/Link.Desktop/bin/Release/net10.0-windows/* -DestinationPath $zip
+          Compress-Archive -Path publish/* -DestinationPath $zip
           gh release create "${{ github.ref_name }}" $zip --title "Link ${{ github.ref_name }}" --generate-notes

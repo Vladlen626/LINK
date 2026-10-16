@@ -14,10 +14,11 @@
 
 ## Быстрый старт
 
-1. Нужны Windows 11 x64, [.NET 10 Desktop Runtime](https://dotnet.microsoft.com/download/dotnet/10.0) и аккаунт
-   ChatGPT. Для агентов — установленные [Claude Code](https://docs.claude.com/en/docs/claude-code) и/или
-   [Codex CLI](https://github.com/openai/codex) с вашей подпиской; для голоса — Visual C++ Redistributable 2022 x64.
-2. Скачайте `Link-<версия>-win-x64.zip` из [Releases](../../releases), распакуйте в свою папку и запустите `Link.exe`.
+1. Нужны Windows 11 x64 и аккаунт ChatGPT; .NET ставить не надо — он внутри сборки. Для агентов — установленные
+   [Claude Code](https://docs.claude.com/en/docs/claude-code) и/или [Codex CLI](https://github.com/openai/codex) с
+   вашей подпиской; для голоса — [Visual C++ Redistributable 2022 x64](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+2. Скачайте `Link-<версия>-win-x64.zip` (~100 МБ) из [Releases](../../releases), распакуйте в свою папку (не в
+   Program Files) и запустите `Link.exe`.
    Сборка не подписана: Windows SmartScreen может предупредить — «Подробнее» → «Выполнить в любом случае».
 3. Дальше — **Welcome to LINK** и [первый запуск](#установка-и-первый-запуск): вход в ChatGPT, папка проекта, агент.
 
