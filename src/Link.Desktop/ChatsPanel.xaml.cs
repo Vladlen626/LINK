@@ -29,9 +29,6 @@ public partial class ChatsPanel : UserControl
     /// <summary>An answer of a thread is to be shown whole in Link's card.</summary>
     public event Action<ProjectExchange>? AnswerShown;
 
-    /// <summary>Whether the thread of a chat is open rather than the list.</summary>
-    public bool ShowsThread => ThreadView.Visibility == Visibility.Visible;
-
     public void ShowChats(IReadOnlyList<ChatRow> chats)
     {
         ChatList.ItemsSource = chats;

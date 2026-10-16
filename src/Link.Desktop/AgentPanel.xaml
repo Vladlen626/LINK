@@ -213,6 +213,22 @@
                 </Grid>
                 <RichTextBox Margin="0,8,0,0" Style="{StaticResource ReadRichTextStyle}" local:MarkdownText.Source="{Binding Said, Mode=OneWay}"
                              Visibility="{Binding SaidVisibility}" />
+                <!-- The pictures the run made: an artist's renders and screenshots, as they come; a click opens one. -->
+                <ItemsControl Margin="0,10,0,0" ItemsSource="{Binding Images}" Visibility="{Binding ImagesVisibility}">
+                    <ItemsControl.ItemsPanel>
+                        <ItemsPanelTemplate><WrapPanel /></ItemsPanelTemplate>
+                    </ItemsControl.ItemsPanel>
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate>
+                            <Button Margin="0,0,8,8" Padding="0" Style="{StaticResource GhostButtonStyle}" Click="OpenFile_OnClick"
+                                    ToolTip="{Binding Path}" Visibility="{Binding Visibility}">
+                                <Border BorderBrush="{StaticResource GlassBorderSoftBrush}" BorderThickness="1" CornerRadius="6">
+                                    <Image Height="110" MaxWidth="360" Margin="2" Source="{Binding Picture}" Stretch="Uniform" />
+                                </Border>
+                            </Button>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
                 <Button Margin="-6,8,0,0" Padding="6,1" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
                         Click="TurnFiles_OnClick" Visibility="{Binding FilesToggleVisibility}" ToolTip="The files this run changed">
                     <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding FilesLabel}" />
@@ -299,7 +315,14 @@
                 <!-- The agents' usage, as the account area at the foot of a chat app's sidebar. -->
                 <Border x:Name="LimitsBlock" Grid.Row="3" Padding="12,6,12,8" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,1,0,0"
                         Visibility="Collapsed">
-                    <ItemsControl x:Name="LimitsList" ItemTemplate="{StaticResource LimitRowTemplate}" />
+                    <StackPanel>
+                        <ItemsControl x:Name="LimitsList" ItemTemplate="{StaticResource LimitRowTemplate}" />
+                        <!-- What the agents spent at API prices, as ccusage reads their logs; a click counts again. -->
+                        <Button x:Name="SpentButton" Margin="-6,2,-6,0" Padding="6,2" HorizontalContentAlignment="Left" Style="{StaticResource GhostButtonStyle}"
+                                Click="Spent_OnClick" Visibility="Collapsed">
+                            <TextBlock x:Name="SpentText" FontSize="11" Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
+                        </Button>
+                    </StackPanel>
                 </Border>
             </Grid>
         </Border>
@@ -408,8 +431,8 @@
                                   ToolTip="Links in the goal and attached PDFs are the sources; the study only reads. Its lessons reach a skill only after an exam you rate 4 or 5"
                                   Visibility="Collapsed" />
                         <CheckBox x:Name="PlanFirstBox" Margin="0,8,0,0" FontSize="12.5" Checked="Card_OnChanged" Unchecked="Card_OnChanged" />
-                        <CheckBox x:Name="BackupBox" Margin="0,8,0,0" FontSize="12.5" IsChecked="True" Content="Copy the folder before edits"
-                                  ToolTip="The workspace has no Git or Perforce: undo puts the files back from this copy" />
+                        <CheckBox x:Name="NoStopBox" Margin="0,8,0,0" FontSize="12.5" Content="No-stop: it takes the choices it recommends and asks for nothing"
+                                  ToolTip="Every stop (a question, the plan, a refused tool, the next step) is taken after 10 s; only the deny list of Settings stays refused. It waits for you after the turns of Settings in a row; untick it on the task to step in" />
                         <TextBlock x:Name="CheckText" Margin="0,10,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="12" TextWrapping="Wrap"
                                    Visibility="Collapsed" />
                         <TextBlock x:Name="CardWarningText" Margin="0,10,0,0" FontSize="12.5" Foreground="{StaticResource ErrorBrush}"
@@ -563,18 +586,6 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- A cheaper agent could do what is left: a hint with its reason; the hand-over is the button's, never by itself. -->
-                    <Border x:Name="CheaperRow" Style="{StaticResource NoticeCardStyle}" Padding="14,10" Visibility="Collapsed">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                            <TextBlock x:Name="CheaperText" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" FontSize="12" TextWrapping="Wrap" />
-                            <Button Grid.Column="1" Margin="10,0,0,0" Padding="10,3" VerticalAlignment="Center" Style="{StaticResource ChipButtonStyle}"
-                                    Click="Cheaper_OnClick" ToolTip="The custom model takes the task over with a brief you see first; nothing is handed over before that">
-                                <TextBlock x:Name="CheaperButtonText" FontSize="12" Foreground="{StaticResource TextBrush}" />
-                            </Button>
-                        </Grid>
-                    </Border>
-
                     <!-- After a failed run or a Stop on a loop: start over with a note, or the same session on Deep. -->
                     <Border x:Name="RestartCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
                         <StackPanel>
@@ -610,7 +621,9 @@
                                    IsHitTestVisible="False" TextWrapping="Wrap" />
                     </Grid>
                     <Grid x:Name="ComposerFooter" Grid.Row="2" Margin="0,6,0,0">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                        </Grid.ColumnDefinitions>
                         <WrapPanel x:Name="TaskButtons" VerticalAlignment="Center">
                             <Button x:Name="PlanModeButton" Style="{StaticResource GhostChipStyle}" Click="PlanMode_OnClick" Content="Plan mode ✕"
                                     Visibility="Collapsed"
@@ -623,11 +636,14 @@
                             <Button x:Name="FinishButton" Style="{StaticResource GhostChipStyle}" Click="Finish_OnClick" Content="Finish"
                                     ToolTip="Close the task; it stays in the list, where it can be opened and taken up again" />
                         </WrapPanel>
+                        <!-- No-stop for this task, also while it works; its label shows the choice it is about to take. -->
+                        <CheckBox x:Name="NoStopLiveBox" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
+                                  Click="NoStopLiveBox_OnClick" Visibility="Collapsed" />
                         <!-- What the next words run on; nothing starts when it changes. -->
-                        <Button x:Name="SetupButton" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource GhostChipStyle}"
+                        <Button x:Name="SetupButton" Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource GhostChipStyle}"
                                 Click="Setup_OnClick" Visibility="Collapsed"
                                 ToolTip="What your next words run on: the specialist, the model and its effort. Nothing starts when you change it; the runs after keep it" />
-                        <Button x:Name="ContinueButton" Grid.Column="2" Margin="8,0,0,0" Style="{StaticResource ComposerSendButtonStyle}"
+                        <Button x:Name="ContinueButton" Grid.Column="3" Margin="8,0,0,0" Style="{StaticResource ComposerSendButtonStyle}"
                                 VerticalAlignment="Bottom" Click="Continue_OnClick" IsEnabled="False">
                             <Viewbox Width="14" Height="14">
                                 <Path Data="{StaticResource ArrowUpIconGeometry}" Stroke="{StaticResource AccentForegroundBrush}"

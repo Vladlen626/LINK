@@ -79,7 +79,7 @@ public sealed class WorkerEvidence
 
     /// <summary>
     /// What each worker did here, one line per worker for the lead's prompt and the inspector:
-    /// <c>GLM glm-4.7-flash: Mechanical 6/6 ✓, Code 1/4 — not given Code here</c>. Done of tried; ✓ proven.
+    /// <c>Claude Code claude-haiku-5-5: Mechanical 6/6 ✓, Code 1/4 — not given Code here</c>. Done of tried; ✓ proven.
     /// </summary>
     public IReadOnlyList<string> Summary(Func<AgentProviderKind, string> agentName) =>
         [.. _records

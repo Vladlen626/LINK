@@ -295,7 +295,8 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
             ? ["--json", "--skip-git-repo-check", "--sandbox", "workspace-write", "--cd", task.Workspace]
             : ["--json", "--skip-git-repo-check", "-c", "sandbox_mode=workspace-write"]);
         // Perforce opens files for edit through its server, so p4 in a Perforce workspace needs the network.
-        if (AgentChanges.IsPerforce(task.Workspace))
+        // So does a No-stop run, which stops for nothing the sandbox would refuse.
+        if (AgentChanges.IsPerforce(task.Workspace) || task.NoStop)
         {
             arguments.AddRange(["-c", "sandbox_workspace_write.network_access=true"]);
         }
@@ -319,7 +320,12 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
         if (task.ContextBudget is { } budget and > 0) arguments.AddRange(["-c", $"model_auto_compact_token_limit={budget * 9 / 10}"]);
         // Auto: what would leave the sandbox (the network, a file outside the workspace) goes to Codex's automatic
         // review instead of failing, as --approve-for-me does; resume takes it only through config.
-        if (task.AutoApprove)
+        // No-stop asks nothing: the sandbox stays the workspace's.
+        if (task.NoStop)
+        {
+            arguments.AddRange(["-c", "approval_policy=never"]);
+        }
+        else if (task.AutoApprove)
         {
             arguments.AddRange(["-c", "approval_policy=on-request", "-c", "approvals_reviewer=auto_review"]);
         }

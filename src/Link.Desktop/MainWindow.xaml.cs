@@ -1,7 +1,6 @@
 using System.Collections.ObjectModel;
 using System.Collections.Specialized;
 using System.ComponentModel;
-using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
@@ -9,7 +8,6 @@ using System.Windows.Data;
 using System.Windows.Input;
 using System.Windows.Interop;
 using System.Windows.Media;
-using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
@@ -47,8 +45,10 @@ public partial class MainWindow : Window
         VoiceSession voice,
         AgentCoordinator agents,
         AgentLimits limits,
+        UsageReport usage,
         SoundCues cues)
     {
+        _usage = usage;
         _settings = settings;
         _projects = projects;
         _attempts = attempts;
@@ -132,7 +132,7 @@ public partial class MainWindow : Window
         // The default agent or the access the card starts with may have changed.
         UpdateRouteButton();
         ApplyConversation();
-        // The agents' models and levels, Auto, the context budget or the custom model may have changed: an open card and the
+        // The agents' models and levels, Auto or the context budget may have changed: an open card and the
         // Studio's header and inspector follow, without losing what the user typed or picked on the card.
         _agentPanel?.RefreshSetup();
         RefreshStudio();
@@ -242,7 +242,7 @@ public partial class MainWindow : Window
         ClearContext(prune: true);
     }
 
-    private void ShowAndActivate()
+    public void ShowAndActivate()
     {
         ShowActivated = true;
         Show();

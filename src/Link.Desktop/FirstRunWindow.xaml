@@ -35,12 +35,8 @@
                             <Button x:Name="InstallCodexButton" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="10,0,0,0" Tag="Codex"
                                     Visibility="Collapsed" Click="Install_OnClick" Content="Install" />
                         </StackPanel>
-                        <TextBlock Grid.Row="2" Margin="0,6" Text="Custom model" />
-                        <StackPanel Grid.Row="2" Grid.Column="1" Margin="0,6">
-                            <TextBlock x:Name="CustomStatusText" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
-                            <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="0,4,0,0" HorizontalAlignment="Left"
-                                    Click="Settings_OnClick" Content="Set up in Settings → Agents (optional)" />
-                        </StackPanel>
+                        <Button Grid.Row="2" Grid.Column="1" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="0,6" HorizontalAlignment="Left"
+                                Click="Settings_OnClick" Content="Choose an agent's file in Settings → Agents" />
                     </Grid>
                 </Border>
 

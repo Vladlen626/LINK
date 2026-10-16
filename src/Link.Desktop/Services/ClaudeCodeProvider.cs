@@ -6,10 +6,10 @@ namespace Link.Desktop.Services;
 /// <summary>
 /// Claude Code in print mode with stream-json events. A run is in <c>acceptEdits</c> (a command not allowed by the
 /// project's rules is refused and listed in the result), or in <c>auto</c> on Auto, where Claude Code's own check stops
-/// risky actions. No run is read only: <c>plan</c>, <c>dontAsk</c> and <c>bypassPermissions</c> are never used.
-/// The custom model is this provider pointed at another server (<see cref="CustomModelProvider"/>).
+/// risky actions. A No-stop task runs in <c>bypassPermissions</c> with its deny list. No run is read only: <c>plan</c>
+/// and <c>dontAsk</c> are never used.
 /// </summary>
-public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
+public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
     : CliAgentProvider(settings, log, console)
 {
     public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
@@ -47,14 +47,15 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
         var arguments = new List<string>
         {
             "-p", "--output-format", "stream-json", "--verbose",
-            "--permission-mode", task.AutoApprove ? "auto" : "acceptEdits"
+            "--permission-mode", task.NoStop ? "bypassPermissions" : task.AutoApprove ? "auto" : "acceptEdits"
         };
         if (task.MaxTurns is { } turns) arguments.AddRange(["--max-turns", turns.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
         if (task.Model is { } model) arguments.AddRange(["--model", model]);
         if (task.Effort is { } effort) arguments.AddRange(["--effort", effort]);
         // No AskUserQuestion: a run has no dialog to answer it, so a question ends the answer as a link-ask block, which the
         // Task tab shows as a choice. Subagents are the agent's own choice.
-        arguments.AddRange(["--disallowedTools", "AskUserQuestion"]);
+        // No-stop's deny list holds in bypassPermissions too: deny rules win over every mode.
+        arguments.AddRange(["--disallowedTools", "AskUserQuestion", .. task.Deny]);
         // MCP servers come only from the workspace's .mcp.json, as for Codex: otherwise the user's claude.ai
         // connectors ride along too, such as a docs app in a game task. Link's own answers get none.
         arguments.Add("--strict-mcp-config");
@@ -86,10 +87,18 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
     /// A set budget is Claude Code's auto-compact window: it compacts near it, and never above the model's own window.
     /// On Auto Link sets nothing: Claude Code's own window is tuned for the model, and a wider one re-sends more.
     /// </summary>
-    public override IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task) =>
-        task.ContextBudget is { } budget and > 0
-            ? new Dictionary<string, string> { ["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture) }
-            : new Dictionary<string, string>();
+    public override IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task)
+    {
+        var variables = new Dictionary<string, string>(AccountVariables(Settings));
+        if (task.ContextBudget is { } budget and > 0)
+        {
+            variables["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        return variables;
+    }
+
+    protected override IReadOnlyDictionary<string, string> AccountVariables(AgentSettings setup) => ClaudeAccounts.Variables(setup.ClaudeAccount);
 
     public override AgentEventParser CreateParser(AgentTask task) => new ClaudeEventParser(plan: task.Plan);
 
@@ -103,7 +112,8 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
         var output = new System.Text.StringBuilder();
         using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         wait.CancelAfter(UsageWait);
-        await AgentProcess.RunAsync(new AgentCommand(executable, ["-p", "/usage"], Path.GetTempPath(), string.Empty),
+        await AgentProcess.RunAsync(
+            new AgentCommand(executable, ["-p", "/usage"], Path.GetTempPath(), string.Empty) { EnvironmentVariables = AccountVariables(Settings) },
             line => output.AppendLine(line), null, wait.Token);
         return UsageLimits(output.ToString(), DateTimeOffset.Now);
     }
@@ -149,26 +159,32 @@ public partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<str
         System.Text.RegularExpressions.RegexOptions.Multiline)]
     private static partial System.Text.RegularExpressions.Regex UsageLine();
 
-    protected override bool IsSignedIn(string answer)
+    protected override bool IsSignedIn(string answer) =>
+        StatusField(answer, "loggedIn") is { ValueKind: JsonValueKind.True };
+
+    protected override string? AccountOf(string answer) =>
+        StatusField(answer, "email") is { ValueKind: JsonValueKind.String } email && email.GetString() is { Length: > 0 } text ? text : null;
+
+    /// <summary>A field of <c>claude auth status</c>'s JSON; null when the answer is no JSON or lacks it.</summary>
+    private static JsonElement? StatusField(string answer, string name)
     {
         try
         {
             using var document = JsonDocument.Parse(answer);
-            return document.RootElement.TryGetProperty("loggedIn", out var loggedIn) && loggedIn.ValueKind == JsonValueKind.True;
+            return document.RootElement.TryGetProperty(name, out var field) ? field.Clone() : null;
         }
         catch (JsonException)
         {
-            return false;
+            return null;
         }
     }
 }
 
 /// <summary>
 /// Claude Code's stream-json: <c>system/init</c>, <c>assistant</c> text and tool calls, tool results, <c>result</c>.
-/// <paramref name="priced"/> is false for another server's model: the dollars Claude Code reports are a guess at Anthropic's prices.
 /// <paramref name="plan"/> is the plan of the session that goes on, which TaskUpdate names by number.
 /// </summary>
-public sealed class ClaudeEventParser(bool priced = true, IReadOnlyList<AgentPlanItem>? plan = null) : AgentEventParser
+public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null) : AgentEventParser
 {
     private static readonly HashSet<string> EditTools = ["Edit", "MultiEdit", "Write", "NotebookEdit"];
     private static readonly HashSet<string> SearchTools = ["Glob", "Grep", "Read", "LS"];
@@ -333,7 +349,7 @@ public sealed class ClaudeEventParser(bool priced = true, IReadOnlyList<AgentPla
                 var mcp = name.StartsWith("mcp__", StringComparison.Ordinal) ? name[5..].Split("__", 2) : [];
                 var row = mcp.Length == 2 ? McpCall(mcp[0], mcp[1], input) : target.Length > 0 ? $"{name}: {target}" : name;
                 var work = mcp.Length == 2 || (ShellTools.Contains(name) && RunsCode(command));
-                Called(name, row, arguments, search, events, work);
+                Called(name, row, arguments, search, events, work, image: name == "Read" && RunImages.IsImage(target) ? target : null);
                 var id = Text(block, "id");
                 _pendingTools[id] = name;
                 if (EditTools.Contains(name) && Text(input, "file_path") is { Length: > 0 } edited) _pendingEdits[id] = edited;
@@ -422,7 +438,7 @@ public sealed class ClaudeEventParser(bool priced = true, IReadOnlyList<AgentPla
                 Number(usage, "input_tokens") + Number(usage, "cache_creation_input_tokens") + cached,
                 cached,
                 Number(usage, "output_tokens"),
-                priced && root.TryGetProperty("total_cost_usd", out var cost) && cost.TryGetDecimal(out var usd) ? usd : null);
+                root.TryGetProperty("total_cost_usd", out var cost) && cost.TryGetDecimal(out var usd) ? usd : null);
         }
 
         // The window is told only here; the size it is told with is the last message's.

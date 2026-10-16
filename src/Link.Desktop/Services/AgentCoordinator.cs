@@ -8,7 +8,6 @@ public sealed record AgentPlan(
     AgentProviderKind Provider,
     string Workspace,
     bool PlanFirst,
-    bool BackupBeforeDo,
     string Goal)
 {
     /// <summary>The model chosen on the card, one of the agent's own; null: the CLI's own.</summary>
@@ -40,6 +39,9 @@ public sealed record AgentPlan(
 
     /// <summary>What the user pasted or dropped on the card: images and files, by path.</summary>
     public IReadOnlyList<string> Attached { get; init; } = [];
+
+    /// <summary>No-stop on the card: the task takes the choices it recommends and asks for nothing (see <see cref="NoStop"/>).</summary>
+    public bool NoStop { get; init; }
 }
 
 /// <summary>
@@ -258,21 +260,16 @@ public sealed class AgentCoordinator
 
     /// <summary>
     /// Runs a task and returns it with what it changed. <paramref name="previous"/>: the run this one continues, whose
-    /// "before" still holds. A copy is made before it in a workspace without git when <paramref name="backup"/> says so.
-    /// After it (not after a plan) the project's check runs; while it fails, the agent continues its session with the check's output, up to
+    /// "before" still holds. After it (not after a plan) the project's check runs; while it fails, the agent continues its session with the check's output, up to
     /// <see cref="CheckRetries"/> times, and the run returned is the last one with the numbers of all.
     /// </summary>
     public async Task<AgentRun> RunAsync(
         AgentTask task,
-        bool backup,
         AgentRun? previous,
         IProgress<AgentEvent> progress,
         CancellationToken cancellationToken)
     {
-        var before = previous?.Before ?? await _changes.CaptureAsync(
-            task.Workspace,
-            backup,
-            cancellationToken);
+        var before = previous?.Before ?? await _changes.CaptureAsync(task.Workspace, cancellationToken);
         var provider = Provider(task.Provider);
         var result = await provider.RunAsync(task, progress, cancellationToken);
         AgentCheckResult? check = null;
@@ -313,23 +310,18 @@ public sealed class AgentCoordinator
     /// Start over with a note: the run's session is asked once, in three turns at most, what it tried and why it did not work; the
     /// task returned is for a new session, with the original goal and images, that note, and the Auto, folder and
     /// check of the run. Without a session to ask it goes without a note; null when Stop ended the asking.
-    /// <paramref name="askedOf"/> is the agent that writes the note when it is not the run's own (Claude Code and the
-    /// custom model read each other's sessions); the new session is the run's own agent's.
     /// </summary>
     public async Task<(AgentTask Task, string Note)?> StartOverAsync(
         AgentRun run,
         AgentTask origin,
         (string? Model, string? Effort) asking,
-        CancellationToken cancellationToken,
-        AgentProviderKind? askedOf = null)
+        CancellationToken cancellationToken)
     {
         var note = string.Empty;
         if (run.Result.SessionId is { } session)
         {
-            var asker = askedOf ?? run.Task.Provider;
-            var asked = await Provider(asker).RunAsync(run.Task with
+            var asked = await Provider(run.Task.Provider).RunAsync(run.Task with
             {
-                Provider = asker,
                 ResumeSessionId = session,
                 PlanOnly = false,
                 Prompt = NoteRequest,

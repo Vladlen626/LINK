@@ -37,6 +37,11 @@ The ladder, lowest step the change needs (`docs/map.md` may say more): `.cs` →
 `%LOCALAPPDATA%\Unity\Editor\Editor.log` (Windows). Read its tail, not the whole file:
 `Get-Content "$env:LOCALAPPDATA\Unity\Editor\Editor.log" -Tail 200 -Encoding UTF8`, then filter for `error CS` and
 `Exception`.
+- A script recompile says nothing of shaders: after editing a shader or a compute shader read
+  `ShaderUtil.GetShaderMessages` / `GetComputeShaderMessages` by eval, or the `Shader error in` lines of the log
+  (`texture` is a reserved word in HLSL, for one).
+- A crashed editor leaves `%LOCALAPPDATA%\Temp\Unity\Editor\Crashes\Crash_*\Editor.log`; its tail names the cause.
+  `d3d12: Unrecoverable GPU device error` means the GPU lost the device: a GPU hang or a write past a buffer's end.
 
 ## Tests
 

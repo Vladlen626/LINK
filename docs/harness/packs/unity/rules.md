@@ -17,3 +17,20 @@
   check runs in the editor. Batch mode does not start while the project is open in an editor.
 - Without being asked: no package installs, no player builds, no batch-mode test runs, no writes to assets beyond the
   task.
+- In a team's project: fetch and compare with the team's main branch before you start and work on its latest (a
+  fast-forward keeps uncommitted work; save a patch for a file both changed). What others own - generators, scene
+  builders, their scenes, prefabs and renderers - is not changed: integrate through the data they produce (a terrain,
+  its layers). Revert editor noise before handing over: assets rewritten with other line endings only
+  (`git diff --ignore-cr-at-eol`), dynamic font atlases.
+- Renderer features go into the default renderer, idle until a volume turns them on; never assume a renderer index:
+  other features switch cameras to their own renderers and back to the default.
+- GPU-written data: bounds-check every write in a compute shader and clamp every count the GPU is told to use
+  (indirect arguments). D3D12, the editor's default on Windows, can lose the device on a write past a buffer's end
+  that D3D11 silently drops - the editor crashes.
+- A mesh drawn instanced by a custom shader (positions from a buffer): give it zero positions and pass its own
+  parameters in UVs. Debug views (Overdraw) and override materials draw it with their shader: real positions put
+  every instance at the world's origin, and a hundred thousand of them hang the GPU.
+- Terrain on the GPU: `terrainData.heightmapTexture` is R16_UNorm holding 0..0.5 for 0..the terrain's height; splat
+  maps by `GetAlphamapTexture(i)`. Read `terrain.terrainData` every frame: gameplay may swap in a deforming copy.
+- Unity 6.4 deprecates `FindObjectsByType(FindObjectsSortMode)` and `FindFirstObjectByType`: use
+  `FindObjectsByType<T>()` and `FindAnyObjectByType<T>()`.

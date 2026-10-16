@@ -99,11 +99,24 @@ public partial class MainWindow
         foreach (var other in _works.Where(other => other != work && AgentCoordinator.SameFolder(other.Record.Workspace, folder))) other.OthersEdited = true;
     }
 
-    /// <summary>A choice only the user makes for the task: kept with it, on its card whenever the Studio shows the task.</summary>
-    private void OfferChoice(TaskWork work, string text, string button, bool canRemember, Action take)
+    /// <summary>
+    /// A choice only the user makes for the task: kept with it, on its card whenever the Studio shows the task. No-stop
+    /// takes it, unless <paramref name="noStop"/> is off (a choice beyond the task, such as sharing a skill with every project).
+    /// </summary>
+    private void OfferChoice(TaskWork work, string text, string button, bool canRemember, Action take, bool noStop = true)
     {
-        work.Decision = new TaskDecision(text, button, canRemember, take);
+        work.Decision = new TaskDecision(text, button, canRemember, take, noStop);
         if (Shows(work)) _agentPanel!.ShowDecision(text, button, canRemember);
+        if (noStop) NoStopSoon(work);
+    }
+
+    /// <summary>The task's decision is taken, by the user or No-stop: it leaves the card, then what it does is done.</summary>
+    private void TakeDecision(TaskWork work, TaskDecision decision, bool always)
+    {
+        _rememberAllowance = always;
+        work.Decision = null;
+        if (Shows(work)) _agentPanel!.HideDecision();
+        decision.Take();
     }
 
     private void ClearChoice(TaskWork work)
@@ -241,7 +254,6 @@ public partial class MainWindow
 
         public bool RestartWhenStopped { get; set; }
         public AgentProviderKind? HandOffWhenStopped { get; set; }
-        public bool BackupBeforeDo { get; set; } = true;
         public TaskDecision? Decision { get; set; }
         public LimitCard? Limit { get; set; }
         public (bool Show, bool Escalate) Restart { get; set; }
@@ -254,6 +266,12 @@ public partial class MainWindow
 
         // The wait for a usage limit's reset, after which the task goes on by itself.
         public DispatcherTimer? ContinueTimer { get; set; }
+
+        // No-stop's countdown to the choice it takes, that choice's words, and the key of the one it took last.
+        public DispatcherTimer? NoStopTimer { get; set; }
+        public string? NoStopPending { get; set; }
+        public string? NoStopLast { get; set; }
+        public bool NoStopArming { get; set; }
 
         public bool Busy => Run is not null || Asking is not null;
     }
@@ -276,6 +294,9 @@ public partial class MainWindow
         public List<AgentEvent> Pending { get; } = [];
         public List<string> Steps { get; } = [];
         public HashSet<string> Files { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        // The pictures the run looked at or wrote, oldest first; one looked at again moves to the end.
+        public List<string> Images { get; } = [];
         public (long? Tokens, long? Window) Context { get; set; }
         public bool LimitOffered { get; set; }
 
@@ -286,8 +307,11 @@ public partial class MainWindow
     /// <summary>A run that waits for another run's edits in its folder: what starts it, why it waits, and since when.</summary>
     private sealed record WaitingRun(Func<Task> Start, string Why, DateTimeOffset Since);
 
-    /// <summary>A choice on the task's card: its words, its button, whether "always for this project" is offered, and what it does.</summary>
-    private sealed record TaskDecision(string Text, string Button, bool CanRemember, Action Take);
+    /// <summary>
+    /// A choice on the task's card: its words, its button, whether "always for this project" is offered, what it does, and
+    /// whether No-stop may take it.
+    /// </summary>
+    private sealed record TaskDecision(string Text, string Button, bool CanRemember, Action Take, bool NoStop = true);
 
     /// <summary>The task's card of a usage limit: its words, the ways on, and the box of what goes on by itself.</summary>
     private sealed record LimitCard(string Text, IReadOnlyList<PanelAction> Actions, PanelToggle? Toggle);

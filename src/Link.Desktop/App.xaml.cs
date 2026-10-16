@@ -1,4 +1,3 @@
-using System.Threading;
 using System.Windows;
 using System.Windows.Threading;
 using Link.Desktop.Services;
@@ -13,6 +12,10 @@ public partial class App : System.Windows.Application
     private readonly Lock _logLock = new();
     private string? _logPath;
     private Mutex? _singleInstance;
+    // A second start asks the running Link to show itself through this event.
+    private const string ShowRequestName = @"Local\LinkDesktopCompanion.Show";
+    private EventWaitHandle? _showRequests;
+    private RegisteredWaitHandle? _showWait;
     private SettingsService? _settings;
     private ProjectService? _projects;
     private CurrentApplicationService? _currentApplication;
@@ -22,8 +25,8 @@ public partial class App : System.Windows.Application
     private SherpaStreamingSpeechToText? _streamingSpeech;
     private SpeechModelManager? _speechModels;
     private ApiKeyStore? _geminiKey;
-    private ApiKeyStore? _customModelKey;
     private AgentCoordinator? _agents;
+    private RemoteControl? _remote;
     private TextToSpeechService? _textToSpeech;
     private EmbeddedChatIntegration? _chat;
     private ChatPageWindow? _chatPage;
@@ -39,10 +42,23 @@ public partial class App : System.Windows.Application
         _singleInstance = new Mutex(true, @"Local\LinkDesktopCompanion", out var isFirstInstance);
         if (!isFirstInstance)
         {
-            MessageBox.Show("Link is already running. Use the tray icon or global show/hide hotkey.", "Link");
+            // Started again, from Start or the taskbar: the running Link comes forward, and may take the foreground.
+            if (EventWaitHandle.TryOpenExisting(ShowRequestName, out var running))
+            {
+                NativeMethods.AllowSetForegroundWindow(NativeMethods.AllowAnyProcess);
+                running.Set();
+                running.Dispose();
+            }
+            else
+            {
+                MessageBox.Show("Link is already running. Use the tray icon or global show/hide hotkey.", "Link");
+            }
+
             Shutdown();
             return;
         }
+
+        _showRequests = new EventWaitHandle(false, EventResetMode.AutoReset, ShowRequestName);
 
         var paths = new StoragePaths();
         _logPath = Path.Combine(paths.Root, "link.log");
@@ -67,8 +83,6 @@ public partial class App : System.Windows.Application
         _speechModels = speechModels;
         _streamingSpeech = new SherpaStreamingSpeechToText(speechModels);
         _geminiKey = new ApiKeyStore(paths.GeminiKeyFile, "Link Gemini TTS");
-        var customModelKey = new ApiKeyStore(paths.CustomModelKeyFile, "Link custom model");
-        _customModelKey = customModelKey;
         // One player for the voice and the sound cues; the voice owns it.
         var speaker = new AudioPlayer();
         _textToSpeech = new TextToSpeechService(
@@ -93,10 +107,9 @@ public partial class App : System.Windows.Application
         _agents = new AgentCoordinator(
             [
                 new ClaudeCodeProvider(() => settings.Current.Agent, Log, console),
-                new CodexProvider(() => settings.Current.Agent, Log, console),
-                new CustomModelProvider(() => settings.Current.Agent, customModelKey.Read, Log, console)
+                new CodexProvider(() => settings.Current.Agent, Log, console)
             ],
-            new AgentChanges(paths.Backups),
+            new AgentChanges(),
             Log,
             console);
 
@@ -112,6 +125,7 @@ public partial class App : System.Windows.Application
             voice,
             _agents,
             new AgentLimits(paths.AgentLimitsFile),
+            new UsageReport(Log),
             cues);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
@@ -120,6 +134,10 @@ public partial class App : System.Windows.Application
         _mainWindow.DiagnosticsReported += Log;
         _textToSpeech.Notice += message => Dispatcher.BeginInvoke(() => _mainWindow?.ShowVoiceNotice(message));
         _mainWindow.Show();
+        // Remote control listens only while Settings turn it on, on this computer only.
+        _remote = new RemoteControl(_settings, _mainWindow, new RemotePush(new ApiKeyStore(paths.RemotePushKeyFile, "Link remote push"), Log),
+            new ApiKeyStore(paths.TelegramTokenFile, "Link Telegram bot"), action => Dispatcher.BeginInvoke(action), UserIdle.Time, Log);
+        _remote.Apply();
         // The ChatGPT page loads once the overlay is up, so Link starts as fast as without it.
         Dispatcher.InvokeAsync(() => StartChatPage(chat, paths), DispatcherPriority.ApplicationIdle);
 
@@ -139,6 +157,7 @@ public partial class App : System.Windows.Application
             () => Dispatcher.Invoke(_mainWindow.ShowAgentPanel),
             () => Dispatcher.Invoke(ShowSettings),
             () => Dispatcher.Invoke(ExitApplication));
+        _showWait = ThreadPool.RegisterWaitForSingleObject(_showRequests, (_, _) => Dispatcher.Invoke(_mainWindow.ShowAndActivate), null, Timeout.Infinite, false);
         _started = true;
 
         if (_settings.FirstStart)
@@ -269,22 +288,26 @@ public partial class App : System.Windows.Application
     private void ShowSettings()
     {
         if (_settings is null || _mainWindow is null || _hotkeys is null || _audio is null || _textToSpeech is null
-            || _geminiKey is null || _customModelKey is null || _speechModels is null || _agents is null)
+            || _geminiKey is null || _speechModels is null || _agents is null)
         {
             return;
         }
 
         var previousHotkeys = _settings.Current.Hotkeys.Clone();
+        var previousClaudeAccount = _settings.Current.Agent.ClaudeAccount;
         var hotkeysRestarted = false;
         _hotkeys.Stop();
         _mainWindow.PauseConversation(true);
         try
         {
-            var window = new SettingsWindow(_settings, _audio, _textToSpeech, _geminiKey, _customModelKey, _speechModels, _agents.Providers);
+            var window = new SettingsWindow(_settings, _audio, _textToSpeech, _geminiKey, _speechModels, _agents.Providers, _remote);
             if (_mainWindow.IsVisible) window.Owner = _mainWindow;
             if (window.ShowDialog() == true)
             {
                 _mainWindow.ApplySettings();
+                _remote?.Apply();
+                // Another account has limits of its own: the bars show its usage, not the last one's.
+                if (_settings.Current.Agent.ClaudeAccount != previousClaudeAccount) _mainWindow.RefreshLimits(Models.AgentProviderKind.ClaudeCode);
                 try
                 {
                     var failures = _hotkeys.Start(_settings.Current.Hotkeys);
@@ -395,8 +418,11 @@ public partial class App : System.Windows.Application
         _streamingSpeech?.Dispose();
         _textToSpeech?.Dispose();
         _chat?.Dispose();
+        _remote?.Dispose();
         _chatPage?.Shutdown();
         _tray?.Dispose();
+        _showWait?.Unregister(null);
+        _showRequests?.Dispose();
         _singleInstance?.Dispose();
     }
 }

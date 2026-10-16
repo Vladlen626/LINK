@@ -22,6 +22,7 @@ The same harness Link gives its agents, for work on this repo.
   `rebuild-link` — build, test and restart the user's Link, never while an agent works in it; `preview-svg` — look at
   the README's drawings; `agent-token-review` — where an agent's tokens and turns went, from the session logs.
   `drive-link` — give the user's Link a command through UI Automation (hand a task to Claude Code), only when asked.
+  `remote-page` — look at the phone/browser page (`remote/`) against a fake API in headless Edge.
   `share-packs` — the packs' skills the user's agents learned (`%USERPROFILE%\LinkPacks`) into the repo for colleagues.
 - Repeated work without a skill: once it has worked out, add one there (a short SKILL.md and its script).
 - The environment, as met here (Windows 11, Git Bash and Windows PowerShell 5.1, Russian locale):
@@ -48,18 +49,25 @@ The same harness Link gives its agents, for work on this repo.
 - `Windows/` Win32 only: `NativeMethods`, hotkeys (RegisterHotKey, low-level hook for held keys), capture (WGC, GDI),
   waveIn audio, tray, window styles, `CurrentApplicationService` (latched work target).
 - Agents: `AgentCoordinator` runs a task (check after Do, an answer file such as the map, Start over);
-  `CliAgentProvider` → `ClaudeCodeProvider` (→ `CustomModelProvider`, any Anthropic-compatible model) / `CodexProvider`
-  over `AgentProcess`; `AgentChanges` finds and undoes changes; `AgentRules`, `ProjectMap`, `ProjectSkills`,
+  `CliAgentProvider` → `ClaudeCodeProvider` / `CodexProvider` over `AgentProcess`; `AgentChanges` finds and undoes
+  changes; `AgentRules`, `ProjectMap`, `ProjectSkills`,
   `ProjectRoles` are the harness; `AutoEffort`, `TaskState` (Compact), `HarnessView` (the inspector); `TeamRunner` (team
   steps) and `Training` (study → exam → proven lessons into skills), their flows in `MainWindow.Team/Training`. The agent's rules,
   tasks and roles are `docs/harness/**/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel`
-  in `StudioWindow`, beside `HarnessInspector`.
-- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat, Capture, Voice, Sizing, Panel, Agent, Works (the
-  tasks at work side by side; edits go one run at a time per folder), Studio.
+  (the sidebar; partials Card, Roles, Task with its cards, Composer) in `StudioWindow`, beside `HarnessInspector`.
+- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat (Send, one attempt), AskAgain, Route (where Send
+  goes, effort), ChatLink (the project's chat, its connection, check), Response (the answer), Capture, Voice, Sizing,
+  Panel, Agent (starting and running tasks), AgentCard (the card, setups), Thread (the task's thread, live runs), HandOff
+  (compact, start over, hand over), Limits, Changes (undo, changelist), OwnAnswers (the map), Works (the tasks at work
+  side by side; edits go one run at a time per folder), Studio.
 - `ChatPageWindow` the embedded ChatGPT page (WebView2). Never hide or minimize the window — it waits off screen, or
   ChatGPT is throttled to a few characters a second. Only the page inside rests, out of its engine's sight, while
   LINK does not need it (`IChatPage.Rest`); it is awake for every request.
 - `companion/` the script that drives the ChatGPT DOM in the embedded page: `content.js` on `embedded-host.js`.
+- Remote control: `RemoteControl` (on in Settings) runs `RemoteServer` on 127.0.0.1 over `IRemoteHost`
+  (`MainWindow.Remote`), devices by `RemotePairing`, notifications by `RemotePush`; the page is `remote/`, built in;
+  `TelegramBot` is the same over the user's Telegram bot.
+  No-stop is `MainWindow.NoStop` + `Services/NoStop`; spending is `UsageReport` (ccusage).
 - User data: `%LocalAppData%\Link` — settings.json, projects.json, Screenshots, Recordings, Models, link.log,
   WebView2 (the ChatGPT session: never log or copy it), companion-state.json.
 

@@ -44,6 +44,22 @@ Fallback without MCP: `unity command eval "<code>"` (about 1 s a call), or a scr
   an element by its TMP text or its hierarchy path.
 - Third-party Unity MCP packages only after the project compiles: their DLLs can clash with the project's types
   (CS0433, CS0121) and break the build for the whole team.
+- The bridge waits ~55 s for the main thread; the eval keeps running after the CLI gives up. Cut a long check into
+  calls that stop after ~35 s and keep what is left in a file in the temp folder; after a timeout, wait until a trivial
+  eval answers before the next call.
+
+## Frames and Play Mode from eval
+- Frames: shader variants compile in the background and their objects are skipped until then. Compile synchronously
+  (`ShaderUtil.allowAsyncCompilation = false`, restored in `finally`) only in a scene of your own: check the open scene
+  is saved, `NewScene(EmptyScene, Single)`, reopen it after. With a big scene open the synchronous compile of all its
+  materials stalls the editor for minutes - it looks dead and gets killed.
+- Edit mode runs no `Update`, coroutines or particles: `ParticleSystem.Simulate(seconds, true, true)` before a frame,
+  switch effect roots on by hand.
+- Play Mode: `editor_play`, then drive the game's own UI the way a click does (its `Button.onClick.Invoke()`, the button
+  found by reflection), `screenshot` of the Game view, `console` filtered by level.
+- Debug views from code (URP 17): `UniversalRenderPipelineDebugDisplaySettings.Instance.renderingSettings.overdrawMode`.
+- After a crash the editor restarts into "Recovering Scene Backups", which only a person can answer: tell the user,
+  do not start another editor on the project.
 
 ## Editor settings that speed checks (suggest, do not change)
 

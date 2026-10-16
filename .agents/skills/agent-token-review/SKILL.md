@@ -12,6 +12,13 @@ description: Find where an agent's tokens, turns and time go (Claude Code or Cod
 & .agents\skills\agent-token-review\session-stats.ps1 -Agent claude -Like <workspace path> -Days 3
 ```
 
+What sessions cost at API prices, Claude and Codex together (the version Link pins in `UsageReport.Package`; a
+Codex session is named by its rollout file, which ends with the thread id):
+
+```bash
+npx -y ccusage@20.0.34 session --json --offline --since 20261014
+```
+
 One line per session: requests, the first request's input (what rides along on every request), the last one's,
 totals (cached apart), output, tool calls, failed calls, and the troubles met in Link's runs: garbled Russian, git
 "dubious ownership", sandbox refusals, reads of plugin guides. Link's own `[Agent]` lines in

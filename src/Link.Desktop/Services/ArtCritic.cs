@@ -60,17 +60,7 @@ public static partial class ArtCritic
         var frames = new List<string>();
         foreach (var path in named)
         {
-            string full;
-            try
-            {
-                full = Path.GetFullPath(Path.IsPathRooted(path) ? path : Path.Combine(workspace, path));
-            }
-            catch (Exception exception) when (exception is ArgumentException or NotSupportedException or PathTooLongException)
-            {
-                continue;
-            }
-
-            if (ImageTypes.Contains(Path.GetExtension(full), StringComparer.OrdinalIgnoreCase) &&
+            if (RunImages.Full(path, workspace) is { } full && ImageTypes.Contains(Path.GetExtension(full), StringComparer.OrdinalIgnoreCase) &&
                 !frames.Contains(full, StringComparer.OrdinalIgnoreCase) && exists(full))
             {
                 frames.Add(full);

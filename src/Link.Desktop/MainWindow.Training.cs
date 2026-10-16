@@ -225,7 +225,7 @@ public partial class MainWindow
     /// The exam waits for the user's rating: what it applied, what it made, its own scores and the art critic's, and why
     /// a pass would prove nothing when it changed no file or named no lesson. Words instead go to its session: a revision.
     /// </summary>
-    private void ShowRating(AgentTaskRecord record, TrainingCourse course, TrainingExam exam)
+    private void ShowRating(TrainingCourse course, TrainingExam exam)
     {
         var number = course.Exams.IndexOf(exam) + 1;
         var scores = exam.Scores.Count == 0 ? string.Empty
@@ -317,7 +317,7 @@ public partial class MainWindow
         }
 
         var exam = !live && record.Status != AgentTaskStatus.Finished ? Training.OpenExam(course) : null;
-        if (exam is not null && record.Runs.Count > 0 && work.Question is null) ShowRating(record, course, exam);
+        if (exam is not null && record.Runs.Count > 0 && work.Question is null) ShowRating(course, exam);
         else panel.ShowRating(null);
         panel.ShowReplyHint(course.Stage switch
         {

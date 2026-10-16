@@ -64,11 +64,13 @@ public sealed class AppSettings
     public StudioSettings Studio { get; set; } = new();
     public HotkeySettings Hotkeys { get; set; } = new();
     public AgentSettings Agent { get; set; } = new();
+    public RemoteSettings Remote { get; set; } = new();
 
     public void Normalize()
     {
         Window ??= new WindowPlacement();
         Agent ??= new AgentSettings();
+        Remote ??= new RemoteSettings();
         SidePanel ??= new SidePanelSettings();
         Studio ??= new StudioSettings();
         Hotkeys ??= new HotkeySettings();
@@ -115,6 +117,7 @@ public sealed class AppSettings
         Studio.Normalize();
         Hotkeys.Normalize();
         Agent.Normalize();
+        Remote.Normalize();
     }
 }
 

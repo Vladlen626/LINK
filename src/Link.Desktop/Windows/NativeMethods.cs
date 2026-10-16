@@ -94,6 +94,17 @@ internal static class NativeMethods
     internal static extern bool IsIconic(IntPtr hWnd);
 
     [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool GetLastInputInfo(ref LastInputInfo info);
+
+    /// <summary>Lets any process take the foreground from this one: <c>ASFW_ANY</c>.</summary>
+    internal const uint AllowAnyProcess = unchecked((uint)-1);
+
+    [DllImport("user32.dll")]
+    [return: MarshalAs(UnmanagedType.Bool)]
+    internal static extern bool AllowSetForegroundWindow(uint processId);
+
+    [DllImport("user32.dll")]
     internal static extern IntPtr MonitorFromPoint(NativePoint point, uint flags);
 
     [DllImport("shell32.dll")]
@@ -374,6 +385,13 @@ internal struct PropVariant
     public ushort Reserved3;
     public IntPtr Value;
     public IntPtr Value2;
+}
+
+[StructLayout(LayoutKind.Sequential)]
+internal struct LastInputInfo
+{
+    public uint Size;
+    public uint Time;
 }
 
 [StructLayout(LayoutKind.Sequential)]

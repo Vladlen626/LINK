@@ -47,7 +47,7 @@ public partial class MainWindow
     /// Auto, Link picks the effort from the step's words. A step the lead or the art critic sent back goes on in its
     /// worker's own session, told their notes.
     /// </summary>
-    private async Task StartTeamStepAsync(TaskWork work, TeamStep step, bool backup = false)
+    private async Task StartTeamStepAsync(TaskWork work, TeamStep step)
     {
         if (work.Busy) return;
         var record = work.Record;
@@ -109,8 +109,6 @@ public partial class MainWindow
             RoleId = role?.Id,
             Skills = skills
         };
-        // The copy of a folder without version control is made once, before the team's first edits.
-        work.BackupBeforeDo = backup;
         if (redo.Session is null) work.Origin = task;
         // Start over begins a new session, which needs the whole brief.
         else if (goOn is not null) work.Origin = task with { Prompt = TaskState.StepBrief(record, null, record.Workspace, step, AgentName), ResumeSessionId = null };
@@ -599,7 +597,7 @@ public partial class MainWindow
             fresh ? "Run team" : "Go on with the team", canRemember: false, () =>
             {
                 record.Add(AgentEntryKind.You, fresh ? "Run team" : $"Go on with step {number}");
-                _ = StartTeamStepAsync(work, step, backup: fresh);
+                _ = StartTeamStepAsync(work, step);
             });
     }
 
@@ -664,8 +662,8 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Who can do the step: Link's pick by the plan, or each agent set up at each of its levels (the custom model at its
-    /// one), with the model and effort Settings give that level. The step's own choice is checked.
+    /// Who can do the step: Link's pick by the plan, or each agent found at each of its levels, with the model and effort
+    /// Settings give that level. The step's own choice is checked.
     /// </summary>
     private IReadOnlyList<PanelAction> WorkerChoices(TaskWork work, TeamStep step)
     {
@@ -678,13 +676,13 @@ public partial class MainWindow
             new("Link picks the worker", "By the plan's tier and the kind of step, as Settings and the project's record stand",
                 () => ChangeTeam(work, $"Step {number}: Link picks the worker", () => TeamRunner.Choose(step, null, route, WorkerLabel)), !step.Pinned)
         };
-        foreach (var provider in new[] { AgentProviderKind.ClaudeCode, AgentProviderKind.Codex, AgentProviderKind.Custom }.Where(each => WorkerStateOf(each) != WorkerState.NotSet))
+        foreach (var provider in new[] { AgentProviderKind.ClaudeCode, AgentProviderKind.Codex }.Where(each => WorkerStateOf(each) != WorkerState.NotSet))
         {
-            foreach (var level in provider == AgentProviderKind.Custom ? [AgentLevel.Standard] : Enum.GetValues<AgentLevel>())
+            foreach (var level in Enum.GetValues<AgentLevel>())
             {
                 var (model, effort) = settings.Level(provider, level);
                 var worker = new Worker(provider, level, model);
-                var label = provider == AgentProviderKind.Custom ? ShortName(provider) : $"{ShortName(provider)} {level}: {SetupWords(provider, model, effort)}";
+                var label = $"{ShortName(provider)} {level}: {SetupWords(provider, model, effort)}";
                 choices.Add(new PanelAction(label, WorkerStateOf(provider) == WorkerState.LimitReached ? "At its usage limit now" : "This agent at this level, kept on a tier up",
                     () => ChangeTeam(work, $"Step {number} → {label}", () => TeamRunner.Choose(step, worker, route, WorkerLabel)),
                     step.Pinned && step.Provider == provider && step.Level == level));
@@ -742,15 +740,15 @@ public partial class MainWindow
         (kind, asked, agent) => WorkerRouting.Route(kind, asked, _settings.Current.Agent, WorkerStateOf, evidence, ShortName,
             provider => _agents.Provider(provider).Capabilities.Images, agent);
 
-    /// <summary>Whether an agent can take a step now: set up and found, and not at its usage limit.</summary>
+    /// <summary>Whether an agent can take a step now: found, and not at its usage limit.</summary>
     private WorkerState WorkerStateOf(AgentProviderKind provider)
     {
         var agent = _agents.Provider(provider);
-        if (!agent.Configured || agent is CliAgentProvider { } cli && cli.FindExecutable() is null) return WorkerState.NotSet;
+        if (agent is CliAgentProvider { } cli && cli.FindExecutable() is null) return WorkerState.NotSet;
         return _limits.ReachedUntil(provider) is not null ? WorkerState.LimitReached : WorkerState.Ready;
     }
 
-    /// <summary>A worker as the plan names it: Claude Code by its model ("Haiku 5.5"), Codex and the custom model by name.</summary>
+    /// <summary>A worker as the plan names it: Claude Code by its model ("Haiku 5.5"), Codex by name.</summary>
     private string WorkerLabel(Worker worker) =>
         worker.Provider == AgentProviderKind.ClaudeCode && worker.Model is { } model ? ModelName(_agents.Provider(worker.Provider), model) : ShortName(worker.Provider);
 }

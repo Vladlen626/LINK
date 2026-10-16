@@ -62,7 +62,7 @@ public partial class ProjectPanel : UserControl
         VcsText.Text = _workspace is null ? string.Empty
             : AgentChanges.IsGit(_workspace) ? "Git: undo puts back what an agent changed"
             : AgentChanges.IsPerforce(_workspace) ? "Perforce: agents open files with p4 edit, and each task's files wait in its own pending changelist in P4V"
-            : "No version control: Link copies the folder before an agent's edits";
+            : "No version control: Link lists what an agent changed but cannot undo it";
         var skills = ProjectSkills.In(_workspace);
         SkillsList.ItemsSource = skills;
         SkillsEmptyText.Visibility = skills.Count == 0 ? Visibility.Visible : Visibility.Collapsed;

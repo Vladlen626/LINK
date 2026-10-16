@@ -1,5 +1,3 @@
-using System.Globalization;
-
 namespace Link.Desktop.Services;
 
 /// <summary>A file an agent changed. <see cref="Undoable"/>: it was clean before the task, so undoing loses nothing of the user's.</summary>
@@ -7,9 +5,9 @@ public sealed record AgentChange(string Path, string Kind, bool Undoable);
 
 /// <summary>
 /// What a workspace looked like before a task: in git or Perforce, its pending files with a fingerprint each;
-/// without version control, the copy made before Do, else every file with its fingerprint.
+/// without version control, every file with its fingerprint.
 /// </summary>
-public sealed record WorkspaceBefore(string Workspace, bool IsGit, IReadOnlyDictionary<string, string> Dirty, string? Backup,
+public sealed record WorkspaceBefore(string Workspace, bool IsGit, IReadOnlyDictionary<string, string> Dirty,
     DateTime StartedUtc, bool IsPerforce = false)
 {
     public bool IsVersioned => IsGit || IsPerforce;
@@ -23,14 +21,11 @@ public sealed record WorkspaceBefore(string Workspace, bool IsGit, IReadOnlyDict
 
 /// <summary>
 /// Finds what an agent changed and puts it back. In git or Perforce: status before and after, and undo only files that
-/// were clean before. Without version control: a copy of the workspace before Do, compared and restored file by file.
-/// Nothing is undone or restored without the user's yes, asked by the caller.
+/// were clean before. Without version control: the files' sizes and times tell what changed, and nothing is undone.
+/// Nothing is undone without the user's yes, asked by the caller.
 /// </summary>
 public sealed partial class AgentChanges
 {
-    private const int BackupsKept = 5;
-    // A workspace bigger than this is not copied: the copy would take too long and too much disk.
-    private const long BackupLimit = 2L * 1024 * 1024 * 1024;
     // Pending files are copied into the repository for a diff of the run only up to these (see SnapshotAsync): an asset
     // would take disk, and so many paths would not fit in a command line.
     private const long SnapshotFileLimit = 1024 * 1024;
@@ -45,18 +40,14 @@ public sealed partial class AgentChanges
     // Folders of a Unity project (Assets beside ProjectSettings) that its editor writes by itself.
     private static readonly HashSet<string> UnityWrites = new(StringComparer.OrdinalIgnoreCase) { "Logs", "UserSettings" };
 
-    private readonly string _backupsRoot;
-
-    public AgentChanges(string backupsRoot) => _backupsRoot = backupsRoot;
-
-    public async Task<WorkspaceBefore> CaptureAsync(string workspace, bool backup, CancellationToken cancellationToken)
+    public async Task<WorkspaceBefore> CaptureAsync(string workspace, CancellationToken cancellationToken)
     {
         var started = DateTime.UtcNow;
         var status = await GitStatusAsync(workspace, cancellationToken);
         if (status is not null)
         {
             var dirty = status.ToDictionary(entry => entry.Path, entry => Fingerprint(entry.Path), StringComparer.OrdinalIgnoreCase);
-            return new WorkspaceBefore(workspace, true, dirty, null, started) { Snapshot = await SnapshotAsync(workspace, status, cancellationToken) };
+            return new WorkspaceBefore(workspace, true, dirty, started) { Snapshot = await SnapshotAsync(workspace, status, cancellationToken) };
         }
 
         if (IsPerforce(workspace))
@@ -64,19 +55,15 @@ public sealed partial class AgentChanges
             var perforce = await P4StatusAsync(workspace, cancellationToken)
                            ?? throw new IOException("Perforce is configured but unavailable. Sign in with P4V or run p4 login.");
             var dirty = perforce.ToDictionary(entry => entry.Path, entry => Fingerprint(entry.Path), StringComparer.OrdinalIgnoreCase);
-            return new WorkspaceBefore(workspace, false, dirty, null, started, IsPerforce: true);
+            return new WorkspaceBefore(workspace, false, dirty, started, IsPerforce: true);
         }
 
-        var copy = backup ? await Task.Run(() => Backup(workspace), cancellationToken) : null;
-        // Without a copy (a later run of the task, a workspace too big) the files' sizes and times still tell what a run
-        // changed, though not how to put it back.
-        var prints = copy is null ? await Task.Run(() => Prints(workspace), cancellationToken) : new Dictionary<string, string>();
-        return new WorkspaceBefore(workspace, false, prints, copy, started);
+        return new WorkspaceBefore(workspace, false, await Task.Run(() => Prints(workspace), cancellationToken), started);
     }
 
     /// <summary>
-    /// The files changed since <paramref name="before"/>. Without version control: against the copy, or by size and time,
-    /// and then none can be undone.
+    /// The files changed since <paramref name="before"/>. Without version control: by size and time, and none can be
+    /// undone.
     /// </summary>
     public async Task<IReadOnlyList<AgentChange>> CompareAsync(WorkspaceBefore before, CancellationToken cancellationToken)
     {
@@ -93,7 +80,7 @@ public sealed partial class AgentChanges
             return ChangedSince(before, after);
         }
 
-        return await Task.Run(() => before.Backup is null ? CompareWithPrints(before) : CompareWithBackup(before), cancellationToken);
+        return await Task.Run(() => CompareWithPrints(before), cancellationToken);
     }
 
     /// <summary>Puts back the undoable changes: a new file is deleted, a changed or deleted one comes back from HEAD.</summary>
@@ -124,76 +111,6 @@ public sealed partial class AgentChanges
         }
     }
 
-    /// <summary>Copies the workspace's files back from the copy made before the task and deletes the files it added.</summary>
-    public Task RestoreAsync(WorkspaceBefore before, IEnumerable<AgentChange> changes, CancellationToken cancellationToken) =>
-        Task.Run(() =>
-        {
-            if (before.Backup is not { } backup) return;
-            foreach (var change in changes)
-            {
-                var relative = Path.GetRelativePath(before.Workspace, change.Path);
-                var saved = Path.Combine(backup, relative);
-                if (File.Exists(saved))
-                {
-                    Directory.CreateDirectory(Path.GetDirectoryName(change.Path)!);
-                    File.Copy(saved, change.Path, overwrite: true);
-                }
-                else if (File.Exists(change.Path))
-                {
-                    File.Delete(change.Path);
-                }
-            }
-        }, cancellationToken);
-
-    private string? Backup(string workspace)
-    {
-        var files = Files(workspace).ToArray();
-        if (files.Sum(file => file.Length) > BackupLimit) return null;
-        var folder = Path.Combine(_backupsRoot, DateTime.Now.ToString("yyyyMMdd-HHmmss", CultureInfo.InvariantCulture) + "-" + Guid.NewGuid().ToString("N")[..6]);
-        foreach (var file in files)
-        {
-            var target = Path.Combine(folder, Path.GetRelativePath(workspace, file.FullName));
-            Directory.CreateDirectory(Path.GetDirectoryName(target)!);
-            file.CopyTo(target);
-        }
-
-        Directory.CreateDirectory(folder);
-        foreach (var old in Directory.GetDirectories(_backupsRoot).OrderByDescending(path => path, StringComparer.Ordinal).Skip(BackupsKept))
-        {
-            try
-            {
-                Directory.Delete(old, recursive: true);
-            }
-            catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-            {
-                // A copy that is open somewhere goes with a later task.
-            }
-        }
-
-        return folder;
-    }
-
-    private static IReadOnlyList<AgentChange> CompareWithBackup(WorkspaceBefore before)
-    {
-        var backup = before.Backup!;
-        var changes = new List<AgentChange>();
-        var now = Files(before.Workspace).ToDictionary(file => Path.GetRelativePath(before.Workspace, file.FullName), StringComparer.OrdinalIgnoreCase);
-        foreach (var (relative, file) in now)
-        {
-            var saved = new FileInfo(Path.Combine(backup, relative));
-            if (!saved.Exists) changes.Add(new AgentChange(file.FullName, "??", true));
-            else if (saved.Length != file.Length || !SameContent(saved, file)) changes.Add(new AgentChange(file.FullName, "M", true));
-        }
-
-        foreach (var saved in Files(backup))
-        {
-            var relative = Path.GetRelativePath(backup, saved.FullName);
-            if (!now.ContainsKey(relative)) changes.Add(new AgentChange(Path.Combine(before.Workspace, relative), "D", true));
-        }
-
-        return changes;
-    }
-
     private static IReadOnlyList<AgentChange> CompareWithPrints(WorkspaceBefore before)
     {
         var now = Prints(before.Workspace);
@@ -208,23 +125,6 @@ public sealed partial class AgentChanges
     /// <summary>Each file of the workspace, as <see cref="Files"/> walks it, with its size and write time.</summary>
     private static Dictionary<string, string> Prints(string workspace) =>
         Files(workspace).ToDictionary(file => file.FullName, file => $"{file.Length}:{file.LastWriteTimeUtc.Ticks}", StringComparer.OrdinalIgnoreCase);
-
-    private static bool SameContent(FileInfo first, FileInfo second)
-    {
-        // The copy keeps the original's write time: an untouched file is not read at all.
-        if (first.LastWriteTimeUtc == second.LastWriteTimeUtc) return true;
-        using var a = first.OpenRead();
-        using var b = second.OpenRead();
-        var bufferA = new byte[81920];
-        var bufferB = new byte[81920];
-        while (true)
-        {
-            var read = a.Read(bufferA);
-            if (read == 0) return true;
-            b.ReadExactly(bufferB, 0, read);
-            if (!bufferA.AsSpan(0, read).SequenceEqual(bufferB.AsSpan(0, read))) return false;
-        }
-    }
 
     private static IEnumerable<FileInfo> Files(string root)
     {

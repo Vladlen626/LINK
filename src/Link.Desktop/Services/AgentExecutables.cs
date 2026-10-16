@@ -4,22 +4,22 @@ namespace Link.Desktop.Services;
 
 /// <summary>
 /// Finds an agent's CLI: the path chosen in Settings, then PATH, then where its installers put it. A real .exe is
-/// preferred; a .cmd wrapper (an npm install) is used only when there is nothing else. The custom model runs through
-/// Claude Code, so it finds claude.
+/// preferred; a .cmd wrapper (an npm install) is used only when there is nothing else.
 /// </summary>
 public static class AgentExecutables
 {
     public static string? Find(AgentProviderKind provider, string? chosenPath)
     {
         if (chosenPath is not null) return File.Exists(chosenPath) ? chosenPath : null;
-        var name = provider.RunsOnClaudeCode() ? "claude" : "codex";
+        var name = provider == AgentProviderKind.ClaudeCode ? "claude" : "codex";
         var inPath = SearchPath(name + ".exe");
         if (inPath is not null) return inPath;
         var installed = InstallPlaces(provider).FirstOrDefault(File.Exists);
         return installed ?? SearchPath(name + ".cmd");
     }
 
-    private static string? SearchPath(string fileName) =>
+    /// <summary>The file in the first folder of PATH that has it; null when none does.</summary>
+    public static string? SearchPath(string fileName) =>
         (Environment.GetEnvironmentVariable("PATH") ?? string.Empty)
         .Split(Path.PathSeparator, StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
         .Select(folder => SafeCombine(folder, fileName))
@@ -30,7 +30,7 @@ public static class AgentExecutables
         var profile = Environment.GetFolderPath(Environment.SpecialFolder.UserProfile);
         var local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
         var roaming = Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData);
-        if (provider.RunsOnClaudeCode())
+        if (provider == AgentProviderKind.ClaudeCode)
         {
             // The native installer, WinGet, then the copy the Claude desktop app keeps for itself, newest first.
             yield return Path.Combine(profile, ".local", "bin", "claude.exe");

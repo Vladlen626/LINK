@@ -28,7 +28,6 @@ public abstract class CliAgentProvider : IAgentProvider
     public abstract IReadOnlyList<AgentChoice> Efforts { get; }
     public abstract IReadOnlyList<AgentChoice> Models { get; }
     public virtual AgentCapabilities Capabilities => AgentCapabilities.Usual;
-    public virtual bool Configured => true;
 
     public virtual IReadOnlyList<AgentChoice> EffortsOf(string? model) => Efforts;
 
@@ -41,27 +40,28 @@ public abstract class CliAgentProvider : IAgentProvider
 
     public string? FindExecutable() => AgentExecutables.Find(Kind, _settings().PathFor(Kind));
 
-    /// <summary>What the user is told when the CLI is not found.</summary>
-    protected virtual string NotFound => $"{Name} is not found. Install it or choose its file in Settings.";
 
-    /// <summary>Why a run cannot start though the CLI is found, such as a custom model without its key; null when it can.</summary>
-    protected virtual string? NotReady => null;
-
-    public async Task<AgentProviderStatus> CheckAsync(string? chosenPath, CancellationToken cancellationToken)
+    public async Task<AgentProviderStatus> CheckAsync(AgentSettings setup, CancellationToken cancellationToken)
     {
-        var executable = AgentExecutables.Find(Kind, chosenPath);
+        var executable = AgentExecutables.Find(Kind, setup.PathFor(Kind));
         if (executable is null) return new AgentProviderStatus(null, null, null);
-        var version = await QuietAsync(executable, ["--version"], cancellationToken);
-        var signedIn = await QuietAsync(executable, SignInCheck, cancellationToken) is { } answer
-            ? IsSignedIn(answer)
-            : (bool?)null;
-        return new AgentProviderStatus(executable, version?.Trim(), signedIn);
+        var version = await QuietAsync(executable, ["--version"], new Dictionary<string, string>(), cancellationToken);
+        var answer = await QuietAsync(executable, SignInCheck, AccountVariables(setup), cancellationToken);
+        return new AgentProviderStatus(executable, version?.Trim(), answer is null ? null : IsSignedIn(answer), answer is null ? null : AccountOf(answer));
     }
+
+    /// <summary>The settings as they are now, such as the account the CLI runs under.</summary>
+    protected AgentSettings Settings => _settings();
+
+    /// <summary>Variables that choose the account the CLI runs under in <paramref name="setup"/>.</summary>
+    protected virtual IReadOnlyDictionary<string, string> AccountVariables(AgentSettings setup) => new Dictionary<string, string>();
+
+    /// <summary>Whom the sign-in check's answer names, such as an email; null when it names no one.</summary>
+    protected virtual string? AccountOf(string answer) => null;
 
     public async Task<AgentResult> RunAsync(AgentTask task, IProgress<AgentEvent> progress, CancellationToken cancellationToken)
     {
-        var executable = FindExecutable() ?? throw new InvalidOperationException(NotFound);
-        if (NotReady is { } reason) throw new InvalidOperationException(reason);
+        var executable = FindExecutable() ?? throw new InvalidOperationException($"{Name} is not found. Install it or choose its file in Settings.");
         var parser = CreateParser(task);
         var loops = new AgentLoopDetector(!task.PlanOnly);
         var clock = Stopwatch.StartNew();
@@ -241,7 +241,8 @@ public abstract class CliAgentProvider : IAgentProvider
             .LastOrDefault(line => line.StartsWith("! ", StringComparison.Ordinal))?[2..] ?? string.Empty;
 
     /// <summary>Runs a short CLI command, such as its version, and returns what it printed; null when it failed.</summary>
-    private static async Task<string?> QuietAsync(string executable, IReadOnlyList<string> arguments, CancellationToken cancellationToken)
+    private static async Task<string?> QuietAsync(string executable, IReadOnlyList<string> arguments,
+        IReadOnlyDictionary<string, string> environment, CancellationToken cancellationToken)
     {
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
         timeout.CancelAfter(TimeSpan.FromSeconds(15));
@@ -249,7 +250,7 @@ public abstract class CliAgentProvider : IAgentProvider
         try
         {
             var result = await AgentProcess.RunAsync(
-                new AgentCommand(executable, arguments, Path.GetTempPath(), string.Empty),
+                new AgentCommand(executable, arguments, Path.GetTempPath(), string.Empty) { EnvironmentVariables = environment },
                 line => output.AppendLine(line),
                 null,
                 timeout.Token);
@@ -370,9 +371,9 @@ public abstract partial class AgentEventParser
 
     /// <summary>
     /// A tool call, a step of Activity; <paramref name="arguments"/> tell it from another call of the same tool (a long
-    /// write is cut), <paramref name="search"/>: it only looks around.
+    /// write is cut), <paramref name="search"/>: it only looks around; <paramref name="image"/>: the picture it looks at.
     /// </summary>
-    protected void Called(string name, string text, string arguments, bool search, List<AgentEvent> events, bool work = false)
+    protected void Called(string name, string text, string arguments, bool search, List<AgentEvent> events, bool work = false, string? image = null)
     {
         _toolCalls++;
         if (search)
@@ -385,7 +386,8 @@ public abstract partial class AgentEventParser
         {
             IsSearch = search,
             IsWork = work,
-            Arguments = arguments.Length <= 2000 ? arguments : arguments[..2000]
+            Arguments = arguments.Length <= 2000 ? arguments : arguments[..2000],
+            Image = image
         });
     }
 

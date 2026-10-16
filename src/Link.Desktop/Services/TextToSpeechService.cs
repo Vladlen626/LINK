@@ -79,7 +79,6 @@ public sealed class TextToSpeechService : ITextToSpeech
         }
 
         part.Registration = cancellationToken.Register(() => Silence(cancellationToken));
-        _log($"[TTS] text chunk ready: {text.Length} chars, {options.Language}");
         return part.Done.Task;
     }
 
@@ -296,11 +295,10 @@ public sealed class TextToSpeechService : ITextToSpeech
         var key = batch.Text.Length <= MaxCachedLength ? $"{provider.Name}|{batch.Options}|{batch.Text}" : null;
         PcmAudio? cached;
         lock (_lock) cached = key is null ? null : _cache.GetValueOrDefault(key);
-        _log($"[TTS] request started: {provider.Name}, {batch.Text.Length} chars, {Since(batch.QueuedAt)} ms after the text was ready"
-             + (cached is null ? string.Empty : ", from the session cache"));
         batch.RequestedAt = started;
         if (cached is not null)
         {
+            batch.Cached = true;
             batch.Provider = provider;
             batch.FirstAudioAt = Stopwatch.GetTimestamp();
             segment.Write(cached);
@@ -321,7 +319,6 @@ public sealed class TextToSpeechService : ITextToSpeech
                 {
                     heardAudio = true;
                     batch.FirstAudioAt = Stopwatch.GetTimestamp();
-                    _log($"[TTS] first audio chunk: {provider.Name}, {Since(started)} ms after the request");
                 }
 
                 bytes += block.Data.Length;
@@ -390,13 +387,7 @@ public sealed class TextToSpeechService : ITextToSpeech
         try
         {
             await segment.Started.ConfigureAwait(false);
-            if (batch.AudioBytes > 0 || batch.FirstAudioAt != 0)
-            {
-                _log(batch.FollowsSpeech
-                    ? "[TTS] playback started right after the part before it"
-                    : $"[TTS] playback started: {Since(batch.RequestedAt)} ms after the request, {Since(batch.QueuedAt)} ms after the text was ready");
-            }
-
+            var heardAfter = Since(batch.QueuedAt);
             await segment.Finished.ConfigureAwait(false);
             // Silenced before the player was: whatever was left of it never sounded.
             if (batch.Cancellation.IsCancellationRequested)
@@ -411,9 +402,13 @@ public sealed class TextToSpeechService : ITextToSpeech
                 return;
             }
 
+            // One line per stretch heard, with the waits that matter: a line per stage made most of link.log.
             if (batch.Provider is { } provider && batch.SampleRate > 0)
             {
-                _log($"[TTS] chunk completed: {provider.Name}, {batch.AudioBytes / 2.0 / batch.SampleRate:0.0} s of speech");
+                _log($"[TTS] spoken: {provider.Name}, {batch.Text.Length} chars, {batch.AudioBytes / 2.0 / batch.SampleRate:0.0} s of speech, " +
+                     (batch.FollowsSpeech ? "right after the part before it"
+                         : $"heard {heardAfter} ms after the text was ready" + (batch.Cached ? " (session cache)"
+                             : $" (first audio {(long)Stopwatch.GetElapsedTime(batch.RequestedAt, batch.FirstAudioAt).TotalMilliseconds} ms after the request)")));
             }
 
             foreach (var part in batch.Parts) part.Done.TrySetResult();
@@ -474,6 +469,7 @@ public sealed class TextToSpeechService : ITextToSpeech
         public CancellationTokenSource Cancellation { get; }
         public long RequestedAt { get; set; }
         public long FirstAudioAt { get; set; }
+        public bool Cached { get; set; }
         public bool FollowsSpeech { get; set; }
         public ITextToSpeechProvider? Provider { get; set; }
         public long AudioBytes { get; set; }

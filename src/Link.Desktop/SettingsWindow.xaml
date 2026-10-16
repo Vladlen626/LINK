@@ -164,7 +164,7 @@
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Grid.RowDefinitions>
-                                <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
+                                <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
                             </Grid.RowDefinitions>
                             <TextBlock VerticalAlignment="Center" Text="Default agent" />
                             <ComboBox x:Name="DefaultAgentCombo" Grid.Column="1" Width="190" HorizontalAlignment="Left" />
@@ -196,6 +196,15 @@
                                     <Button Style="{StaticResource ChipButtonStyle}" Height="26" Tag="ClaudeCode" Click="ChooseAgent_OnClick" Content="Choose file…" />
                                     <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0" Tag="ClaudeCode" Click="AutoAgent_OnClick"
                                             Content="Find automatically" />
+                                </StackPanel>
+                                <!-- The account Claude Code runs under: each has its own sign-in and limits, and they share the sessions. -->
+                                <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
+                                    <ComboBox x:Name="ClaudeAccountCombo" Width="190" SelectionChanged="ClaudeAccountCombo_OnSelectionChanged"
+                                              ToolTip="The Claude account Claude Code runs under. Each has its own sign-in and usage limits; a task goes on in its session under another account" />
+                                    <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0" Click="AddClaudeAccount_OnClick" Content="Add account"
+                                            ToolTip="Another Claude account: Link opens its sign-in" />
+                                    <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0" Click="SignInClaude_OnClick" Content="Sign in"
+                                            ToolTip="Sign the chosen account in, or into another Claude account, in a console that opens the browser" />
                                 </StackPanel>
                                 <!-- Three setups of each agent, each a model and an effort: the card's default, a quick one, a strong one. -->
                                 <Grid Margin="0,8,0,0">
@@ -237,43 +246,44 @@
                                     <ComboBox x:Name="CodexDeepEffortCombo" Grid.Row="2" Grid.Column="2" Margin="6,6,0,0" />
                                 </Grid>
                             </StackPanel>
-                            <!-- Any model with an Anthropic-compatible API, run through Claude Code: a third agent, never chosen by itself. -->
-                            <TextBlock Grid.Row="6" Margin="0,12,0,0" Text="Custom model" />
-                            <StackPanel Grid.Row="6" Grid.Column="1" Margin="0,12,0,0">
-                                <TextBlock x:Name="CustomStatusText" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Text="Checking…" />
-                                <Grid Margin="0,6,0,0">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions>
-                                        <RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                                    </Grid.RowDefinitions>
-                                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Server" />
-                                    <ComboBox x:Name="CustomPresetCombo" Grid.Column="1" SelectionChanged="CustomPreset_OnChanged" />
-                                    <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Address" />
-                                    <TextBox x:Name="CustomAddressBox" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" TextChanged="CustomAddressBox_OnTextChanged"
-                                             ToolTip="Where Claude Code sends its requests: https, or http on this PC" />
-                                    <TextBlock Grid.Row="2" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Model" />
-                                    <ComboBox x:Name="CustomModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" IsEditable="True" IsTextSearchEnabled="False"
-                                              ToolTip="One of the server's models, or the name of another" />
-                                    <TextBlock x:Name="CustomKeyLabel" Grid.Row="3" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Key" />
-                                    <Grid x:Name="CustomKeyRow" Grid.Row="3" Grid.Column="1" Margin="0,6,0,0">
-                                        <Grid.ColumnDefinitions>
-                                            <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
-                                        </Grid.ColumnDefinitions>
-                                        <PasswordBox x:Name="CustomKeyBox" PasswordChanged="CustomKeyBox_OnPasswordChanged"
-                                                     ToolTip="Kept encrypted for your Windows account; sent only to the server above" />
-                                        <Button x:Name="CustomKeySaveButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}"
-                                                Click="CustomKeySave_OnClick" Content="Save key" IsEnabled="False" />
-                                        <Button x:Name="CustomKeyRemoveButton" Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}"
-                                                Click="CustomKeyRemove_OnClick" Content="Remove" />
-                                    </Grid>
-                                </Grid>
-                                <TextBlock x:Name="CustomNoteText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
-                                <CheckBox x:Name="OwnAnswersOnCustomBox" Margin="0,8,0,0" Content="Link's own answers on this model"
-                                          ToolTip="The project map, skills and notes Link asks for run on the custom model instead of your subscription" />
-                            </StackPanel>
-                            <TextBlock Grid.Row="7" Grid.ColumnSpan="2" Margin="0,10,0,6" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                            <TextBlock Grid.Row="6" Grid.ColumnSpan="2" Margin="0,10,0,6" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
                                        Text="Link neither installs the agents nor signs in to them: run 'claude auth login' or 'codex login' once. They spend your Claude or ChatGPT subscription. The task card offers each agent's own models and efforts and starts from Default. Plan first makes the plan on Strong and carries it out on the card's choice in the same session; Escalate goes on with Strong; Link's own answers (map, skill, note) run on Quick; Hand off ▾ offers all three for the same session. Default leaves the model or the effort to the agent's own settings. Agents run without subagents, so Codex's Ultra and Claude's ultracode, which work through them, are not offered." />
                         </Grid>
+                    </Border>
+
+                    <!-- Remote control: the tasks from a phone or another computer, through a page Link serves on this computer only. -->
+                    <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="REMOTE CONTROL" />
+                    <Border Style="{StaticResource GlassCardStyle}" Padding="16,10">
+                        <StackPanel>
+                            <Grid>
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <CheckBox x:Name="RemoteBox" VerticalAlignment="Center" Content="Control Link's tasks from a phone or a browser"
+                                          ToolTip="New tasks, replies, the agent's choices, Allow, Stop and No-stop; never the screen, the microphone, the chat or Settings" />
+                                <TextBlock Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Port" />
+                                <TextBox x:Name="RemotePortBox" Grid.Column="2" Width="72" VerticalAlignment="Center" />
+                            </Grid>
+                            <TextBlock x:Name="RemoteStatusText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                            <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                                <Button Style="{StaticResource ChipButtonStyle}" Click="RemotePair_OnClick" Content="Pair a device"
+                                        ToolTip="A code for the page on the phone or the browser, good for ten minutes and one device" />
+                                <TextBlock x:Name="RemoteCodeText" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="18" FontWeight="SemiBold" />
+                            </StackPanel>
+                            <StackPanel x:Name="RemoteDevicesPanel" Margin="0,6,0,0" />
+                            <!-- The user's own Telegram bot: messages with buttons, no tunnel and no second VPN on the phone. -->
+                            <Grid Margin="0,12,0,0">
+                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                <TextBlock Margin="0,0,10,0" VerticalAlignment="Center" Text="Telegram bot" />
+                                <PasswordBox x:Name="TelegramTokenBox" Grid.Column="1" VerticalAlignment="Center"
+                                             ToolTip="The token @BotFather gives your new bot; it is kept encrypted for this Windows user" />
+                                <Button Grid.Column="2" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}" Click="TelegramPair_OnClick" Content="Pair Telegram"
+                                        ToolTip="Starts the bot and shows a code: send it to your bot, and that chat controls Link's tasks" />
+                                <Button x:Name="TelegramUnlinkButton" Grid.Column="3" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}" Click="TelegramUnlink_OnClick"
+                                        Content="Unlink" ToolTip="The bot stops, and Link forgets its chat and token" />
+                            </Grid>
+                            <TextBlock x:Name="TelegramStatusText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                            <TextBlock Margin="0,8,0,4" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                                       Text="Link listens on this computer only. To reach it from work, install Tailscale on this computer and the phone with one account and run once in a terminal: tailscale serve --bg &lt;port&gt;. Then open the https address Tailscale prints on the phone, enter the code and choose Add to Home screen." />
+                        </StackPanel>
                     </Border>
 
                     <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="GLOBAL HOTKEYS" />

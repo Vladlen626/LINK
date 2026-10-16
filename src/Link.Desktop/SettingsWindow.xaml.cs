@@ -22,7 +22,6 @@ public partial class SettingsWindow : Window
     private readonly IAudioRecorder _audio;
     private readonly TextToSpeechService _textToSpeech;
     private readonly ApiKeyStore _geminiKey;
-    private readonly ApiKeyStore _customKey;
     private readonly SpeechModelManager _models;
     private readonly DispatcherTimer _downloadTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
     private Button? _capturingHotkey;
@@ -31,15 +30,6 @@ public partial class SettingsWindow : Window
     private CancellationTokenSource? _microphoneTest;
     private CancellationTokenSource? _voiceTest;
     private readonly IAgentProvider[] _agents;
-    // The agents the default can be: the custom model is chosen on the card, never by default.
-    private readonly IAgentProvider[] _defaultAgents;
-    private static readonly CustomPresetInfo[] Presets = [.. CustomPresets.All];
-    // The preset the custom model's box shows, to fill the address and models only when it changes.
-    private CustomPreset _customPreset;
-    // The preset the saved key was meant for: one key file serves them all, so a changed server is warned of.
-    private CustomPreset _keyPreset;
-    // Whether Claude Code was found, which the custom model needs; null until the check is done.
-    private bool? _claudeFound;
     // The agents' files as chosen here; they apply on Save, like the rest.
     private readonly AgentSettings _agentPaths;
     // What each model or effort list shows after its default, to read the choice back on Save.
@@ -49,24 +39,27 @@ public partial class SettingsWindow : Window
     // What the context budget box lists, to read the choice back on Save.
     private readonly List<int> _budgets;
     private readonly CancellationTokenSource _agentChecks = new();
+    // What the Claude account box lists, null for the user's own.
+    private List<string?> _claudeAccounts = [];
+    // Pairing and paired devices act at once; on and the port apply on Save.
+    private readonly RemoteControl? _remote;
 
     public SettingsWindow(
         SettingsService settings,
         IAudioRecorder audio,
         TextToSpeechService textToSpeech,
         ApiKeyStore geminiKey,
-        ApiKeyStore customKey,
         SpeechModelManager models,
-        IEnumerable<IAgentProvider> agents)
+        IEnumerable<IAgentProvider> agents,
+        RemoteControl? remote)
     {
         _settings = settings;
+        _remote = remote;
         _agents = agents.ToArray();
-        _defaultAgents = [.. _agents.Where(agent => agent.Kind != AgentProviderKind.Custom)];
         _agentPaths = settings.Current.Agent.Clone();
         _audio = audio;
         _textToSpeech = textToSpeech;
         _geminiKey = geminiKey;
-        _customKey = customKey;
         _models = models;
         InitializeComponent();
         SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
@@ -107,8 +100,8 @@ public partial class SettingsWindow : Window
         SetHotkey(ConversationHotkey, current.Hotkeys.Conversation);
         SetHotkey(AskAboutScreenHotkey, current.Hotkeys.AskAboutScreen);
         VersionText.Text = $"Version {GetInformationalVersion()}";
-        DefaultAgentCombo.ItemsSource = _defaultAgents.Select(agent => agent.Name).ToArray();
-        DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_defaultAgents, agent => agent.Kind == current.Agent.DefaultProvider));
+        DefaultAgentCombo.ItemsSource = _agents.Select(agent => agent.Name).ToArray();
+        DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_agents, agent => agent.Kind == current.Agent.DefaultProvider));
         DefaultAccessCombo.SelectedIndex = current.Agent.DefaultAccess == AgentAccessChoice.Auto ? 1 : 0;
         _budgets = [.. ContextBudgets.Append(current.Agent.ContextBudget).Distinct().Order()];
         ContextBudgetCombo.ItemsSource = _budgets.Select(budget => budget > 0 ? AgentContext.Tokens(budget) : "Auto — the CLI's own (best)").ToArray();
@@ -128,7 +121,15 @@ public partial class SettingsWindow : Window
         ShowLevel(ClaudeDeepModelCombo, ClaudeDeepEffortCombo, claude, current.Agent.ClaudeDeep, "Claude Code's own");
         ShowLevel(CodexLightModelCombo, CodexLightEffortCombo, codex, current.Agent.CodexLight, "Codex's config");
         ShowLevel(CodexDeepModelCombo, CodexDeepEffortCombo, codex, current.Agent.CodexDeep, "Codex's config");
-        LoadCustomModel(current.Agent);
+        ShowClaudeAccounts();
+        RemoteBox.IsChecked = current.Remote.Enabled;
+        RemotePortBox.Text = current.Remote.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        ShowRemote();
+        if (_remote is not null)
+        {
+            _remote.Paired += ShowRemote;
+            Closed += (_, _) => _remote.Paired -= ShowRemote;
+        }
         Closing += (_, _) => _agentChecks.Cancel();
         Loaded += (_, _) => _ = CheckAgentsAsync();
     }
@@ -161,24 +162,18 @@ public partial class SettingsWindow : Window
     /// </summary>
     private async Task CheckAgentsAsync()
     {
-        // The custom model is Claude Code with another server: its status is its setup, shown apart.
-        foreach (var agent in _defaultAgents)
+        foreach (var agent in _agents)
         {
             var text = agent.Kind == AgentProviderKind.ClaudeCode ? ClaudeStatusText : CodexStatusText;
             text.Text = "Checking…";
             var chosen = _agentPaths.PathFor(agent.Kind);
             try
             {
-                var status = await agent.CheckAsync(chosen, _agentChecks.Token);
-                if (agent.Kind == AgentProviderKind.ClaudeCode)
-                {
-                    _claudeFound = status.Installed;
-                    ShowCustomState();
-                }
-
+                var status = await agent.CheckAsync(_agentPaths, _agentChecks.Token);
                 text.Text = !status.Installed
                     ? chosen is null ? "Not found. Install it, or choose its file." : $"Not found: {chosen}"
                     : $"{(status.SignedIn switch { true => "Signed in", false => "Not signed in", null => "Sign-in unknown" })}" +
+                      (status.SignedIn == true && status.Account is { } account ? $" as {account}" : string.Empty) +
                       $" · {status.Version ?? "version unknown"}\n{status.ExecutablePath}";
             }
             catch (OperationCanceledException)
@@ -212,87 +207,62 @@ public partial class SettingsWindow : Window
         _ = CheckAgentsAsync();
     }
 
-    private void LoadCustomModel(AgentSettings agent)
+    /// <summary>The Claude accounts, the user's own first, the chosen one selected; the choice applies on Save.</summary>
+    private void ShowClaudeAccounts()
     {
-        var custom = agent.Custom;
-        _customPreset = _keyPreset = custom.Preset;
-        CustomPresetCombo.ItemsSource = Presets.Select(info => info.Name).ToArray();
-        CustomPresetCombo.SelectedIndex = Math.Max(0, Array.FindIndex(Presets, info => info.Preset == custom.Preset));
-        CustomAddressBox.Text = custom.BaseUrl ?? string.Empty;
-        CustomModelCombo.ItemsSource = custom.Info.Models;
-        CustomModelCombo.Text = custom.Model ?? string.Empty;
-        // The box has its text once the event is over.
-        CustomModelCombo.AddHandler(System.Windows.Controls.Primitives.TextBoxBase.TextChangedEvent, new TextChangedEventHandler((_, _) => Dispatcher.InvokeAsync(ShowCustomState)));
-        OwnAnswersOnCustomBox.IsChecked = agent.OwnAnswersOnCustom;
-        ShowCustomState();
+        _claudeAccounts = [null, .. ClaudeAccounts.Names()];
+        ClaudeAccountCombo.ItemsSource = _claudeAccounts.Select(account => account ?? "Main (~\\.claude)").ToArray();
+        ClaudeAccountCombo.SelectedIndex = Math.Max(0, _claudeAccounts.FindIndex(account =>
+            string.Equals(account, _agentPaths.ClaudeAccount, StringComparison.OrdinalIgnoreCase)));
     }
 
-    /// <summary>A new preset fills the address and the models; both stay editable.</summary>
-    private void CustomPreset_OnChanged(object sender, SelectionChangedEventArgs e)
+    private void ClaudeAccountCombo_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
     {
-        if (CustomPresetCombo.SelectedIndex < 0 || Presets[CustomPresetCombo.SelectedIndex] is not { } info || info.Preset == _customPreset) return;
-        _customPreset = info.Preset;
-        CustomAddressBox.Text = info.BaseUrl;
-        CustomModelCombo.ItemsSource = info.Models;
-        CustomModelCombo.Text = info.Models.FirstOrDefault() ?? string.Empty;
-        ShowCustomState();
+        if (ClaudeAccountCombo.SelectedIndex < 0) return;
+        var account = _claudeAccounts[ClaudeAccountCombo.SelectedIndex];
+        if (account == _agentPaths.ClaudeAccount) return;
+        _agentPaths.ClaudeAccount = account;
+        _ = CheckAgentsAsync();
     }
 
-    private void CustomAddressBox_OnTextChanged(object sender, TextChangedEventArgs e) => ShowCustomState();
-
-    /// <summary>The setup as typed here: what the preset says, whether Claude Code is found and what is still missing.</summary>
-    private void ShowCustomState()
-    {
-        if (CustomPresetCombo.SelectedIndex < 0) return;
-        var info = Presets[CustomPresetCombo.SelectedIndex];
-        var typed = new CustomModelSettings { Preset = info.Preset, BaseUrl = CustomAddressBox.Text.Trim(), Model = CustomModelCombo.Text.Trim() };
-        var hasKey = _customKey.HasKey;
-        CustomKeyLabel.Visibility = CustomKeyRow.Visibility = info.NeedsKey ? Visibility.Visible : Visibility.Collapsed;
-        CustomKeyRemoveButton.IsEnabled = hasKey;
-        CustomNoteText.Text = $"{info.Note} · Code goes to: {info.SeesCode}";
-        CustomStatusText.Text = _claudeFound == false ? "Claude Code not found — Custom runs through Claude Code" : typed.Missing(hasKey) ?? "Ready";
-        if (hasKey && info.NeedsKey && info.Preset != _keyPreset)
-        {
-            CustomStatusText.Text += $"\nThe saved key is for {CustomPresets.Of(_keyPreset).Name}: save this server's key, or that one goes here.";
-        }
-    }
-
-    private void CustomKeyBox_OnPasswordChanged(object sender, RoutedEventArgs e) =>
-        CustomKeySaveButton.IsEnabled = CustomKeyBox.Password.Trim().Length > 0;
-
-    private void CustomKeySave_OnClick(object sender, RoutedEventArgs e) => SaveTypedCustomKey();
-
-    private void CustomKeyRemove_OnClick(object sender, RoutedEventArgs e)
+    private async void AddClaudeAccount_OnClick(object sender, RoutedEventArgs e)
     {
         try
         {
-            _customKey.Clear();
-            ShowCustomState();
+            _agentPaths.ClaudeAccount = await ClaudeAccounts.AddAsync();
+            ShowClaudeAccounts();
+            await SignInClaudeAsync();
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
         {
-            CustomStatusText.Text = $"The key could not be removed: {exception.Message}";
+            ClaudeStatusText.Text = $"Could not add the account: {exception.Message}";
         }
     }
 
-    /// <summary>Stores a key typed into the box; Save changes uses it too, so it is never left behind.</summary>
-    private bool SaveTypedCustomKey()
+    private async void SignInClaude_OnClick(object sender, RoutedEventArgs e)
     {
-        var key = CustomKeyBox.Password.Trim();
-        if (key.Length == 0) return true;
         try
         {
-            _customKey.Save(key);
-            _keyPreset = Presets[Math.Max(0, CustomPresetCombo.SelectedIndex)].Preset;
-            CustomKeyBox.Clear();
-            ShowCustomState();
-            return true;
+            await SignInClaudeAsync();
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.Security.Cryptography.CryptographicException)
+        catch (System.ComponentModel.Win32Exception exception)
         {
-            CustomStatusText.Text = $"The key could not be saved: {exception.Message}";
-            return false;
+            ClaudeStatusText.Text = $"Could not open the sign-in: {exception.Message}";
         }
+    }
+
+    /// <summary>The chosen account's sign-in in a console; the status is checked again when it closes.</summary>
+    private async Task SignInClaudeAsync()
+    {
+        if (AgentExecutables.Find(AgentProviderKind.ClaudeCode, _agentPaths.ClaudePath) is not { } executable)
+        {
+            ClaudeStatusText.Text = "Not found. Install it, or choose its file.";
+            return;
+        }
+
+        ClaudeStatusText.Text = "Signing in: finish it in the browser…";
+        await ClaudeAccounts.SignInAsync(executable, _agentPaths.ClaudeAccount);
+        await CheckAgentsAsync();
     }
 
     private void LoadMicrophones(AppSettings current)
@@ -622,6 +592,71 @@ public partial class SettingsWindow : Window
         _hotkeyBeforeCapture = null;
     }
 
+    /// <summary>Remote control as it stands: where the page is, and the paired devices, each with Remove.</summary>
+    private void ShowRemote()
+    {
+        RemoteStatusText.Text = _remote is null ? "Remote control is not available."
+            : _remote.Problem is { } problem ? problem
+            : _remote.Address is { } address ? $"On: the page is at {address} on this computer."
+            : "Off: tick the box and Save to start it.";
+        ShowTelegram();
+        RemoteDevicesPanel.Children.Clear();
+        foreach (var device in _remote?.Devices.ToArray() ?? [])
+        {
+            var row = new Grid { Margin = new Thickness(0, 4, 0, 0) };
+            row.ColumnDefinitions.Add(new ColumnDefinition());
+            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+            row.Children.Add(new TextBlock { Text = $"{device.Name} · paired {device.AddedAt:d MMM yyyy}", VerticalAlignment = VerticalAlignment.Center });
+            var remove = new Button { Style = (Style)FindResource("ChipButtonStyle"), Content = "Remove", ToolTip = "The device can no longer control Link" };
+            remove.Click += (_, _) =>
+            {
+                _remote!.Remove(device);
+                ShowRemote();
+            };
+            Grid.SetColumn(remove, 1);
+            row.Children.Add(remove);
+            RemoteDevicesPanel.Children.Add(row);
+        }
+    }
+
+    /// <summary>The Telegram bot as it stands: off, waiting for its code, or paired with a chat.</summary>
+    private void ShowTelegram(string? code = null)
+    {
+        var (running, paired) = _remote?.Telegram ?? (false, false);
+        TelegramUnlinkButton.Visibility = running || paired ? Visibility.Visible : Visibility.Collapsed;
+        TelegramStatusText.Text = code is not null ? $"Send {code} to your bot in Telegram within {RemotePairing.CodeLife.TotalMinutes:0} minutes."
+            : paired && running ? "On: your chat gets a message when a task needs you while you are away; /help in the bot lists the rest."
+            : running ? "The bot runs, no chat is paired: press Pair Telegram for a code."
+            : "Off. In Telegram, @BotFather → /newbot gives a token: paste it here and press Pair Telegram.";
+    }
+
+    private void TelegramPair_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_remote is null) return;
+        var (code, problem) = _remote.PairTelegram(TelegramTokenBox.Password);
+        TelegramTokenBox.Clear();
+        if (problem is not null)
+        {
+            TelegramStatusText.Text = problem;
+            return;
+        }
+
+        ShowTelegram(code);
+    }
+
+    private void TelegramUnlink_OnClick(object sender, RoutedEventArgs e)
+    {
+        _remote?.UnlinkTelegram();
+        ShowTelegram();
+    }
+
+    private void RemotePair_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_remote is null) return;
+        RemoteCodeText.Text = _remote.NewCode();
+        RemoteCodeText.ToolTip = $"Enter it on the page within {RemotePairing.CodeLife.TotalMinutes:0} minutes; it is good for one device";
+    }
+
     private void Save_OnClick(object sender, RoutedEventArgs e)
     {
         EndHotkeyCapture(restorePrevious: true);
@@ -671,7 +706,15 @@ public partial class SettingsWindow : Window
             return;
         }
 
+        if (!int.TryParse(RemotePortBox.Text, out var remotePort) || remotePort is < 1024 or > 65535)
+        {
+            ErrorText.Text = "The remote port must be between 1024 and 65535.";
+            return;
+        }
+
         var current = _settings.Current;
+        current.Remote.Enabled = RemoteBox.IsChecked == true;
+        current.Remote.Port = remotePort;
         current.Theme = (AppTheme)(ThemeCombo.SelectedItem ?? AppTheme.System);
         current.Opacity = OpacitySlider.Value;
         current.BlurBackground = BlurBackgroundBox.IsChecked == true;
@@ -684,7 +727,7 @@ public partial class SettingsWindow : Window
             current.MicrophoneDeviceId = microphone?.Id;
             current.MicrophoneDeviceName = microphone?.Id is null ? null : microphone.Name;
         }
-        if (!SaveTypedGeminiKey() || !SaveTypedCustomKey()) return;
+        if (!SaveTypedGeminiKey()) return;
         var speech = ChosenSpeech();
         current.VoiceReplies = VoiceRepliesBox.IsChecked == true;
         current.ReadTypedAnswers = ReadTypedAnswersBox.IsChecked == true;
@@ -706,9 +749,10 @@ public partial class SettingsWindow : Window
         current.Hotkeys.CaptureRegion = GetHotkey(RegionHotkey);
         current.Hotkeys.Conversation = GetHotkey(ConversationHotkey);
         current.Hotkeys.AskAboutScreen = GetHotkey(AskAboutScreenHotkey);
-        current.Agent.DefaultProvider = DefaultAgentCombo.SelectedIndex >= 0 ? _defaultAgents[DefaultAgentCombo.SelectedIndex].Kind : current.Agent.DefaultProvider;
+        current.Agent.DefaultProvider = DefaultAgentCombo.SelectedIndex >= 0 ? _agents[DefaultAgentCombo.SelectedIndex].Kind : current.Agent.DefaultProvider;
         current.Agent.ClaudePath = _agentPaths.ClaudePath;
         current.Agent.CodexPath = _agentPaths.CodexPath;
+        current.Agent.ClaudeAccount = _agentPaths.ClaudeAccount;
         current.Agent.DefaultAccess = DefaultAccessCombo.SelectedIndex == 0 ? AgentAccessChoice.Edit : AgentAccessChoice.Auto;
         current.Agent.ContextBudget = ContextBudgetCombo.SelectedIndex >= 0 ? _budgets[ContextBudgetCombo.SelectedIndex] : current.Agent.ContextBudget;
         current.Agent.AutoEffort = AutoEffortBox.IsChecked == true;
@@ -724,10 +768,6 @@ public partial class SettingsWindow : Window
         current.Agent.ClaudeDeep = new AgentLevelChoice { Model = Chosen(ClaudeDeepModelCombo), Effort = Chosen(ClaudeDeepEffortCombo) };
         current.Agent.CodexLight = new AgentLevelChoice { Model = Chosen(CodexLightModelCombo), Effort = Chosen(CodexLightEffortCombo) };
         current.Agent.CodexDeep = new AgentLevelChoice { Model = Chosen(CodexDeepModelCombo), Effort = Chosen(CodexDeepEffortCombo) };
-        current.Agent.Custom.Preset = Presets[Math.Max(0, CustomPresetCombo.SelectedIndex)].Preset;
-        current.Agent.Custom.BaseUrl = CustomAddressBox.Text;
-        current.Agent.Custom.Model = CustomModelCombo.Text;
-        current.Agent.OwnAnswersOnCustom = OwnAnswersOnCustomBox.IsChecked == true;
         current.Agent.Normalize();
 
         try

@@ -44,7 +44,7 @@ internal static class AgentTests
         {
             await P4WorkspaceAsync(p4Workspace);
         }
-        await CopyRestoreAsync();
+        await NoVersionControlAsync();
         await MapAsync();
         await FolderRunsAsync();
         ProjectCheck();
@@ -54,6 +54,7 @@ internal static class AgentTests
         ContinueAndPermissions();
         Choices();
         NextSteps();
+        NoStopRules();
         AutoEffortPolicy();
         AutoEffortFailures();
         AutoEffortSaved();
@@ -65,17 +66,8 @@ internal static class AgentTests
         TaskStateBuilt();
         TaskStateBudget();
         CompactSession();
-        CustomPresetsKnown();
-        CustomSettingsKept();
-        CustomAgentSettings();
-        CustomOwnAnswers();
-        CustomProviderEnvironment();
-        CustomProviderArguments();
-        await CustomProviderRefusesAsync();
-        CustomKeyStaysOut();
-        await CustomStartOverAsync();
-        CustomCapabilities();
-        CustomTaskStateNames();
+        RemovedCustomModel();
+        OwnAnswersLevel();
         PlanTaskTools();
         PlanTaskToolsAcrossRuns();
         PlanKeepsOlderRecords();
@@ -88,7 +80,6 @@ internal static class AgentTests
         HarnessCardLine();
         StudioSettingsKept();
         StudioSettingsOdd();
-        CheaperHints();
         FirstRunWords();
         TeamPackRoundTrip();
         TeamPackLinks();
@@ -162,7 +153,7 @@ internal static class AgentTests
                 Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Fix",
                 Images = [@"C:\shot.png"], Model = "opus", Effort = "high", AutoApprove = true
             },
-            new WorkspaceBefore(@"C:\Work", true, new Dictionary<string, string>(), null, DateTime.UtcNow),
+            new WorkspaceBefore(@"C:\Work", true, new Dictionary<string, string>(), DateTime.UtcNow),
             new AgentResult { SessionId = "s1", Succeeded = true },
             []);
         var next = AgentCoordinator.ContinueTask(run, "  and the jump too \n");
@@ -195,7 +186,7 @@ internal static class AgentTests
         var agent = new ScriptedProvider((task, _) => task.Prompt == AgentCoordinator.NoteRequest
             ? new AgentResult { SessionId = "s1", Succeeded = true, Summary = Note + "\n" }
             : new AgentResult { SessionId = "s2", Succeeded = true });
-        var agents = new AgentCoordinator([agent], new AgentChanges(Path.GetTempPath()), _ => { });
+        var agents = new AgentCoordinator([agent], new AgentChanges(), _ => { });
         var origin = new AgentTask
         {
             Provider = AgentProviderKind.ClaudeCode,
@@ -207,7 +198,7 @@ internal static class AgentTests
         };
         // The task went on after "allow and retry" and looped there.
         var last = origin with { ResumeSessionId = "s1", Prompt = "These tools are allowed now. Continue the task.", Images = [], AllowedTools = ["Read", "Bash(dotnet test)"] };
-        var before = new WorkspaceBefore(origin.Workspace, false, new Dictionary<string, string>(), null, DateTime.UtcNow);
+        var before = new WorkspaceBefore(origin.Workspace, false, new Dictionary<string, string>(), DateTime.UtcNow);
         var looped = new AgentRun(last, before, new AgentResult { SessionId = "s1", Loops = ["repeated error"] }, []);
 
         var fresh = (await agents.StartOverAsync(looped, origin, (null, null), CancellationToken.None))!.Value;
@@ -236,7 +227,7 @@ internal static class AgentTests
     {
         var project = new LinkProject { Name = "Nori", DataFolder = "C:\\Data", CheckCommand = "dotnet build" };
         var snapshot = new InputSnapshot { ProjectId = project.Id, ProjectName = project.Name, Text = "Fix the camera" };
-        var edits = AgentCoordinator.BuildTask(new AgentPlan(AgentProviderKind.Codex, "C:\\Work", false, false, "Fix the camera"), snapshot, project);
+        var edits = AgentCoordinator.BuildTask(new AgentPlan(AgentProviderKind.Codex, "C:\\Work", false, "Fix the camera"), snapshot, project);
         Program.Equal("check: the agent is told that Link runs the check",
             edits.Prompt.EndsWith(AgentCoordinator.CheckNote("dotnet build"), StringComparison.Ordinal) && edits.Prompt.Contains("`dotnet build`"), true);
         var old = JsonSerializer.Deserialize<LinkProject>("""{"Name":"Nori","DataFolder":"C:\\Data"}""")!;
@@ -283,7 +274,7 @@ internal static class AgentTests
         try
         {
             Directory.CreateDirectory(workspace);
-            var changes = new AgentChanges(Path.Combine(root, "backups"));
+            var changes = new AgentChanges();
             // The agent fixes the state on its second run; the check looks for it.
             var fixing = new ScriptedProvider((_, number) =>
             {
@@ -299,7 +290,7 @@ internal static class AgentTests
                 Images = ["shot.png"],
                 CheckCommand = "findstr /c:fixed state.txt"
             };
-            var run = await new AgentCoordinator([fixing], changes, log.Add).RunAsync(task, false, null, new SyncProgress(_ => { }), CancellationToken.None);
+            var run = await new AgentCoordinator([fixing], changes, log.Add).RunAsync(task, null, new SyncProgress(_ => { }), CancellationToken.None);
             var retry = fixing.Tasks[^1];
             Program.Equal("check: a red check goes back to the agent's session with the check's end",
                 (fixing.Tasks.Count, retry.ResumeSessionId, retry.Prompt.Contains("findstr /c:fixed state.txt` failed with exit code 1"), retry.Images.Count),
@@ -311,14 +302,14 @@ internal static class AgentTests
 
             var never = new ScriptedProvider((_, _) => new AgentResult { SessionId = "s2", Succeeded = true });
             var red = await new AgentCoordinator([never], changes, _ => { })
-                .RunAsync(task with { CheckCommand = "exit /b 5" }, false, null, new SyncProgress(_ => { }), CancellationToken.None);
+                .RunAsync(task with { CheckCommand = "exit /b 5" }, null, new SyncProgress(_ => { }), CancellationToken.None);
             Program.Equal("check: two retries, then the red check ends the task",
                 (never.Tasks.Count, red.Check?.Outcome, red.Check?.ExitCode), (3, (AgentCheckOutcome?)AgentCheckOutcome.Failed, (int?)5));
 
             foreach (var (name, quiet) in new[] { ("a plan", task with { PlanOnly = true }) })
             {
                 var agent = new ScriptedProvider((_, _) => new AgentResult { SessionId = "s3", Succeeded = true });
-                var none = await new AgentCoordinator([agent], changes, _ => { }).RunAsync(quiet, false, null, new SyncProgress(_ => { }), CancellationToken.None);
+                var none = await new AgentCoordinator([agent], changes, _ => { }).RunAsync(quiet, null, new SyncProgress(_ => { }), CancellationToken.None);
                 Program.Equal($"check: {name} runs none", (none.Check, agent.Tasks.Count), ((AgentCheckResult?)null, 1));
             }
         }
@@ -343,7 +334,7 @@ internal static class AgentTests
             await GitAsync(workspace, "add", ".");
             await GitAsync(workspace, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "start");
             var agents = new AgentCoordinator([ScriptedProvider.Answering("```markdown\n# Sample\n\n- a.txt: the letter a\n```")],
-                new AgentChanges(Path.Combine(root, "backups")), _ => { });
+                new AgentChanges(), _ => { });
             var task = new AgentTask
             {
                 Provider = AgentProviderKind.ClaudeCode,
@@ -352,7 +343,7 @@ internal static class AgentTests
                 AnswerFile = ProjectMap.RelativePath
             };
             var events = new List<AgentEvent>();
-            var run = await agents.RunAsync(task, backup: false, previous: null, new SyncProgress(events.Add), CancellationToken.None);
+            var run = await agents.RunAsync(task, previous: null, new SyncProgress(events.Add), CancellationToken.None);
             Program.Equal("map: Link writes the answer without its code block",
                 File.ReadAllText(ProjectMap.PathIn(workspace)), "# Sample\n\n- a.txt: the letter a\n");
             Program.Equal("map: the file is the run's one change, new and undoable",
@@ -362,7 +353,7 @@ internal static class AgentTests
             Program.Equal("map: undo takes it away", File.Exists(ProjectMap.PathIn(workspace)), false);
 
             var failed = await new AgentCoordinator([ScriptedProvider.Answering("# Half a map", succeeded: false)], agents.Changes, _ => { })
-                .RunAsync(task, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
+                .RunAsync(task, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
             Program.Equal("map: a failed run writes nothing", (File.Exists(ProjectMap.PathIn(workspace)), failed.Changes.Count), (false, 0));
         }
         finally
@@ -392,9 +383,9 @@ internal static class AgentTests
             {
                 File.WriteAllText(Path.Combine(task.Workspace, $"other-{task.PlanOnly}.txt"), "theirs");
                 return new AgentResult { SessionId = "s1", Succeeded = true };
-            })], new AgentChanges(Path.Combine(root, "backups")), _ => { });
+            })], new AgentChanges(), _ => { });
             var task = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = workspace, Prompt = "look" };
-            var plan = await agents.RunAsync(task with { PlanOnly = true }, backup: false, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
+            var plan = await agents.RunAsync(task with { PlanOnly = true }, previous: null, new SyncProgress(_ => { }), CancellationToken.None);
             Program.Equal("folders: every run, a plan too, finds what changed during it: no run is read only",
                 string.Join(",", plan.Changes.Select(change => Path.GetFileName(change.Path))), "other-True.txt");
         }
@@ -415,9 +406,9 @@ internal static class AgentTests
             await GitAsync(workspace, "add", ".");
             await GitAsync(workspace, "-c", "user.name=t", "-c", "user.email=t@t", "commit", "-q", "-m", "start");
             File.WriteAllText(Path.Combine(workspace, "mine.txt"), "my edit");
-            var changes = new AgentChanges(Path.Combine(workspace, "backups"));
-            var before = await changes.CaptureAsync(workspace, backup: true, CancellationToken.None);
-            Program.Equal("git: a repository needs no copy", (before.IsGit, before.Backup), (true, (string?)null));
+            var changes = new AgentChanges();
+            var before = await changes.CaptureAsync(workspace, CancellationToken.None);
+            Program.Equal("git: a repository is found", before.IsGit, true);
 
             // The agent's work: one clean file changed, one new, and the user's own edit changed further.
             File.WriteAllText(Path.Combine(workspace, "clean.txt"), "agent");
@@ -445,7 +436,7 @@ internal static class AgentTests
         }
     }
 
-    private static async Task CopyRestoreAsync()
+    private static async Task NoVersionControlAsync()
     {
         var root = TempFolder();
         var workspace = Path.Combine(root, "scene");
@@ -453,30 +444,18 @@ internal static class AgentTests
         {
             Directory.CreateDirectory(Path.Combine(workspace, "bin"));
             File.WriteAllText(Path.Combine(workspace, "scene.blend"), "land v1");
-            File.WriteAllText(Path.Combine(workspace, "bin", "skipped.dll"), "build output");
-            var changes = new AgentChanges(Path.Combine(root, "backups"));
-            var before = await changes.CaptureAsync(workspace, backup: true, CancellationToken.None);
-            Program.Equal("copy: a folder without git is copied before Do", before is { IsGit: false, Backup: not null }, true);
-            Program.Equal("copy: build output is not copied", File.Exists(Path.Combine(before.Backup!, "bin", "skipped.dll")), false);
-
-            File.WriteAllText(Path.Combine(workspace, "scene.blend"), "land v2");
-            File.WriteAllText(Path.Combine(workspace, "land.fbx"), "export");
-            var found = await changes.CompareAsync(before, CancellationToken.None);
-            Program.Equal("copy: changed and added files are found",
-                string.Join(",", found.Select(change => Path.GetFileName(change.Path)).Order()), "land.fbx,scene.blend");
-            await changes.RestoreAsync(before, found, CancellationToken.None);
-            Program.Equal("copy: restore brings the file back", File.ReadAllText(Path.Combine(workspace, "scene.blend")), "land v1");
-            Program.Equal("copy: restore deletes what the agent added", File.Exists(Path.Combine(workspace, "land.fbx")), false);
-
-            // A later run of the task makes no copy: sizes and times tell what it changed, and nothing of it can be undone.
             File.WriteAllText(Path.Combine(workspace, "old.txt"), "old");
-            var later = await changes.CaptureAsync(workspace, backup: false, CancellationToken.None);
-            File.WriteAllText(Path.Combine(workspace, "scene.blend"), "land v3, longer");
+            File.WriteAllText(Path.Combine(workspace, "bin", "skipped.dll"), "build output");
+            var changes = new AgentChanges();
+            var before = await changes.CaptureAsync(workspace, CancellationToken.None);
+            Program.Equal("no vcs: a folder without git or Perforce is not versioned", before.IsVersioned, false);
+
+            File.WriteAllText(Path.Combine(workspace, "scene.blend"), "land v2, longer");
             File.WriteAllText(Path.Combine(workspace, "land.fbx"), "export");
             File.WriteAllText(Path.Combine(workspace, "bin", "skipped.dll"), "build output again");
             File.Delete(Path.Combine(workspace, "old.txt"));
-            Program.Equal("copy: without a copy, a run's changes are told by size and time and none is undoable",
-                string.Join(",", (await changes.CompareAsync(later, CancellationToken.None))
+            Program.Equal("no vcs: a run's changes are told by size and time, build output not, and none is undoable",
+                string.Join(",", (await changes.CompareAsync(before, CancellationToken.None))
                     .Select(change => $"{Path.GetFileName(change.Path)}:{change.Kind}:{change.Undoable}").Order()),
                 "land.fbx:??:False,old.txt:D:False,scene.blend:M:False");
         }
@@ -515,7 +494,7 @@ internal static class AgentTests
         Program.Equal("p4: opened and reconcile preview become one status",
             string.Join(',', status), "Old.ini:D,Hero.uasset:M,Notes.txt:??");
         Program.Equal("p4: a Perforce workspace is versioned",
-            new WorkspaceBefore(root, false, new Dictionary<string, string>(), null, DateTime.UtcNow, true).IsVersioned, true);
+            new WorkspaceBefore(root, false, new Dictionary<string, string>(), DateTime.UtcNow, true).IsVersioned, true);
         var described = AgentChanges.SplitChangelistLine("Сделал переход из приземления в бег.\n\n**Changelist:** Nori blends from landing into the run, no foot sliding\n");
         Program.Equal("p4: the agent's English line becomes the changelist's description and leaves the answer",
             described, ("Сделал переход из приземления в бег.", (string?)"Nori blends from landing into the run, no foot sliding"));
@@ -614,10 +593,9 @@ internal static class AgentTests
 
     private static async Task P4WorkspaceAsync(string workspace)
     {
-        var changes = new AgentChanges(Path.Combine(Path.GetTempPath(), "link-p4-integration-backups"));
-        var before = await changes.CaptureAsync(workspace, backup: true, CancellationToken.None);
-        Program.Equal("p4 integration: .p4config workspace is detected without a backup",
-            (before.IsPerforce, before.Backup), (true, (string?)null));
+        var changes = new AgentChanges();
+        var before = await changes.CaptureAsync(workspace, CancellationToken.None);
+        Program.Equal("p4 integration: .p4config workspace is detected", before.IsPerforce, true);
         Program.Equal("p4 integration: clean workspace has no agent changes",
             (await changes.CompareAsync(before, CancellationToken.None)).Count, 0);
     }
@@ -918,6 +896,37 @@ internal static class AgentTests
     }
 
     /// <summary>The agent's word for its next step, as its rules ask it, and what Link does with the block.</summary>
+    private static void NoStopRules()
+    {
+        var question = AgentQuestion.Split("""
+            Which jump?
+            ```link-ask
+            {"question": "Which jump should stay?", "options": [{"label": "Keep the double jump"}, {"label": "Only one jump"}]}
+            ```
+            """).Question!;
+        Program.Equal("No-stop picks the option the agent recommends, the first", NoStop.Pick(question), "Keep the double jump");
+        Program.Equal("No-stop goes on with the step the agent named",
+            NoStop.GoOn(AgentNext.Split("""
+                ```link-next
+                {"next": "wire the jump", "effort": "medium"}
+                ```
+                """).Next!), "Go on: wire the jump");
+
+        AgentRunRecord Run(int files) => new() { Provider = AgentProviderKind.ClaudeCode, StartedAt = DateTimeOffset.Now, Files = [.. Enumerable.Repeat("a.cs", files)] };
+        var record = new AgentTaskRecord { Goal = "g", Workspace = @"C:\Work", NoStop = true, Runs = [Run(1), Run(0)] };
+        Program.Equal("No-stop takes a new choice", NoStop.WhyWait(record, 20, "b", "a"), null);
+        Program.Equal("No-stop waits on the same choice twice", NoStop.WhyWait(record, 20, "a", "a") is not null, true);
+        Program.Equal("No-stop waits after its turns in a row", NoStop.WhyWait(new AgentTaskRecord { Goal = "g", Workspace = "w", NoStopTaken = 20 }, 20, "b", null) is not null, true);
+        record.Runs.AddRange([Run(0), Run(0)]);
+        Program.Equal("No-stop waits after runs that changed no file", NoStop.WhyWait(record, 20, "b", "a") is not null, true);
+
+        var settings = new AgentSettings { NoStopTurns = 0, NoStopDeny = null! };
+        settings.Normalize();
+        Program.Equal("No-stop settings: turns and deny list fall back to their defaults",
+            (settings.NoStopTurns, settings.NoStopDeny.SequenceEqual(AgentSettings.DefaultNoStopDeny), settings.Clone().NoStopDeny.Count),
+            (AgentSettings.DefaultNoStopTurns, true, AgentSettings.DefaultNoStopDeny.Count));
+    }
+
     private static void NextSteps()
     {
         var (text, next) = AgentNext.Split("""
@@ -1455,321 +1464,29 @@ internal static class AgentTests
         }
     }
 
-    /// <summary>The presets Settings starts a custom model from: an address and models each, and who sees the code.</summary>
-    private static void CustomPresetsKnown()
+    /// <summary>Settings of a Link that had the custom model (its number was 2) load without it.</summary>
+    private static void RemovedCustomModel()
     {
-        var named = CustomPresets.All.Where(info => info.Preset != CustomPreset.Other).ToArray();
-        Program.Equal("custom presets: every one but Other has an http(s) address and a model",
-            named.All(info => (info.BaseUrl.StartsWith("https://", StringComparison.Ordinal) || info.BaseUrl.StartsWith("http://", StringComparison.Ordinal)) &&
-                              info.Models.Count > 0 && info.Name.Length > 0 && info.Note.Length > 0), true);
-        var other = CustomPresets.Of(CustomPreset.Other);
-        Program.Equal("custom presets: Other has neither, and each preset is found by its own name",
-            (other.BaseUrl, other.Models.Count, CustomPresets.All.All(info => CustomPresets.Of(info.Preset) == info)), ("", 0, true));
-        Program.Equal("custom presets: GLM is first and has the free flash model, no preset reads images",
-            (CustomPresets.All[0].Preset, CustomPresets.All[0].Models[0], CustomPresets.All.Any(info => info.Images)), (CustomPreset.ZaiGlm, "glm-4.7-flash", false));
-        Program.Equal("custom presets: only Ollama needs no key, and keeps the code on this PC",
-            (string.Join(",", CustomPresets.All.Where(info => !info.NeedsKey).Select(info => info.Preset)), CustomPresets.Of(CustomPreset.Ollama).SeesCode),
-            ("Ollama", "this PC"));
-    }
-
-    /// <summary>The custom model's setup: complete when new, blanks fall back to the preset, and only a safe address takes the key.</summary>
-    private static void CustomSettingsKept()
-    {
-        var fresh = new CustomModelSettings();
-        Program.Equal("custom settings: a new one is the GLM preset, complete",
-            (fresh.Preset, fresh.BaseUrl, fresh.Model, fresh.DisplayName), (CustomPreset.ZaiGlm, "https://api.z.ai/api/anthropic", "glm-4.7-flash", "GLM (Z.ai)"));
-        var blank = new CustomModelSettings { Preset = CustomPreset.Ollama, Name = "  ", BaseUrl = " ", Model = "" };
-        blank.Normalize();
-        Program.Equal("custom settings: blanks become the preset's address and first model, a blank name is none",
-            (blank.BaseUrl, blank.Model, blank.Name, blank.DisplayName), ("http://localhost:11434", "qwen3-coder", (string?)null, "Ollama (local)"));
-        var typed = new CustomModelSettings { Preset = CustomPreset.DeepSeek, Name = " Work ", BaseUrl = " https://example.test/anthropic ", Model = " my-model " };
-        typed.Normalize();
-        Program.Equal("custom settings: typed values are trimmed and kept, the name is what shows",
-            (typed.BaseUrl, typed.Model, typed.DisplayName), ("https://example.test/anthropic", "my-model", "Work"));
-        var nothing = new CustomModelSettings { Preset = CustomPreset.Other, BaseUrl = "", Model = "" };
-        nothing.Normalize();
-        var unknown = new CustomModelSettings { Preset = (CustomPreset)9 };
-        unknown.Normalize();
-        Program.Equal("custom settings: Other has nothing to fall back to, an unknown preset is the GLM one",
-            (nothing.BaseUrl, nothing.Model, unknown.Preset), ((string?)null, (string?)null, CustomPreset.ZaiGlm));
-
-        CustomModelSettings At(string address, CustomPreset preset = CustomPreset.ZaiGlm) => new() { Preset = preset, BaseUrl = address, Model = "m" };
-        Program.Equal("custom settings: a key goes to https, or to http on this PC, and to nothing else",
-            string.Join(" ", new[] { "https://api.z.ai/x", "http://localhost:11434", "http://127.0.0.1:1234/v1", "http://example.test/x", "ftp://example.test", "api.z.ai", "" }
-                .Select(address => At(address).HasSafeAddress ? "y" : "n")),
-            "y y y n n n n");
-        Program.Equal("custom settings: what is missing comes in order: the address, the model, the key",
-            (At("http://example.test").Missing(true), new CustomModelSettings { Model = "" }.Missing(true), At("https://api.z.ai").Missing(false),
-                At("https://api.z.ai").Missing(true), blank.Missing(false)),
-            ("Needs an https:// address (http:// only on this PC)", "Needs a model", "Needs a key", (string?)null, (string?)null));
-    }
-
-    /// <summary>The custom model in the agent settings: Claude Code's file, its own model, no effort; older settings load and it is never the default.</summary>
-    private static void CustomAgentSettings()
-    {
-        var settings = new AgentSettings { ClaudePath = @"C:\bin\claude.exe", CodexPath = @"C:\bin\codex.exe", ClaudeEffort = "high", CodexEffort = "low" };
-        settings.Custom.Model = "glm-4.7";
-        Program.Equal("custom agent: it runs the file of Claude Code, with its own model and no effort",
-            (settings.PathFor(AgentProviderKind.Custom), settings.ModelFor(AgentProviderKind.Custom), settings.EffortFor(AgentProviderKind.Custom)),
-            (@"C:\bin\claude.exe", "glm-4.7", (string?)null));
-        var levels = Enum.GetValues<AgentLevel>().Select(level => settings.Level(AgentProviderKind.Custom, level)).Distinct().ToArray();
-        Program.Equal("custom agent: its three levels are one model without an effort", (levels.Length, levels[0].Model, levels[0].Effort), (1, "glm-4.7", (string?)null));
-        settings.SetEffort(AgentProviderKind.Custom, "max");
-        Program.Equal("custom agent: an effort set for it changes nobody's",
-            (settings.ClaudeEffort, settings.CodexEffort, settings.EffortFor(AgentProviderKind.Custom)), ("high", "low", (string?)null));
-
-        Program.Equal("custom agent: the numbers of older settings stay",
-            ((int)AgentProviderKind.ClaudeCode, (int)AgentProviderKind.Codex, (int)AgentProviderKind.Custom), (0, 1, 2));
-        var older = JsonSerializer.Deserialize<AgentSettings>("""{"DefaultProvider":1,"ClaudeModel":"opus"}""")!;
+        Program.Equal("removed custom model: the numbers of the agents stay",
+            ((int)AgentProviderKind.ClaudeCode, (int)AgentProviderKind.Codex, Enum.IsDefined((AgentProviderKind)2)), (0, 1, false));
+        var older = JsonSerializer.Deserialize<AgentSettings>(
+            """{"DefaultProvider":2,"OwnAnswersOnCustom":true,"Custom":{"Preset":0,"Model":"glm-4.7-flash"},"ClaudeModel":"opus"}""")!;
         older.Normalize();
-        Program.Equal("custom agent: settings of an older Link load with the GLM preset and Codex still the default",
-            (older.DefaultProvider, older.Custom.Preset, older.Custom.BaseUrl, older.Custom.Model, older.OwnAnswersOnCustom, older.ClaudeModel),
-            (AgentProviderKind.Codex, CustomPreset.ZaiGlm, "https://api.z.ai/api/anthropic", "glm-4.7-flash", false, "opus"));
-        var hand = JsonSerializer.Deserialize<AgentSettings>("""{"DefaultProvider":2,"Custom":null}""")!;
-        hand.Normalize();
-        Program.Equal("custom agent: it is never the default, and a missing setup is the GLM one",
-            (hand.DefaultProvider, hand.Custom.Preset), (AgentProviderKind.ClaudeCode, CustomPreset.ZaiGlm));
-
-        var saved = new AgentSettings { OwnAnswersOnCustom = true };
-        saved.Custom = new CustomModelSettings { Preset = CustomPreset.Ollama, Name = "Home", BaseUrl = "http://localhost:11434", Model = "gpt-oss:20b" };
-        var back = JsonSerializer.Deserialize<AgentSettings>(JsonSerializer.Serialize(saved))!;
-        Program.Equal("custom agent: the setup is saved with the settings",
-            (back.OwnAnswersOnCustom, back.Custom.Preset, back.Custom.Name, back.Custom.BaseUrl, back.Custom.Model),
-            (true, CustomPreset.Ollama, "Home", "http://localhost:11434", "gpt-oss:20b"));
-        var copy = saved.Clone();
-        copy.Custom.Model = "other";
-        Program.Equal("custom agent: a copy has its own setup", (copy.OwnAnswersOnCustom, saved.Custom.Model, copy.Custom.Preset), (true, "gpt-oss:20b", CustomPreset.Ollama));
+        Program.Equal("removed custom model: settings that made it the default fall back to Claude Code, the rest is kept",
+            (older.DefaultProvider, older.ClaudeModel, JsonSerializer.Serialize(older).Contains("glm", StringComparison.Ordinal)),
+            (AgentProviderKind.ClaudeCode, "opus", false));
     }
 
-    /// <summary>Link's own answers: on the custom model only when Settings asks and it is set up, and a session stays with an agent that reads it.</summary>
-    private static void CustomOwnAnswers()
+    /// <summary>Link's own answers (a map, a note) run Light on the agent asked, or Standard when Settings says so.</summary>
+    private static void OwnAnswersLevel()
     {
-        var on = new AgentSettings { OwnAnswersOnCustom = true };
-        var off = new AgentSettings();
-        Program.Equal("own answers: a map goes to the custom model when Settings asks and it is set up",
-            on.OwnAnswers(AgentProviderKind.ClaudeCode, inSession: false, customConfigured: true), (AgentProviderKind.Custom, (string?)"glm-4.7-flash", (string?)null));
-        Program.Equal("own answers: not set up, it stays on Claude's Quick setup",
-            on.OwnAnswers(AgentProviderKind.ClaudeCode, inSession: false, customConfigured: false), (AgentProviderKind.ClaudeCode, (string?)"claude-haiku-5-5", (string?)"low"));
-        Program.Equal("own answers: asked for nothing, a map is Quick on the project's agent",
-            off.OwnAnswers(AgentProviderKind.Codex, inSession: false, customConfigured: true), (AgentProviderKind.Codex, (string?)"gpt-5.6-luna", (string?)"low"));
-        Program.Equal("own answers: a project whose last task used the custom model does not send its map there unasked",
-            off.OwnAnswers(AgentProviderKind.Custom, inSession: false, customConfigured: true), (AgentProviderKind.ClaudeCode, (string?)"claude-haiku-5-5", (string?)"low"));
-        Program.Equal("own answers: a skill or note of a Claude Code session stays with Claude Code, which wrote the session",
-            on.OwnAnswers(AgentProviderKind.ClaudeCode, inSession: true, customConfigured: true).Provider, AgentProviderKind.ClaudeCode);
-        Program.Equal("own answers: a Codex session is read by Codex only",
-            on.OwnAnswers(AgentProviderKind.Codex, inSession: true, customConfigured: true).Provider, AgentProviderKind.Codex);
-        Program.Equal("own answers: a custom model's session goes on there",
-            off.OwnAnswers(AgentProviderKind.Custom, inSession: true, customConfigured: true), (AgentProviderKind.Custom, (string?)"glm-4.7-flash", (string?)null));
-    }
-
-    /// <summary>What the custom model's Claude Code is given: the server, the key as the token, the model for every name, the budget.</summary>
-    private static void CustomProviderEnvironment()
-    {
-        var settings = new AgentSettings { ContextBudget = 150_000 };
-        string? key = "sk-test-0123";
-        var custom = new CustomModelProvider(() => settings, () => key, _ => { });
-        var task = new AgentTask { Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Model = "glm-4.7", Effort = "high", ContextBudget = 150_000 };
-        var variables = custom.EnvironmentVariables(task);
-        string[] names =
-        [
-            "ANTHROPIC_BASE_URL", "ANTHROPIC_AUTH_TOKEN", "ANTHROPIC_API_KEY", "ANTHROPIC_MODEL", "ANTHROPIC_DEFAULT_OPUS_MODEL",
-            "ANTHROPIC_DEFAULT_SONNET_MODEL", "ANTHROPIC_DEFAULT_HAIKU_MODEL"
-        ];
-        Program.Equal("custom provider: the server, the key as the token, no Anthropic key, the chosen model for every name",
-            string.Join(";", names.Select(name => $"{name}={variables[name]}")),
-            "ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic;ANTHROPIC_AUTH_TOKEN=sk-test-0123;ANTHROPIC_API_KEY=;ANTHROPIC_MODEL=glm-4.7;" +
-            "ANTHROPIC_DEFAULT_OPUS_MODEL=glm-4.7;ANTHROPIC_DEFAULT_SONNET_MODEL=glm-4.7;ANTHROPIC_DEFAULT_HAIKU_MODEL=glm-4.7");
-        Program.Equal("custom provider: only the model's own traffic, a long timeout, and the context budget as for Claude Code",
-            (variables["CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC"], variables["API_TIMEOUT_MS"], variables["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]), ("1", "600000", "150000"));
-        Program.Equal("custom provider: a task with no model runs on Settings' model",
-            custom.EnvironmentVariables(task with { Model = null })["ANTHROPIC_MODEL"], "glm-4.7-flash");
-        var wide = task with { ContextBudget = 550_000 };
-        var glmWindow = custom.EnvironmentVariables(wide)["CLAUDE_CODE_AUTO_COMPACT_WINDOW"];
-        settings.Custom = new CustomModelSettings { Preset = CustomPreset.DeepSeek };
-        settings.Custom.Normalize();
-        Program.Equal("custom provider: a budget over the server model's window compacts by the window",
-            (glmWindow, custom.EnvironmentVariables(wide)["CLAUDE_CODE_AUTO_COMPACT_WINDOW"]), ("200000", "128000"));
-
-        settings.Custom = new CustomModelSettings { Preset = CustomPreset.Ollama, BaseUrl = "http://localhost:11434", Model = "qwen3-coder" };
-        key = null;
-        var local = custom.EnvironmentVariables(task with { Model = null });
-        Program.Equal("custom provider: Ollama is called with a word for a token, and needs no key",
-            (local["ANTHROPIC_BASE_URL"], local["ANTHROPIC_AUTH_TOKEN"], local["ANTHROPIC_MODEL"], custom.Configured), ("http://localhost:11434", "ollama", "qwen3-coder", true));
-
-        settings.Custom = new CustomModelSettings();
-        Program.Equal("custom provider: GLM is set up with a key, not without, nor at an address a key must not go to",
-            (custom.Configured, Set(settings, "sk-1"), Set(settings, null), CustomWithAddress(settings, "http://example.test")), (false, true, false, false));
-
-        bool Set(AgentSettings each, string? value)
-        {
-            key = value;
-            return custom.Configured;
-        }
-
-        bool CustomWithAddress(AgentSettings each, string address)
-        {
-            key = "sk-1";
-            each.Custom.BaseUrl = address;
-            return custom.Configured;
-        }
-    }
-
-    /// <summary>Claude Code's arguments for the custom model: its model, never an effort, and no pictures it cannot read.</summary>
-    private static void CustomProviderArguments()
-    {
-        var settings = new AgentSettings();
-        var custom = new CustomModelProvider(() => settings, () => "sk-test-0123", _ => { });
-        var claude = new ClaudeCodeProvider(() => settings, _ => { });
-        var task = new AgentTask
-        {
-            Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Model = "glm-4.7", Effort = "high"
-        };
-        var arguments = custom.Arguments(task);
-        Program.Equal("custom provider: --model is passed and --effort never, the rest is Claude Code's",
-            (arguments[arguments.ToList().IndexOf("--model") + 1], arguments.Contains("--effort"), arguments.SequenceEqual(claude.Arguments(task with { Effort = null }))),
-            ("glm-4.7", false, true));
-        Program.Equal("custom provider: a task with no model still names Settings' model",
-            custom.Arguments(task with { Model = null }).Zip(custom.Arguments(task with { Model = null }).Skip(1), (name, value) => name == "--model" ? value : null).OfType<string>().SingleOrDefault(),
-            "glm-4.7-flash");
-
-        var shot = task with { Images = [@"C:\Shots\a.png"] };
-        Program.Equal("custom provider: pictures it cannot read are left out, and the prompt says so",
-            (custom.Arguments(shot).Contains("--add-dir"), custom.Input(shot), claude.Input(shot).Contains("a.png")),
-            (false, "Explain\n\nScreenshots were left out: this model does not read images.", true));
-        Program.Equal("custom provider: without pictures the prompt is as it was", custom.Input(task), "Explain");
-        var started = custom.StandardInput(shot);
-        Program.Equal("custom provider: a new session is given the rules and the line, not the picture, and no key",
-            (started.Contains("# Agent rules"), started.Contains("Screenshots were left out"), started.Contains("a.png"), started.Contains("sk-test-0123")),
-            (true, true, false, false));
-        Program.Equal("custom provider: the key is in no argument",
-            string.Join(' ', arguments).Contains("sk-test-0123"), false);
-    }
-
-    /// <summary>A custom model that is not set up, or has no Claude Code to run through, does not start and says why.</summary>
-    private static async Task CustomProviderRefusesAsync()
-    {
-        var settings = new AgentSettings { ClaudePath = Environment.ProcessPath };
-        string? key = null;
-        var custom = new CustomModelProvider(() => settings, () => key, _ => { });
-        var task = new AgentTask { Provider = AgentProviderKind.Custom, Workspace = AppContext.BaseDirectory, Prompt = "x" };
-        Program.Equal("custom provider refuses: it is not ready without its key", custom.Configured, false);
-        var message = string.Empty;
-        try
-        {
-            await custom.RunAsync(task, new SyncProgress(_ => { }), CancellationToken.None);
-        }
-        catch (InvalidOperationException exception)
-        {
-            message = exception.Message;
-        }
-
-        Program.Equal("custom provider refuses: no key, nothing starts, and the message says what is missing",
-            message, "GLM (Z.ai): Needs a key. Settings → Agents has the setup.");
-
-        key = "sk-test-0123";
-        settings.ClaudePath = Path.Combine(Path.GetTempPath(), "no-such-folder", "claude.exe");
-        message = string.Empty;
-        try
-        {
-            await custom.RunAsync(task, new SyncProgress(_ => { }), CancellationToken.None);
-        }
-        catch (InvalidOperationException exception)
-        {
-            message = exception.Message;
-        }
-
-        Program.Equal("custom provider refuses: without Claude Code it says the custom model runs through it, and not the key",
-            (message.StartsWith("Claude Code is not found, and GLM (Z.ai) runs through it.", StringComparison.Ordinal), message.Contains("sk-test-0123")), (true, false));
-        Program.Equal("custom provider refuses: limits it has none of", (await custom.ReadLimitsAsync(CancellationToken.None)).Count, 0);
-    }
-
-    /// <summary>The Console shows that there is a key and never what it is; Claude Code's dollars for another server's model are not recorded.</summary>
-    private static void CustomKeyStaysOut()
-    {
-        var settings = new AgentSettings { ContextBudget = 150_000 };
-        var custom = new CustomModelProvider(() => settings, () => "sk-test-0123", _ => { });
-        var task = new AgentTask { Provider = AgentProviderKind.Custom, Workspace = @"C:\Work", Prompt = "Explain", Model = "glm-4.7", ContextBudget = 150_000 };
-        var console = new AgentConsole();
-        console.Sent("GLM (Z.ai) · new session", "claude", custom.Arguments(task), task.Workspace, custom.EnvironmentVariables(task), custom.StandardInput(task));
-        var text = console.After(0).Text;
-        Program.Equal("console: the token is shown as ***, an empty key as empty, and the rest as it is",
-            (text.Contains("sk-test-0123"), text.Contains("  + ANTHROPIC_AUTH_TOKEN=***\n") || text.Contains("  + ANTHROPIC_AUTH_TOKEN=***\r\n"),
-                text.Contains("  + ANTHROPIC_API_KEY=\n") || text.Contains("  + ANTHROPIC_API_KEY=\r\n"),
-                text.Contains("ANTHROPIC_BASE_URL=https://api.z.ai/api/anthropic"), text.Contains("CLAUDE_CODE_AUTO_COMPACT_WINDOW=150000")),
-            (false, true, true, true, true));
-
-        var priced = Parse(new ClaudeEventParser(), "claude-do.jsonl").Parser.Stats.CostUsd;
-        var unpriced = Parse(custom.CreateParser(task), "claude-do.jsonl").Parser.Stats.CostUsd;
-        Program.Equal("custom provider: the dollars Claude Code guesses for another server are not counted",
-            (priced is > 0, unpriced), (true, (decimal?)null));
-    }
-
-    /// <summary>Start over, when the note is written by the custom model: it asks in the Claude Code session, and the new session is the run's own agent's.</summary>
-    private static async Task CustomStartOverAsync()
-    {
-        var claude = new ScriptedProvider((_, _) => new AgentResult { SessionId = "s2", Succeeded = true });
-        var custom = new ScriptedProvider((_, _) => new AgentResult { SessionId = "s1", Succeeded = true, Summary = "Tried it twice.\n" }, AgentProviderKind.Custom);
-        var agents = new AgentCoordinator([claude, custom], new AgentChanges(Path.GetTempPath()), _ => { });
-        var origin = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Fix it", Model = "claude-opus-5-5", Effort = "high" };
-        var before = new WorkspaceBefore(origin.Workspace, false, new Dictionary<string, string>(), null, DateTime.UtcNow);
-        var run = new AgentRun(origin with { ResumeSessionId = "s1" }, before, new AgentResult { SessionId = "s1" }, []);
-        var fresh = (await agents.StartOverAsync(run, origin, ("glm-4.7-flash", null), CancellationToken.None, AgentProviderKind.Custom))!.Value;
-        var ask = custom.Tasks.Single();
-        Program.Equal("custom start over: the custom model is asked in the session, on its own model and no effort",
-            (claude.Tasks.Count, ask.Provider, ask.ResumeSessionId, ask.Model, ask.Effort, ask.PlanOnly), (0, AgentProviderKind.Custom, "s1", "glm-4.7-flash", (string?)null, false));
-        Program.Equal("custom start over: the new session is the run's own agent's, with the note",
-            (fresh.Task.Provider, fresh.Task.ResumeSessionId, fresh.Note), (AgentProviderKind.ClaudeCode, (string?)null, "Tried it twice."));
-    }
-
-    /// <summary>What each agent can do and who sees the code; a provider that says nothing is taken for a subscription agent.</summary>
-    private static void CustomCapabilities()
-    {
-        var settings = new AgentSettings();
-        IAgentProvider claude = new ClaudeCodeProvider(() => settings, _ => { });
-        IAgentProvider codex = new CodexProvider(() => settings, _ => { });
-        IAgentProvider custom = new CustomModelProvider(() => settings, () => null, _ => { });
-        IAgentProvider unnamed = ScriptedProvider.Answering("x");
-        Program.Equal("capabilities: the subscription agents read images, take an effort, and say who sees the code",
-            (claude.Capabilities, codex.Capabilities), (new AgentCapabilities(true, true, true, "Anthropic"), new AgentCapabilities(true, true, true, "OpenAI")));
-        Program.Equal("capabilities: the custom model has no subscription, no effort, and the preset's server sees the code",
-            custom.Capabilities, new AgentCapabilities(false, false, false, "Z.ai"));
-        settings.Custom = new CustomModelSettings { Preset = CustomPreset.Ollama };
-        Program.Equal("capabilities: Ollama keeps the code on this PC", custom.Capabilities.SeesCode, "this PC");
-        Program.Equal("capabilities: a provider that says nothing is a subscription agent that is ready",
-            (unnamed.Capabilities, unnamed.Configured), (AgentCapabilities.Usual, true));
-
-        settings.Custom = new CustomModelSettings { Preset = CustomPreset.DeepSeek, Name = "Cheap one", Model = "my-model" };
-        Program.Equal("custom provider: named as Settings names it, with the preset's models and the chosen one, and no efforts",
-            (custom.Name, custom.Kind, string.Join(",", custom.Models.Select(model => model.Value)), custom.Efforts.Count, custom.EffortsOf("my-model").Count, custom.OwnSetup),
-            ("Cheap one", AgentProviderKind.Custom, "deepseek-chat,deepseek-reasoner,my-model", 0, 0, ((string?)"my-model", (string?)null)));
-    }
-
-    /// <summary>The state's known problems name the agent as Settings does, the custom model included.</summary>
-    private static void CustomTaskStateNames()
-    {
-        var workspace = TempFolder();
-        try
-        {
-            var record = new AgentTaskRecord
-            {
-                Goal = "Fix it",
-                Workspace = workspace,
-                Runs =
-                [
-                    new AgentRunRecord { Provider = AgentProviderKind.ClaudeCode, Outcome = "Failed after 1:00" },
-                    new AgentRunRecord { Provider = AgentProviderKind.Codex, Outcome = "Failed after 2:00" },
-                    new AgentRunRecord { Provider = AgentProviderKind.Custom, Outcome = "Failed after 3:00" }
-                ]
-            };
-            var plain = TaskState.Build(record, null, workspace).Split('\n').Where(line => line.Contains(" run ")).Select(line => line.Split(" run ")[0]).ToArray();
-            Program.Equal("task state: the agents are named, the custom model without Settings as such", string.Join("|", plain), "- Claude Code|- Codex|- Custom model");
-            var named = TaskState.CompactBrief(record, null, workspace, kind => kind == AgentProviderKind.Custom ? "GLM (Z.ai)" : kind.DefaultName());
-            Program.Equal("task state: with Settings' names, the custom model is its own", named.Contains("- GLM (Z.ai) run ") && !named.Contains("Custom model"), true);
-        }
-        finally
-        {
-            DeleteFolder(workspace);
-        }
+        var light = new AgentSettings();
+        var standard = new AgentSettings { OwnAnswersOnLight = false };
+        Program.Equal("own answers: Light by default, on the agent asked",
+            (light.OwnAnswers(AgentProviderKind.ClaudeCode), light.OwnAnswers(AgentProviderKind.Codex)),
+            (light.Level(AgentProviderKind.ClaudeCode, AgentLevel.Light), light.Level(AgentProviderKind.Codex, AgentLevel.Light)));
+        Program.Equal("own answers: Standard when Settings turns Light off",
+            standard.OwnAnswers(AgentProviderKind.ClaudeCode), standard.Level(AgentProviderKind.ClaudeCode, AgentLevel.Standard));
     }
 
     /// <summary>The loop check on runs in the recorded format: each kind of loop is told once, working runs get none.</summary>
@@ -1854,7 +1571,7 @@ internal static class AgentTests
         var analyze = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Explain" };
         Program.Equal("Claude never runs in dontAsk: no run is read only",
             (string.Join(' ', claude.Arguments(analyze)).Contains("dontAsk"), claude.Arguments(analyze).Contains("acceptEdits")), (false, true));
-        Program.Equal("Claude never bypasses permissions",
+        Program.Equal("Claude never bypasses permissions but on No-stop",
             new[] { analyze, analyze with { AutoApprove = true }, analyze with { PlanOnly = true } }
                 .Any(task => string.Join(' ', claude.Arguments(task)).Contains("bypass", StringComparison.OrdinalIgnoreCase)),
             false);
@@ -1896,6 +1613,16 @@ internal static class AgentTests
         Program.Equal("Codex auto sends what would leave the sandbox to its automatic review, in a plan too",
             (string.Join(' ', codex.Arguments(analyze with { AutoApprove = true })).Contains("-c approval_policy=on-request -c approvals_reviewer=auto_review"),
                 string.Join(' ', codex.Arguments(analyze with { AutoApprove = true, PlanOnly = true })).Contains("approval")), (true, true));
+
+        // No-stop: nothing is asked; the deny list holds.
+        var noStop = analyze with { AutoApprove = true, NoStop = true, Deny = ["Bash(git push:*)"] };
+        Program.Equal("Claude No-stop bypasses permissions and keeps its deny list beside AskUserQuestion",
+            (claude.Arguments(noStop).Contains("bypassPermissions"),
+                string.Join(' ', claude.Arguments(noStop)).Contains("--disallowedTools AskUserQuestion Bash(git push:*) --strict-mcp-config")), (true, true));
+        var codexNoStop = string.Join(' ', codex.Arguments(noStop));
+        Program.Equal("Codex No-stop never asks, its sandbox the workspace's with the network",
+            (codexNoStop.Contains("-c approval_policy=never"), codexNoStop.Contains("auto_review"), codexNoStop.Contains("--sandbox workspace-write"),
+                codexNoStop.Contains("network_access=true")), (true, false, true, true));
 
         var game = TempFolder();
         try
@@ -2299,10 +2026,8 @@ internal static class AgentTests
             "○1, ◐2");
         var task = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = "w", Prompt = "p", Plan = earlier };
         const string complete = """{"type":"assistant","message":{"content":[{"type":"tool_use","id":"u","name":"TaskUpdate","input":{"taskId":"4","status":"completed"}}]}}""";
-        Program.Equal("tasks: Claude Code's and the custom model's runs both start from the plan of the session",
-            (PlanLine(new ClaudeCodeProvider(() => new AgentSettings(), _ => { }).CreateParser(task).Read(complete).Single().Plan),
-                PlanLine(new CustomModelProvider(() => new AgentSettings(), () => "key", _ => { }).CreateParser(task).Read(complete).Single().Plan)),
-            ("✓1, ✓4", "✓1, ✓4"));
+        Program.Equal("tasks: Claude Code's runs start from the plan of the session",
+            PlanLine(new ClaudeCodeProvider(() => new AgentSettings(), _ => { }).CreateParser(task).Read(complete).Single().Plan), "✓1, ✓4");
     }
 
     /// <summary>Plans saved by an earlier Link have no words for a step under way and no numbers.</summary>
@@ -2408,7 +2133,7 @@ internal static class AgentTests
             // A usage limit, then the other agent finished: the first is no failure, the steer is the last group's.
             TaskOf(AgentTaskStatus.Done, 1, RunOf(null, Claude, "sonnet", "Stopped at the usage limit after 0:30", 30), RunOf(null, Codex, null, "Done in 2:00", 120)),
             // A task of an earlier Link: no time, no tokens. And a task that never ran.
-            TaskOf(AgentTaskStatus.Done, 0, RunOf(null, AgentProviderKind.Custom, "glm", "an earlier session", 0)),
+            TaskOf(AgentTaskStatus.Done, 0, RunOf(null, Codex, "gpt-5", "an earlier session", 0)),
             TaskOf(AgentTaskStatus.Stopped, 3)
         };
         string Role(string? id) => id switch { null => "General", "rigger" => "Rigger", _ => id };
@@ -2419,7 +2144,7 @@ internal static class AgentTests
                 "Rigger|Claude Code|opus|3|4|1|3|2:30|126667|3",
                 "General|Claude Code|sonnet|1|1|1|0|0:30||0",
                 "General|Codex||1|1|1|0|2:00||1",
-                "General|Custom model|glm|1|1|1|0|0:00||0",
+                "General|Codex|gpt-5|1|1|1|0|0:00||0",
                 "Rigger|Codex||1|1|1|0|1:00|30000|0"));
         Program.Equal("stats: no tasks, no rows", AgentStatsReport.For([], kind => kind.DefaultName(), Role).Count, 0);
     }
@@ -2619,44 +2344,6 @@ internal static class AgentTests
         var studio = new StudioSettings();
         studio.Remember(left, top, width, height, maximized);
         return studio;
-    }
-
-    /// <summary>The cheaper hint: a plan to carry out, or the custom model's own record for the role; never for the custom model itself or when it is not set up.</summary>
-    private static void CheaperHints()
-    {
-        static AgentTaskRecord TaskOf(AgentProviderKind? provider) => new()
-        {
-            Goal = "Goal",
-            Workspace = "w",
-            Runs = provider is { } kind ? [new AgentRunRecord { Provider = kind }] : []
-        };
-        static StatsRow Row(string role, string agent, int tasks, int runs, int done) =>
-            new(role, agent, null, tasks, runs, done, 0, TimeSpan.Zero, null, 0);
-        string? Hint(AgentTaskRecord record, string phase, bool configured = true, params StatsRow[] stats) =>
-            CheaperHint.For(record, configured, "GLM", "Rigger", stats, phase);
-
-        var claude = TaskOf(AgentProviderKind.ClaudeCode);
-        Program.Equal("cheaper hint: a plan to carry out says the custom model could do it",
-            Hint(claude, CheaperHint.RunPlan), "GLM could carry out this plan: it is written; hand it over to save your subscription");
-        Program.Equal("cheaper hint: no hint when the custom model is not set up",
-            Hint(claude, CheaperHint.RunPlan, configured: false), (string?)null);
-        Program.Equal("cheaper hint: none for a task the custom model already works on",
-            Hint(TaskOf(AgentProviderKind.Custom), CheaperHint.RunPlan), (string?)null);
-        Program.Equal("cheaper hint: none for a task that has not run",
-            Hint(TaskOf(null), CheaperHint.RunPlan), (string?)null);
-
-        Program.Equal("cheaper hint: the stats speak at three runs with two thirds of the tasks done",
-            Hint(claude, "Card", true, Row("Rigger", "GLM", 3, 3, 2)), "GLM: 2 of 3 done for Rigger here");
-        Program.Equal("cheaper hint: the rows of the role's models add up",
-            Hint(claude, "Card", true, Row("Rigger", "glm", 2, 2, 2), Row("Rigger", "GLM", 2, 2, 1), Row("Rigger", "Codex", 5, 5, 0)),
-            "GLM: 3 of 4 done for Rigger here");
-        Program.Equal("cheaper hint: two runs are too few",
-            Hint(claude, "Card", true, Row("Rigger", "GLM", 2, 2, 2)), (string?)null);
-        Program.Equal("cheaper hint: less than two thirds done is no reason",
-            Hint(claude, "Card", true, Row("Rigger", "GLM", 4, 4, 2)), (string?)null);
-        Program.Equal("cheaper hint: another role's or another agent's record is not this one's",
-            Hint(claude, "Card", true, Row("General", "GLM", 5, 5, 5), Row("Rigger", "Codex", 5, 5, 5)), (string?)null);
-        Program.Equal("cheaper hint: no stats, no hint", Hint(claude, "Card"), (string?)null);
     }
 
     /// <summary>The first-run window says whether each CLI is found and signed in, and where to install the missing one.</summary>
@@ -3032,10 +2719,10 @@ internal static class AgentTests
         Program.Equal("team settings: a null team is the default one", (nothing.Team.Enabled, nothing.Team.Light), (true, (WorkerChoice?)null));
 
         var odd = JsonSerializer.Deserialize<AgentSettings>(
-            """{"Team":{"Enabled":false,"Light":{"Provider":2,"Level":0},"Standard":{"Provider":9,"Level":1},"Strong":{"Provider":0,"Level":7}}}""")!;
+            """{"Team":{"Enabled":false,"Light":{"Provider":1,"Level":0},"Standard":{"Provider":2,"Level":1},"Strong":{"Provider":0,"Level":7}}}""")!;
         odd.Normalize();
-        Program.Equal("team settings: a choice is kept, one of an agent or level this Link does not know is the default",
-            (odd.Team.Enabled, odd.Team.Light, odd.Team.Standard, odd.Team.Strong), (false, new WorkerChoice(AgentProviderKind.Custom, AgentLevel.Light), (WorkerChoice?)null, (WorkerChoice?)null));
+        Program.Equal("team settings: a choice is kept, one of an agent or level this Link does not know (2 was the custom model) is the default",
+            (odd.Team.Enabled, odd.Team.Light, odd.Team.Standard, odd.Team.Strong), (false, new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Light), (WorkerChoice?)null, (WorkerChoice?)null));
 
         var copy = new AgentSettings
         {
@@ -3111,14 +2798,14 @@ internal static class AgentTests
     /// <summary>Which worker did which kind of step well, learned from checked results: the rules, the words and the file.</summary>
     private static void WorkerEvidenceRules()
     {
-        var glm = new Worker(AgentProviderKind.Custom, AgentLevel.Light, "glm-4.7-flash");
+        var light = new Worker(AgentProviderKind.ClaudeCode, AgentLevel.Light, "claude-haiku-5-5");
         var codex = new Worker(AgentProviderKind.Codex, AgentLevel.Standard, null);
         (bool Blocked, bool Proven) Rule(int done, int failed)
         {
             var evidence = new WorkerEvidence();
-            for (var each = 0; each < done; each++) evidence.Record(StepKind.Code, glm, true);
-            for (var each = 0; each < failed; each++) evidence.Record(StepKind.Code, glm, false);
-            return (evidence.Blocked(StepKind.Code, glm), evidence.Proven(StepKind.Code, glm));
+            for (var each = 0; each < done; each++) evidence.Record(StepKind.Code, light, true);
+            for (var each = 0; each < failed; each++) evidence.Record(StepKind.Code, light, false);
+            return (evidence.Blocked(StepKind.Code, light), evidence.Proven(StepKind.Code, light));
         }
 
         Program.Equal("evidence: nothing known blocks nobody and proves nobody", Rule(0, 0), (false, false));
@@ -3128,11 +2815,11 @@ internal static class AgentTests
             (Rule(2, 0), Rule(3, 0), Rule(3, 1), Rule(4, 1), Rule(8, 2)), ((false, false), (false, true), (false, false), (false, true), (false, true)));
 
         var evidence = new WorkerEvidence();
-        evidence.Record(StepKind.Code, glm, false);
-        evidence.Record(StepKind.Code, glm, false);
+        evidence.Record(StepKind.Code, light, false);
+        evidence.Record(StepKind.Code, light, false);
         Program.Equal("evidence: a kind, an agent and a model are counted apart; no model is the empty one",
-            (evidence.Blocked(StepKind.Code, glm), evidence.Blocked(StepKind.Docs, glm), evidence.Blocked(StepKind.Code, glm with { Model = "glm-4.7" }),
-                evidence.Blocked(StepKind.Code, glm with { Provider = AgentProviderKind.Codex }), evidence.Blocked(StepKind.Code, glm with { Level = AgentLevel.Deep })),
+            (evidence.Blocked(StepKind.Code, light), evidence.Blocked(StepKind.Docs, light), evidence.Blocked(StepKind.Code, light with { Model = "claude-sonnet-5-5" }),
+                evidence.Blocked(StepKind.Code, light with { Provider = AgentProviderKind.Codex }), evidence.Blocked(StepKind.Code, light with { Level = AgentLevel.Deep })),
             (true, false, false, false, true));
         evidence.Record(StepKind.Test, codex, true);
         Program.Equal("evidence: no model and an empty one are one worker", evidence.Counts(StepKind.Test, codex with { Model = string.Empty }), (1, 0));
@@ -3147,12 +2834,12 @@ internal static class AgentTests
             "True,False,False,none,False,none,none");
 
         var learned = new WorkerEvidence();
-        for (var each = 0; each < 6; each++) learned.Record(StepKind.Mechanical, glm, true);
-        foreach (var done in new[] { false, false, true, false }) learned.Record(StepKind.Code, glm, done);
+        for (var each = 0; each < 6; each++) learned.Record(StepKind.Mechanical, light, true);
+        foreach (var done in new[] { false, false, true, false }) learned.Record(StepKind.Code, light, done);
         for (var each = 0; each < 5; each++) learned.Record(StepKind.Code, codex, true);
         Program.Equal("evidence: a line per worker, the busiest first, with done of tried, a tick for proven and a word for blocked",
-            string.Join("\n", learned.Summary(provider => provider == AgentProviderKind.Custom ? "GLM" : provider.DefaultName())),
-            "GLM glm-4.7-flash: Mechanical 6/6 ✓, Code 1/4 — not given Code here\nCodex: Code 5/5 ✓");
+            string.Join("\n", learned.Summary(provider => provider.DefaultName())),
+            "Claude Code claude-haiku-5-5: Mechanical 6/6 ✓, Code 1/4 — not given Code here\nCodex: Code 5/5 ✓");
         Program.Equal("evidence: nothing learned, nothing said", new WorkerEvidence().Summary(provider => provider.DefaultName()).Count, 0);
 
         var folder = TempFolder();
@@ -3163,10 +2850,10 @@ internal static class AgentTests
             var saved = WorkerEvidence.Load(file);
             saved.Record(StepKind.Code, codex, true, new DateTimeOffset(2026, 10, 8, 10, 0, 0, TimeSpan.Zero));
             saved.Record(StepKind.Code, codex, false);
-            saved.Record(StepKind.Docs, glm, true);
+            saved.Record(StepKind.Docs, light, true);
             var again = WorkerEvidence.Load(file);
             Program.Equal("evidence: each record is saved to the project's file",
-                (again.Counts(StepKind.Code, codex), again.Counts(StepKind.Docs, glm), again.Records.Count), ((1, 1), (1, 0), 2));
+                (again.Counts(StepKind.Code, codex), again.Counts(StepKind.Docs, light), again.Records.Count), ((1, 1), (1, 0), 2));
 
             var broken = Path.Combine(folder, "broken.json");
             File.WriteAllText(broken, "not json");
@@ -3198,20 +2885,19 @@ internal static class AgentTests
             ("Light: ClaudeCode Light claude-haiku-5-5 | Standard: ClaudeCode Standard - | Strong: ClaudeCode Deep claude-opus-5-5",
                 "Light: Codex Light gpt-5.6-luna | Standard: Codex Standard - | Strong: ClaudeCode Deep claude-opus-5-5"));
 
-        var chosen = new AgentSettings { DefaultProvider = AgentProviderKind.Codex, Team = { Light = new WorkerChoice(AgentProviderKind.ClaudeCode, AgentLevel.Light), Standard = new WorkerChoice(AgentProviderKind.Custom, AgentLevel.Standard) } };
+        var chosen = new AgentSettings { DefaultProvider = AgentProviderKind.Codex, Team = { Light = new WorkerChoice(AgentProviderKind.ClaudeCode, AgentLevel.Light), Standard = new WorkerChoice(AgentProviderKind.ClaudeCode, AgentLevel.Standard) } };
         Program.Equal("workers: a tier the user chose is that choice, the default agent leads, a choice that is not set up is the default",
-            (Tiers(chosen, ready), Tiers(chosen, Without(AgentProviderKind.Custom))),
-            ("Light: ClaudeCode Light claude-haiku-5-5 | Standard: Custom Standard glm-4.7-flash | Strong: Codex Deep -",
-                "Light: ClaudeCode Light claude-haiku-5-5 | Standard: Codex Standard - | Strong: Codex Deep -"));
+            (Tiers(chosen, ready), Tiers(chosen, Without(AgentProviderKind.ClaudeCode))),
+            ("Light: ClaudeCode Light claude-haiku-5-5 | Standard: ClaudeCode Standard - | Strong: Codex Deep -",
+                "Light: Codex Light gpt-5.6-luna | Standard: Codex Standard - | Strong: Codex Deep -"));
 
         var workers = WorkerRouting.Workers(settings, ready);
         var haiku = workers[WorkerTier.Light];
         var codex = workers[WorkerTier.Standard];
         var claude = workers[WorkerTier.Strong];
-        string Name(AgentProviderKind provider) => provider == AgentProviderKind.Custom ? "GLM" : WorkerRouting.ShortName(provider);
         string RouteWith(AgentSettings each, StepKind kind, WorkerTier? asked = null, WorkerEvidence? evidence = null, Func<AgentProviderKind, WorkerState>? state = null)
         {
-            var (tier, worker, reason) = WorkerRouting.Route(kind, asked, each, state ?? ready, evidence ?? new WorkerEvidence(), Name);
+            var (tier, worker, reason) = WorkerRouting.Route(kind, asked, each, state ?? ready, evidence ?? new WorkerEvidence(), WorkerRouting.ShortName);
             return $"{tier} {worker?.Provider.ToString() ?? "nobody"} | {reason}";
         }
         string Route(StepKind kind, WorkerTier? asked = null, WorkerEvidence? evidence = null, Func<AgentProviderKind, WorkerState>? state = null) =>
@@ -3263,11 +2949,11 @@ internal static class AgentTests
                 "Light Codex | Mechanical → Codex"));
         Program.Equal("route: Strong with its agent out of reach goes to the other subscription agent at Deep, and says so",
             (Route(StepKind.Design, null, null, Unavailable(AgentProviderKind.ClaudeCode)), Route(StepKind.Design, null, null, Without(AgentProviderKind.ClaudeCode)),
-                Route(StepKind.Code, null, null, Unavailable(AgentProviderKind.ClaudeCode, AgentProviderKind.Custom)), Route(StepKind.Design, WorkerTier.Strong, null, Unavailable(AgentProviderKind.ClaudeCode))),
+                Route(StepKind.Code, null, null, Unavailable(AgentProviderKind.ClaudeCode)), Route(StepKind.Design, WorkerTier.Strong, null, Unavailable(AgentProviderKind.ClaudeCode))),
             ("Strong Codex | Design: Claude limit reached → Codex (Strong)", "Strong Codex | Design: Claude is not set up → Codex (Strong)",
                 "Standard Codex | Code → Codex", "Strong Codex | Design: the plan chose Strong, Claude limit reached → Codex (Strong)"));
         Program.Equal("route: the stand-in is the other agent whichever leads, and it needs the project's trust too",
-            (WorkerRouting.Route(StepKind.Design, null, chosen, Unavailable(AgentProviderKind.Codex), new WorkerEvidence(), Name).Worker is { Provider: AgentProviderKind.ClaudeCode, Level: AgentLevel.Deep, Model: "claude-opus-5-5" },
+            (WorkerRouting.Route(StepKind.Design, null, chosen, Unavailable(AgentProviderKind.Codex), new WorkerEvidence(), WorkerRouting.ShortName).Worker is { Provider: AgentProviderKind.ClaudeCode, Level: AgentLevel.Deep, Model: "claude-opus-5-5" },
                 Route(StepKind.Design, null, Learned(new Worker(AgentProviderKind.Codex, AgentLevel.Deep, null), StepKind.Design, 0, 2), Unavailable(AgentProviderKind.ClaudeCode))),
             (true, "Strong nobody | Design: Claude limit reached, Codex failed it 2 of 2 here → no agent can take it now"));
         Program.Equal("route: with neither subscription able to work there is no worker, and the reason names each once",
@@ -3285,7 +2971,7 @@ internal static class AgentTests
                 "Strong ClaudeCode | Design → Claude (Codex did 3 of 3 here: Standard could take it)", "Light ClaudeCode | Docs: the plan chose Light → Claude"));
         Func<AgentProviderKind, bool> onlyClaudeSees = provider => provider == AgentProviderKind.ClaudeCode;
         (WorkerTier, Worker?, string) Asset(AgentSettings each, Func<AgentProviderKind, WorkerState>? state = null, WorkerTier? asked = null) =>
-            WorkerRouting.Route(StepKind.Asset, asked, each, state ?? ready, new WorkerEvidence(), Name, onlyClaudeSees);
+            WorkerRouting.Route(StepKind.Asset, asked, each, state ?? ready, new WorkerEvidence(), WorkerRouting.ShortName, onlyClaudeSees);
         var (_, seeing, seeingReason) = Asset(settings, asked: WorkerTier.Standard);
         var (_, standIn, standInReason) = Asset(settings, Unavailable(AgentProviderKind.ClaudeCode));
         Program.Equal("route: an Asset step goes only to an agent that sees images: the worker without eyes is passed by, and so is a stand-in",
@@ -3296,7 +2982,7 @@ internal static class AgentTests
             ("Strong ClaudeCode | Asset → Claude", "Strong Codex | Asset: Claude limit reached → Codex (Strong)"));
         string Named(AgentProviderKind agent, StepKind kind, WorkerTier? asked, Func<AgentProviderKind, WorkerState>? state = null)
         {
-            var (tier, worker, reason) = WorkerRouting.Route(kind, asked, settings, state ?? ready, new WorkerEvidence(), Name, agent: agent);
+            var (tier, worker, reason) = WorkerRouting.Route(kind, asked, settings, state ?? ready, new WorkerEvidence(), WorkerRouting.ShortName, agent: agent);
             return $"{tier} {worker?.Provider.ToString() ?? "nobody"} {worker?.Level} | {reason}";
         }
         Program.Equal("route: an agent the plan named (one against another) takes the step at the tier's level, and has no stand-in",
@@ -3307,8 +2993,8 @@ internal static class AgentTests
         Program.Equal("route: a step that failed goes one tier up, none above Strong",
             (WorkerRouting.Escalate(WorkerTier.Light), WorkerRouting.Escalate(WorkerTier.Standard), WorkerRouting.Escalate(WorkerTier.Strong)),
             ((WorkerTier?)WorkerTier.Standard, (WorkerTier?)WorkerTier.Strong, (WorkerTier?)null));
-        Program.Equal("route: the short names of the agents", (WorkerRouting.ShortName(AgentProviderKind.ClaudeCode), WorkerRouting.ShortName(AgentProviderKind.Codex), WorkerRouting.ShortName(AgentProviderKind.Custom)),
-            ("Claude", "Codex", "Custom"));
+        Program.Equal("route: the short names of the agents", (WorkerRouting.ShortName(AgentProviderKind.ClaudeCode), WorkerRouting.ShortName(AgentProviderKind.Codex)),
+            ("Claude", "Codex"));
     }
 
     /// <summary>When Link starts a fresh session from the task's state: only where the saving is clear.</summary>
@@ -3909,7 +3595,7 @@ internal static class AgentTests
         public static ScriptedProvider Answering(string answer, bool succeeded = true) =>
             new((_, _) => new AgentResult { SessionId = "answer", Summary = answer, Succeeded = succeeded });
 
-        public Task<AgentProviderStatus> CheckAsync(string? chosenPath, CancellationToken cancellationToken) =>
+        public Task<AgentProviderStatus> CheckAsync(AgentSettings setup, CancellationToken cancellationToken) =>
             System.Threading.Tasks.Task.FromResult(new AgentProviderStatus(null, null, null));
 
         public Task<AgentResult> RunAsync(AgentTask task, IProgress<AgentEvent> progress, CancellationToken cancellationToken)
@@ -4307,6 +3993,30 @@ See shots/flat.png. Not crate.blend or a.pngx.")),
         {
             DeleteFolder(workspace);
         }
+
+        var since = new DateTimeOffset(2026, 10, 15, 12, 0, 0, TimeSpan.Zero);
+        DateTimeOffset? Written(string path) => Path.GetFileName(path) switch
+        {
+            "ref.png" => since.AddHours(-1),
+            "gone.png" => null,
+            "edge.png" => since.AddSeconds(-1),
+            _ => since.AddMinutes(1)
+        };
+        Program.Equal("turn pictures: the answer's first, then the newest looked at, each once; none from before the run or gone",
+            string.Join("|", RunImages.Of(["Art/final.png", "notes.txt"],
+                [@"C:\Temp\shots\a.png", @"C:\Game\refs\ref.png", @"C:\Temp\shots\b.png", "edge.png", @"C:\Temp\gone.png", @"C:\Temp\shots\a.png"],
+                @"C:\Game", since, Written)),
+            @"C:\Game\Art\final.png|C:\Temp\shots\a.png|C:\Game\edge.png|C:\Temp\shots\b.png");
+        var temp = Environment.GetEnvironmentVariable("TEMP")!;
+        Program.Equal("turn pictures and the critic's frames: a path as the agent's shell wrote it is found where Windows has it",
+            string.Join("|", RunImages.Of([@"%TEMP%\shots\a.png", "$TEMP/shots/b.png", @"$env:TEMP\shots\c.png", "/tmp/shots/d.png", "/c/Game/e.png",
+                "~/shots/f.png"], [], @"C:\Game", since, Written)),
+            string.Join("|", Path.GetFullPath(Path.Combine(temp, "shots", "a.png")), Path.GetFullPath(Path.Combine(temp, "shots", "b.png")),
+                Path.GetFullPath(Path.Combine(temp, "shots", "c.png")), Path.GetFullPath(Path.Combine(Path.GetTempPath(), "shots", "d.png")),
+                @"C:\Game\e.png", Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "shots", "f.png")));
+        Program.Equal("turn pictures: a run that rendered many keeps its newest",
+            string.Join("|", RunImages.Of([], Enumerable.Range(1, 8).Select(n => $@"C:\Temp\{n}.png"), @"C:\Game", since, Written)),
+            @"C:\Temp\8.png|C:\Temp\7.png|C:\Temp\6.png|C:\Temp\5.png|C:\Temp\4.png|C:\Temp\3.png");
 
         AgentTask Run(string? role, bool judge, params string[] skills) =>
             new() { Provider = AgentProviderKind.ClaudeCode, Workspace = "w", Prompt = "p", RoleId = role, Judge = judge, Skills = skills };

@@ -24,19 +24,14 @@ public enum WorkerState
 /// </summary>
 public static class WorkerRouting
 {
-    /// <summary>The agents' short names as the reasons and the panel use them; the custom model is named in Settings.</summary>
-    public static string ShortName(AgentProviderKind provider) => provider switch
-    {
-        AgentProviderKind.ClaudeCode => "Claude",
-        AgentProviderKind.Codex => "Codex",
-        _ => "Custom"
-    };
+    /// <summary>The agents' short names as the reasons and the panel use them.</summary>
+    public static string ShortName(AgentProviderKind provider) => provider == AgentProviderKind.ClaudeCode ? "Claude" : "Codex";
 
     /// <summary>
     /// The worker of each tier. A tier the user chose in Settings is served by that choice if its agent is set up; the
     /// others by default, only among agents that are set up: Strong is the default agent at Deep; Standard is Codex if
     /// it is set up, else Claude Code; Light is Claude Code (Haiku), else Codex (its lightest model). The two
-    /// subscriptions share the work; the custom model serves a tier only when the user chose it.
+    /// subscriptions share the work.
     /// </summary>
     public static IReadOnlyDictionary<WorkerTier, Worker> Workers(AgentSettings settings, Func<AgentProviderKind, WorkerState> state)
     {
@@ -62,7 +57,7 @@ public static class WorkerRouting
     /// The tier and worker for a step, and why. The tier is the one the plan asked for (<paramref name="asked"/>; an
     /// escalated step asks for the next tier up), else the kind's own. Design and art (<see cref="StepKinds.IsArt"/>)
     /// never go below Standard, and art goes only to an agent that sees images (<paramref name="seesImages"/>; default:
-    /// all but the custom model). Quality first: a cheaper worker the project has proven for the kind is only suggested
+    /// both). Quality first: a cheaper worker the project has proven for the kind is only suggested
     /// in the reason, unless Settings let Link lower the tier by itself (<see cref="TeamSettings.AutoLower"/>). A
     /// worker that cannot work now (not set up, at its limit) is replaced by the other subscription agent at the same
     /// level (Claude Code and Codex stand in for each other); the step rises a tier only where the worker failed the
@@ -82,7 +77,7 @@ public static class WorkerRouting
         AgentProviderKind? agent = null)
     {
         agentName ??= ShortName;
-        seesImages ??= provider => provider != AgentProviderKind.Custom;
+        seesImages ??= _ => true;
         var workers = Workers(settings, state);
         if (agent is { } named) workers = workers.ToDictionary(pair => pair.Key, pair => Of(settings, named, pair.Value.Level));
         var parts = new List<string>();

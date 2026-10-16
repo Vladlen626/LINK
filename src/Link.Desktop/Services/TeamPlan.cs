@@ -237,7 +237,7 @@ public static partial class TeamPlan
 
     private static bool StepRole(AgentRole role) => !string.Equals(role.Id, ArtCritic.RoleId, StringComparison.OrdinalIgnoreCase);
 
-    // The subscription agents by the names a lead writes; the custom model is the user's to choose in Settings.
+    // The agents by the names a lead writes.
     private static AgentProviderKind? Agent(string? name) => name?.Trim().ToLowerInvariant() switch
     {
         "claude" or "claude code" or "claudecode" => AgentProviderKind.ClaudeCode,

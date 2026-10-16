@@ -2,28 +2,20 @@ using System.Text.Json.Serialization;
 
 namespace Link.Desktop.Models;
 
-/// <summary>The command-line agent that does work in a workspace. The numbers stay those of older settings.</summary>
+/// <summary>
+/// The command-line agent that does work in a workspace. The numbers stay those of older settings; 2 was the custom
+/// model (removed 2026-10-16): settings fall back from it, and records that name it are not loaded.
+/// </summary>
 public enum AgentProviderKind
 {
     ClaudeCode = 0,
-    Codex = 1,
-
-    /// <summary>Claude Code pointed at another server with an Anthropic-compatible API (see <see cref="CustomModelSettings"/>).</summary>
-    Custom = 2
+    Codex = 1
 }
 
 public static class AgentProviderKinds
 {
-    /// <summary>Whether Claude Code does the work: it is the CLI of the custom model too.</summary>
-    public static bool RunsOnClaudeCode(this AgentProviderKind kind) => kind is AgentProviderKind.ClaudeCode or AgentProviderKind.Custom;
-
-    /// <summary>The agent's name where no settings are at hand; the custom model is named in Settings.</summary>
-    public static string DefaultName(this AgentProviderKind kind) => kind switch
-    {
-        AgentProviderKind.ClaudeCode => "Claude Code",
-        AgentProviderKind.Codex => "Codex",
-        _ => "Custom model"
-    };
+    /// <summary>The agent's name where no settings are at hand.</summary>
+    public static string DefaultName(this AgentProviderKind kind) => kind == AgentProviderKind.ClaudeCode ? "Claude Code" : "Codex";
 }
 
 /// <summary>
@@ -88,6 +80,15 @@ public sealed class AgentTaskRecord
     /// of an older Link, which had none, keeps its own.
     /// </summary>
     public bool AutoEffort { get; set; }
+
+    /// <summary>
+    /// No-stop: the task allows itself everything but the deny list and takes the choice it recommends at each stop, until
+    /// <see cref="NoStopTaken"/> reaches Settings' turns (see <see cref="Services.NoStop"/>).
+    /// </summary>
+    public bool NoStop { get; set; }
+
+    /// <summary>The choices No-stop took since the user last spoke to the task.</summary>
+    public int NoStopTaken { get; set; }
 
     /// <summary>The specialist the task runs as, the file name of its role (<see cref="Services.ProjectRoles"/>); null: General.</summary>
     public string? RoleId { get; set; }
@@ -226,6 +227,9 @@ public sealed record AgentRunRecord
     /// <summary>The files the run changed, relative to the workspace.</summary>
     public List<string> Files { get; init; } = [];
 
+    /// <summary>The pictures the run made and looked at or named, full paths (<see cref="Services.RunImages"/>): its turn shows them.</summary>
+    public List<string> Images { get; init; } = [];
+
     /// <summary>The agent's answer at the end of the run, as the thread shows it.</summary>
     public string Words { get; init; } = string.Empty;
 }
@@ -271,7 +275,7 @@ public enum AgentEntryKind
 /// A step of the agent's own plan (Claude Code's tasks, Codex's plan). <see cref="Doing"/> is what the agent says while
 /// it works on the step ("Fixing the jump"); <see cref="Number"/> is the task's number in Claude Code, by which its
 /// TaskUpdate names it. Plans of an earlier Link have neither. <see cref="Worker"/> names who does the step when the
-/// plan is a team's ("GLM", "GLM → Codex" after an escalation); null for the agent's own plan. <see cref="Role"/> is the
+/// plan is a team's ("Codex", "Codex → Claude" after an escalation); null for the agent's own plan. <see cref="Role"/> is the
 /// name of the specialist of a team's step ("3D Artist"), shown beside the worker, and <see cref="Why"/> why Link gave the
 /// step to that worker.
 /// </summary>
@@ -402,6 +406,15 @@ public sealed record AgentTask
     /// </summary>
     public bool AutoApprove { get; init; }
 
+    /// <summary>
+    /// No-stop: nothing is asked or refused but <see cref="Deny"/> (Claude Code's <c>bypassPermissions</c>; Codex never asks
+    /// and its sandbox gets the network).
+    /// </summary>
+    public bool NoStop { get; init; }
+
+    /// <summary>Tool rules Claude Code may never use, such as <c>Bash(git push:*)</c>: a No-stop run's deny list.</summary>
+    public IReadOnlyList<string> Deny { get; init; } = [];
+
     /// <summary>The model to run, such as claude-opus-5-5; null leaves it to the CLI's own settings.</summary>
     public string? Model { get; init; }
 
@@ -505,6 +518,9 @@ public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail
     /// <summary>A tool call's arguments, as the loop check compares calls; the row shows only their start.</summary>
     public string Arguments { get; init; } = string.Empty;
 
+    /// <summary>The picture a tool call looks at, its full path: Claude Code's Read of a render or a screenshot.</summary>
+    public string? Image { get; init; }
+
     public IReadOnlyList<AgentPlanItem> Plan { get; init; } = [];
     public IReadOnlyList<AgentLimit> Limits { get; init; } = [];
 
@@ -600,7 +616,8 @@ public sealed record AgentStats
 }
 
 /// <summary>What Settings shows for a provider: whether its CLI is found, signed in, and its version.</summary>
-public sealed record AgentProviderStatus(string? ExecutablePath, string? Version, bool? SignedIn)
+/// <param name="Account">Whom the CLI is signed in as, such as an email; null when it does not tell.</param>
+public sealed record AgentProviderStatus(string? ExecutablePath, string? Version, bool? SignedIn, string? Account = null)
 {
     public bool Installed => ExecutablePath is not null;
 }
@@ -618,6 +635,9 @@ public sealed class AgentSettings
 
     /// <summary>A chosen codex.exe; null finds it in PATH and the usual install places.</summary>
     public string? CodexPath { get; set; }
+
+    /// <summary>The Claude account Claude Code runs under (see <see cref="Services.ClaudeAccounts"/>); null: the user's own <c>~/.claude</c>.</summary>
+    public string? ClaudeAccount { get; set; }
 
     /// <summary>Claude Code's model, such as claude-opus-5-5 or the alias opus; null: Claude Code's own setting.</summary>
     public string? ClaudeModel { get; set; }
@@ -656,12 +676,6 @@ public sealed class AgentSettings
     /// <summary>Link picks each run's effort for the tasks that start on Auto; the model and the agent stay the user's.</summary>
     public bool AutoEffort { get; set; } = true;
 
-    /// <summary>The custom model: its server and model. It is the user's to pick on the card; it is never the default agent.</summary>
-    public CustomModelSettings Custom { get; set; } = new();
-
-    /// <summary>Link's own answers (a map, a note) run on the custom model, not on the subscription agent.</summary>
-    public bool OwnAnswersOnCustom { get; set; }
-
     /// <summary>Auto: each CLI compacts by its own window for the model, which it tunes for cost and quality.</summary>
     public const int DefaultContextBudget = 0;
 
@@ -680,16 +694,33 @@ public sealed class AgentSettings
     /// </summary>
     public bool ContinueAfterLimit { get; set; } = true;
 
+    public const int DefaultNoStopTurns = 20;
+
+    /// <summary>How many choices No-stop takes for a task in a row before it waits for the user again (see <see cref="Services.NoStop"/>).</summary>
+    public int NoStopTurns { get; set; } = DefaultNoStopTurns;
+
+    /// <summary>
+    /// What a No-stop run of Claude Code may never do, as its deny rules: the outward steps that cannot be taken back.
+    /// Codex's sandbox keeps its runs in the workspace instead.
+    /// </summary>
+    public List<string> NoStopDeny { get; set; } = [.. DefaultNoStopDeny];
+
+    public static readonly IReadOnlyList<string> DefaultNoStopDeny =
+        ["Bash(git push:*)", "Bash(git push)", "Bash(p4 submit:*)", "Bash(p4 submit)", "Bash(gh pr merge:*)", "Bash(gh release:*)"];
+
     /// <summary>Who serves the tiers of a team plan, and whether the steps go to workers.</summary>
     public TeamSettings Team { get; set; } = new();
 
     public void Normalize()
     {
-        if (!Enum.IsDefined(DefaultProvider) || DefaultProvider == AgentProviderKind.Custom) DefaultProvider = AgentProviderKind.ClaudeCode;
+        if (!Enum.IsDefined(DefaultProvider)) DefaultProvider = AgentProviderKind.ClaudeCode;
         if (!Enum.IsDefined(DefaultAccess)) DefaultAccess = AgentAccessChoice.Auto;
         if (ContextBudget is not 0 and (< 50_000 or > 2_000_000)) ContextBudget = DefaultContextBudget;
         ClaudePath = Trimmed(ClaudePath);
         CodexPath = Trimmed(CodexPath);
+        // An account whose folder is gone runs under the user's own.
+        ClaudeAccount = Trimmed(ClaudeAccount);
+        if (ClaudeAccount is not null && !Services.ClaudeAccounts.Names().Contains(ClaudeAccount, StringComparer.OrdinalIgnoreCase)) ClaudeAccount = null;
         ClaudeModel = Trimmed(ClaudeModel);
         ClaudeEffort = Trimmed(ClaudeEffort);
         CodexModel = Trimmed(CodexModel);
@@ -702,9 +733,9 @@ public sealed class AgentSettings
 
         ClaudeModel = Newer(ClaudeModel);
         LatestModels ??= [];
+        if (NoStopTurns is < 1 or > 200) NoStopTurns = DefaultNoStopTurns;
+        NoStopDeny = NoStopDeny is null ? [.. DefaultNoStopDeny] : [.. NoStopDeny.Select(Trimmed).OfType<string>().Distinct(StringComparer.Ordinal)];
 
-        Custom ??= new();
-        Custom.Normalize();
         Team ??= new();
         Team.Normalize();
     }
@@ -712,8 +743,6 @@ public sealed class AgentSettings
     /// <summary>A level's model and effort for an agent; null parts are left to the CLI.</summary>
     public (string? Model, string? Effort) Level(AgentProviderKind provider, AgentLevel level)
     {
-        // One model without an effort setting: its levels are all alike.
-        if (provider == AgentProviderKind.Custom) return (Custom.Model, null);
         var claude = provider == AgentProviderKind.ClaudeCode;
         var choice = level switch
         {
@@ -724,36 +753,15 @@ public sealed class AgentSettings
         return choice is null ? (ModelFor(provider), EffortFor(provider)) : (choice.Model, choice.Effort);
     }
 
-    /// <summary>
-    /// Who writes Link's own answers (a map, a note) and on what: Light, unless Settings says otherwise, and the
-    /// custom model when Settings asks for it and it is set up (<paramref name="customConfigured"/>). The custom model is
-    /// the user's choice for a task, so a map is not sent there by itself unless Settings asks for it. An answer
-    /// that goes on in the task's session (<paramref name="inSession"/>) stays with the task's agent: another server is
-    /// not trusted to read a session another model wrote (its thinking blocks are that model's).
-    /// </summary>
-    public (AgentProviderKind Provider, string? Model, string? Effort) OwnAnswers(AgentProviderKind provider, bool inSession, bool customConfigured)
-    {
-        var onCustom = OwnAnswersOnCustom && customConfigured && !inSession;
-        var writer = onCustom ? AgentProviderKind.Custom : provider == AgentProviderKind.Custom && !inSession ? DefaultProvider : provider;
-        var (model, effort) = Level(writer, OwnAnswersOnLight ? AgentLevel.Light : AgentLevel.Standard);
-        return (writer, model, effort);
-    }
+    /// <summary>The model and effort of Link's own answers (a map, a note) on the agent: Light, unless Settings says otherwise.</summary>
+    public (string? Model, string? Effort) OwnAnswers(AgentProviderKind provider) =>
+        Level(provider, OwnAnswersOnLight ? AgentLevel.Light : AgentLevel.Standard);
 
-    public string? PathFor(AgentProviderKind provider) => provider.RunsOnClaudeCode() ? ClaudePath : CodexPath;
+    public string? PathFor(AgentProviderKind provider) => provider == AgentProviderKind.ClaudeCode ? ClaudePath : CodexPath;
 
-    public string? ModelFor(AgentProviderKind provider) => provider switch
-    {
-        AgentProviderKind.ClaudeCode => ClaudeModel,
-        AgentProviderKind.Custom => Custom.Model,
-        _ => CodexModel
-    };
+    public string? ModelFor(AgentProviderKind provider) => provider == AgentProviderKind.ClaudeCode ? ClaudeModel : CodexModel;
 
-    public string? EffortFor(AgentProviderKind provider) => provider switch
-    {
-        AgentProviderKind.ClaudeCode => ClaudeEffort,
-        AgentProviderKind.Custom => null,
-        _ => CodexEffort
-    };
+    public string? EffortFor(AgentProviderKind provider) => provider == AgentProviderKind.ClaudeCode ? ClaudeEffort : CodexEffort;
 
     public void SetEffort(AgentProviderKind provider, string? effort)
     {
@@ -767,6 +775,7 @@ public sealed class AgentSettings
         DefaultAccess = DefaultAccess,
         ClaudePath = ClaudePath,
         CodexPath = CodexPath,
+        ClaudeAccount = ClaudeAccount,
         ClaudeModel = ClaudeModel,
         ClaudeEffort = ClaudeEffort,
         CodexModel = CodexModel,
@@ -778,11 +787,11 @@ public sealed class AgentSettings
         PlanOnDeep = PlanOnDeep,
         OwnAnswersOnLight = OwnAnswersOnLight,
         AutoEffort = AutoEffort,
-        Custom = Custom.Clone(),
-        OwnAnswersOnCustom = OwnAnswersOnCustom,
         ContextBudget = ContextBudget,
         AutoCompact = AutoCompact,
         ContinueAfterLimit = ContinueAfterLimit,
+        NoStopTurns = NoStopTurns,
+        NoStopDeny = [.. NoStopDeny],
         Team = Team.Clone(),
         LatestModels = new Dictionary<string, string>(LatestModels)
     };

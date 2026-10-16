@@ -41,6 +41,12 @@ test exe, and it passes.
    process started from this session belongs to the Claude app, and Windows ends it with the app's update (2026-10-09
    Link and its team's agent died at 08:58 when Claude 2.31226 installed, with nothing in link.log).
 
+## The user's own button
+
+`rebuild-link.ps1` does steps 1, 3, 4 and 5 in one console; it refuses while an agent works in Link. The user starts
+it from the Start menu entry "Rebuild Link", which `install-shortcuts.ps1` makes together with the "Link" entry (both
+can be pinned to the taskbar from Start). Run that installer again after the repo moves.
+
 ## Done when
 
 The new Link runs from `bin\Release`, the build has 0 warnings and 0 errors, all checks pass.

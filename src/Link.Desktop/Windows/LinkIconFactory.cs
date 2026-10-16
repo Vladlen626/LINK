@@ -6,7 +6,8 @@ namespace Link.Desktop.Windows;
 
 public static class LinkIconFactory
 {
-    // The jellyfish of LinkGlyphTemplate (Themes/Controls.xaml) on the same 24-unit grid: change both together.
+    // The jellyfish of LinkGlyphTemplate (Themes/Controls.xaml) on the same 24-unit grid: change both together, and
+    // draw the exe's icon again (Assets/make-icon.ps1).
     private static readonly float[] Legs =
     [
         6.5f, 13.4f, 4.2f, 17.6f, 9.75f, 13.9f, 8.9f, 18.3f,

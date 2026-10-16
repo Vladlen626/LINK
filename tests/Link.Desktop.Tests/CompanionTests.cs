@@ -17,14 +17,31 @@ internal static class CompanionTests
 
     public static void Run()
     {
-        var browser = FindBrowser();
-        if (browser is null)
+        var browsers = Browsers();
+        if (browsers.Length == 0)
         {
             Console.WriteLine("SKIP companion checks: neither Edge nor Chrome is installed.");
             return;
         }
 
         var page = Path.Combine(FindRepository(), "tests", "companion", "run.html");
+        // A browser may print nothing in headless mode (Edge 155 does not): the next one runs the checks.
+        foreach (var browser in browsers)
+        {
+            if (RunIn(browser, page) is not { } dom) return;
+            if (dom.Contains("<pre id=\"results\">", StringComparison.Ordinal))
+            {
+                Report(dom);
+                return;
+            }
+        }
+
+        Program.Record($"companion checks ran: no browser printed the page ({string.Join(", ", browsers)})", passed: false);
+    }
+
+    /// <summary>The page as the browser left it; null when it timed out, which is recorded.</summary>
+    private static string? RunIn(string browser, string page)
+    {
         var profile = Path.Combine(Path.GetTempPath(), $"link-companion-checks-{Guid.NewGuid():N}");
         try
         {
@@ -59,10 +76,10 @@ internal static class CompanionTests
             {
                 process.Kill(entireProcessTree: true);
                 Program.Equal("companion checks finish", "timed out", "finished");
-                return;
+                return null;
             }
 
-            Report(dom.Result);
+            return dom.Result;
         }
         finally
         {
@@ -93,7 +110,7 @@ internal static class CompanionTests
         Program.Equal("companion checks ran to the end", end.StartsWith("DONE", StringComparison.Ordinal) ? "DONE" : end, "DONE");
     }
 
-    private static string? FindBrowser()
+    private static string[] Browsers()
     {
         string[] candidates =
         [
@@ -103,7 +120,7 @@ internal static class CompanionTests
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"Google\Chrome\Application\chrome.exe"),
             Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Google\Chrome\Application\chrome.exe")
         ];
-        return candidates.FirstOrDefault(File.Exists);
+        return candidates.Where(File.Exists).ToArray();
     }
 
     /// <summary>The checkout the runner was built in, or the one it is run from.</summary>

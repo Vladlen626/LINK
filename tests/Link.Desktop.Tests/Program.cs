@@ -27,6 +27,7 @@ internal static class Program
                      ("text to speech", TextToSpeechTests.RunAsync),
                      ("embedded chat", EmbeddedChatTests.RunAsync),
                      ("agent", AgentTests.RunAsync),
+                     ("remote", RemoteTests.RunAsync),
                      ("capture", CaptureTests.RunAsync)
                  })
         {

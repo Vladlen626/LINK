@@ -60,7 +60,7 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
   Finish; уровни Light / Standard / Deep; итог чипом в следующий вопрос, Discuss in chat с diff. Харнесс — всегда:
   правила агента в каждой новой сессии, цифры задачи, карта, skills, проверка после Do, метки петель.
 - **Agent Studio** — сделано, ждёт проверки (2026-10-08): окно Studio с колонкой Harness, бюджет контекста и Compact,
-  Effort Auto, специалисты и skills, своя модель (GLM, DeepSeek, OpenRouter, Ollama), план агента со статусами,
+  Effort Auto, специалисты и skills, своя модель (убрана 2026-10-16), план агента со статусами,
   статистика ролей и моделей, First Run, Team pack. Дальше — Remote.
 
 ## Стек
@@ -152,6 +152,11 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   `--resume`; «до задачи» берётся от первой попытки, откат покрывает обе. По замеру проверка — дело Link: агенту в
   задаче сказано, что её запустит Link, иначе Codex гоняет её в своей песочнице. Codex при resume отдаёт токены всей
   сессии — Link их так и помечает.
+- Копии папки перед правками агента нет (2026-10-16, решение пользователя: всё и так в git): откат только в Git и
+  Perforce; в папке без VCS изменения видны по размеру и времени файлов, но не откатываются.
+- Своей модели нет (2026-10-16, решение пользователя: 0 прогонов): агенты — только Claude Code и Codex. Номер 2 в
+  старых настройках означал её: агент по умолчанию с ним — Claude Code, выбор Team с ним забыт, задачи с её прогонами
+  или шагами не грузятся; `custom-model.key` Link больше не читает.
 - Только чтения нет вовсе (2026-10-13, решение пользователя): учёба тренировки, критик, ревью ведущего, карта и
   заметка Start over не режимы доступа — у всех прогонов acceptEdits или auto, и у Plan first тоже (план просят словами,
   `PlanRequest`); судьи (`Judge`) просто не меняют файлы по заданию, и слова пользователя в их сессию не идут —
@@ -202,7 +207,7 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
 - Сессии и подсказки на ходу (2026-10-01, запрос пользователя). Каждый прогон с session id (кроме карты и skill)
   Link кладёт в `Projects\<id>\agent-sessions.json` — 10 последних, цель с карточки, доступ, модель, effort, последний
   итог; продолжение заменяет запись своей сессии. AGENT SESSIONS в панели открывает сессию и после перезапуска,
-  ответ идёт в неё через resume, в её папке, с копией перед правками, где нет git. Ни Claude Code в `-p`, ни
+  ответ идёт в неё через resume, в её папке. Ни Claude Code в `-p`, ни
   `codex exec` не принимают слов посреди прогона (потоковый ввод Claude ставит их в очередь до конца хода), поэтому
   слова во время работы — это Stop и сразу продолжение той же сессии с ними («The user stopped you to say this»):
   одинаково для обоих, сделанное остаётся, откат покрывает всё.
@@ -322,9 +327,7 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   `model_auto_compact_token_limit` = 90 %), дальше автокомпакт CLI; Compact Link — новая сессия из состояния задачи,
   которое Link собирает сам, без модели. Effort Auto меняет только effort, никогда модель или агента; выше Extra high —
   только вручную; лимит — не провал. Специалисты — встроенные роли (`docs/harness/roles`, копируются к Link.exe) и
-  роли папки, подбираются по брифу вместе с skills, меняются на карточке. Своя модель — третий агент через Claude Code
-  (Anthropic-совместимый адрес), GLM-4.7-Flash (Z.ai) по умолчанию; никогда не выбирается сама — только карточка,
-  Hand off, галочка для ответов Link и подсказка с кнопкой. Ключ — DPAPI, не в логах, аргументах и Console.
+  роли папки, подбираются по брифу вместе с skills, меняются на карточке.
   Remote (телефон через свой VPS пользователя) — после проверки приложения.
 - Fast / Normal / Deep: provider-neutral подсказка в запросе плюс переключение режима ChatGPT с проверкой; Normal
   возвращает режим, который был до LINK.
@@ -356,6 +359,14 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   Fresh screen идёт через Chat. Снимок владеет авто-скриншотом: три последних снимка проекта живут, файлы старых
   удаляются; история скриншотов считает закрепления, чтобы ни стек, ни снимок не теряли файл при чистке.
   `last-request.json` — только с диагностикой (Settings → Behavior, по умолчанию выключена).
+- Remote, No-stop, spending (2026-10-15, the user's request; plan `docs/REMOTE_PLAN.md`): No-stop is Link-level, per
+  task: it takes the recommended choice at each stop after 10 s, runs bypass permissions but for a deny list, and stops
+  on 20 choices, a repeat or 3 idle runs. Remote control is a page Link serves on 127.0.0.1 (a PWA, not an APK),
+  reached from work through the user's Tailscale (`tailscale serve`), devices paired by code, token hashes only, Web
+  Push (VAPID) while the user is away. The user's phone runs Hiddify (one VPN at a time on Android), so the main way
+  in is the user's own Telegram bot: Link long-polls the Bot API, pairs one chat by a code, buttons per task;
+  a relay server on the user's VPS was the other choice. Spending comes from ccusage (`npx ccusage@<pinned>`, offline prices), not
+  from prices of Link's own.
 
 ## ChatGPT-транспорт
 
@@ -412,8 +423,8 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
 7. **Позже, по желанию:** живой прогон Claude Code через Link и тот же разбор токенов по его журналам; память
    проекта (решения отдельно от summaries), context router, command palette и локальные команды.
 8. **Agent Studio** (концепт пользователя, 07.10): два режима — Chat и Studio; счётчик контекста и бюджет, Auto
-   Effort, роли-специалисты, Compact из состояния задачи, Custom-модели (GLM, DeepSeek, OpenRouter, Ollama) через
-   Claude Code, статистика, Harness Inspector — [docs/STUDIO_PLAN.md](docs/STUDIO_PLAN.md). S.1–S.13 сделаны в ночь
+   Effort, роли-специалисты, Compact из состояния задачи, Custom-модели через Claude Code (убраны
+   2026-10-16), статистика, Harness Inspector — [docs/STUDIO_PLAN.md](docs/STUDIO_PLAN.md). S.1–S.13 сделаны в ночь
    на 08.10 и ждут проверки пользователем: WPF, живые CLI и сервер Z.ai здесь не запускались (проверки — на Linux,
    без Windows-тестов). Вживую не сверены: поля `TaskCreate`/`TaskUpdate` и `rate_limit_event` Claude Code, режим
    Auto Claude Code на чужом сервере (его классификатор ходит в ту же модель), бесплатный ключ GLM. Дальше: Remote
@@ -440,6 +451,8 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    [docs/TEAM_CONTROL_PLAN.md](docs/TEAM_CONTROL_PLAN.md): a plan step may name its agent; the step's worker chip
    changes its worker, runs it again, skips it, goes back to it or re-plans the rest with the lead; a failed step is
    offered again. Stages 1–3 built, not yet tried by the user; undo on going back and the sandbox note are open.
+   A run's turn shows the pictures it made during the run and looked at or named (`RunImages`, `ThreadImage`); Link's
+   notes lost the "Hand-over:" prefix (15.10).
 10. **Обучение специалистов** (PDF пользователя «LINK Agent Training», 09.10) — [docs/TRAINING_PLAN.md](docs/TRAINING_PLAN.md).
    Решение: прочитанное — не навык; урок попадает в skill только после экзамена на настоящей задаче пользователя.
    Сделан MVP (TR.1–TR.4, 09.10, ждёт проверки пользователем): галка **Train** на карточке, учёба только чтением

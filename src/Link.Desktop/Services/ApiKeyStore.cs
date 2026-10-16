@@ -4,9 +4,9 @@ using System.Text;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// An API key (Gemini's, the custom model's), encrypted for this Windows user with DPAPI in its own file: never in
-/// settings.json, the log or a request other than its own service's. Each key has its own entropy, so that one file
-/// cannot be read as another's.
+/// An API key or token (Gemini's, the remote push's, the Telegram bot's), encrypted for this Windows user with DPAPI
+/// in its own file: never in settings.json, the log or a request other than its own service's. Each key has its own
+/// entropy, so that one file cannot be read as another's.
 /// </summary>
 public sealed class ApiKeyStore
 {

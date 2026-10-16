@@ -106,8 +106,12 @@ public sealed class ProjectService
                 .Where(session => session.SessionId.Length > 0 && Enum.IsDefined(session.Provider))
                 .Select(AgentTaskRecord.FromSession)
                 .ToList();
-        // A record a newer Link or a hand wrote, with something this Link does not know, is skipped.
-        return tasks.Where(task => Enum.IsDefined(task.Status) && task.Runs.All(run => Enum.IsDefined(run.Provider))).ToList();
+        // A record a newer Link or a hand wrote, with something this Link does not know, is skipped; so is one that ran
+        // or routed a step to the removed custom model.
+        return tasks.Where(task => Enum.IsDefined(task.Status) && task.Runs.All(run => Enum.IsDefined(run.Provider)) &&
+            task.Team.All(step => Known(step.Provider) && Known(step.Agent))).ToList();
+
+        static bool Known(AgentProviderKind? provider) => provider is not { } kind || Enum.IsDefined(kind);
     }
 
     /// <summary>Puts a task at the top, in place of its older record, and keeps the last <see cref="TasksKept"/>; returns the list.</summary>

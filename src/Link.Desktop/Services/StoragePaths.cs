@@ -32,15 +32,15 @@ public sealed class StoragePaths
     /// <summary>What the embedded page's companion keeps across restarts: the chat modes it set.</summary>
     public string CompanionStateFile => Path.Combine(Root, "companion-state.json");
 
-    /// <summary>Copies of workspaces without git, made before an agent changed them; created when first needed.</summary>
-    public string Backups => Path.Combine(Root, "Backups");
-
     /// <summary>The agents' subscription windows as their CLIs last reported them.</summary>
     public string AgentLimitsFile => Path.Combine(Root, "agent-limits.json");
 
     /// <summary>The Gemini API key for voice replies, encrypted for this Windows user.</summary>
     public string GeminiKeyFile => Path.Combine(Root, "gemini-key.bin");
 
-    /// <summary>The custom model's API key, encrypted for this Windows user; never in settings.json.</summary>
-    public string CustomModelKeyFile => Path.Combine(Root, "custom-model.key");
+    /// <summary>Link's key that signs its notifications to paired devices (Web Push), encrypted for this Windows user.</summary>
+    public string RemotePushKeyFile => Path.Combine(Root, "remote-push.key");
+
+    /// <summary>The token of the user's Telegram bot for remote control, encrypted for this Windows user.</summary>
+    public string TelegramTokenFile => Path.Combine(Root, "telegram-bot.key");
 }

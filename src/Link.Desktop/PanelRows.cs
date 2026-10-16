@@ -3,6 +3,7 @@ using System.Collections.ObjectModel;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
 
@@ -74,6 +75,7 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, B
     private Brush _outcomeBrush = outcomeBrush;
     private string _current = string.Empty;
     private string _said = string.Empty;
+    private IReadOnlyList<ThreadImage> _images = [];
     private IReadOnlyList<AgentChangeRow> _files = [];
     private string _next = string.Empty;
     private string _stats = string.Empty;
@@ -120,6 +122,15 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, B
     }
 
     public Visibility SaidVisibility => _said.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>The pictures the run made and looked at or named: an artist's renders and screenshots (<see cref="RunImages"/>).</summary>
+    public IReadOnlyList<ThreadImage> Images
+    {
+        get => _images;
+        set => Set(ref _images, value, nameof(Images), nameof(ImagesVisibility));
+    }
+
+    public Visibility ImagesVisibility => _images.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
     public IReadOnlyList<AgentChangeRow> Files
     {
@@ -225,6 +236,72 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, B
 
 /// <summary>A row of a task's steps: its text in its colour.</summary>
 public sealed record AgentStepRow(string Text, Brush Brush);
+
+/// <summary>
+/// A picture of a run, small in its turn; a click opens the file. It is read off the UI thread, so that a thread of
+/// renders opens at once, and shows once it is read: a file that does not read shows nothing. Made on the UI thread.
+/// </summary>
+public sealed class ThreadImage : INotifyPropertyChanged
+{
+    // Twice the height the turn shows it at: sharp on a high-DPI screen, small in memory.
+    private const int ReadHeight = 220;
+
+    // The thread is drawn again on every change: a picture read lately shows at once while its file is as it was. So
+    // many stay in memory, the first read go first.
+    private const int Kept = 36;
+    private static readonly Dictionary<string, (DateTime Written, ImageSource Picture)> Pictures = new(StringComparer.OrdinalIgnoreCase);
+    private static readonly Queue<string> ReadOrder = new();
+
+    public ThreadImage(string path)
+    {
+        Path = path;
+        var written = File.GetLastWriteTimeUtc(path);
+        if (Pictures.TryGetValue(path, out var kept) && kept.Written == written) Picture = kept.Picture;
+        else _ = ReadAsync(written);
+    }
+
+    public event PropertyChangedEventHandler? PropertyChanged;
+
+    public string Path { get; }
+
+    public ImageSource? Picture { get; private set; }
+
+    public Visibility Visibility => Picture is null ? Visibility.Collapsed : Visibility.Visible;
+
+    private async Task ReadAsync(DateTime written)
+    {
+        Picture = await Task.Run(() => Read(Path));
+        if (Picture is null) return;
+        if (!Pictures.ContainsKey(Path)) ReadOrder.Enqueue(Path);
+        Pictures[Path] = (written, Picture);
+        while (ReadOrder.Count > Kept) Pictures.Remove(ReadOrder.Dequeue());
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Picture)));
+        PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Visibility)));
+    }
+
+    private static BitmapImage? Read(string path)
+    {
+        try
+        {
+            // The image as it is now, not WPF's cache of an earlier render to the same path; a renderer may still hold the file.
+            using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
+            var picture = new BitmapImage();
+            picture.BeginInit();
+            picture.StreamSource = file;
+            picture.DecodePixelHeight = ReadHeight;
+            picture.CacheOption = BitmapCacheOption.OnLoad;
+            picture.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+            picture.EndInit();
+            picture.Freeze();
+            return picture;
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or NotSupportedException or FileFormatException
+                                              or ArgumentException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+}
 
 /// <summary>
 /// A step of the agent's plan: its mark (✓ done, ● under way, ○ to do) and the mark's colour, its first sentence and

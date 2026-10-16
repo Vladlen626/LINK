@@ -9,44 +9,34 @@ using Link.Desktop.Windows;
 namespace Link.Desktop;
 
 /// <summary>
-/// What the very first start shows: which agents Link finds, where the custom model is set up, and a first project for
+/// What the very first start shows: which agents Link finds, where Settings chooses their files, and a first project for
 /// a folder. It asks for no key and signs in to nothing; closing it is the same as Continue.
 /// </summary>
 public partial class FirstRunWindow : Window
 {
     private readonly IAgentProvider[] _agents;
-    private readonly IAgentProvider _custom;
     private readonly AgentSettings _settings;
     private readonly Action _openSettings;
     private readonly Func<string, string> _addProject;
     private readonly CancellationTokenSource _checks = new();
 
-    /// <param name="agents">The agents: Claude Code and Codex are checked, the custom model is only asked whether it is set up.</param>
+    /// <param name="agents">The agents, Claude Code and Codex, each checked.</param>
     /// <param name="openSettings">Opens Settings and returns when it is closed.</param>
     /// <param name="addProject">Makes a project for a folder and returns its name.</param>
     public FirstRunWindow(IEnumerable<IAgentProvider> agents, AgentSettings settings, Action openSettings, Func<string, string> addProject)
     {
         InitializeComponent();
         SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
-        var all = agents.ToArray();
-        _agents = [.. all.Where(agent => agent.Kind != AgentProviderKind.Custom)];
-        _custom = all.Single(agent => agent.Kind == AgentProviderKind.Custom);
+        _agents = agents.ToArray();
         _settings = settings;
         _openSettings = openSettings;
         _addProject = addProject;
         Closing += (_, _) => _checks.Cancel();
-        Loaded += async (_, _) =>
-        {
-            ShowCustom();
-            await CheckAgentsAsync();
-        };
+        Loaded += async (_, _) => await CheckAgentsAsync();
     }
 
     private (TextBlock Status, Button Install) RowOf(AgentProviderKind kind) =>
         kind == AgentProviderKind.Codex ? (CodexStatusText, InstallCodexButton) : (ClaudeStatusText, InstallClaudeButton);
-
-    private void ShowCustom() =>
-        CustomStatusText.Text = _custom.Configured ? $"{_custom.Name} is set up" : "Not set up. Optional: a cheaper model for the work of a written plan.";
 
     /// <summary>Each CLI is run for its version and sign-in, off the UI thread, both at once.</summary>
     private Task CheckAgentsAsync() => Task.WhenAll(_agents.Select(CheckAsync));
@@ -58,8 +48,7 @@ public partial class FirstRunWindow : Window
         install.Visibility = Visibility.Collapsed;
         try
         {
-            var path = _settings.PathFor(agent.Kind);
-            var status = await Task.Run(() => agent.CheckAsync(path, _checks.Token));
+            var status = await Task.Run(() => agent.CheckAsync(_settings, _checks.Token));
             text.Text = FirstRun.Status(agent.Kind, status);
             install.Visibility = status.Installed ? Visibility.Collapsed : Visibility.Visible;
         }
@@ -84,9 +73,8 @@ public partial class FirstRunWindow : Window
 
     private async void Settings_OnClick(object sender, RoutedEventArgs e)
     {
-        // Settings may have set up the custom model or chosen where an agent is.
+        // Settings may have chosen where an agent is.
         _openSettings();
-        ShowCustom();
         await CheckAgentsAsync();
     }
 
