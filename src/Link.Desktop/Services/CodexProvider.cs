@@ -295,8 +295,8 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
             ? ["--json", "--skip-git-repo-check", "--sandbox", "workspace-write", "--cd", task.Workspace]
             : ["--json", "--skip-git-repo-check", "-c", "sandbox_mode=workspace-write"]);
         // Perforce opens files for edit through its server, so p4 in a Perforce workspace needs the network.
-        // So does a No-stop run, which stops for nothing the sandbox would refuse.
-        if (AgentChanges.IsPerforce(task.Workspace) || task.NoStop)
+        // So does a No-stop run, which stops for nothing the sandbox would refuse, and a run that reads the web.
+        if (AgentChanges.IsPerforce(task.Workspace) || task.NoStop || task.ReadsWeb)
         {
             arguments.AddRange(["-c", "sandbox_workspace_write.network_access=true"]);
         }

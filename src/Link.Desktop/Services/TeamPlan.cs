@@ -131,6 +131,15 @@ public static partial class TeamPlan
         "```link-review block holding {\"verdict\": \"accept|redo|escalate|stop\", \"notes\": \"...\"}, nothing after it.";
 
     /// <summary>
+    /// What a judge's session (the lead's review, the art critic) is told once when its answer ended with no verdict that
+    /// reads: the block alone, before the user is asked. A run told this that still gives none leaves the step to the user.
+    /// </summary>
+    public const string VerdictOnly =
+        "Your answer ended without a ```link-review block Link can read. Answer with only that block, your verdict on what you " +
+        "just judged, as your instructions show it ({\"verdict\": \"accept|redo|escalate|stop\", \"notes\": \"...\"}, with " +
+        "\"score\" where they ask for one), nothing before or after it.";
+
+    /// <summary>
     /// What the lead's session is asked when a worker has done a step: the request (the text of <see cref="ReviewFile"/>;
     /// null for a session that has given a verdict before), then the step, the worker's answer, the check and what
     /// changed: the diff when there is one, of the worker's run alone where <paramref name="ownDiff"/> (after the lead's

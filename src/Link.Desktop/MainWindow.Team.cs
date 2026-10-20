@@ -290,7 +290,8 @@ public partial class MainWindow
 
     /// <summary>
     /// The lead's run on a step under review ended: its verdict moves the team on, sends the step back or up, or stops
-    /// the team. Without a verdict (a Stop, a limit, a question, words of the user's) the user decides.
+    /// the team. Without a verdict (a Stop, a limit, a question, words of the user's) the user decides; a review that
+    /// ended well but forgot its block is asked for it once first (<see cref="AskVerdictAgain"/>).
     /// </summary>
     private void AfterReview(TaskWork work, TeamStep step, AgentRun run, bool needsYou)
     {
@@ -302,7 +303,11 @@ public partial class MainWindow
         if (needsYou || TeamPlan.SplitReview(run.Result.Summary).Review is not { } review)
         {
             SaveTask(work);
-            if (!needsYou) OfferReviewDecision(work, step, $"{lead}'s review of step {number} ended without a verdict.");
+            if (!needsYou && !AskVerdictAgain(work, run, $"Step {number}: {lead}'s review"))
+            {
+                OfferReviewDecision(work, step, $"{lead}'s review of step {number} ended without a verdict.");
+            }
+
             return;
         }
 
@@ -348,6 +353,29 @@ public partial class MainWindow
             ShowTask(work);
             GoOnWithTeam(work);
         });
+    }
+
+    /// <summary>
+    /// A judge's run (the lead's review, the art critic) that ended well with no verdict that reads is asked once, in its
+    /// session and at low effort, for the block alone (<see cref="TeamPlan.VerdictOnly"/>): a few hundred tokens against
+    /// the user's round trip. False when the run was that ask, was stopped or failed, or left no session: the user decides.
+    /// <paramref name="critiqued"/>: the artist's run the critic judged, which the user's words go on with after it.
+    /// </summary>
+    private bool AskVerdictAgain(TaskWork work, AgentRun run, string who, AgentRun? critiqued = null)
+    {
+        if (!run.Result.Succeeded || run.Result.Stopped || run.Task.Prompt == TeamPlan.VerdictOnly || AgentCoordinator.SessionOf(run) is not { } session)
+        {
+            return false;
+        }
+
+        var low = _agents.Provider(run.Task.Provider).EffortsOf(run.Task.Model).Any(effort => effort.Value == "low");
+        work.Record.Add(AgentEntryKind.HandOff, $"{who} gave no verdict that reads: asked once more for the verdict alone");
+        SaveTask(work);
+        ShowTask(work);
+        work.Critiqued = critiqued;
+        var again = run.Task with { Prompt = TeamPlan.VerdictOnly, ResumeSessionId = session, Images = [], Effort = low ? "low" : run.Task.Effort };
+        Dispatcher.BeginInvoke(() => _ = StartAgentAsync(work, again, null));
+        return true;
     }
 
     /// <summary>
@@ -467,15 +495,16 @@ public partial class MainWindow
 
     /// <summary>
     /// The art critic's run on a step ended: its verdict sends the step back to its artist with the defects, lets the team
-    /// go on, or leaves the step to the user's OK with what the critic saw; so does a run without a verdict (a Stop). A
-    /// question of the critic's waits for the user's answer in its session; after the verdict the user's words go on with
-    /// the artist's work.
+    /// go on, or leaves the step to the user's OK with what the critic saw; so does a run without a verdict (a Stop), and
+    /// one that ended well but forgot its block once asked for it (<see cref="AskVerdictAgain"/>). A question of the
+    /// critic's waits for the user's answer in its session; after the verdict the user's words go on with the artist's work.
     /// </summary>
     private void AfterCritique(TaskWork work, TeamStep step, AgentRun run, bool needsYou)
     {
         if (work.Question is not null) return;
         // After a limit too the user's words go on with the artist's work, never in the critic's session.
-        if (work.Critiqued is { } judged) work.LastRun = judged;
+        var judged = work.Critiqued;
+        if (judged is not null) work.LastRun = judged;
         work.Critiqued = null;
         if (needsYou) return;
         var record = work.Record;
@@ -484,6 +513,7 @@ public partial class MainWindow
         var artist = step.Worker;
         var critic = WorkerLabel(new Worker(run.Task.Provider, AgentLevel.Deep, run.Task.Model));
         var review = TeamPlan.SplitReview(run.Result.Summary).Review;
+        if (review is null && AskVerdictAgain(work, run, $"Step {number}: {critic}", judged)) return;
         var evidence = _projects.ReadWorkerEvidence(work.Project);
         var move = TeamRunner.Critiqued(record, step, review ?? new LeadReview(ReviewVerdict.Stop, string.Empty), evidence);
         var score = review?.Score is { } given ? $", {given} of 5" : string.Empty;
@@ -543,7 +573,10 @@ public partial class MainWindow
             () =>
             {
                 record.Add(AgentEntryKind.You, $"OK for step {number}");
-                if (TeamRunner.Approve(record, step) == TeamMove.Finished) record.Add(AgentEntryKind.HandOff, "The team is through all its steps");
+                if (TeamRunner.Approve(record, step, _projects.ReadWorkerEvidence(work.Project)) == TeamMove.Finished)
+                {
+                    record.Add(AgentEntryKind.HandOff, "The team is through all its steps");
+                }
                 SaveTask(work);
                 ShowTask(work);
                 GoOnWithTeam(work);
@@ -638,7 +671,7 @@ public partial class MainWindow
         if (step.Status == TeamStepStatus.Failed || step == current && step.Status != TeamStepStatus.Waiting)
         {
             actions.Add(new PanelAction("Run it again from the start", "A new session of its worker, told an earlier try's changes may be in the workspace",
-                () => ChangeTeam(work, $"Step {number} again from the start", () => TeamRunner.RunAgain(step))));
+                () => ChangeTeam(work, $"Step {number} again from the start", () => TeamRunner.SendBack(step, _projects.ReadWorkerEvidence(work.Project)))));
         }
 
         if (!TeamRunner.Over(step))

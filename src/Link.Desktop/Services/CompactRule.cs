@@ -12,16 +12,21 @@ public static class CompactRule
     private const long NearEnd = 80;
     private const long ColdFloor = 100_000;
     private const long ColdShare = 25;
-    private static readonly TimeSpan CacheLasts = TimeSpan.FromMinutes(60);
+
+    /// <summary>
+    /// How long a provider keeps a session's prompt cache after its last request: an hour for Claude Code on a
+    /// subscription; at least half an hour for OpenAI's models from GPT-5.6 on, which Codex runs.
+    /// </summary>
+    public static TimeSpan CacheLasts(AgentProviderKind provider) => TimeSpan.FromMinutes(provider == AgentProviderKind.Codex ? 30 : 60);
 
     /// <summary>
     /// The reason to start fresh instead of resuming, in words for the task's history; null: resume. The session holds
     /// <paramref name="contextTokens"/> (null: not told). <paramref name="budget"/> is Settings' Context budget, capped
     /// by the model's <paramref name="window"/> (on Auto, 0, the window alone: see <see cref="AgentContext.Limit"/>). The
-    /// session counts as too big at 80% of it; as cold when it was idle for an hour (the cache has expired) and holds at
-    /// least 100k and a quarter of a set budget.
+    /// session counts as too big at 80% of it; as cold when it was idle as long as its cache lasts
+    /// (<paramref name="cacheLasts"/>, an hour when not told) and holds at least 100k and a quarter of a set budget.
     /// </summary>
-    public static string? Why(long? contextTokens, int budget, TimeSpan idle, int? window = null)
+    public static string? Why(long? contextTokens, int budget, TimeSpan idle, int? window = null, TimeSpan? cacheLasts = null)
     {
         if (contextTokens is not { } held) return null;
         var limit = AgentContext.Limit(budget, window);
@@ -30,7 +35,7 @@ public static class CompactRule
             return $"the session holds {AgentContext.Tokens(held)} of {AgentContext.Tokens(near)}: each step of the next run would re-send it; the task's state is far shorter";
         }
 
-        if (held >= Math.Max(ColdFloor, budget > 0 ? (limit ?? 0) * ColdShare / 100 : 0) && idle >= CacheLasts)
+        if (held >= Math.Max(ColdFloor, budget > 0 ? (limit ?? 0) * ColdShare / 100 : 0) && idle >= (cacheLasts ?? CacheLasts(AgentProviderKind.ClaudeCode)))
         {
             return $"the session's cache has expired ({Idle(idle)} idle): re-sending {AgentContext.Tokens(held)} would cost more than starting from the task's state";
         }
@@ -43,14 +48,15 @@ public static class CompactRule
     /// own numbers: the context it left, the model's window and the time since it ended. Null: resume. Nothing when
     /// Settings do not allow it (<paramref name="autoCompact"/>). <paramref name="afterLimit"/>: the words come after the wait
     /// for a usage limit's reset, which is a wait by itself; a user's reply counts only after an idle as long as the cache
-    /// lasts, so that a reply to a run just ended is never taken away from its session.
+    /// of the run's agent lasts (<see cref="CacheLasts"/>), so that a reply to a run just ended is never taken away from its session.
     /// </summary>
     public static string? Why(AgentRunRecord? last, bool autoCompact, int budget, DateTimeOffset now, bool afterLimit)
     {
         if (!autoCompact || last is null) return null;
         var idle = now - (last.StartedAt + last.Duration);
-        if (!afterLimit && idle < CacheLasts) return null;
-        return Why(last.ContextTokens, budget, idle, last.ContextWindow is { } window ? (int)Math.Min(window, int.MaxValue) : null);
+        var lasts = CacheLasts(last.Provider);
+        if (!afterLimit && idle < lasts) return null;
+        return Why(last.ContextTokens, budget, idle, last.ContextWindow is { } window ? (int)Math.Min(window, int.MaxValue) : null, lasts);
     }
 
     /// <summary>

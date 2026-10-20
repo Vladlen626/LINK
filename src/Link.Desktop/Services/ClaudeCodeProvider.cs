@@ -47,7 +47,11 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         var arguments = new List<string>
         {
             "-p", "--output-format", "stream-json", "--verbose",
-            "--permission-mode", task.NoStop ? "bypassPermissions" : task.AutoApprove ? "auto" : "acceptEdits"
+            "--permission-mode", task.NoStop ? "bypassPermissions" : task.AutoApprove ? "auto" : "acceptEdits",
+            // The user's own setup (~/.claude's CLAUDE.md, rules, skills, hooks and settings) is their personal harness, not
+            // the task's: another language, another project's skills, hooks that wait for a dialog a run lacks. Another
+            // account of Link's has none of it, so every run gets the same harness. The workspace's own still loads.
+            "--setting-sources", "project,local"
         };
         if (task.MaxTurns is { } turns) arguments.AddRange(["--max-turns", turns.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
         if (task.Model is { } model) arguments.AddRange(["--model", model]);

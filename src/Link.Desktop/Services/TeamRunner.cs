@@ -147,7 +147,8 @@ public static partial class TeamRunner
                 return TeamMove.Review;
             }
 
-            evidence.Record(step.Kind, worker, true);
+            // A step only the user can judge counts for its worker by their word (Approve, SendBack), not by the run's.
+            if (!step.Check) evidence.Record(step.Kind, worker, true);
             step.Status = step.Check ? TeamStepStatus.AwaitsOk : TeamStepStatus.Done;
             return step.Check ? TeamMove.AwaitOk : Current(record) is null ? TeamMove.Finished : TeamMove.Next;
         }
@@ -191,17 +192,17 @@ public static partial class TeamRunner
     }
 
     /// <summary>
-    /// What follows the art critic's verdict on a step it judged. Accept: done, or waiting for the user's OK where the
-    /// step asks for it, its worker counted as good. Redo (and an escalation, which art does not need): the artist fixes
-    /// the defects in its session, at most <see cref="MaxRedos"/> times; a redo is how art is made, not a failure of its
-    /// worker. After that, and on a stop, the step waits for the user's OK with the critic's notes: the user is the last
-    /// judge of a look.
+    /// What follows the art critic's verdict on a step it judged. Accept: done, its worker counted as good, or waiting for
+    /// the user's OK where the step asks for it, which counts the worker then. Redo (and an escalation, which art does not
+    /// need): the artist fixes the defects in its session, at most <see cref="MaxRedos"/> times; a redo is how art is made,
+    /// not a failure of its worker. After that, and on a stop, the step waits for the user's OK with the critic's notes:
+    /// the user is the last judge of a look.
     /// </summary>
     public static TeamMove Critiqued(AgentTaskRecord record, TeamStep step, LeadReview review, WorkerEvidence evidence)
     {
         if (review.Verdict == ReviewVerdict.Accept)
         {
-            if (step.Provider is { } provider) evidence.Record(step.Kind, new Worker(provider, step.Level, step.Model), true);
+            if (!step.Check && step.Provider is { } provider) evidence.Record(step.Kind, new Worker(provider, step.Level, step.Model), true);
             step.CriticNotes = step.Check && review.Notes.Length > 0 ? review.Notes : null;
             step.Status = step.Check ? TeamStepStatus.AwaitsOk : TeamStepStatus.Done;
             return step.Check ? TeamMove.AwaitOk : Current(record) is null ? TeamMove.Finished : TeamMove.Next;
@@ -219,11 +220,29 @@ public static partial class TeamRunner
         return TeamMove.Stopped;
     }
 
-    /// <summary>The user's OK for a step that waited for it: done, and the team goes on.</summary>
-    public static TeamMove Approve(AgentTaskRecord record, TeamStep step)
+    /// <summary>
+    /// The user's OK for a step that waited for it: done, its worker counted as good (the user is the judge of what
+    /// waits for them), and the team goes on. A step called done with nothing saved counts for no one.
+    /// </summary>
+    public static TeamMove Approve(AgentTaskRecord record, TeamStep step, WorkerEvidence evidence)
     {
+        if (!step.Unverified && step.Provider is { } provider) evidence.Record(step.Kind, new Worker(provider, step.Level, step.Model), true);
         step.Status = TeamStepStatus.Done;
         return Current(record) is null ? TeamMove.Finished : TeamMove.Next;
+    }
+
+    /// <summary>
+    /// The user sends a step back to be done again from the start. One that waited for their OK failed in their eyes and
+    /// counts so for its worker; one called done with nothing saved, or not yet handed in, counts for no one.
+    /// </summary>
+    public static void SendBack(TeamStep step, WorkerEvidence evidence)
+    {
+        if (step.Status is TeamStepStatus.AwaitsOk or TeamStepStatus.Critique && !step.Unverified && step.Provider is { } provider)
+        {
+            evidence.Record(step.Kind, new Worker(provider, step.Level, step.Model), false);
+        }
+
+        RunAgain(step);
     }
 
     /// <summary>

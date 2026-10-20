@@ -32,6 +32,7 @@ public partial class MainWindow
             Prompt = Training.LearnPrompt(study.Prompt, request),
             PlanOnly = false,
             AllowedTools = [.. AgentCoordinator.Tools(project, plan.Workspace).Concat(Training.WebTools).Distinct(StringComparer.Ordinal)],
+            ReadsWeb = true,
             CheckCommand = null
         }, course);
     }

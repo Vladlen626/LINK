@@ -12,10 +12,11 @@ public static partial class AgentRules
     public static string File => Path.Combine(AppContext.BaseDirectory, "harness", "agent-rules.md");
 
     /// <summary>
-    /// A new session's input: the rules, the workspace's skills when the agent does not find them
-    /// itself, the specialist's role and the skills picked for the task, then the task.
+    /// A new session's input: the rules, the skills of the workspace's tool packs and its own skills when the agent does
+    /// not find them itself (<paramref name="listOwnSkills"/>), the specialist's role and the skills picked for the task,
+    /// then the task.
     /// </summary>
-    public static string Before(string task, string workspace, bool listSkills, AgentRole? role = null, IReadOnlyList<string>? picked = null)
+    public static string Before(string task, string workspace, bool listOwnSkills, AgentRole? role = null, IReadOnlyList<string>? picked = null)
     {
         string rules;
         try
@@ -35,8 +36,9 @@ public static partial class AgentRules
         {
             if (ReadHarness(Path.Combine(pack.Folder, "rules.md")) is { Length: > 0 } packRules) input.Append("\n\n").Append(packRules);
         }
-        var skills = listSkills ? ProjectSkills.In(workspace) : [];
-        if (skills.Count > 0)
+        // A pack's skills lie outside the workspace, where no CLI looks for skills: every agent is told of them.
+        var skills = ProjectSkills.In(workspace).Where(skill => listOwnSkills || skill.Pack is not null).ToArray();
+        if (skills.Length > 0)
         {
             input.Append("\n\n## Skills of this workspace\n");
             foreach (var skill in skills)

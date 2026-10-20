@@ -412,6 +412,12 @@ public sealed record AgentTask
     /// </summary>
     public bool NoStop { get; init; }
 
+    /// <summary>
+    /// The run reads the web, as a training's study does: Claude Code is allowed its web tools through
+    /// <see cref="AllowedTools"/>, and Codex's sandbox gets the network, without which it cannot fetch a page.
+    /// </summary>
+    public bool ReadsWeb { get; init; }
+
     /// <summary>Tool rules Claude Code may never use, such as <c>Bash(git push:*)</c>: a No-stop run's deny list.</summary>
     public IReadOnlyList<string> Deny { get; init; } = [];
 

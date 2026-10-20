@@ -1181,14 +1181,14 @@ internal static class AgentTests
             Program.Equal("role text: back to General says the role no longer applies",
                 (ProjectRoles.SwitchText(null, [], workspace).Contains("without a specialist role"), ProjectRoles.SwitchText(null, [], workspace).Contains("## Your role")), (true, false));
 
-            var withRole = AgentRules.Before("Fix it", workspace, listSkills: true, rigger, ["blender-anim"]);
+            var withRole = AgentRules.Before("Fix it", workspace, listOwnSkills: true, rigger, ["blender-anim"]);
             var order = new[] { "# Agent rules", "## Skills of this workspace", "## Your role: Rigger / Animator", "Read first: .agents/skills/blender-anim/SKILL.md", "\n\n# Task\n\nFix it" }
                 .Select(part => withRole.IndexOf(part, StringComparison.Ordinal)).ToArray();
             Program.Equal("role text: in a new session after the rules and the skills list, before the task",
                 (order.All(at => at >= 0), order.SequenceEqual(order.Order()), withRole.EndsWith("\n\n# Task\n\nFix it", StringComparison.Ordinal)), (true, true, true));
-            var plain = AgentRules.Before("Fix it", workspace, listSkills: false);
+            var plain = AgentRules.Before("Fix it", workspace, listOwnSkills: false);
             Program.Equal("role text: General with no skills adds nothing, nor do skills the workspace lacks",
-                (plain.Contains("## Your role"), plain == AgentRules.Before("Fix it", workspace, listSkills: false, null, ["gone"])), (false, true));
+                (plain.Contains("## Your role"), plain == AgentRules.Before("Fix it", workspace, listOwnSkills: false, null, ["gone"])), (false, true));
 
             var claude = new ClaudeCodeProvider(() => new AgentSettings(), _ => { });
             var task = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = workspace, Prompt = "Fix it", RoleId = "rigger-animator", Skills = ["blender-anim"] };
@@ -1602,6 +1602,8 @@ internal static class AgentTests
             string.Join(' ', claude.Arguments(chosen)).Contains("--model claude-opus-5-5 --effort high --disallowedTools AskUserQuestion"), true);
         Program.Equal("Claude without a model or effort leaves them to its own settings",
             claude.Arguments(analyze).Any(argument => argument is "--model" or "--effort"), false);
+        Program.Equal("Claude runs load the workspace's settings, never the user's own setup",
+            string.Join(' ', claude.Arguments(analyze)).Contains("--setting-sources project,local"), true);
         Program.Equal("Claude plan-first denies no file tool",
             string.Join(' ', claude.Arguments(analyze with { PlanOnly = true })).Contains("Write"), false);
         Program.Equal("Claude auto runs in its auto mode, in a plan too",
@@ -1623,6 +1625,9 @@ internal static class AgentTests
         Program.Equal("Codex No-stop never asks, its sandbox the workspace's with the network",
             (codexNoStop.Contains("-c approval_policy=never"), codexNoStop.Contains("auto_review"), codexNoStop.Contains("--sandbox workspace-write"),
                 codexNoStop.Contains("network_access=true")), (true, false, true, true));
+        Program.Equal("Codex gets the network for a run that reads the web, and not for others",
+            (string.Join(' ', codex.Arguments(analyze with { ReadsWeb = true })).Contains("network_access=true"),
+                string.Join(' ', codex.Arguments(analyze)).Contains("network_access=true")), (true, false));
 
         var game = TempFolder();
         try
@@ -3325,9 +3330,9 @@ internal static class AgentTests
     {
         var now = new DateTimeOffset(2026, 10, 8, 15, 0, 0, TimeSpan.Zero);
         // The run ended `idle` ago, after ten minutes of work.
-        static AgentRunRecord Run(DateTimeOffset now, long? held, TimeSpan idle, long? window = null) => new()
+        static AgentRunRecord Run(DateTimeOffset now, long? held, TimeSpan idle, long? window = null, AgentProviderKind provider = AgentProviderKind.ClaudeCode) => new()
         {
-            Provider = AgentProviderKind.Codex, StartedAt = now - idle - TimeSpan.FromMinutes(10), Duration = TimeSpan.FromMinutes(10),
+            Provider = provider, StartedAt = now - idle - TimeSpan.FromMinutes(10), Duration = TimeSpan.FromMinutes(10),
             ContextTokens = held, ContextWindow = window
         };
         string? Why(AgentRunRecord? last, bool afterLimit, bool auto = true) => CompactRule.Why(last, auto, 450_000, now, afterLimit);
@@ -3343,6 +3348,10 @@ internal static class AgentTests
             (Why(Run(now, 150_000, minutes(60)), afterLimit: false)?.StartsWith("the session's cache has expired (60 min idle)", StringComparison.Ordinal),
                 Why(Run(now, 50_000, TimeSpan.FromHours(5)), afterLimit: false)),
             ((bool?)true, (string?)null));
+        Program.Equal("compact after a wait: Codex's cache lasts half an hour, Claude's an hour",
+            (Why(Run(now, 150_000, minutes(30), provider: AgentProviderKind.Codex), afterLimit: false)?.StartsWith("the session's cache has expired (30 min idle)", StringComparison.Ordinal),
+                Why(Run(now, 150_000, minutes(29), provider: AgentProviderKind.Codex), afterLimit: false), Why(Run(now, 150_000, minutes(45)), afterLimit: false)),
+            ((bool?)true, (string?)null, (string?)null));
         Program.Equal("compact after a wait: after a limit's wait the rule applies at once: a big session starts afresh, a small one resumes",
             (Why(Run(now, 400_000, minutes(10)), afterLimit: true)?.StartsWith("the session holds 400k of 450k", StringComparison.Ordinal),
                 Why(Run(now, 50_000, TimeSpan.FromHours(3)), afterLimit: true), Why(Run(now, null, TimeSpan.FromHours(3)), afterLimit: true)),
@@ -3720,9 +3729,24 @@ internal static class AgentTests
 
         TeamRunner.After(record, second, true, "Done.", "", route, Name, evidence);
         var third = record.Team[2];
-        Program.Equal("team run: a step only the user can judge waits for their OK, and the OK finishes the team",
-            (TeamRunner.After(record, third, true, "Tuned.", "", route, Name, evidence), third.Status, TeamRunner.Approve(record, third), TeamRunner.Current(record)),
-            (TeamMove.AwaitOk, TeamStepStatus.AwaitsOk, TeamMove.Finished, (TeamStep?)null));
+        (int, int) Judged() => evidence.Counts(third.Kind, new Worker(third.Provider!.Value, third.Level, third.Model));
+        var waiting = TeamRunner.After(record, third, true, "Tuned.", "", route, Name, evidence);
+        var beforeOk = Judged();
+        Program.Equal("team run: a step only the user can judge waits for their OK, counts for its worker only then, and the OK finishes the team",
+            (waiting, third.Status, beforeOk, TeamRunner.Approve(record, third, evidence), Judged(), TeamRunner.Current(record)),
+            (TeamMove.AwaitOk, TeamStepStatus.AwaitsOk, (0, 0), TeamMove.Finished, (1, 0), (TeamStep?)null));
+
+        var sentBack = new AgentTaskRecord { Goal = "Tune", Workspace = @"C:\Game", Mode = TaskMode.Team };
+        sentBack.Team = TeamRunner.Steps([new PlannedStep("Tune the jump", StepKind.Code, WorkerTier.Standard, "", [], Check: true)], route, Name);
+        var tuned = sentBack.Team[0];
+        var sendEvidence = new WorkerEvidence();
+        TeamRunner.After(sentBack, tuned, true, "Tuned.", "", route, Name, sendEvidence);
+        var tuner = new Worker(tuned.Provider!.Value, tuned.Level, tuned.Model);
+        TeamRunner.SendBack(tuned, sendEvidence);
+        var afterSendBack = (sendEvidence.Counts(StepKind.Code, tuner), tuned.Status, tuned.Repeated);
+        TeamRunner.SendBack(tuned, sendEvidence);
+        Program.Equal("team run: the user sending back a step that waited for their OK counts a failure for its worker; a step not handed in counts nothing",
+            (afterSendBack, sendEvidence.Counts(StepKind.Code, tuner)), (((0, 1), TeamStepStatus.Waiting, true), (0, 1)));
 
         TeamRunner.Router byAgent = (_, asked, agent) => (asked ?? WorkerTier.Standard, new Worker(agent ?? AgentProviderKind.ClaudeCode, AgentLevel.Standard, null), "");
         var contest = new AgentTaskRecord { Goal = "Contest", Workspace = @"C:\Game", Mode = TaskMode.Team };
@@ -4167,10 +4191,10 @@ See shots/flat.png. Not crate.blend or a.pngx.")),
         var accepted = Planned();
         var first = accepted.Team[0];
         first.Status = TeamStepStatus.Critique;
-        Program.Equal("critique: accept counts the artist; a step the user must judge waits for their OK with the critic's notes",
+        Program.Equal("critique: a step the user must judge waits for their OK with the critic's notes, and their OK counts the artist",
             (TeamRunner.Critiqued(accepted, first, new LeadReview(ReviewVerdict.Accept, "Look at the lid", 4), evidence), first.Status, first.CriticNotes,
-                evidence.Counts(StepKind.Asset, artist)),
-            (TeamMove.AwaitOk, TeamStepStatus.AwaitsOk, "Look at the lid", (1, 0)));
+                evidence.Counts(StepKind.Asset, artist), TeamRunner.Approve(accepted, first, evidence), evidence.Counts(StepKind.Asset, artist)),
+            (TeamMove.AwaitOk, TeamStepStatus.AwaitsOk, "Look at the lid", (0, 0), TeamMove.Next, (1, 0)));
         var free = Planned(check: false);
         var empty = Planned().Team[0];
         Program.Equal("critique: accept of a step the user need not see goes on; a stop, or a redo without notes, leaves it to the user",
@@ -4289,6 +4313,11 @@ See shots/flat.png. Not crate.blend or a.pngx.")),
             Program.Equal("tool packs: a pack's skill is told in full, the workspace's from its root",
                 (ProjectSkills.PathFor(workspace, skills[0]), ProjectSkills.PathFor(workspace, ueOther)),
                 (".agents/skills/ue-own/SKILL.md", Path.Combine(other, "SKILL.md").Replace('\\', '/')));
+
+            var codexRules = AgentRules.Before("Fix it", workspace, listOwnSkills: false);
+            Program.Equal("tool packs: an agent that finds the workspace's skills itself is still told the packs', which lie outside it",
+                (codexRules.Contains($"- `{ProjectSkills.PathFor(workspace, ueOther)}`: Other (Unreal pack, shared)"), codexRules.Contains(".agents/skills/ue-own")),
+                (true, false));
 
             var developer = ProjectRoles.Find("unreal-developer", workspace)!;
             Program.Equal("tool packs: the old role's name finds the gameplay developer, with what the pack adds",

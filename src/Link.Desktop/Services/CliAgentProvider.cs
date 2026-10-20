@@ -177,7 +177,10 @@ public abstract class CliAgentProvider : IAgentProvider
     /// <summary>Variables the CLI's process gets on top of Link's own.</summary>
     public virtual IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task) => new Dictionary<string, string>();
 
-    /// <summary>Whether the CLI finds the workspace's skills (<see cref="ProjectSkills"/>) by itself.</summary>
+    /// <summary>
+    /// Whether the CLI finds the workspace's own skills (<see cref="ProjectSkills"/>) by itself; those of its tool packs,
+    /// outside the workspace, Link lists for every agent.
+    /// </summary>
     protected virtual bool FindsSkills => false;
 
     /// <summary>
