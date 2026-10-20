@@ -10,6 +10,7 @@ public partial class MainWindow : IRemoteHost
     private const int RemoteListSize = 40;
     private const int RemoteEntries = 40;
     private const int RemoteDiff = 500_000;
+    private const int RemoteBeforeLines = 8;
 
     public event Action? RemoteChanged;
     public event Action<Guid, string, string>? RemoteAlert;
@@ -35,6 +36,7 @@ public partial class MainWindow : IRemoteHost
         var work = WorkOf(id);
         if ((work?.Record ?? ActiveRecord(id)) is not { } record) return null;
         var question = work?.Question;
+        var plan = PlanOf(record);
         return new RemoteTaskView(
             RemoteRow(record, work?.Project ?? _projects.ActiveProject),
             [.. record.Entries.TakeLast(RemoteEntries).Select(entry => new RemoteEntry(entry.At, entry.Kind.ToString(), entry.Text))],
@@ -44,8 +46,48 @@ public partial class MainWindow : IRemoteHost
             work?.NoStopPending,
             record.ChangedFiles,
             UsageText(record).Text,
-            work is null ? record.LastRun?.SessionId is not null : work.Waiting is null && (work.Busy || TakesWords(work)));
+            work is null ? record.LastRun?.SessionId is not null : work.Waiting is null && (work.Busy || TakesWords(work)),
+            work?.Run is { } live ? RemoteNow(live, plan) : null,
+            plan,
+            RemoteBefore(record, live: work?.Run is not null));
     });
+
+    /// <summary>The step under way: the plan's step and what the agent is at in it ("Fixing the jump — Edit Player.cs").</summary>
+    private static string RemoteNow(LiveRun live, IReadOnlyList<AgentPlanItem> plan)
+    {
+        var step = plan.FirstOrDefault(item => item.Active) ?? plan.FirstOrDefault(item => !item.Done);
+        var parts = new[] { step?.Doing ?? step?.Text, live.Turn.Current }.Where(part => !string.IsNullOrWhiteSpace(part)).ToArray();
+        return parts.Length == 0 ? "Working" : string.Join(" — ", parts);
+    }
+
+    /// <summary>
+    /// The task's course without the noise of its thread: the user's words and each run with what it did, the last
+    /// <see cref="RemoteBeforeLines"/>. The last run's answer goes in full while nothing runs: it is how the task stands.
+    /// </summary>
+    private List<string> RemoteBefore(AgentTaskRecord record, bool live)
+    {
+        var lines = new List<string>();
+        var runs = 0;
+        foreach (var entry in record.Entries)
+        {
+            if (entry.Kind == AgentEntryKind.You) lines.Add("You: " + Shorten(TaskExport.OneLine(entry.Text), 150));
+            if (entry.Kind != AgentEntryKind.Run) continue;
+            var run = runs < record.Runs.Count ? record.Runs[runs] : null;
+            runs++;
+            if (run is null)
+            {
+                lines.Add(entry.Text);
+                continue;
+            }
+
+            var said = RunSaid(record, run).Said.Trim();
+            var last = !live && ReferenceEquals(run, record.LastRun);
+            var head = $"{AgentName(run.Provider)}: {run.Outcome.ToLowerInvariant()}";
+            lines.Add(said.Length == 0 ? head : last ? $"{head}\n{Shorten(ToPreviewText(said), 1500)}" : $"{head} — {Shorten(TaskExport.OneLine(ToPreviewText(said)), 200)}");
+        }
+
+        return lines.TakeLast(RemoteBeforeLines).ToList();
+    }
 
     /// <summary>
     /// A new task as the card would start it: the agent and level asked for, else Settings' choices (the agent Link starts

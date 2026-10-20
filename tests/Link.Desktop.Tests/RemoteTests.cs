@@ -224,6 +224,8 @@ internal static class RemoteTests
                 host.Updated += TimeSpan.FromMinutes(1);
                 host.Change();
                 await Program.EventuallyAsync("Telegram: the card follows its task in place", () => Count("editMessageText", "Done the jump"), 1);
+                Program.Equal("Telegram: the card shows the task's plan, the step under way and its course",
+                    (Count("editMessageText", "Plan, 1 of 2 done"), Count("editMessageText", "Now: Fixing the jump"), Count("editMessageText", "Before:")), (1, 1, 1));
                 var edits = Count("editMessageText");
                 await bot.HandleAsync(Update(Press(42, $"v:{FakeHost.Task:N}", card)), default);
                 Program.Equal("Telegram: refreshing a card that shows the task as it is changes nothing and sends no picture again",
@@ -321,7 +323,9 @@ internal static class RemoteTests
 
         public Task<RemoteTaskView?> TaskAsync(Guid id) => System.Threading.Tasks.Task.FromResult(id == Task
             ? new RemoteTaskView(Row, [], new RemoteQuestion("Which jump?", [new AgentOption("Keep the double jump", "")], false),
-                new RemoteDecision("Run the tests?", "Allow", true, true), null, null, ["Jump.cs"], "", true)
+                new RemoteDecision("Run the tests?", "Allow", true, true), null, null, ["Jump.cs"], "", true,
+                "Fixing the jump - Edit Player.cs", [new AgentPlanItem("Find the jump", true, false), new AgentPlanItem("Fix the jump", false, true)],
+                ["You: Make the jump higher", "Claude Code: done in 2:00 - " + Words])
             : null);
 
         public Task<string?> StartAsync(RemoteNewTask task, string device) =>

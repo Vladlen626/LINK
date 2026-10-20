@@ -32,6 +32,7 @@ public sealed class TelegramBot : IDisposable
 
     private const int MaxText = 3500;
     private const int MessagesKept = 200;
+    private const int PlanShown = 15;
     private const int CardsKept = 100;
     private const int ProjectsShown = 20;
     // One picture tells what a run made: the one its answer names, or the newest; the rest are in Link's thread.
@@ -652,7 +653,16 @@ public sealed class TelegramBot : IDisposable
         var task = view.Task;
         var id = task.Id;
         var lines = new List<string> { header ?? $"«{task.Goal}»", $"{task.Project} · {task.Agent ?? "no agent yet"} · {task.Status}" };
-        if (header is null && task.LastWords.Length > 0) lines.Add(Short(task.LastWords, 1500));
+        if (view.Plan.Count > 0)
+        {
+            lines.Add($"Plan, {view.Plan.Count(item => item.Done)} of {view.Plan.Count} done:\n" + string.Join('\n', view.Plan.Take(PlanShown)
+                .Select(item => $"{(item.Done ? "✓" : item.Active ? "▶" : "·")} {Short(item.Text, 80)}")) + (view.Plan.Count > PlanShown ? "\n…" : string.Empty));
+        }
+
+        if (view.Now is { } now) lines.Add("▶ Now: " + Short(now, 200));
+        // The course goes where the user opened the task; an alert is about what it waits for.
+        var course = lines.Count;
+        if (header is null && view.Before.Count == 0 && task.LastWords.Length > 0) lines.Add(Short(task.LastWords, 1500));
         var rows = new List<object[]>();
         if (view.Question is { } question)
         {
@@ -676,6 +686,14 @@ public sealed class TelegramBot : IDisposable
         if (task.Working) foot.Insert(0, Button("⏹ Stop", $"s:{id:N}"));
         rows.Add([.. foot]);
         rows.Add(view.ChangedFiles.Count > 0 ? [Button("Changes", $"f:{id:N}"), Button("🔄", $"v:{id:N}")] : [Button("🔄", $"v:{id:N}")]);
+        if (header is null && view.Before.Count > 0)
+        {
+            // The newest lines that fit beside the rest: the question and its buttons are never cut off.
+            var room = MaxText - string.Join("\n\n", lines).Length - 20;
+            var before = view.Before.Reverse().TakeWhile(line => (room -= line.Length + 3) > 0).Reverse().ToArray();
+            if (before.Length > 0) lines.Insert(course, "Before:\n" + string.Join('\n', before.Select(line => "• " + line)));
+        }
+
         return (Short(string.Join("\n\n", lines), MaxText), rows);
     }
 

@@ -129,11 +129,8 @@ public partial class MainWindow
         if (run is null) return turn;
         // A run an earlier Link kept has its rows untidied.
         turn.AddSteps(run.Steps.Select(step => StepRow(StepGroups.Tidy(step, record.Workspace))));
-        // A team's answers were kept with the lead's plan before Link took it out, a training's with its lessons.
-        var words = record.Mode is TaskMode.Team or TaskMode.Training ? TeamPlan.WithoutBlocks(run.Words) : run.Words;
-        var (said, next) = AgentNext.Split(AgentQuestion.Split(words).Text);
-        var (unpaged, pages) = LocalPages.Split(said);
-        turn.Said = AgentChanges.SplitChangelistLine(unpaged).Text;
+        var (said, pages, next) = RunSaid(record, run);
+        turn.Said = said;
         turn.Pages = pages;
         if (showNext && next is not null) turn.Next = next.Line;
         turn.Files = run.Files.Select(file => new AgentChangeRow(file, Path.Combine(record.Workspace, file))).ToArray();
@@ -143,6 +140,18 @@ public partial class MainWindow
             : string.Empty;
         turn.Stats = $"{(int)run.Duration.TotalMinutes}:{run.Duration.Seconds:00}{tokens}{SpentLine(run.Provider, run.Spent)}";
         return turn;
+    }
+
+    /// <summary>
+    /// A run's answer as the thread shows it: without the question, the next step, its local pages and the changelist line.
+    /// </summary>
+    private static (string Said, IReadOnlyList<LocalPages.Page> Pages, AgentNext? Next) RunSaid(AgentTaskRecord record, AgentRunRecord run)
+    {
+        // A team's answers were kept with the lead's plan before Link took it out, a training's with its lessons.
+        var words = record.Mode is TaskMode.Team or TaskMode.Training ? TeamPlan.WithoutBlocks(run.Words) : run.Words;
+        var (said, next) = AgentNext.Split(AgentQuestion.Split(words).Text);
+        var (unpaged, pages) = LocalPages.Split(said);
+        return (AgentChanges.SplitChangelistLine(unpaged).Text, pages, next);
     }
 
     // Link's own notes (a hand-over, a team's step, a plan) say what they are in their words: they go without a prefix.
@@ -340,16 +349,13 @@ public partial class MainWindow
     /// <summary>The task's plan card: a team's steps with their workers, a training's lessons, else the agent's own plan.</summary>
     private void ShowPlanOf(AgentTaskRecord record)
     {
-        if (record.Training is { } course)
-        {
-            _agentPanel?.ShowPlan(Training.PlanItems(course), title: "Lessons");
-            return;
-        }
-
-        var team = record.Team.Count > 0;
-        var plan = team ? TeamPlanItems(record) : record.Plan;
-        _agentPanel?.ShowPlan(plan, PlanRoles(plan, record.Workspace), stepMenu: team ? index => TeamStepMenu(record, index) : null);
+        var plan = PlanOf(record);
+        if (record.Training is not null) _agentPanel?.ShowPlan(plan, title: "Lessons");
+        else _agentPanel?.ShowPlan(plan, PlanRoles(plan, record.Workspace), stepMenu: record.Team.Count > 0 ? index => TeamStepMenu(record, index) : null);
     }
+
+    private IReadOnlyList<AgentPlanItem> PlanOf(AgentTaskRecord record) =>
+        record.Training is { } course ? Training.PlanItems(course) : record.Team.Count > 0 ? TeamPlanItems(record) : record.Plan;
 
     private static IReadOnlyList<AgentRole>? PlanRoles(IReadOnlyList<AgentPlanItem> plan, string workspace) =>
         plan.Any(item => !string.IsNullOrEmpty(item.Role)) ? ProjectRoles.In(workspace) : null;

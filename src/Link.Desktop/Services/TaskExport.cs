@@ -259,5 +259,5 @@ public static class TaskExport
     // A folder or file by its name alone, on Windows paths too wherever the export is made.
     private static string LastPart(string path) => path.TrimEnd('\\', '/').Split('\\', '/')[^1];
 
-    private static string OneLine(string text) => string.Join(' ', text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
+    internal static string OneLine(string text) => string.Join(' ', text.Split(['\r', '\n'], StringSplitOptions.RemoveEmptyEntries)).Trim();
 }

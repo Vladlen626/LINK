@@ -49,7 +49,11 @@ public sealed record RemoteProject(Guid Id, string Name, bool Active, bool HasWo
 public sealed record RemoteTask(
     Guid Id, string Project, string Goal, string Status, string? Agent, bool Working, string? Waits, bool NoStop, DateTimeOffset Updated, string LastWords);
 
-/// <summary>An open task: its last words and history, and what it waits for (a question, a decision, a limit).</summary>
+/// <summary>
+/// An open task: its last words and history, and what it waits for (a question, a decision, a limit). <see cref="Now"/> is
+/// the step under way while it runs; <see cref="Before"/> its course in short lines (the user's words, each run and what it
+/// did, the last run's answer in full), for a small screen.
+/// </summary>
 public sealed record RemoteTaskView(
     RemoteTask Task,
     IReadOnlyList<RemoteEntry> Entries,
@@ -59,7 +63,10 @@ public sealed record RemoteTaskView(
     string? NoStopPending,
     IReadOnlyList<string> ChangedFiles,
     string Usage,
-    bool TakesWords);
+    bool TakesWords,
+    string? Now,
+    IReadOnlyList<AgentPlanItem> Plan,
+    IReadOnlyList<string> Before);
 
 public sealed record RemoteEntry(DateTimeOffset At, string Kind, string Text);
 
