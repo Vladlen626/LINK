@@ -8,7 +8,8 @@ description: Model game assets in Blender by script - real scale from references
 Work through the bridge of `blender-live`; build by scripts kept in the project, so a change is a rerun, not clicks.
 How the game looks - finish, palette, camera, budgets - is the project's art profile (skill `art-style`); a class of
 asset that repeats is made by a generator (skill `blender-procedural`, beside this one); a vehicle adds `vehicle.md`
-beside this file.
+beside this file. Every step is published and judged by its numbers, and the user reviews by marks on the model in a
+window, not by screenshots: skill `blender-review`, beside this one - read it before the first build.
 
 ## Scale and references
 - Metres, unit scale 1, transforms applied (`bpy.ops.object.transform_apply` or matrix math), no negative scale,
@@ -36,7 +37,8 @@ cameras, compared with the references, and a stage that fails is fixed there, no
 6. Game-ready: topology, UVs, normals, materials, pivots, export and the engine check (below).
 
 Each stage is its own run of the build script (a stage switch), rendered and compared before the next is written: a
-whole model written in one go and seen only at the end was the primitive-looking result. The blockout is checked over
+whole model written in one go and seen only at the end was the primitive-looking result. Inside a stage, each step is
+judged by `publish.py`'s numbers (skill `blender-review`), not by frames. The blockout is checked over
 the references themselves: each reference as a camera background (an Image Empty in the view's ortho camera, 50%
 opacity) scaled by one known size (wheelbase, height), rendered with the mesh over it; then 4–6 key ratios (length to
 height, wheel to body, cabin to bonnet) measured on the picture and on the mesh, the gaps listed in the answer.

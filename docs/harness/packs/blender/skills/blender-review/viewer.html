@@ -1,0 +1,1143 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Model review</title>
+<style>
+:root {
+  --bg: #15171c; --panel: #1c1f26; --raise: #262a33; --line: #2f343e; --text: #dde1e8; --dim: #8d94a0;
+  --accent: #4c8dff; --open: #ff8a3d; --done: #4c8dff; --accepted: #3fb950; --question: #b083f0; --later: #7d8590;
+  --issue: #e3b341; --danger: #f85149;
+}
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
+  font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
+body { display: flex; overflow: hidden; }
+button, input, textarea { font: inherit; color: inherit; }
+button { background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+button:hover { border-color: #4a5462; }
+button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+input[type=number], textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+textarea { width: 100%; min-height: 58px; resize: vertical; }
+label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: var(--dim); }
+kbd { font: 11px Consolas, monospace; padding: 0 4px; border: 1px solid var(--line); border-radius: 3px; }
+
+#view { position: relative; flex: 1; min-width: 0; }
+#gl, #ov { position: absolute; inset: 0; width: 100%; height: 100%; display: block; }
+#gl { touch-action: none; }
+#ov, #pins, #img, #hud { pointer-events: none; }
+#img { position: absolute; left: 50%; top: 50%; height: 80%; display: none; transform-origin: center; }
+#pins { position: absolute; inset: 0; overflow: hidden; }
+.pin { position: absolute; pointer-events: auto; cursor: pointer; transform: translate(0, -100%);
+  min-width: 22px; height: 22px; padding: 0 6px; border-radius: 11px 11px 11px 0; background: var(--c);
+  color: #111; font: 600 11px/20px "Segoe UI", sans-serif; text-align: center; border: 1px solid #0007;
+  box-shadow: 0 1px 4px #000a; white-space: nowrap; }
+.pin.issue { border-radius: 4px 4px 4px 0; }
+.pin.dim { opacity: .35; }
+.pin.sel { outline: 2px solid #fff; z-index: 2; }
+.pin.draft { border: 1.5px dashed #fff; --c: #fff; }
+#hud { position: absolute; left: 10px; bottom: 8px; color: var(--dim); font-size: 12px; text-shadow: 0 1px 2px #000; }
+#banner { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); padding: 4px 12px; border-radius: 6px;
+  background: var(--raise); border: 1px solid var(--line); display: none; }
+#banner.err { background: #3a1d1f; border-color: var(--danger); }
+#editor { position: absolute; width: 290px; padding: 10px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; box-shadow: 0 8px 28px #000c; display: none; }
+#editor .title { color: var(--dim); margin-bottom: 6px; }
+#editor .row { margin-top: 6px; }
+
+aside { width: 350px; flex: none; display: flex; flex-direction: column; background: var(--panel);
+  border-left: 1px solid var(--line); min-height: 0; }
+aside > section { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+.row { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.dim { color: var(--dim); }
+.warn { color: var(--open); }
+.good { color: var(--accepted); }
+h1 { font-size: 14px; margin: 0 0 2px; font-weight: 600; word-break: break-all; }
+#list { flex: 1; overflow: auto; min-height: 80px; }
+.note { padding: 7px 12px 8px 10px; border-left: 3px solid var(--c); cursor: pointer; border-bottom: 1px solid #23272f; }
+.note:hover { background: #20242c; }
+.note.sel { background: #252a34; }
+.note .meta { color: var(--dim); font-size: 12px; }
+.note .text { white-space: pre-wrap; margin: 2px 0; word-break: break-word; }
+.note .rep { color: #b8bec8; white-space: pre-wrap; padding-left: 8px; border-left: 2px solid var(--line); margin: 3px 0;
+  word-break: break-word; }
+.note .rep i { color: var(--dim); font-style: normal; }
+.note .acts { display: flex; gap: 4px; margin-top: 5px; flex-wrap: wrap; }
+.chip { display: inline-block; padding: 0 6px; border-radius: 8px; background: var(--c); color: #111; font-size: 11px;
+  font-weight: 600; line-height: 16px; }
+.s-open { --c: var(--open); } .s-done { --c: var(--done); } .s-accepted { --c: var(--accepted); }
+.s-question { --c: var(--question); } .s-later, .s-declined { --c: var(--later); } .s-issue { --c: var(--issue); }
+details summary { cursor: pointer; color: var(--dim); }
+details ul { margin: 4px 0 0; padding: 0; list-style: none; max-height: 160px; overflow: auto; }
+details li { padding: 2px 0; cursor: pointer; }
+details li:hover { color: #fff; }
+footer { padding: 7px 12px; color: var(--dim); font-size: 12px; border-top: 1px solid var(--line); }
+@media (max-width: 760px) {
+  body { flex-direction: column; }
+  aside { width: auto; height: 46%; border-left: 0; border-top: 1px solid var(--line); }
+}
+</style>
+</head>
+<body>
+<div id="view">
+  <canvas id="gl"></canvas>
+  <img id="img" alt="">
+  <canvas id="ov"></canvas>
+  <div id="pins"></div>
+  <div id="hud"></div>
+  <div id="banner"></div>
+  <div id="editor">
+    <div class="title"></div>
+    <div class="row measure"><span class="dim">Should be</span> <input type="number" id="target" min="0" step="1"
+      style="width: 90px"> <span class="dim">mm</span></div>
+    <textarea id="text" placeholder="What to change here"></textarea>
+    <div class="row"><button id="save" class="on">Save</button> <button id="cancel">Cancel</button>
+      <span class="dim"><kbd>Enter</kbd> save, <kbd>Esc</kbd> cancel</span></div>
+  </div>
+</div>
+<aside>
+  <section>
+    <h1 id="name">Model review</h1>
+    <div id="info" class="dim">Waiting for the model…</div>
+  </section>
+  <section>
+    <div class="row">
+      <button data-tool="orbit" title="Orbit (Q)">Orbit</button>
+      <button data-tool="point" title="Mark a point (P)">Point</button>
+      <button data-tool="area" title="Paint an area (A)">Area</button>
+      <button data-tool="measure" title="Measure between two points (M)">Measure</button>
+      <label id="radiusBox" title="Brush radius ([ and ])">r <input type="range" id="radius" min="0.2" max="15" step="0.1"
+        style="width: 70px"> <span id="radiusText"></span></label>
+    </div>
+    <div class="row" style="margin-top: 6px">
+      <button data-view="front" title="Front (1, Ctrl+1 back)">Front</button>
+      <button data-view="right" title="Right (3, Ctrl+3 left)">Side</button>
+      <button data-view="top" title="Top (7, Ctrl+7 bottom)">Top</button>
+      <button data-view="persp" title="Three quarters (9)">3/4</button>
+      <button id="ortho" title="Orthographic (5)">Ortho</button>
+      <button id="frame" title="Frame all (F)">Frame</button>
+    </div>
+    <div class="row" style="margin-top: 6px">
+      <label title="Wireframe (W)"><input type="checkbox" id="wire"> Wire</label>
+      <label title="Flat shading"><input type="checkbox" id="flat"> Flat</label>
+      <label title="Back faces in red: inverted normals and holes"><input type="checkbox" id="back" checked> Backfaces</label>
+      <label title="Check issues on the model"><input type="checkbox" id="issues" checked> Issues</label>
+    </div>
+    <div class="row" style="margin-top: 4px">
+      <label title="The previous revision as a ghost; hold B to see it instead"><input type="checkbox" id="prev"> Previous</label>
+      <label title="Reference model as a ghost (R)"><input type="checkbox" id="ref" checked> Ref model</label>
+      <label title="Reference image over the view (I); Alt+drag moves it, Alt+wheel scales it"><input type="checkbox"
+        id="imgOn" checked> Image</label>
+      <input type="range" id="imgAlpha" min="0" max="1" step="0.05" value="0.5" style="width: 70px"
+        title="Image opacity">
+    </div>
+  </section>
+  <section class="row">
+    <button data-filter="active">Active</button><button data-filter="all">All</button>
+    <span id="counts" class="dim"></span>
+  </section>
+  <div id="list"></div>
+  <section>
+    <details id="checkBox"><summary>Check</summary><ul id="checks"></ul></details>
+    <details id="objectBox"><summary>Objects</summary><ul id="objects"></ul></details>
+  </section>
+  <footer>Drop an image or a .glb to set the reference. Drag orbits, right drag or Shift+drag pans, wheel zooms;
+    hold <kbd>B</kbd> for the previous revision.</footer>
+</aside>
+<script>
+'use strict';
+const $ = s => document.querySelector(s);
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+
+// ---- Vectors and matrices. This window works in glTF's axes (Y up, metres); matrices are column-major.
+const sub = (a, b) => [a[0] - b[0], a[1] - b[1], a[2] - b[2]];
+const add = (a, b) => [a[0] + b[0], a[1] + b[1], a[2] + b[2]];
+const mulS = (a, s) => [a[0] * s, a[1] * s, a[2] * s];
+const dot = (a, b) => a[0] * b[0] + a[1] * b[1] + a[2] * b[2];
+const cross = (a, b) => [a[1] * b[2] - a[2] * b[1], a[2] * b[0] - a[0] * b[2], a[0] * b[1] - a[1] * b[0]];
+const len = a => Math.hypot(a[0], a[1], a[2]);
+const norm = a => { const l = len(a) || 1; return [a[0] / l, a[1] / l, a[2] / l]; };
+// Blender is Z up with the front at -Y: its (x, y, z) is (x, z, -y) here. Marks are stored in Blender's axes.
+const fromB = p => [p[0], p[2], -p[1]];
+const toB = p => [p[0], -p[2], p[1]];
+const r4 = p => p.map(c => Math.round(c * 1e4) / 1e4);
+
+function mul(a, b) {
+  const o = new Array(16);
+  for (let c = 0; c < 4; c++) for (let r = 0; r < 4; r++) {
+    let s = 0;
+    for (let k = 0; k < 4; k++) s += a[k * 4 + r] * b[c * 4 + k];
+    o[c * 4 + r] = s;
+  }
+  return o;
+}
+function trs(t = [0, 0, 0], q = [0, 0, 0, 1], s = [1, 1, 1]) {
+  const [x, y, z, w] = q, xx = x * x, yy = y * y, zz = z * z, xy = x * y, xz = x * z, yz = y * z, wx = w * x,
+    wy = w * y, wz = w * z;
+  return [(1 - 2 * (yy + zz)) * s[0], 2 * (xy + wz) * s[0], 2 * (xz - wy) * s[0], 0,
+    2 * (xy - wz) * s[1], (1 - 2 * (xx + zz)) * s[1], 2 * (yz + wx) * s[1], 0,
+    2 * (xz + wy) * s[2], 2 * (yz - wx) * s[2], (1 - 2 * (xx + yy)) * s[2], 0, t[0], t[1], t[2], 1];
+}
+function invert(a) {
+  const [a00, a01, a02, a03, a10, a11, a12, a13, a20, a21, a22, a23, a30, a31, a32, a33] = a;
+  const b00 = a00 * a11 - a01 * a10, b01 = a00 * a12 - a02 * a10, b02 = a00 * a13 - a03 * a10,
+    b03 = a01 * a12 - a02 * a11, b04 = a01 * a13 - a03 * a11, b05 = a02 * a13 - a03 * a12,
+    b06 = a20 * a31 - a21 * a30, b07 = a20 * a32 - a22 * a30, b08 = a20 * a33 - a23 * a30,
+    b09 = a21 * a32 - a22 * a31, b10 = a21 * a33 - a23 * a31, b11 = a22 * a33 - a23 * a32;
+  const det = 1 / (b00 * b11 - b01 * b10 + b02 * b09 + b03 * b08 - b04 * b07 + b05 * b06);
+  return [(a11 * b11 - a12 * b10 + a13 * b09) * det, (a02 * b10 - a01 * b11 - a03 * b09) * det,
+    (a31 * b05 - a32 * b04 + a33 * b03) * det, (a22 * b04 - a21 * b05 - a23 * b03) * det,
+    (a12 * b08 - a10 * b11 - a13 * b07) * det, (a00 * b11 - a02 * b08 + a03 * b07) * det,
+    (a32 * b02 - a30 * b05 - a33 * b01) * det, (a20 * b05 - a22 * b02 + a23 * b01) * det,
+    (a10 * b10 - a11 * b08 + a13 * b06) * det, (a01 * b08 - a00 * b10 - a03 * b06) * det,
+    (a30 * b04 - a31 * b02 + a33 * b00) * det, (a21 * b02 - a20 * b04 - a23 * b00) * det,
+    (a11 * b07 - a10 * b09 - a12 * b06) * det, (a00 * b09 - a01 * b07 + a02 * b06) * det,
+    (a31 * b01 - a30 * b03 - a32 * b00) * det, (a20 * b03 - a21 * b01 + a22 * b00) * det];
+}
+function apply(m, p) {
+  const w = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15];
+  return [(m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12]) / w, (m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13]) / w,
+    (m[2] * p[0] + m[6] * p[1] + m[10] * p[2] + m[14]) / w];
+}
+
+// ---- GLB: the meshes as one triangle list per object, in world space (positions and normals, 9 floats a triangle).
+function parseGlb(buf) {
+  const dv = new DataView(buf);
+  if (buf.byteLength < 20 || dv.getUint32(0, true) !== 0x46546C67) throw new Error('not a GLB file');
+  let json = null, bin = null;
+  for (let off = 12; off + 8 <= buf.byteLength;) {
+    const n = dv.getUint32(off, true), type = dv.getUint32(off + 4, true);
+    if (type === 0x4E4F534A) json = JSON.parse(new TextDecoder().decode(new Uint8Array(buf, off + 8, n)));
+    else if (type === 0x004E4942) bin = new DataView(buf, off + 8, n);
+    off += 8 + n;
+  }
+  if (!json) throw new Error('GLB without JSON');
+  if ((json.extensionsRequired || []).length)
+    throw new Error('needs ' + json.extensionsRequired.join(', ') + ': export the GLB without compression');
+  const SIZE = { 5120: 1, 5121: 1, 5122: 2, 5123: 2, 5125: 4, 5126: 4 };
+  const COMPS = { SCALAR: 1, VEC2: 2, VEC3: 3, VEC4: 4 };
+  function read(index) {
+    const a = json.accessors[index], comps = COMPS[a.type], out = new Float32Array(a.count * comps);
+    if (a.sparse) throw new Error('sparse accessors are not supported');
+    if (a.bufferView == null) return out;
+    const view = json.bufferViews[a.bufferView];
+    if (!bin || (view.buffer || 0) !== 0) throw new Error('external buffers are not supported');
+    const size = SIZE[a.componentType], stride = view.byteStride || size * comps;
+    const base = (view.byteOffset || 0) + (a.byteOffset || 0);
+    const get = { 5126: o => bin.getFloat32(o, true), 5125: o => bin.getUint32(o, true),
+      5123: o => bin.getUint16(o, true), 5122: o => bin.getInt16(o, true), 5121: o => bin.getUint8(o),
+      5120: o => bin.getInt8(o) }[a.componentType];
+    for (let i = 0, k = 0; i < a.count; i++) for (let c = 0; c < comps; c++) out[k++] = get(base + i * stride + c * size);
+    return out;
+  }
+  const objects = [];
+  function addMesh(mesh, m, name) {
+    const a0 = [m[0], m[1], m[2]], a1 = [m[4], m[5], m[6]], a2 = [m[8], m[9], m[10]];
+    const det = dot(a0, cross(a1, a2)), sg = det < 0 ? -1 : 1;
+    // Normals go through the inverse transpose: its columns are these cross products over the determinant.
+    const c0 = mulS(cross(a1, a2), sg), c1 = mulS(cross(a2, a0), sg), c2 = mulS(cross(a0, a1), sg);
+    const pos = [], nrm = [];
+    for (const p of mesh.primitives) {
+      if ((p.mode ?? 4) !== 4 || p.attributes.POSITION == null) continue;
+      const P = read(p.attributes.POSITION), N = p.attributes.NORMAL != null ? read(p.attributes.NORMAL) : null;
+      const I = p.indices != null ? read(p.indices) : null, count = I ? I.length : P.length / 3;
+      // A mirrored transform turns the winding over: swap two corners so front faces stay counter-clockwise.
+      const order = det < 0 ? [0, 2, 1] : [0, 1, 2];
+      for (let k = 0; k + 2 < count; k += 3) {
+        for (const o of order) {
+          const v = I ? I[k + o] : k + o, x = P[v * 3], y = P[v * 3 + 1], z = P[v * 3 + 2];
+          pos.push(m[0] * x + m[4] * y + m[8] * z + m[12], m[1] * x + m[5] * y + m[9] * z + m[13],
+            m[2] * x + m[6] * y + m[10] * z + m[14]);
+          if (N) {
+            const nx = N[v * 3], ny = N[v * 3 + 1], nz = N[v * 3 + 2];
+            const w = norm([c0[0] * nx + c1[0] * ny + c2[0] * nz, c0[1] * nx + c1[1] * ny + c2[1] * nz,
+              c0[2] * nx + c1[2] * ny + c2[2] * nz]);
+            nrm.push(w[0], w[1], w[2]);
+          }
+        }
+        if (!N) {
+          const i = pos.length - 9, f = norm(cross(sub(pos.slice(i + 3, i + 6), pos.slice(i, i + 3)),
+            sub(pos.slice(i + 6, i + 9), pos.slice(i, i + 3))));
+          nrm.push(...f, ...f, ...f);
+        }
+      }
+    }
+    if (!pos.length) return;
+    const lo = [Infinity, Infinity, Infinity], hi = [-Infinity, -Infinity, -Infinity];
+    for (let i = 0; i < pos.length; i += 3) for (let a = 0; a < 3; a++) {
+      lo[a] = Math.min(lo[a], pos[i + a]);
+      hi[a] = Math.max(hi[a], pos[i + a]);
+    }
+    objects.push({ name, pos: new Float32Array(pos), nrm: new Float32Array(nrm), tris: pos.length / 9, lo, hi });
+  }
+  function visit(i, parent) {
+    const n = json.nodes[i], world = mul(parent, n.matrix || trs(n.translation, n.rotation, n.scale));
+    if (n.mesh != null) addMesh(json.meshes[n.mesh], world, n.name || json.meshes[n.mesh].name || 'mesh ' + n.mesh);
+    for (const c of n.children || []) visit(c, world);
+  }
+  const children = new Set((json.nodes || []).flatMap(n => n.children || []));
+  const roots = json.scenes ? json.scenes[json.scene || 0].nodes : (json.nodes || []).map((_, i) => i)
+    .filter(i => !children.has(i));
+  for (const i of roots) visit(i, trs());
+  return objects;
+}
+
+// ---- WebGL
+const canvas = $('#gl'), ov = $('#ov'), ctx = ov.getContext('2d');
+const gl = canvas.getContext('webgl2', { antialias: true });
+const VS = `#version 300 es
+layout(location = 0) in vec3 aPos;
+layout(location = 1) in vec3 aNrm;
+uniform mat4 uVP;
+out vec3 vP; out vec3 vN; out vec3 vB;
+void main() {
+  int k = gl_VertexID % 3;
+  vB = vec3(k == 0, k == 1, k == 2);
+  vP = aPos; vN = aNrm;
+  gl_Position = uVP * vec4(aPos, 1.0);
+}`;
+// Painted areas are decals: the brush strokes sit in a float texture, one texel a point (x, y, z, radius) and below it
+// (kind, joins the point before), and every surface point within a stroke's radius takes its colour. So a dab marks
+// the spot that was painted however big the triangles under it are.
+const FS = `#version 300 es
+precision highp float;
+in vec3 vP; in vec3 vN; in vec3 vB;
+uniform vec3 uColor, uEye, uLight;
+uniform float uAlpha;
+uniform bool uGhost, uWire, uFlat, uBack;
+uniform highp sampler2D uMarks;
+uniform int uMarkN;
+out vec4 o;
+float mark() {
+  float m = 0.0;
+  vec3 prev = vec3(0.0);
+  for (int i = 0; i < uMarkN; i++) {
+    vec4 p = texelFetch(uMarks, ivec2(i, 0), 0), k = texelFetch(uMarks, ivec2(i, 1), 0);
+    vec3 d = p.xyz - prev, q = vP - prev;
+    float dist = k.y > 0.5 ? length(q - d * clamp(dot(q, d) / max(dot(d, d), 1e-12), 0.0, 1.0)) : length(vP - p.xyz);
+    if (dist < p.w) m = max(m, k.x);
+    prev = p.xyz;
+  }
+  return m;
+}
+void main() {
+  vec3 v = normalize(uEye - vP);
+  vec3 n = normalize(vN);
+  if (uFlat) { n = normalize(cross(dFdx(vP), dFdy(vP))); if (dot(n, v) < 0.0) n = -n; }
+  else if (!gl_FrontFacing) n = -n;
+  vec3 c = uColor * (0.30 + 0.55 * max(dot(n, uLight), 0.0) + 0.22 * max(dot(n, v), 0.0));
+  if (uGhost) { o = vec4(c, uAlpha); return; }
+  if (uBack && !gl_FrontFacing) c = mix(c, vec3(0.90, 0.18, 0.18), 0.65);
+  float m = uMarkN > 0 ? mark() : 0.0;  // 1 a saved area, 2 the selected one, 3 the one being painted
+  if (m > 2.5) c = mix(c, vec3(1.0, 0.55, 0.15), 0.65);
+  else if (m > 1.5) c = mix(c, vec3(0.35, 0.60, 1.0), 0.6);
+  else if (m > 0.5) c = mix(c, vec3(1.0, 0.55, 0.15), 0.3);
+  if (uWire) {
+    vec3 a = smoothstep(vec3(0.0), fwidth(vB) * 1.4, vB);
+    c *= 0.4 + 0.6 * min(min(a.x, a.y), a.z);
+  }
+  o = vec4(c, uAlpha);
+}`;
+let prog = null, markTex = null, markN = 0;
+const U = {};
+function initGl() {
+  prog = gl.createProgram();
+  for (const [type, src] of [[gl.VERTEX_SHADER, VS], [gl.FRAGMENT_SHADER, FS]]) {
+    const s = gl.createShader(type);
+    gl.shaderSource(s, src);
+    gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    gl.attachShader(prog, s);
+  }
+  gl.linkProgram(prog);
+  if (!gl.getProgramParameter(prog, gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+  for (const n of ['uVP', 'uEye', 'uLight', 'uColor', 'uAlpha', 'uGhost', 'uWire', 'uFlat', 'uBack', 'uMarks', 'uMarkN'])
+    U[n] = gl.getUniformLocation(prog, n);
+  markTex = gl.createTexture();
+  gl.bindTexture(gl.TEXTURE_2D, markTex);
+  for (const p of [gl.TEXTURE_MIN_FILTER, gl.TEXTURE_MAG_FILTER]) gl.texParameteri(gl.TEXTURE_2D, p, gl.NEAREST);
+}
+function upload(ob) {
+  ob.vao = gl.createVertexArray();
+  gl.bindVertexArray(ob.vao);
+  const buffer = (data, loc, size, type) => {
+    const b = gl.createBuffer();
+    gl.bindBuffer(gl.ARRAY_BUFFER, b);
+    gl.bufferData(gl.ARRAY_BUFFER, data, gl.STATIC_DRAW);
+    gl.enableVertexAttribArray(loc);
+    gl.vertexAttribPointer(loc, size, type, false, 0, 0);
+    return b;
+  };
+  ob.buffers = [buffer(ob.pos, 0, 3, gl.FLOAT), buffer(ob.nrm, 1, 3, gl.FLOAT)];
+  gl.bindVertexArray(null);
+}
+function release(layer) {
+  for (const ob of layer ? layer.objects : []) {
+    for (const b of ob.buffers) gl.deleteBuffer(b);
+    gl.deleteVertexArray(ob.vao);
+  }
+}
+
+// ---- State
+const PALETTE = [[0.80, 0.82, 0.86], [0.70, 0.80, 0.92], [0.88, 0.80, 0.68], [0.72, 0.87, 0.75], [0.90, 0.75, 0.80],
+  [0.80, 0.75, 0.92], [0.68, 0.85, 0.87], [0.90, 0.85, 0.64]];
+const S = {
+  folder: '', files: {}, state: {}, notes: [], notesKey: '', report: null, tool: 'orbit', filter: 'active',
+  selected: null, draft: null, hidden: new Set(), showPrev: false, hover: null, image: null,
+};
+const layers = { model: null, prev: null, ref: null };
+const cam = { target: [0, 0, 0], yaw: 0.6, pitch: 0.35, dist: 5, ortho: false, fov: 35 * Math.PI / 180, radius: 1 };
+let view = null, frameQueued = false;
+const opt = id => $('#' + id).checked;
+
+function sceneBounds() {
+  const objs = layers.model ? layers.model.objects : [];
+  if (!objs.length) return null;
+  const lo = [0, 1, 2].map(a => Math.min(...objs.map(o => o.lo[a]))), hi = [0, 1, 2].map(a => Math.max(...objs.map(o => o.hi[a])));
+  return { lo, hi, center: mulS(add(lo, hi), 0.5), radius: Math.max(len(sub(hi, lo)) / 2, 1e-3) };
+}
+function eye() {
+  const cp = Math.cos(cam.pitch), dir = [cp * Math.sin(cam.yaw), Math.sin(cam.pitch), cp * Math.cos(cam.yaw)];
+  // Orthographic sees the whole depth: the eye stands back past the model, the zoom is the view's size.
+  const d = cam.ortho ? Math.max(cam.dist, cam.radius * 4) : cam.dist;
+  return { pos: add(cam.target, mulS(dir, d)), dir, d };
+}
+function computeView() {
+  const w = canvas.clientWidth || 1, h = canvas.clientHeight || 1, e = eye();
+  const z = e.dir, x = norm(cross([0, 1, 0], z)), y = cross(z, x), p = e.pos;
+  const viewM = [x[0], y[0], z[0], 0, x[1], y[1], z[1], 0, x[2], y[2], z[2], 0, -dot(x, p), -dot(y, p), -dot(z, p), 1];
+  const near = cam.ortho ? 0.001 : Math.max(cam.dist * 0.005, 1e-4), far = e.d + cam.radius * 6;
+  const t = Math.tan(cam.fov / 2), a = w / h;
+  let proj;
+  if (cam.ortho) {
+    const hh = cam.dist * t, hw = hh * a;
+    proj = [1 / hw, 0, 0, 0, 0, 1 / hh, 0, 0, 0, 0, -2 / (far - near), 0, 0, 0, -(far + near) / (far - near), 1];
+  } else {
+    proj = [1 / (t * a), 0, 0, 0, 0, 1 / t, 0, 0, 0, 0, (far + near) / (near - far), -1, 0, 0, 2 * far * near / (near - far), 0];
+  }
+  const vp = mul(proj, viewM);
+  view = { w, h, vp, inv: invert(vp), eye: p, right: x, up: y, back: z,
+    pxPerM: depth => h / (2 * t * (cam.ortho ? cam.dist : Math.max(depth, 1e-6))) };
+  return view;
+}
+function project(p) {
+  const m = view.vp, cw = m[3] * p[0] + m[7] * p[1] + m[11] * p[2] + m[15];
+  if (cw <= 0) return null;
+  const x = (m[0] * p[0] + m[4] * p[1] + m[8] * p[2] + m[12]) / cw, y = (m[1] * p[0] + m[5] * p[1] + m[9] * p[2] + m[13]) / cw;
+  return [(x * 0.5 + 0.5) * view.w, (0.5 - y * 0.5) * view.h];
+}
+function ray(px, py) {
+  const nx = px / view.w * 2 - 1, ny = 1 - py / view.h * 2;
+  const a = apply(view.inv, [nx, ny, -1]), b = apply(view.inv, [nx, ny, 1]);
+  return { o: a, d: norm(sub(b, a)) };
+}
+function redraw() {
+  if (frameQueued) return;
+  frameQueued = true;
+  requestAnimationFrame(draw);
+}
+
+// ---- Drawing
+function draw() {
+  frameQueued = false;
+  const dpr = window.devicePixelRatio || 1;
+  for (const c of [canvas, ov]) {
+    const w = Math.round(c.clientWidth * dpr), h = Math.round(c.clientHeight * dpr);
+    if (c.width !== w || c.height !== h) { c.width = w; c.height = h; }
+  }
+  computeView();
+  gl.viewport(0, 0, canvas.width, canvas.height);
+  gl.clearColor(0.085, 0.09, 0.11, 1);
+  gl.clear(gl.COLOR_BUFFER_BIT | gl.DEPTH_BUFFER_BIT);
+  gl.useProgram(prog);
+  gl.uniformMatrix4fv(U.uVP, false, view.vp);
+  gl.uniform3fv(U.uEye, view.eye);
+  gl.uniform3fv(U.uLight, norm(add(add(mulS(view.right, -0.35), mulS(view.up, 0.6)), mulS(view.back, 0.7))));
+  gl.uniform1i(U.uWire, opt('wire'));
+  gl.uniform1i(U.uFlat, opt('flat'));
+  gl.uniform1i(U.uBack, opt('back'));
+  gl.activeTexture(gl.TEXTURE0);
+  gl.bindTexture(gl.TEXTURE_2D, markTex);
+  gl.uniform1i(U.uMarks, 0);
+  gl.uniform1i(U.uMarkN, markN);
+  gl.enable(gl.DEPTH_TEST);
+  gl.disable(gl.CULL_FACE);
+  const main = S.showPrev && layers.prev ? layers.prev : layers.model;
+  const paint = (layer, ghost, color, alpha) => {
+    gl.uniform1i(U.uGhost, ghost);
+    gl.uniform1f(U.uAlpha, alpha);
+    for (const ob of layer.objects) {
+      if (S.hidden.has(ob.name)) continue;
+      gl.uniform3fv(U.uColor, color || ob.color);
+      gl.bindVertexArray(ob.vao);
+      gl.drawArrays(gl.TRIANGLES, 0, ob.tris * 3);
+    }
+  };
+  if (main) paint(main, false, null, 1);
+  gl.enable(gl.BLEND);
+  gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
+  gl.depthMask(false);
+  if (opt('prev') && !S.showPrev && layers.prev) paint(layers.prev, true, [0.45, 0.70, 1.0], 0.25);
+  if (opt('ref') && layers.ref) paint(layers.ref, true, [1.0, 0.70, 0.30], 0.25);
+  gl.depthMask(true);
+  gl.disable(gl.BLEND);
+  gl.bindVertexArray(null);
+  drawOverlay(dpr);
+  placePins();
+  placeEditor();
+}
+function drawOverlay(dpr) {
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, view.w, view.h);
+  ctx.font = '600 12px Segoe UI, sans-serif';
+  const line = (a, b, color, label) => {
+    const p = project(a), q = project(b);
+    if (!p || !q) return;
+    ctx.strokeStyle = color;
+    ctx.fillStyle = color;
+    ctx.lineWidth = 2;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+    for (const s of [p, q]) { ctx.beginPath(); ctx.arc(s[0], s[1], 3.5, 0, 7); ctx.fill(); }
+    if (label) {
+      const mx = (p[0] + q[0]) / 2, my = (p[1] + q[1]) / 2, w = ctx.measureText(label).width + 10;
+      ctx.fillStyle = '#000b'; ctx.fillRect(mx - w / 2, my - 20, w, 18);
+      ctx.fillStyle = '#fff'; ctx.fillText(label, mx - w / 2 + 5, my - 7);
+    }
+  };
+  for (const n of visibleNotes()) if (n.kind === 'measure')
+    line(fromB(n.a), fromB(n.b), statusColor(n.status), mm(n.length) + (n.target ? ' → ' + mm(n.target) : ''));
+  const d = S.draft;
+  if (d && d.kind === 'measure' && d.a) {
+    const b = d.b || (S.hover && S.hover.p);
+    if (b) line(d.a, b, '#fff', mm(len(sub(b, d.a))));
+  }
+  if (S.tool === 'area' && S.hover && !S.drag) {
+    const p = project(S.hover.p), r = brushRadius() * view.pxPerM(S.hover.t);
+    if (p) {
+      ctx.strokeStyle = '#ffb36b';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath(); ctx.arc(p[0], p[1], Math.max(r, 2), 0, 7); ctx.stroke();
+    }
+  }
+}
+const mm = m => Math.round(m * 1000) + ' mm';
+function statusColor(s) {
+  return getComputedStyle(document.documentElement).getPropertyValue('--' + ({ declined: 'later' }[s] || s)).trim() || '#fff';
+}
+
+// ---- Marks and check issues as pins
+function anchor(n) {
+  if (n.kind === 'area') return fromB(n.at || n.area.center);
+  if (n.kind === 'measure') return mulS(add(fromB(n.a), fromB(n.b)), 0.5);
+  return fromB(n.at);
+}
+function visibleNotes() {
+  return S.notes.filter(n => S.filter === 'all' || !['accepted', 'declined'].includes(n.status));
+}
+function issueList() {
+  return (S.report && S.report.issues || []).filter(i => i.at);
+}
+function placePins() {
+  const box = $('#pins'), pins = [];
+  for (const n of visibleNotes()) pins.push({ key: n.id, label: n.id.slice(1), p: anchor(n), normal: n.normal, cls: 's-' + n.status + (S.selected === n.id ? ' sel' : ''), title: n.text });
+  if (opt('issues')) issueList().forEach((it, i) => pins.push({ key: 'i' + i, label: '!', p: fromB(it.at),
+    cls: 'issue s-issue' + (S.selected === 'i' + i ? ' sel' : ''), title: it.kind + ' ' + it.object + ': ' + it.text }));
+  const d = S.draft;
+  if (d && (d.p || d.a)) pins.push({ key: 'draft', label: '+', p: d.p || d.a, cls: 'draft' });
+  const seen = new Set();
+  for (const pin of pins) {
+    const s = project(pin.p);
+    let e = box.querySelector(`[data-key="${pin.key}"]`);
+    if (!s || s[0] < -40 || s[1] < -40 || s[0] > view.w + 40 || s[1] > view.h + 40) { if (e) e.remove(); continue; }
+    if (!e) {
+      e = el('div', 'pin');
+      e.dataset.key = pin.key;
+      e.addEventListener('pointerdown', ev => ev.stopPropagation());
+      e.addEventListener('click', () => pin.key === 'draft' ? $('#text').focus() : select(e.dataset.key, true));
+      box.appendChild(e);
+    }
+    seen.add(pin.key);
+    const facingAway = pin.normal && dot(fromB(pin.normal), sub(view.eye, pin.p)) < 0;
+    e.className = 'pin ' + pin.cls + (facingAway ? ' dim' : '');
+    e.textContent = pin.label;
+    e.title = pin.title || '';
+    e.style.left = s[0] + 'px';
+    e.style.top = s[1] + 'px';
+  }
+  for (const e of [...box.children]) if (!seen.has(e.dataset.key)) e.remove();
+}
+
+// ---- Picking: the nearest triangle under a ray
+function slab(o, d, lo, hi, tmax) {
+  let t0 = 0, t1 = tmax;
+  for (let a = 0; a < 3; a++) {
+    const inv = 1 / d[a];
+    let ta = (lo[a] - o[a]) * inv, tb = (hi[a] - o[a]) * inv;
+    if (ta > tb) [ta, tb] = [tb, ta];
+    t0 = Math.max(t0, ta);
+    t1 = Math.min(t1, tb);
+    if (t0 > t1) return false;
+  }
+  return true;
+}
+function pick(px, py) {
+  const layer = S.showPrev && layers.prev ? layers.prev : layers.model;
+  if (!layer) return null;
+  const { o, d } = ray(px, py);
+  let best = null;
+  for (const ob of layer.objects) {
+    if (S.hidden.has(ob.name) || !slab(o, d, ob.lo, ob.hi, best ? best.t : Infinity)) continue;
+    const P = ob.pos;
+    for (let i = 0; i < P.length; i += 9) {
+      const e1x = P[i + 3] - P[i], e1y = P[i + 4] - P[i + 1], e1z = P[i + 5] - P[i + 2];
+      const e2x = P[i + 6] - P[i], e2y = P[i + 7] - P[i + 1], e2z = P[i + 8] - P[i + 2];
+      const px_ = d[1] * e2z - d[2] * e2y, py_ = d[2] * e2x - d[0] * e2z, pz_ = d[0] * e2y - d[1] * e2x;
+      const det = e1x * px_ + e1y * py_ + e1z * pz_;
+      if (Math.abs(det) < 1e-14) continue;
+      const inv = 1 / det, tx = o[0] - P[i], ty = o[1] - P[i + 1], tz = o[2] - P[i + 2];
+      const u = (tx * px_ + ty * py_ + tz * pz_) * inv;
+      if (u < 0 || u > 1) continue;
+      const qx = ty * e1z - tz * e1y, qy = tz * e1x - tx * e1z, qz = tx * e1y - ty * e1x;
+      const v = (d[0] * qx + d[1] * qy + d[2] * qz) * inv;
+      if (v < 0 || u + v > 1) continue;
+      const t = (e2x * qx + e2y * qy + e2z * qz) * inv;
+      if (t > 0 && (!best || t < best.t)) best = { t, ob, tri: i / 9, n: [e1y * e2z - e1z * e2y, e1z * e2x - e1x * e2z, e1x * e2y - e1y * e2x] };
+    }
+  }
+  if (!best) return null;
+  best.p = add(o, mulS(d, best.t));
+  best.n = norm(best.n);
+  if (dot(best.n, d) > 0) best.n = mulS(best.n, -1);  // the side the user looks at
+  return best;
+}
+
+// ---- Areas: brush strokes on the surface, drawn as decals by the fragment shader
+function brushRadius() {
+  return Math.max(cam.radius * 2 * $('#radius').value / 100, 1e-4);
+}
+function updateMarks() {
+  if (!markTex) return;
+  const strokes = [];  // points in this window's axes, the brush radius, the kind the shader colours by
+  for (const n of visibleNotes()) if (n.kind === 'area' && n.area && n.area.strokes)
+    for (const s of n.area.strokes) strokes.push([s.map(fromB), n.area.radius, S.selected === n.id ? 2 : 1]);
+  if (S.draft && S.draft.kind === 'area') for (const s of S.draft.strokes) strokes.push([s, S.draft.radius, 3]);
+  const n = Math.min(strokes.reduce((a, s) => a + s[0].length, 0), gl.getParameter(gl.MAX_TEXTURE_SIZE));
+  const w = Math.max(n, 1), data = new Float32Array(w * 8);
+  let i = 0;
+  for (const [points, r, kind] of strokes) points.forEach((p, k) => {
+    if (i >= n) return;
+    data.set([p[0], p[1], p[2], r], i * 4);
+    data.set([kind, k > 0 ? 1 : 0, 0, 0], (w + i) * 4);
+    i++;
+  });
+  gl.bindTexture(gl.TEXTURE_2D, markTex);
+  gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA32F, w, 2, 0, gl.RGBA, gl.FLOAT, data);
+  markN = n;
+  redraw();
+}
+function areaSummary(d) {
+  const pts = d.strokes.flat().map(toB);
+  if (!pts.length) return null;
+  const c = mulS(pts.reduce(add, [0, 0, 0]), 1 / pts.length);
+  const lo = [0, 1, 2].map(a => Math.min(...pts.map(p => p[a]))), hi = [0, 1, 2].map(a => Math.max(...pts.map(p => p[a])));
+  // The pin stands on the painted point nearest the middle: the middle of a stroke round a corner is in the air.
+  const at = pts.reduce((m, p) => len(sub(p, c)) < len(sub(m, c)) ? p : m);
+  return { at: r4(at), normal: r4(toB(norm(d.nsum))), area: { strokes: d.strokes.filter(s => s.length)
+    .map(s => s.map(p => r4(toB(p)))), radius: Math.round(d.radius * 1e4) / 1e4, center: r4(c), min: r4(lo), max: r4(hi),
+    objects: [...d.objects] } };
+}
+
+// ---- The draft of a new mark and its editor
+const SIDES = { '0,1': 'right', '0,-1': 'left', '1,1': 'back', '1,-1': 'front', '2,1': 'top', '2,-1': 'bottom' };
+function side(nB) {
+  const a = [0, 1, 2].reduce((m, i) => Math.abs(nB[i]) > Math.abs(nB[m]) ? i : m, 0);
+  return SIDES[a + ',' + (nB[a] > 0 ? 1 : -1)];
+}
+function openEditor() {
+  const d = S.draft, ed = $('#editor');
+  let title;
+  if (d.kind === 'point') title = `Point on ${d.object}, ${side(toB(d.n))} side`;
+  else if (d.kind === 'area') {
+    const s = areaSummary(d);
+    title = s ? `Area on ${s.area.objects.join(', ')}, ${side(s.normal)} side` : 'Area: paint on the model';
+  } else title = d.b ? `Measure: ${mm(len(sub(d.b, d.a)))}` : 'Measure: click the second point';
+  ed.querySelector('.title').textContent = title;
+  ed.querySelector('.measure').style.display = d.kind === 'measure' ? '' : 'none';
+  if (ed.style.display !== 'block') {
+    ed.style.display = 'block';
+    $('#text').value = '';
+    $('#target').value = '';
+  }
+  placeEditor();
+  if (d.kind !== 'measure' || d.b) (d.kind === 'measure' && !$('#target').value ? $('#target') : $('#text')).focus();
+}
+function placeEditor() {
+  const ed = $('#editor'), d = S.draft;
+  if (!d || ed.style.display !== 'block' || !view) return;
+  const at = d.kind === 'measure' ? d.b || d.a : d.p;
+  const s = at && project(at) || [view.w / 2, view.h / 2];
+  ed.style.left = Math.min(Math.max(s[0] + 18, 8), view.w - ed.offsetWidth - 8) + 'px';
+  ed.style.top = Math.min(Math.max(s[1] - 30, 8), view.h - ed.offsetHeight - 8) + 'px';
+}
+function closeEditor() {
+  S.draft = null;
+  $('#editor').style.display = 'none';
+  updateMarks();
+}
+async function saveDraft() {
+  const d = S.draft, text = $('#text').value.trim();
+  if (!d) return;
+  const body = { kind: d.kind, text };
+  if (d.kind === 'point') Object.assign(body, { object: d.object, at: r4(toB(d.p)), normal: r4(toB(d.n)) });
+  if (d.kind === 'area') {
+    const s = areaSummary(d);
+    if (!s) return banner('Paint on the model first');
+    Object.assign(body, s, { object: s.area.objects[0] });
+  }
+  if (d.kind === 'measure') {
+    if (!d.b) return banner('Click the second point');
+    const target = parseFloat($('#target').value);
+    Object.assign(body, { a: r4(toB(d.a)), b: r4(toB(d.b)), length: Math.round(len(sub(d.b, d.a)) * 1e4) / 1e4,
+      delta: r4(sub(toB(d.b), toB(d.a))), target: target > 0 ? target / 1000 : undefined, object: d.object });
+  }
+  if (!text && !(d.kind === 'measure' && body.target)) return $('#text').focus();
+  const res = await post('/api/note', body);
+  closeEditor();
+  applyNotes(res.notes);
+  select(res.id, false);
+}
+
+// ---- Tools and the mouse
+function setTool(t) {
+  if (S.draft && S.draft.kind !== t) closeEditor();
+  S.tool = t;
+  for (const b of document.querySelectorAll('[data-tool]')) b.classList.toggle('on', b.dataset.tool === t);
+  $('#radiusBox').style.display = t === 'area' ? '' : 'none';
+  canvas.style.cursor = t === 'orbit' ? 'grab' : 'crosshair';
+  hud();
+  redraw();
+}
+function hud() {
+  const tips = { orbit: '', point: 'Click the model to mark a point', area: 'Paint the area; let go to write the mark',
+    measure: 'Click two points' };
+  const parts = [];
+  if (S.showPrev) parts.push('PREVIOUS revision');
+  if (S.hover && S.tool !== 'area') parts.push(S.hover.ob.name);
+  if (tips[S.tool]) parts.push(tips[S.tool] + ' · Esc back to orbit');
+  $('#hud').textContent = parts.join(' · ');
+}
+function paintAt(x, y) {
+  const h = pick(x, y);
+  let d = S.draft;
+  if (!h) { if (d && d.kind === 'area') d.gap = true; return; }
+  if (!d || d.kind !== 'area') {
+    closeEditor();
+    d = S.draft = { kind: 'area', strokes: [], objects: new Set(), nsum: [0, 0, 0], radius: brushRadius(), gap: true };
+  }
+  let s = d.strokes[d.strokes.length - 1];
+  const last = s && s[s.length - 1], step = last ? len(sub(last, h.p)) : 0;
+  // Points half a radius apart, joined into a band by the shader. A jump (off the model, or onto a part in front)
+  // starts a new stroke, so the band never bridges the gap.
+  if (d.gap || step > d.radius * 2) { d.strokes.push(s = []); d.gap = false; }
+  else if (last && step < d.radius * 0.5) return;
+  s.push(h.p);
+  d.p = h.p;
+  d.objects.add(h.ob.name);
+  d.nsum = add(d.nsum, h.n);
+  updateMarks();
+}
+function click(x, y) {
+  const h = pick(x, y);
+  if (S.tool === 'point') {
+    if (!h) return;
+    const keep = S.draft && S.draft.kind === 'point';
+    S.draft = Object.assign(keep ? S.draft : { kind: 'point' }, { p: h.p, n: h.n, object: h.ob.name });
+    openEditor();
+  } else if (S.tool === 'measure') {
+    if (!h) return;
+    const d = S.draft;
+    if (!d || d.kind !== 'measure' || d.b) {
+      if (d) closeEditor();
+      S.draft = { kind: 'measure', a: h.p, object: h.ob.name };
+      $('#editor').style.display = 'none';
+    } else {
+      d.b = h.p;
+      openEditor();
+    }
+  } else if (S.tool === 'area') {
+    paintAt(x, y);
+    if (S.draft) openEditor();
+  } else if (!h) select(null);
+  redraw();
+}
+function local(e) {
+  const r = canvas.getBoundingClientRect();
+  return [e.clientX - r.left, e.clientY - r.top];
+}
+canvas.addEventListener('contextmenu', e => e.preventDefault());
+canvas.addEventListener('pointerdown', e => {
+  const [x, y] = local(e);
+  S.drag = { x, y, x0: x, y0: y, button: e.button, shift: e.shiftKey, alt: e.altKey && S.image, moved: false };
+  canvas.setPointerCapture(e.pointerId);
+  if (S.tool === 'area' && e.button === 0 && !e.altKey && !e.shiftKey) {
+    S.drag.paint = true;
+    if (S.draft && S.draft.kind === 'area') S.draft.gap = true;
+    paintAt(x, y);
+  }
+});
+canvas.addEventListener('pointermove', e => {
+  const [x, y] = local(e), g = S.drag;
+  if (!g) {
+    if (!S.hoverQueued) {
+      S.hoverQueued = true;
+      requestAnimationFrame(() => { S.hoverQueued = false; S.hover = view && pick(x, y); hud(); redraw(); });
+    }
+    return;
+  }
+  const dx = x - g.x, dy = y - g.y;
+  g.x = x; g.y = y;
+  if (Math.hypot(x - g.x0, y - g.y0) > 3) g.moved = true;
+  if (!g.moved) return;
+  if (g.paint) {
+    // A fast stroke moves far between events: fill in its path every few pixels.
+    const steps = Math.min(Math.ceil(Math.hypot(dx, dy) / 6), 16);
+    for (let k = steps - 1; k >= 0; k--) paintAt(x - dx * k / steps, y - dy * k / steps);
+    return;
+  }
+  if (g.alt) {
+    S.image.x += dx; S.image.y += dy;
+    placeImage();
+  } else if (g.button === 0 && !g.shift) {
+    cam.yaw -= dx * 0.008;
+    cam.pitch = Math.max(-1.569, Math.min(1.569, cam.pitch + dy * 0.008));
+  } else {
+    const wpp = 1 / view.pxPerM(cam.dist);
+    cam.target = add(cam.target, add(mulS(view.right, -dx * wpp), mulS(view.up, dy * wpp)));
+  }
+  redraw();
+});
+canvas.addEventListener('pointerup', e => {
+  const g = S.drag;
+  S.drag = null;
+  if (!g) return;
+  if (g.paint) { if (S.draft) openEditor(); return; }
+  if (!g.moved && g.button === 0 && !g.alt) click(g.x0, g.y0);
+});
+canvas.addEventListener('pointerleave', () => { if (!S.drag) { S.hover = null; hud(); redraw(); } });
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  if (e.altKey && S.image) {
+    S.image.scale *= Math.exp(-e.deltaY * 0.001);
+    return placeImage();
+  }
+  cam.dist = Math.max(cam.dist * Math.exp(e.deltaY * 0.0012), 1e-3);
+  redraw();
+}, { passive: false });
+
+// ---- Views
+function frameAll() {
+  const b = sceneBounds();
+  if (!b) return;
+  cam.radius = b.radius;
+  cam.target = b.center;
+  cam.dist = b.radius / Math.sin(cam.fov / 2) * 1.05;
+  redraw();
+}
+function setView(name, opposite) {
+  const v = { front: [0, 0], right: [Math.PI / 2, 0], top: [0, 1.569], persp: [Math.PI / 4, 0.42] }[name];
+  cam.yaw = v[0] + (opposite && name !== 'top' ? Math.PI : 0);
+  cam.pitch = opposite && name === 'top' ? -v[1] : v[1];
+  if (name !== 'persp') setOrtho(true); else setOrtho(false);
+  redraw();
+}
+function setOrtho(on) {
+  cam.ortho = on;
+  $('#ortho').classList.toggle('on', on);
+  redraw();
+}
+function focusOn(p) {
+  cam.target = p;
+  cam.dist = Math.min(cam.dist, cam.radius * 1.4);
+  redraw();
+}
+
+// ---- Server
+async function post(path, body, type) {
+  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': type || 'application/json' },
+    body: type ? body : JSON.stringify(body) });
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok) { banner(data.error || 'request failed', true); throw new Error(data.error); }
+  return data;
+}
+function banner(text, err) {
+  const b = $('#banner');
+  b.textContent = text;
+  b.className = err ? 'err' : '';
+  b.style.display = 'block';
+  clearTimeout(banner.t);
+  banner.t = setTimeout(() => { b.style.display = 'none'; }, err ? 6000 : 3000);
+}
+async function loadLayer(name, file, version) {
+  release(layers[name]);
+  layers[name] = null;
+  if (!version) return;
+  try {
+    const r = await fetch('/m/' + file + '?v=' + version);
+    if (!r.ok) return;
+    const objects = parseGlb(await r.arrayBuffer());
+    objects.forEach((ob, i) => { ob.color = PALETTE[i % PALETTE.length]; upload(ob); });
+    layers[name] = { objects, version };
+  } catch (e) {
+    banner(file + ': ' + e.message, true);
+  }
+}
+async function ensurePrev() {
+  const v = S.files['model.prev.glb'];
+  if (v && (!layers.prev || layers.prev.version !== v)) await loadLayer('prev', 'model.prev.glb', v);
+  redraw();
+}
+async function refresh() {
+  let st;
+  try {
+    st = await (await fetch('/api/state?page=1', { cache: 'no-store' })).json();
+  } catch (e) {
+    $('#info').textContent = 'The server is not running: ask the agent to open the review again.';
+    return;
+  }
+  const old = S.files, f = st.files, first = !S.folder;
+  S.folder = st.folder;
+  S.files = f;
+  S.state = st.state || {};
+  document.title = 'Review · ' + st.name;
+  $('#name').textContent = st.name;
+  if (f['model.glb'] !== old['model.glb']) {
+    await loadLayer('model', 'model.glb', f['model.glb']);
+    if (first || !view) frameAll();
+    else if (S.state.rev) banner('Revision ' + S.state.rev + ' published');
+    renderObjects();
+  }
+  if (f['model.prev.glb'] !== old['model.prev.glb'] && (opt('prev') || S.showPrev)) await ensurePrev();
+  if (f['ref.glb'] !== old['ref.glb']) await loadLayer('ref', 'ref.glb', f['ref.glb']);
+  if (f['report.json'] !== old['report.json'])
+    S.report = f['report.json'] ? await (await fetch('/m/report.json?v=' + f['report.json'])).json() : null;
+  const img = ['ref.png', 'ref.jpg', 'ref.jpeg', 'ref.webp'].find(n => f[n]);
+  const imgSrc = img ? '/m/' + img + '?v=' + f[img] : '';
+  if (imgSrc !== (S.image && S.image.src || '')) setImage(imgSrc);
+  const key = JSON.stringify(st.notes);
+  if (key !== S.notesKey) applyNotes(st.notes);
+  renderInfo();
+  renderChecks();
+  redraw();
+}
+function applyNotes(notes) {
+  S.notesKey = JSON.stringify(notes);
+  S.notes = notes;
+  renderNotes();
+  updateMarks();
+}
+
+// ---- Reference image over the view
+function setImage(src) {
+  const img = $('#img');
+  if (!src) { S.image = null; img.style.display = 'none'; return; }
+  let saved = null;
+  try { saved = JSON.parse(localStorage.getItem('img:' + S.folder)); } catch (e) { /* private mode */ }
+  S.image = Object.assign({ x: 0, y: 0, scale: 1 }, saved, { src });
+  img.src = src;
+  placeImage();
+}
+function placeImage() {
+  const img = $('#img'), im = S.image;
+  if (!im) return;
+  img.style.display = opt('imgOn') ? 'block' : 'none';
+  img.style.opacity = $('#imgAlpha').value;
+  img.style.transform = `translate(-50%, -50%) translate(${im.x}px, ${im.y}px) scale(${im.scale})`;
+  try { localStorage.setItem('img:' + S.folder, JSON.stringify({ x: im.x, y: im.y, scale: im.scale })); } catch (e) { /* private mode */ }
+}
+document.addEventListener('dragover', e => e.preventDefault());
+document.addEventListener('drop', async e => {
+  e.preventDefault();
+  const file = e.dataTransfer.files[0];
+  if (!file) return;
+  const ext = (file.name.match(/\.(glb|png|jpe?g|webp)$/i) || [])[1];
+  if (!ext) return banner('Drop a .glb, .png, .jpg or .webp', true);
+  await post('/api/ref?name=ref.' + ext.toLowerCase(), await file.arrayBuffer(), 'application/octet-stream');
+  banner('Reference set: ' + file.name);
+  refresh();
+});
+
+// ---- The side panel
+function renderInfo() {
+  const r = S.report, st = S.state, parts = [];
+  if (st.rev) parts.push('rev ' + st.rev + (st.time ? ' · ' + st.time.replace('T', ' ').slice(5, 16) : ''));
+  if (r) {
+    let tris = r.tris + ' tris';
+    if (r.tris_budget) tris += ' / ' + r.tris_budget;
+    parts.push(tris);
+    let size = r.size.map(v => v.toFixed(2)).join(' × ') + ' m';
+    if (r.size_target) size += ' (target ' + r.size_target.map(v => v == null ? '?' : v).join(' × ') + ')';
+    parts.push(size);
+  }
+  const info = $('#info');
+  info.textContent = layers.model ? parts.join(' · ') : 'No model yet: the agent publishes it with publish.py.';
+  if (r && r.tris_budget && r.tris > r.tris_budget) info.classList.add('warn'); else info.classList.remove('warn');
+}
+function renderChecks() {
+  const list = $('#checks'), items = (S.report && S.report.issues) || [];
+  $('#checkBox summary').textContent = 'Check: ' + (items.length ? items.length + ' issues' : 'no issues');
+  list.replaceChildren(...items.map((it, i) => {
+    const li = el('li', S.selected === 'i' + i ? 'good' : '', '! ' + it.kind + ' · ' + it.object + ': ' + it.text);
+    li.onclick = () => select('i' + i, true);
+    return li;
+  }));
+}
+function renderObjects() {
+  const objs = layers.model ? layers.model.objects : [];
+  $('#objectBox summary').textContent = 'Objects: ' + objs.length;
+  $('#objects').replaceChildren(...objs.map(ob => {
+    const li = el('li'), box = el('input');
+    box.type = 'checkbox';
+    box.checked = !S.hidden.has(ob.name);
+    box.onchange = () => { if (box.checked) S.hidden.delete(ob.name); else S.hidden.add(ob.name); redraw(); };
+    const label = el('label');
+    label.append(box, ob.name + ' · ' + ob.tris + ' tris');
+    li.append(label);
+    return li;
+  }));
+}
+function renderNotes() {
+  const list = $('#list');
+  // Never rebuild under the user's typing: the change shows once the answer is sent or dropped.
+  if (list.querySelector('textarea')) { S.pendingRender = true; return; }
+  S.pendingRender = false;
+  const counts = {};
+  for (const n of S.notes) counts[n.status] = (counts[n.status] || 0) + 1;
+  $('#counts').textContent = Object.entries(counts).map(([k, v]) => v + ' ' + k).join(' · ') || 'no marks yet';
+  for (const b of document.querySelectorAll('[data-filter]')) b.classList.toggle('on', b.dataset.filter === S.filter);
+  const notes = visibleNotes();
+  if (!notes.length) {
+    list.replaceChildren(el('div', 'dim', S.notes.length ? '' : 'Pick Point, Area or Measure and mark the model.'));
+    list.firstChild.style.padding = '10px 12px';
+    return;
+  }
+  list.replaceChildren(...notes.slice().reverse().map(noteItem));
+}
+function noteItem(n) {
+  const li = el('div', 'note s-' + n.status + (S.selected === n.id ? ' sel' : ''));
+  li.dataset.id = n.id;
+  const meta = el('div', 'meta');
+  const what = n.kind === 'measure' ? mm(n.length) + (n.target ? ' → ' + mm(n.target) : '') : '';
+  meta.append(el('span', 'chip', n.status), ` ${n.id} · ${n.kind}${what ? ' ' + what : ''} · ${n.object || ''} · rev ${n.rev}`
+    + (n.by === 'agent' ? ' · from the agent' : ''));
+  li.append(meta, el('div', 'text', n.text || ''));
+  for (const r of n.replies || []) {
+    const rep = el('div', 'rep');
+    rep.append(el('i', '', r.by + ', rev ' + r.rev + ': '), r.text);
+    li.append(rep);
+  }
+  const acts = el('div', 'acts');
+  const act = (label, fn) => { const b = el('button', '', label); b.onclick = e => { e.stopPropagation(); fn(); }; acts.append(b); };
+  const send = body => post('/api/note', Object.assign({ id: n.id }, body)).then(r => applyNotes(r.notes));
+  const answer = (label, status, hint) => act(label, () => {
+    const ta = el('textarea');
+    ta.placeholder = hint;
+    const ok = el('button', 'on', 'Send'), no = el('button', '', 'Cancel');
+    const done = () => { acts.replaceChildren(); if (S.pendingRender) renderNotes(); else li.replaceWith(noteItem(n)); };
+    ok.onclick = e => { e.stopPropagation(); if (ta.value.trim()) { acts.replaceChildren(); send({ status, reply: ta.value.trim() }).then(done); } };
+    no.onclick = e => { e.stopPropagation(); done(); };
+    ta.onclick = e => e.stopPropagation();
+    ta.onkeydown = e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); ok.click(); } if (e.key === 'Escape') no.click(); };
+    acts.replaceChildren(ta, ok, no);
+    ta.focus();
+  });
+  if (n.status === 'done' || n.status === 'later' || n.status === 'declined') act('Accept', () => send({ status: 'accepted' }));
+  if (n.status === 'question') answer('Answer', 'open', 'Your answer');
+  if (n.status !== 'open' && n.status !== 'question') answer('Reopen', 'open', 'What is still wrong');
+  if (n.status === 'open' && n.by === 'user') act('Delete', () => { if (confirm('Delete ' + n.id + '?')) send({ delete: true }); });
+  if (acts.children.length) li.append(acts);
+  li.onclick = () => select(n.id, true);
+  return li;
+}
+function select(key, focus) {
+  S.selected = key;
+  const n = S.notes.find(x => x.id === key);
+  if (focus) {
+    if (n) focusOn(anchor(n));
+    else if (key && key[0] === 'i') {
+      const it = issueList()[+key.slice(1)];
+      if (it) { focusOn(fromB(it.at)); banner(it.kind + ' · ' + it.object + ': ' + it.text); }
+    }
+  }
+  for (const e of document.querySelectorAll('.note')) e.classList.toggle('sel', e.dataset.id === key);
+  const item = document.querySelector(`.note[data-id="${key}"]`);
+  if (item) item.scrollIntoView({ block: 'nearest' });
+  renderChecks();
+  updateMarks();
+}
+
+// ---- Keys and controls
+document.addEventListener('keydown', e => {
+  const typing = /^(TEXTAREA|INPUT)$/.test(e.target.tagName) && e.target.type !== 'checkbox' && e.target.type !== 'range';
+  if (e.target === $('#text') || e.target === $('#target')) {
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveDraft(); }
+    if (e.key === 'Escape') closeEditor();
+    return;
+  }
+  if (typing || e.ctrlKey && !/^(Digit|Numpad)[137]$/.test(e.code)) return;
+  const k = e.code.replace(/^(Digit|Numpad)/, 'N');
+  const keys = { KeyQ: () => setTool('orbit'), KeyP: () => setTool('point'), KeyA: () => setTool('area'),
+    KeyM: () => setTool('measure'), N1: () => setView('front', e.ctrlKey), N3: () => setView('right', e.ctrlKey),
+    N7: () => setView('top', e.ctrlKey), N9: () => setView('persp'), N5: () => setOrtho(!cam.ortho), KeyF: frameAll,
+    Home: frameAll, KeyW: () => toggle('wire'), KeyR: () => toggle('ref'), KeyI: () => toggle('imgOn'),
+    BracketLeft: () => radius(-0.5), BracketRight: () => radius(0.5),
+    Escape: () => { if (S.draft) closeEditor(); else setTool('orbit'); } };
+  if (e.code === 'KeyB' && !e.repeat) { S.showPrev = true; ensurePrev(); hud(); redraw(); return; }
+  if (keys[k] || keys[e.code]) { e.preventDefault(); (keys[k] || keys[e.code])(); }
+});
+document.addEventListener('keyup', e => { if (e.code === 'KeyB') { S.showPrev = false; hud(); redraw(); } });
+function toggle(id) {
+  const box = $('#' + id);
+  box.checked = !box.checked;
+  box.dispatchEvent(new Event('change'));
+}
+function radius(step) {
+  const r = $('#radius');
+  r.value = Math.min(Math.max(+r.value + step, +r.min), +r.max);
+  r.dispatchEvent(new Event('input'));
+}
+for (const b of document.querySelectorAll('[data-tool]')) b.onclick = () => setTool(b.dataset.tool);
+for (const b of document.querySelectorAll('[data-view]')) b.onclick = () => setView(b.dataset.view);
+for (const b of document.querySelectorAll('[data-filter]')) b.onclick = () => { S.filter = b.dataset.filter; renderNotes(); updateMarks(); };
+$('#ortho').onclick = () => setOrtho(!cam.ortho);
+$('#frame').onclick = frameAll;
+$('#save').onclick = saveDraft;
+$('#cancel').onclick = closeEditor;
+for (const id of ['wire', 'flat', 'back', 'issues', 'ref']) $('#' + id).onchange = redraw;
+$('#prev').onchange = () => { if (opt('prev')) ensurePrev(); redraw(); };
+$('#imgOn').onchange = placeImage;
+$('#imgAlpha').oninput = placeImage;
+$('#radius').value = 2.5;
+$('#radius').oninput = () => {
+  $('#radiusText').textContent = (brushRadius() * 1000).toFixed(0) + ' mm';
+  if (S.draft && S.draft.kind === 'area' && !S.draft.points.length) S.draft.radius = brushRadius();
+  redraw();
+};
+new ResizeObserver(redraw).observe($('#view'));
+
+if (!gl) {
+  $('#info').textContent = 'This browser has no WebGL 2.';
+} else {
+  initGl();
+  setTool('orbit');
+  refresh().then(() => $('#radius').oninput());
+  setInterval(() => { if (!S.drag) refresh(); }, 1500);
+}
+</script>
+</body>
+</html>

@@ -29,7 +29,9 @@ scripts in the project (`tools/blender/` unless `docs/map.md` says otherwise), n
 
 ## Check by numbers, then by frames
 - Numbers first: dimensions in metres, vertex and face counts, pivots, bone positions, distances - a short script
-  returns them in `result`. Frames only for what numbers cannot tell (silhouette, deformation).
+  returns them in `result`. A model's usual ones - size against targets, triangles, floating parts, holes, inverted
+  normals - are one call: `check.py` of skill `blender-review`. Frames only for what numbers cannot tell (silhouette,
+  deformation).
 - `python blender_mcp.py py shots.py <objects|*> [front,left,34] [frames] [prefix] [looks] [options]` renders PNGs to
   `%TEMP%\blender_shots`; `uv run --no-project --with pillow sheet.py out.png <cols> <png…>` glues them; then read the
   one sheet, not each frame. Views also `back`, `right`, `top`, `34r` (rear 3/4); looks `lit`, `matcap` (the form
