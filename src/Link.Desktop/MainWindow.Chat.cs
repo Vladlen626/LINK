@@ -272,6 +272,7 @@ public partial class MainWindow
         _voice.BeginRequest(prompt);
         SetSending(true);
         _chatHeardAt = DateTime.UtcNow;
+        SetPicture(false);
         ShowResponse(ChatProgressState.Sending, string.Empty);
         ShowSaw(null);
 
@@ -289,11 +290,13 @@ public partial class MainWindow
                 latency,
                 OnChatProgress,
                 cancellation.Token);
+            SetPicture(response.Picture);
             ShowResponse(ChatProgressState.Completed, response.Text);
-            RememberExchange(project, snapshot, response.Text);
+            RememberExchange(project, snapshot, response.Text, response.Picture);
             if (!IsVisible) _unseen = LinkState.Done;
-            SetStatus(SlowChatHint(response.Text) ?? ResponseReceivedStatus());
-            NotifyIfAway(project, "Answer ready", ToPreviewText(response.Text));
+            // A picture takes ChatGPT its time: that is not a slow chat.
+            SetStatus((response.Picture ? null : SlowChatHint(response.Text)) ?? ResponseReceivedStatus());
+            NotifyIfAway(project, "Answer ready", response.Text.Length > 0 ? ToPreviewText(response.Text) : "The image is ready");
             // An answer read aloud while it arrived is its own signal: the cue keeps quiet then.
             _cues.Play(SoundCue.Done);
             _ = ReadAnswerAloudAsync(response.Text);
@@ -410,6 +413,14 @@ public partial class MainWindow
     private void OnChatProgress(ChatProgress progress)
     {
         _chatHeardAt = DateTime.UtcNow;
+        // ChatGPT has begun a picture: its card counts the time, and the text stays as it is.
+        if (progress.Picture)
+        {
+            ShowPictureComing();
+            if (_voice.Phase is not (VoicePhase.Listening or VoicePhase.Finalizing)) SetStatus("ChatGPT is creating an image…");
+            return;
+        }
+
         // The coordinator has linked the project to the chat its prompt started.
         if (progress.State == ChatProgressState.ChatStarted)
         {

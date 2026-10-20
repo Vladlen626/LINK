@@ -226,6 +226,7 @@ public partial class MainWindow
     private void ShowExchange(ProjectExchange exchange)
     {
         if (_sending) return;
+        SetPicture(exchange.Picture);
         ShowResponse(ChatProgressState.Completed, exchange.Answer);
         // The answer may be another chat's than the one Link talks in: its own name goes over it.
         ResponseStateText.Text = _projects.ActiveProject.Chats.FirstOrDefault(chat => chat.ConversationId == exchange.ConversationId) is { } from
@@ -283,7 +284,7 @@ public partial class MainWindow
     /// Keeps a question and its answer in the project's history, with the chat it was asked in, and puts that chat at
     /// the top of the project's chats; the answer is on screen either way.
     /// </summary>
-    private void RememberExchange(LinkProject project, InputSnapshot snapshot, string answer)
+    private void RememberExchange(LinkProject project, InputSnapshot snapshot, string answer, bool picture)
     {
         // A request of context alone is remembered by what it carried.
         var carried = (snapshot.Screen is { } screen ? snapshot.Context.Append(screen) : snapshot.Context)
@@ -298,6 +299,7 @@ public partial class MainWindow
             {
                 Question = question,
                 Answer = answer,
+                Picture = picture,
                 ConversationId = chat?.ConversationId,
                 Carried = snapshot.Text.Length > 0 ? string.Join(" · ", carried) : string.Empty
             });

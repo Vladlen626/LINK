@@ -111,6 +111,7 @@ public static class AgentProcess
             WorkingDirectory = command.WorkingDirectory
         };
         foreach (var (name, value) in command.EnvironmentVariables) info.Environment[name] = value;
+        SystemProxy.AddTo(info.Environment);
         if (command.CommandLine is { } line)
         {
             info.FileName = command.Executable;

@@ -86,6 +86,8 @@ dialog: a question or a request for permission ends it, and the user's answer co
 ## How to answer
 - At the end: what you did, what changed (files or objects), what you checked and how, what is left. No preamble and
   no retelling of the steps.
+- A picture shows the result (a render, a sheet, a screenshot): name the path of the one that shows it best; the user
+  gets that one, not every frame of the checks.
 - In English, whatever language the task is in (it costs fewer tokens); names of tools, files and code as they are.
   The same for what you write on the way: thinking, notes, the map, skills, comments and commit messages. A section of
   the map, a skill or a doc you rewrite is rewritten in English; text the user wrote in another language is quoted as it

@@ -283,10 +283,16 @@ internal sealed class ChatRequestBroker : IDisposable
                         Text = pageEvent.Text ?? string.Empty
                     });
                     break;
+                case "image":
+                    pending.Sent = true;
+                    pending.Receiving = true;
+                    pending.Progress?.Report(new ChatProgress { State = ChatProgressState.Receiving, Picture = true });
+                    break;
                 case "completed":
                     var text = pageEvent.Text?.Trim() ?? string.Empty;
-                    if (text.Length == 0) Fail(pending, "ChatGPT returned an empty response.", pageEvent.Diagnostics);
-                    else Complete(pending, text, pageEvent.Diagnostics);
+                    // An answer that is only a picture has no text.
+                    if (text.Length > 0 || pageEvent.Picture) Complete(pending, text, pageEvent.Diagnostics, pageEvent.Picture);
+                    else Fail(pending, "ChatGPT returned an empty response.", pageEvent.Diagnostics);
                     break;
                 case "error":
                     Fail(
@@ -355,7 +361,7 @@ internal sealed class ChatRequestBroker : IDisposable
         }
     }
 
-    private static bool Complete(PendingRequest pending, string text, string? diagnostics)
+    private static bool Complete(PendingRequest pending, string text, string? diagnostics, bool picture = false)
     {
         lock (pending)
         {
@@ -367,7 +373,7 @@ internal sealed class ChatRequestBroker : IDisposable
                 Text = text,
                 Diagnostics = diagnostics
             });
-            pending.Completion.TrySetResult(new ChatResponse { Text = text });
+            pending.Completion.TrySetResult(new ChatResponse { Text = text, Picture = picture });
             return true;
         }
     }
@@ -535,6 +541,9 @@ internal sealed class ChatPageEvent
 
     /// <summary>The conversation a prompt to a new chat started, once ChatGPT has given it an id.</summary>
     public ChatPageConversation? Conversation { get; init; }
+
+    /// <summary>With the state "completed": ChatGPT made a picture, which stays in the page.</summary>
+    public bool Picture { get; init; }
 
     public string? Diagnostics { get; init; }
 }

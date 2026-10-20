@@ -4,13 +4,20 @@ python review.py open <dir> [--no-browser]           show the window for an asse
 python review.py notes <dir> [--all]                  the marks to act on (open), or all of them with their threads
 python review.py reply <dir> <id> <status|-> <text>   answer a mark: done | question | later | declined | open
 python review.py pin <dir> <x,y,z> <text> [object]    the agent's own mark: a question to the user at a point
+python review.py sliders <dir> <build.py> [objects] [check] [args...]
+                                                      the build script's PARAMS become sliders in the window: moving
+                                                      one builds it again in the open Blender and publishes, no agent
 python review.py serve <dir> [port]                   the server itself, in the foreground (open starts it)
 
 <dir> is the asset's review folder: publish.py fills it (model.glb, report.json, state.json); the window adds
 notes.json and the user's reference (ref.png / ref.jpg / ref.webp, ref.glb). Points are Blender's world axes in metres.
+A build script with sliders has PARAMS = {"name": (default, min, max, "unit", "what it changes")} (an int default
+makes an int parameter) and takes the values as its first argument, "name=value,..." over the defaults; [args...]
+follow it. The window runs: blender_mcp.py py <build.py> <values> [args...], then publish.py <dir> <objects> <check>.
 Statuses: open - the user wants a change; done - the agent made it, the user checks; question - the agent asks;
 later, declined - with the reason in the reply; accepted - the user closed it. Only the user accepts or reopens.
 """
+import ast
 import json
 import os
 import re
@@ -25,6 +32,8 @@ import webbrowser
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+BRIDGE = os.path.normpath(os.path.join(HERE, "..", "blender-live", "blender_mcp.py"))
+PUBLISH = os.path.join(HERE, "publish.py")
 PORTS = range(7330, 7340)
 IDLE = 20 * 60  # an open page polls every 1.5 s: this long without a request means nobody looks, the server stops
 FILES = re.compile(r"^(model(\.prev)?\.glb|report(\.prev)?\.json|ref\.(glb|png|jpg|jpeg|webp))$")
@@ -36,6 +45,7 @@ TYPES = {".glb": "model/gltf-binary", ".json": "application/json", ".png": "imag
 SIDES = {(0, 1): "+X (Right view)", (0, -1): "-X (Left view)", (1, 1): "+Y (Back view)", (1, -1): "-Y (Front view)",
          (2, 1): "+Z (Top view)", (2, -1): "-Z (Bottom view)"}
 lock = threading.Lock()
+building = [False]  # this server's rebuild: a crashed one's "running" left in sliders.json does not hold the next
 
 
 def read_json(path, default):
@@ -97,7 +107,98 @@ def page_state(folder, seen):
     files = {n: int(os.path.getmtime(os.path.join(folder, n)) * 1000) for n in sorted(os.listdir(folder))
              if FILES.match(n)}
     return {"folder": folder, "name": os.path.basename(folder), "state": read_json(os.path.join(folder, "state.json"), {}),
-            "notes": load(folder)["notes"], "files": files, "page_ago": round(time.time() - seen, 1)}
+            "notes": load(folder)["notes"], "files": files, "page_ago": round(time.time() - seen, 1),
+            "sliders": read_json(os.path.join(folder, "sliders.json"), None)}
+
+
+def read_params(script):
+    """The build script's PARAMS, read as text: registering sliders runs nothing of the script."""
+    with open(script, encoding="utf-8") as f:
+        tree = ast.parse(f.read(), script)
+    found = next((node.value for node in tree.body if isinstance(node, ast.Assign)
+                  and any(isinstance(t, ast.Name) and t.id == "PARAMS" for t in node.targets)), None)
+    if found is None:
+        raise SystemExit('%s has no PARAMS = {"name": (default, min, max, "unit", "what it changes")}' % script)
+    params = []
+    for name, entry in ast.literal_eval(found).items():
+        default, low, high = entry[:3]
+        if not all(isinstance(v, (int, float)) for v in (default, low, high)) or not low <= default <= high:
+            raise SystemExit("PARAMS[%r] is not (default, min, max, unit, what) with min <= default <= max" % name)
+        params.append({"name": name, "default": default, "min": low, "max": high,
+                       "unit": entry[3] if len(entry) > 3 else "", "what": entry[4] if len(entry) > 4 else "",
+                       "int": isinstance(default, int)})
+    return params
+
+
+def spec(values):
+    return ",".join("%s=%s" % (name, value) for name, value in values.items())
+
+
+def clamp(params, values):
+    out = {}
+    for p in params:
+        v = min(max(float(values.get(p["name"], p["default"])), p["min"]), p["max"])
+        out[p["name"]] = int(round(v)) if p["int"] else round(v, 4)
+    return out
+
+
+def run_step(args):
+    """One bridge call into the open Blender: the error's tail, or None."""
+    flags = 0x08000000 if os.name == "nt" else 0  # CREATE_NO_WINDOW
+    try:
+        done = subprocess.run([sys.executable, BRIDGE, "py"] + args, capture_output=True, text=True,
+                              encoding="utf-8", errors="replace", timeout=300, creationflags=flags)
+    except subprocess.TimeoutExpired:
+        return "Blender did not answer in 5 minutes"
+    text = (done.stdout or "") + (done.stderr or "")
+    if done.returncode == 0 and "Traceback" not in text:
+        return None
+    if "ConnectionRefused" in text or "10061" in text:
+        return "Blender with the MCP extension is not open"
+    return text.strip()[-600:]
+
+
+def build_loop(folder):
+    """Builds and publishes the slider values until the last ones the user set are built."""
+    path = os.path.join(folder, "sliders.json")
+    while True:
+        with lock:
+            s = read_json(path, None)
+            if s is None:
+                building[0] = False
+                return
+            values, started = s["values"], time.time()
+            s["run"] = {"state": "running", "message": "", "time": now()}
+            write_json(path, s)
+        error = run_step([s["script"], spec(values)] + s["args"]) or run_step(
+            [PUBLISH, folder, s["objects"] or "*", s["check"]])
+        with lock:
+            s = read_json(path, s)
+            if error is None:
+                s["built"] = values
+            s["run"] = {"state": "failed" if error else "ok", "message": error or "", "time": now(),
+                        "seconds": round(time.time() - started, 1)}
+            write_json(path, s)
+            if error or s["values"] == values:
+                building[0] = False
+                return
+
+
+def rebuild(folder, body):
+    with lock:
+        path = os.path.join(folder, "sliders.json")
+        s = read_json(path, None)
+        if s is None:
+            raise KeyError("no sliders: the agent registers them with review.py sliders")
+        s["values"] = clamp(s["params"], body.get("values") or {})
+        write_json(path, s)
+        if building[0]:
+            return s
+        building[0] = True
+        s["run"] = {"state": "running", "message": "", "time": now()}
+        write_json(path, s)
+    threading.Thread(target=build_loop, args=(folder,), daemon=True).start()
+    return s
 
 
 def serve(folder, port):
@@ -152,6 +253,8 @@ def serve(folder, port):
                 if url.path == "/api/note":
                     data, note = edit(folder, json.loads(body), "user")
                     return self.send(200, {"notes": data["notes"], "id": note["id"]})
+                if url.path == "/api/sliders":
+                    return self.send(200, rebuild(folder, json.loads(body)))
                 name = urllib.parse.parse_qs(url.query).get("name", [""])[0]
                 if url.path in ("/api/ref", "/api/unref") and REF.match(name):
                     # One reference image at a time; ref.glb is the model's ghost and lives beside it.
@@ -265,7 +368,7 @@ def describe(n):
 
 
 def main(argv):
-    if len(argv) < 3 or argv[1] not in ("open", "notes", "reply", "pin", "serve"):
+    if len(argv) < 3 or argv[1] not in ("open", "notes", "reply", "pin", "sliders", "serve"):
         print(__doc__)
         return 2
     cmd, folder = argv[1], os.path.abspath(argv[2])
@@ -284,6 +387,21 @@ def main(argv):
                                          ", ".join("%d %s" % (c, s) for s, c in sorted(counts.items())) or "none"))
         for n in todo:
             print("\n".join(describe(n)))
+        s = read_json(os.path.join(folder, "sliders.json"), None)
+        if s and any(s["built"][p["name"]] != p["default"] for p in s["params"]):
+            print("sliders moved by the user (built, rev %s): %s - make them the PARAMS defaults of %s"
+                  % (revision(folder), spec(s["built"]), s["script"]))
+    elif cmd == "sliders" and len(argv) > 3:
+        script = os.path.abspath(argv[3])
+        params = read_params(script)
+        defaults = {p["name"]: p["default"] for p in params}
+        write_json(os.path.join(folder, "sliders.json"), {
+            "script": script, "objects": argv[4] if len(argv) > 4 else "*", "check": argv[5] if len(argv) > 5 else "",
+            "args": argv[6:], "params": params, "values": defaults, "built": defaults,
+            "run": {"state": "idle", "message": "", "time": now()}})
+        for p in params:
+            print("%s %s (%s..%s%s) %s" % (p["name"], p["default"], p["min"], p["max"], " " + p["unit"] if p["unit"] else "",
+                                            p["what"]))
     elif cmd == "reply" and len(argv) > 4:
         status = argv[4] if argv[4] != "-" else None
         if status and status not in STATUSES:

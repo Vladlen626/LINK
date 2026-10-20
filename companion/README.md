@@ -65,7 +65,11 @@ LINK's `ChatRequestBroker` follows every request; `ChatPageHost` hands it to the
   - ChatGPT flags it (`data-message-complete`);
   - no visible Stop is left, the answer is not being typed out, and it has not changed for 1.2 s (3 s without a
     Markdown root);
-  - nothing has changed for a minute.
+  - nothing has changed for a minute;
+  - a picture's answer lost its mark (ChatGPT redraws the done turn without it) and ChatGPT has not been busy for
+    3 s.
+- **Pictures.** "Creating image" or a large picture of ChatGPT's own in the answer tells LINK once that a picture is
+  coming (`image`, no data); the answer completes with `picture: true` and no text, and the picture stays in the page.
 - **Cheap watching.** A MutationObserver wakes the watch on text, nodes and a few attributes (not classes or styles).
   It looks at most every 150 ms, and only at the composer and the last turns; the whole page is searched only until
   the answer is found.

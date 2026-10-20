@@ -54,6 +54,7 @@ internal static class AgentTests
         ContinueAndPermissions();
         Choices();
         NextSteps();
+        await LocalPagesAsync();
         NoStopRules();
         AutoEffortPolicy();
         AutoEffortFailures();
@@ -75,6 +76,7 @@ internal static class AgentTests
         StepMarks();
         TaskChangesCount();
         StatsReport();
+        ReflectionLines();
         HarnessBuilt();
         HarnessWords();
         HarnessCardLine();
@@ -831,6 +833,23 @@ internal static class AgentTests
                 ((AgentEventKind?)AgentEventKind.Context, (long?)182340, (long?)258400));
             Program.Equal("Codex context: the limits are still read from the same log", report.Limits.Count, 2);
 
+            // Codex images: exec's events leave the image tool out; its log has the file and the prompt it was made from.
+            var now = DateTimeOffset.Now;
+            string Image(DateTimeOffset at, string status, string path, string failure) =>
+                $$$"""{"type":"event_msg","payload":{"type":"item_completed","item":{"type":"Extension","kind":"image_gen.generation","id":"call_1","status":"{{{status}}}","revisedPrompt":"A red circle\non white","result":"iVBOR","failure":{{{failure}}},"savedPath":"{{{path}}}"},"completed_at_ms":{{{at.ToUnixTimeMilliseconds()}}}}}""";
+            File.WriteAllLines(file,
+            [
+                Image(now.AddHours(-1), "completed", "C:\\\\old.png", "null"),
+                Image(now, "completed", "C:\\\\new.png", "null"),
+                Image(now, "failed", "", "{\"message\":\"blocked\"}"),
+                """{"type":"response_item","payload":{"type":"message","content":[{"type":"output_text","text":"image_gen.generation item_completed"}]}}"""
+            ]);
+            Program.Equal("Codex images: only those finished since the run began, with their prompt or why they failed",
+                string.Join(" | ", CodexProvider.SessionReport(folder, "abc", now.AddMinutes(-1)).Images),
+                "CodexImage { Path = C:\\new.png, Prompt = A red circle\non white, Failure =  } | " +
+                "CodexImage { Path = , Prompt = A red circle\non white, Failure = {\"message\":\"blocked\"} }");
+            Program.Equal("Codex images: none are read when the run asks for none", CodexProvider.SessionReport(folder, "abc").Images.Count, 0);
+
             File.WriteAllLines(file, ["""{"type":"event_msg","payload":{"type":"token_count","info":{"total_token_usage":{"input_tokens":5}}}}"""]);
             Program.Equal("Codex context: a log without a last request tells none",
                 (CodexProvider.SessionReport(folder, "abc").Context, CodexProvider.SessionReport(folder, "other").Context, CodexProvider.SessionReport(Path.Combine(folder, "none"), "abc").Context),
@@ -925,6 +944,54 @@ internal static class AgentTests
         Program.Equal("No-stop settings: turns and deny list fall back to their defaults",
             (settings.NoStopTurns, settings.NoStopDeny.SequenceEqual(AgentSettings.DefaultNoStopDeny), settings.Clone().NoStopDeny.Count),
             (AgentSettings.DefaultNoStopTurns, true, AgentSettings.DefaultNoStopDeny.Count));
+    }
+
+    private static async Task LocalPagesAsync()
+    {
+        var packs = Path.Combine(Path.GetTempPath(), "link-pages-" + Guid.NewGuid().ToString("N"));
+        var script = Path.Combine(packs, "blender", "skills", "blender-review", "review.py");
+        Directory.CreateDirectory(Path.GetDirectoryName(script)!);
+        File.WriteAllText(script, "print('http://127.0.0.1:7331/')");
+        var json = JsonSerializer.Serialize(script);
+        var answer = "The wheel is built: mark the spokes.\n\n```link-page\n{\"label\": \"Mark changes on the model\", \"url\": \"http://127.0.0.1:7331/\", " +
+            $"\"reopen\": [\"C:/Python312/python.exe\", {json}, \"open\", \"C:/t/wheel\", \"--no-browser\"], " +
+            "\"reply\": {\"label\": \"Apply marks\", \"text\": \"Apply my open marks.\"}}\n```\n" +
+            "```link-page\n{\"label\": \"Elsewhere\", \"url\": \"https://example.com/\"}\n```\n```link-page\nnot json\n```";
+        var (text, pages) = LocalPages.Split(answer);
+        Program.Equal("pages: a link-page block becomes a button with its words and goes from the text; another site's page and a block that does not read do not",
+            (text, string.Join(" | ", pages.Select(page => $"{page.Label} {page.Address.AbsoluteUri} {page.Reopen.Count} {page.Reply}"))),
+            ("The wheel is built: mark the spokes.\n\n```link-page\nnot json\n```",
+                "Mark changes on the model http://127.0.0.1:7331/ 5 PageReply { Label = Apply marks, Text = Apply my open marks. }"));
+        Program.Equal("pages: an answer without a block stays as it is, a bare address is no button",
+            LocalPages.Split("Open at http://127.0.0.1:7331/\n").Pages.Count, 0);
+        Program.Equal("pages: a reply without its words is no second button",
+            LocalPages.Split("```link-page\n{\"label\": \"A\", \"url\": \"http://127.0.0.1:7331/\", \"reply\": {\"label\": \"Apply marks\"}}\n```").Pages[0].Reply, null);
+
+        var page = pages[0];
+        var previous = ToolPacks.Folder;
+        ToolPacks.Folder = packs;
+        try
+        {
+            Program.Equal("pages: Link runs Python on a skill's script only, never another program or a script elsewhere",
+                (LocalPages.CanReopen(page, null),
+                    LocalPages.CanReopen(page with { Reopen = ["cmd.exe", script, "open"] }, null),
+                    LocalPages.CanReopen(page with { Reopen = ["python", Path.Combine(packs, "..", "evil.py")] }, null),
+                    LocalPages.CanReopen(page with { Reopen = [] }, null)),
+                (true, false, false, false));
+        }
+        finally
+        {
+            ToolPacks.Folder = previous;
+            Directory.Delete(packs, true);
+        }
+
+        var listener = new System.Net.Sockets.TcpListener(System.Net.IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((System.Net.IPEndPoint)listener.LocalEndpoint).Port;
+        var up = await LocalPages.IsUpAsync(new Uri($"http://127.0.0.1:{port}/"));
+        listener.Stop();
+        Program.Equal("pages: a page that still listens is up, a stopped one is not",
+            (up, await LocalPages.IsUpAsync(new Uri($"http://127.0.0.1:{port}/"))), (true, false));
     }
 
     private static void NextSteps()
@@ -2184,6 +2251,44 @@ internal static class AgentTests
         Program.Equal("stats: no tasks, no rows", AgentStatsReport.For([], kind => kind.DefaultName(), Role).Count, 0);
     }
 
+    /// <summary>
+    /// The look back on two weeks: the cost, the dearest tasks, loops, a failure twice over (the agent's words or a start
+    /// that did not happen), and the skills no recorded step opened; older runs are left out.
+    /// </summary>
+    private static void ReflectionLines()
+    {
+        var now = new DateTimeOffset(2026, 10, 20, 12, 0, 0, TimeSpan.Zero);
+        AgentRunRecord RunOf(int daysAgo, decimal? cost, string outcome = "Done in 1:00", string words = "", bool looped = false, params string[] steps) =>
+            new() { StartedAt = now.AddDays(-daysAgo), CostUsd = cost, Outcome = outcome, Words = words, Looped = looped, Steps = [.. steps], InputTokens = 1_000 };
+        static AgentTaskRecord TaskOf(string goal, params AgentRunRecord[] runs) => new() { Goal = goal, Workspace = "w", Runs = [.. runs] };
+
+        var noStart = TaskOf("Never started");
+        noStart.Entries.Add(new AgentTaskEntry(now.AddDays(-1), AgentEntryKind.NoStart, "Codex could not start: Codex is not found"));
+        var tasks = new[]
+        {
+            TaskOf("Model the wheel", RunOf(1, 1.50m, steps: @"⌕ Bash: cat C:\packs\blender\skills\blender-review\SKILL.md"), RunOf(2, 0.50m, looped: true)),
+            TaskOf("Fix the login", RunOf(3, 0.20m, "Failed after 0:02", "Not logged in · Please run /login\nmore"), RunOf(3, 0.10m, "Failed after 0:01", "Not logged in · Please run /login")),
+            TaskOf("Old work", RunOf(30, 9m)),
+            TaskOf("Rename a file", RunOf(5, null)),
+            noStart,
+            TaskOf("Codex again", RunOf(4, null, "Failed after 0:00", "Codex could not start: Codex is not found\nat PATH"))
+        };
+        Program.Equal("reflect: totals, the dearest three, loops, the same failure twice, unopened skills",
+            string.Join("\n", Reflection.Lines(tasks, ["blender-review", "blender-model"], now)),
+            string.Join("\n",
+                "5 tasks, 6 runs in 14 days · ≈ $2.30 at API prices",
+                "Dearest:",
+                "  $2.00 · 2 runs · Model the wheel",
+                "  $0.30 · 2 runs · Fix the login",
+                "  1k tokens · 1 run · Rename a file",
+                "Looped in 1 task: Model the wheel",
+                "Failed the same way:",
+                "  × 2 Not logged in · Please run /login",
+                "  × 2 Codex could not start: Codex is not found",
+                "No recorded step opened: blender-model (a run keeps only its last steps)"));
+        Program.Equal("reflect: nothing in two weeks, no lines", Reflection.Lines([TaskOf("Old work", RunOf(30, 9m))], [], now).Count, 0);
+    }
+
     /// <summary>The inspector's sections from a workspace and a task: each says what the agent gets, and what is missing, without a model.</summary>
     private static void HarnessBuilt()
     {
@@ -2204,7 +2309,7 @@ internal static class AgentTests
             var bare = HarnessView.Build(Input());
             Program.Equal("harness: the sections, in order",
                 string.Join("|", bare.Sections.Select(section => section.Title)),
-                "Setup|Context|Rules|Role|Project memory|Task state|Skills|Injected context|Tools and MCP|Verification|Stats");
+                "Setup|Context|Rules|Role|Project memory|Task state|Skills|Injected context|Tools and MCP|Verification|Stats|Reflect");
             Program.Equal("harness setup: the role (General), the agent, the model and effort, the effort's reason, who sees the code",
                 (Section(bare, "Setup").Value, Section(bare, "Setup").Note),
                 ("General · Claude Code · Opus 5.5 · Medium", "Effort: Link picked it: a usual task\nSubscription · code goes to Anthropic"));
@@ -2387,10 +2492,10 @@ internal static class AgentTests
         const AgentProviderKind Claude = AgentProviderKind.ClaudeCode;
         Program.Equal("first run: found and signed in",
             FirstRun.Status(Claude, new AgentProviderStatus("claude.exe", "2.1", true)), "Found, signed in");
-        Program.Equal("first run: found, not signed in names the agent's own command",
+        Program.Equal("first run: found, not signed in says where the agent signs in",
             (FirstRun.Status(Claude, new AgentProviderStatus("claude.exe", null, false)),
                 FirstRun.Status(AgentProviderKind.Codex, new AgentProviderStatus("codex.exe", null, false))),
-            ("Found, not signed in: run 'claude auth login' once", "Found, not signed in: run 'codex login' once"));
+            ("Found, not signed in: Settings → Sign in", "Found, not signed in: run 'codex login' once"));
         Program.Equal("first run: found, sign-in unknown",
             FirstRun.Status(Claude, new AgentProviderStatus("claude.exe", null, null)), "Found, sign-in unknown");
         Program.Equal("first run: not found", FirstRun.Status(Claude, new AgentProviderStatus(null, null, null)), "Not found");
@@ -2399,6 +2504,19 @@ internal static class AgentTests
                 FirstRun.InstallAddress(AgentProviderKind.Codex).StartsWith("https://", StringComparison.Ordinal),
                 FirstRun.InstallAddress(Claude) != FirstRun.InstallAddress(AgentProviderKind.Codex)),
             (true, true, true));
+        Program.Equal("claude sign-in: the page to open again is the address in Claude Code's line",
+            (ClaudeSignIn.PageIn("If the browser didn't open, visit: https://claude.com/cai/oauth/authorize?code=true&state=x"),
+                ClaudeSignIn.PageIn("Paste code here if prompted > ")),
+            ("https://claude.com/cai/oauth/authorize?code=true&state=x", (string?)null));
+        Program.Equal("system proxy: Windows' setting as HTTPS_PROXY takes it, the https part of a per-protocol one, none when empty",
+            (SystemProxy.Parse("127.0.0.1:12334"), SystemProxy.Parse("http://127.0.0.1:12334"),
+                SystemProxy.Parse("http=10.0.0.1:80;https=10.0.0.2:443;socks=10.0.0.3:1080"), SystemProxy.Parse("http=10.0.0.1:80"),
+                SystemProxy.Parse("socks=10.0.0.3:1080"), SystemProxy.Parse("")),
+            ("http://127.0.0.1:12334", "http://127.0.0.1:12334", "http://10.0.0.2:443", "http://10.0.0.1:80", (string?)null, (string?)null));
+        var ownProxy = new Dictionary<string, string?>(StringComparer.OrdinalIgnoreCase) { ["https_proxy"] = "http://own:1" };
+        SystemProxy.AddTo(ownProxy);
+        Program.Equal("system proxy: a proxy the environment names already is kept as it is",
+            (ownProxy.Count, ownProxy["HTTPS_PROXY"]), (1, (string?)"http://own:1"));
     }
 
     /// <summary>A workspace with roles and skills of its own, and the things around them that a pack must never hold.</summary>

@@ -49,13 +49,16 @@ public sealed record HarnessInput(
     /// <summary>Team against solo per kind of work, from the measured tasks (<see cref="Services.TeamVsSolo"/>).</summary>
     public IReadOnlyList<string> TeamVsSolo { get; init; } = [];
 
+    /// <summary>The project's last two weeks looked back on (<see cref="Services.Reflection"/>).</summary>
+    public IReadOnlyList<string> Reflection { get; init; } = [];
+
     /// <summary>Names an agent as Settings does; null: the default names.</summary>
     public Func<AgentProviderKind, string>? AgentName { get; init; }
 }
 
 /// <summary>
 /// The harness Link gives an agent, as the inspector lists it: setup, context, rules, role, project memory, task
-/// state, skills, the brief, tools and MCP, the check, and the project's stats. Built from files and records, not from a
+/// state, skills, the brief, tools and MCP, the check, the project's stats and its last two weeks looked back on. Built from files and records, not from a
 /// model, so that it says what is, and refreshes cheaply.
 /// </summary>
 public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
@@ -97,7 +100,8 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
             Injected(input),
             Tools(input),
             Verification(input),
-            Stats(input)
+            Stats(input),
+            Reflect(input)
         ]);
     }
 
@@ -273,6 +277,11 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
                 Note = string.Join('\n', input.Stats.Take(StatsShown).Select(Line)) +
                        (input.TeamVsSolo.Count > 0 ? "\nTeam vs solo, a done task:\n" + string.Join('\n', input.TeamVsSolo) : string.Empty)
             };
+
+    private static HarnessSection Reflect(HarnessInput input) =>
+        input.Reflection.Count == 0
+            ? new HarnessSection("Reflect", $"No runs in {Services.Reflection.Period.TotalDays:0} days")
+            : new HarnessSection("Reflect", input.Reflection[0]) { Note = input.Reflection.Count > 1 ? string.Join('\n', input.Reflection.Skip(1)) : null };
 
     /// <summary>"Rigger · Claude Code · opus — 3 tasks, 1 done, 3 failed, 2:30 a run, 127k tokens a run, 3 steers".</summary>
     private static string Line(StatsRow row) =>

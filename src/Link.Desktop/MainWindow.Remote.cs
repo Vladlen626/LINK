@@ -9,6 +9,7 @@ public partial class MainWindow : IRemoteHost
 {
     private const int RemoteListSize = 40;
     private const int RemoteEntries = 40;
+    private const int RemoteDiff = 500_000;
 
     public event Action? RemoteChanged;
     public event Action<Guid, string, string>? RemoteAlert;
@@ -38,7 +39,7 @@ public partial class MainWindow : IRemoteHost
             RemoteRow(record, work?.Project ?? _projects.ActiveProject),
             [.. record.Entries.TakeLast(RemoteEntries).Select(entry => new RemoteEntry(entry.At, entry.Kind.ToString(), entry.Text))],
             question is null ? null : new RemoteQuestion(question.Question, question.Options, question.MultiSelect),
-            work?.Decision is { } decision ? new RemoteDecision(decision.Text, decision.Button, decision.CanRemember) : null,
+            work?.Decision is { } decision ? new RemoteDecision(decision.Text, decision.Button, decision.CanRemember, decision.Refuse is not null) : null,
             work?.Limit?.Text,
             work?.NoStopPending,
             record.ChangedFiles,
@@ -46,15 +47,18 @@ public partial class MainWindow : IRemoteHost
             work is null ? record.LastRun?.SessionId is not null : work.Waiting is null && (work.Busy || TakesWords(work)));
     });
 
-    /// <summary>A new task as the card would start it with Settings' choices: the agent Link starts with, its everyday level.</summary>
+    /// <summary>
+    /// A new task as the card would start it: the agent and level asked for, else Settings' choices (the agent Link starts
+    /// with, its everyday level).
+    /// </summary>
     public Task<string?> StartAsync(RemoteNewTask task, string device) => OnWindow(() =>
     {
         var project = task.ProjectId is { } id ? _projects.Projects.FirstOrDefault(each => each.Id == id) : _projects.ActiveProject;
         if (project is null) return "No such project";
         if (project.WorkspaceRoot is not { } workspace || !Directory.Exists(workspace)) return $"{project.Name} has no workspace folder";
         var settings = _settings.Current.Agent;
-        var provider = StartProvider;
-        var (model, effort) = settings.Level(provider, AgentLevel.Standard);
+        var provider = task.Provider ?? StartProvider;
+        var (model, effort) = settings.Level(provider, task.Level ?? AgentLevel.Standard);
         var plan = new AgentPlan(provider, workspace, task.PlanFirst, task.Goal)
         {
             Model = model,
@@ -63,7 +67,8 @@ public partial class MainWindow : IRemoteHost
             AutoApprove = settings.DefaultAccess == AgentAccessChoice.Auto,
             RoleId = ProjectRoles.Suggest(task.Goal, ProjectRoles.In(workspace))?.Id,
             ProjectId = project.Id,
-            NoStop = task.NoStop
+            NoStop = task.NoStop,
+            Attached = task.Attached ?? []
         };
         DiagnosticsReported?.Invoke($"[Remote] {device}: new task in {project.Name}");
         _ = StartNewTaskAsync(plan, new InputSnapshot { ProjectId = project.Id, ProjectName = project.Name, Text = task.Goal }, project);
@@ -71,20 +76,29 @@ public partial class MainWindow : IRemoteHost
     });
 
     /// <summary>Words for a task: a reply after its run, the answer to its question, or a correction while it works.</summary>
-    public Task<string?> ReplyAsync(Guid id, string words, string device) => OnRemoteWork(id, device, "words", work =>
-    {
-        if (work.Waiting is not null) return "The task waits for its folder: stop it first";
-        if (!work.Busy && !TakesWords(work)) return "This task has no session to go on with";
-        UserSpoke(work);
-        ContinueAgent(work, words.Trim());
-        return null;
-    });
+    public Task<string?> ReplyAsync(Guid id, string words, string device, IReadOnlyList<string>? images = null) =>
+        OnRemoteWork(id, device, images is { Count: > 0 } ? "words and a picture" : "words", work =>
+        {
+            if (work.Waiting is not null) return "The task waits for its folder: stop it first";
+            if (!work.Busy && !TakesWords(work)) return "This task has no session to go on with";
+            UserSpoke(work);
+            ContinueAgent(work, words.Trim(), images);
+            return null;
+        });
 
     public Task<string?> DecideAsync(Guid id, bool always, string device) => OnRemoteWork(id, device, "decision", work =>
     {
         if (work.Decision is not { } decision) return "Nothing to decide now";
         UserSpoke(work);
         TakeDecision(work, decision, always);
+        return null;
+    });
+
+    public Task<string?> RefuseAsync(Guid id, string device) => OnRemoteWork(id, device, "deny", work =>
+    {
+        if (work.Decision is not { Refuse: not null } decision) return "Nothing to deny now";
+        UserSpoke(work);
+        RefuseDecision(work, decision);
         return null;
     });
 
@@ -103,6 +117,14 @@ public partial class MainWindow : IRemoteHost
     });
 
     public Task<RemoteUsage?> UsageAsync() => OnWindow(() => _usage.Last is { } spent ? new RemoteUsage(spent.Line, spent.Hint) : null);
+
+    public Task<IReadOnlyList<string>> ImagesAsync(Guid id) => OnWindow<IReadOnlyList<string>>(() =>
+        (WorkOf(id)?.Record ?? ActiveRecord(id))?.LastRun?.Images.Where(File.Exists).ToArray() ?? []);
+
+    /// <summary>The last run's changes as the Changes view has them, while Link holds the task.</summary>
+    public Task<string?> DiffAsync(Guid id) => Dispatcher.InvokeAsync(() => WorkOf(id)?.LastRun is { Changes.Count: > 0 } run
+        ? _agents.Changes.DiffAsync(run.Before, run.Changes, stat: false, RemoteDiff, CancellationToken.None)
+        : Task.FromResult<string?>(null)).Task.Unwrap();
 
     /// <summary>A task in the remote list: how it stands and what it waits for from the user.</summary>
     private RemoteTask RemoteRow(AgentTaskRecord record, LinkProject project)

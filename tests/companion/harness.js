@@ -209,6 +209,9 @@ class ChatGptMock {
       pickerPrefix: "",     // what the composer's picker shows before the mode, e.g. "Рассуждение · "
       mode: "Средний",
       turns: 2,
+      image: false,         // the answer is a picture, drawn frame by frame
+      imageFrameMs: 400,
+      imageUnmarked: false, // the done picture comes in a turn without the answer's mark, as ChatGPT's sometimes does
       ...options
     };
     this.sent = [];
@@ -392,6 +395,7 @@ class ChatGptMock {
    * answer word by word, then the end signs.
    */
   async answer(prompt) {
+    if (this.options.image) return this.drawPicture(prompt);
     this.generating = true;
     this.stopped = false;
     this.setSubmit("stop");
@@ -425,6 +429,58 @@ class ChatGptMock {
       await this.wait(this.options.tokenMs);
     }
     this.finish(article);
+  }
+
+  /**
+   * Answers with a picture, as ChatGPT makes one: "Создание изображения" in the answer, then the picture sharpening
+   * frame by frame (each a new blob, a blurred copy behind it), then the status goes and the turn ends. Unmarked, the
+   * answer shows only the status line, and the done picture replaces it in a turn without the answer's mark or buttons.
+   */
+  async drawPicture(prompt) {
+    this.generating = true;
+    this.stopped = false;
+    this.setSubmit("stop");
+    this.addUserTurn(prompt);
+    const article = this.element("article", { "data-turn": "assistant", "data-testid": `conversation-turn-${this.nextId++}` },
+      `<h6 class="sr-only">ChatGPT сказал:</h6><div data-message-author-role="assistant" data-message-id="answer-${this.nextId++}">` +
+      '<div class="image-status"><span>Создание изображения</span></div></div>');
+    const message = article.querySelector("[data-message-author-role]");
+    this.turns.append(article);
+    await this.wait(this.options.thinkingMs);
+
+    const blurred = this.element("div", { "aria-hidden": "true" }, '<img alt="" width="256" height="256">');
+    const picture = this.element("img", { alt: "Сгенерированное изображение", width: "256", height: "256" });
+    if (this.options.imageUnmarked) {
+      await this.wait(this.options.imageFrameMs * 3);
+      picture.src = this.window.URL.createObjectURL(await this.square("#c84"));
+      const bare = this.element("div", { "data-testid": `conversation-turn-${this.nextId++}` }, "");
+      bare.append(picture);
+      article.replaceWith(bare);
+      this.generating = false;
+      this.finished = true;
+      this.setSubmit("speech");
+      return;
+    }
+
+    message.append(blurred, picture);
+    for (const color of ["#334", "#668", "#c84"]) {
+      if (this.stopped) break;
+      const src = this.window.URL.createObjectURL(await this.square(color));
+      blurred.firstElementChild.src = src;
+      picture.src = src;
+      await this.wait(this.options.imageFrameMs);
+    }
+    message.querySelector(".image-status").remove();
+    this.finish(article);
+  }
+
+  /** A PNG square of one colour. */
+  square(color) {
+    const canvas = this.element("canvas", { width: "256", height: "256" });
+    const context = canvas.getContext("2d");
+    context.fillStyle = color;
+    context.fillRect(0, 0, 256, 256);
+    return new Promise(resolve => canvas.toBlob(resolve, "image/png"));
   }
 
   finish(article) {

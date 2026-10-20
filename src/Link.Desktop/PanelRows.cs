@@ -75,6 +75,7 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, B
     private Brush _outcomeBrush = outcomeBrush;
     private string _current = string.Empty;
     private string _said = string.Empty;
+    private IReadOnlyList<LocalPages.Page> _pages = [];
     private IReadOnlyList<ThreadImage> _images = [];
     private IReadOnlyList<AgentChangeRow> _files = [];
     private string _next = string.Empty;
@@ -122,6 +123,15 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, B
     }
 
     public Visibility SaidVisibility => _said.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
+
+    /// <summary>The pages the answer's link-page blocks named on this machine, such as the model's review window: a button each.</summary>
+    public IReadOnlyList<LocalPages.Page> Pages
+    {
+        get => _pages;
+        set => Set(ref _pages, value, nameof(Pages), nameof(PagesVisibility));
+    }
+
+    public Visibility PagesVisibility => _pages.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
     /// <summary>The pictures the run made and looked at or named: an artist's renders and screenshots (<see cref="RunImages"/>).</summary>
     public IReadOnlyList<ThreadImage> Images

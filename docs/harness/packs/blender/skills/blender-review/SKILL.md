@@ -1,6 +1,6 @@
 ---
 name: blender-review
-description: Review a Blender model without screenshots - publish the asset after every build step (check.py's numbers - size against the brief, the triangle budget, floating parts, holes, inverted normals), one review window where the user marks points, painted areas and measurements on the 3D model itself, and the agent reads the marks as text lines and answers each; a generated model (Tripo and the like) or a blockout as a ghost at real size. Use with blender-model for every asset the user looks at.
+description: Review a Blender model without screenshots - publish the asset after every build step (check.py's numbers - size against the brief, the triangle budget, floating parts, holes, inverted normals), one review window where the user marks points, painted areas and measurements on the 3D model itself, and the agent reads the marks as text lines and answers each; sliders for the build script's PARAMS that rebuild with no agent run; a generated model (Tripo and the like) or a blockout as a ghost at real size. Use with blender-model for every asset the user looks at.
 ---
 
 # Review by marks, not screenshots
@@ -34,16 +34,38 @@ metres, and the numbers catch a scripted model's commonest defects before anyone
 2. `review.py open <dir>` once, at the first revision worth showing: it starts the window's server (127.0.0.1, ports
    7330-7339) and the browser. The window reloads itself on every publish; the server stops after 20 minutes nobody
    looks, and `open` again brings it back on the same folder. Tell the user in one line what to look at in this
-   revision.
-3. The user marks the model: Point (P) - click; Area (A) - paint with the brush, `[` `]` size it; Measure (M) - two
+   revision, and close every answer that shows a revision with a `link-page` block, then a link-next one. Link makes
+   them buttons: the first runs `reopen` itself, with no agent run; the second sends `reply.text` as the user's
+   answer. Full paths, the address `open` printed:
+
+   ````
+   ```link-page
+   {"label": "Mark changes on the model", "url": "http://127.0.0.1:7331/",
+    "reopen": ["<python.exe>", "<here>/review.py", "open", "<dir>", "--no-browser"],
+    "reply": {"label": "Apply marks", "text": "Apply my open marks: review.py notes <dir>"}}
+   ```
+   ```link-next
+   {"next": "apply the user's marks", "effort": "medium", "why": "marks are exact points and sizes: edits to the build script"}
+   ```
+   ````
+   `medium` (`low` when the open marks are only sizes) unless a mark asks for a new form: the marks carry the design,
+   the run carries them out.
+3. Sliders, so the user tunes sizes without an agent run: the build script has
+   `PARAMS = {"name": (default, min, max, "unit", "what it changes")}` (an int default makes an int parameter) and
+   reads its first argument `"name=value,..."` over the defaults (`ARGS[0]` through the bridge); its other arguments
+   follow. Once, after the first publish: `review.py sliders <dir> <build.py> <objects|*> "size=...;tris=..." [args...]`
+   - the window shows a slider per parameter; moving one builds the script again in the open Blender and publishes.
+   Register again after PARAMS change. The user's values come back in `notes` as one line: make them the PARAMS
+   defaults before the next change.
+4. The user marks the model: Point (P) - click; Area (A) - paint with the brush, `[` `]` size it; Measure (M) - two
    clicks, then the size it should be; Enter saves a mark. B holds the previous revision, R the ghost, I the picture.
-4. When the user says so, or at the next step boundary: `review.py notes <dir>` - each open mark in one line with its
-   thread; `--all` adds the closed ones. Read nothing else of the folder; `notes.json` only for an area's stroke
-   points.
-5. Each mark: change the build script, publish, then `review.py reply <dir> <id> done "what changed, with numbers"`.
+5. When the user says so (the Apply marks button), or at the next step boundary: `review.py notes <dir>` - each open
+   mark in one line with its thread, and the slider values the user built; `--all` adds the closed ones. Read nothing
+   else of the folder; `notes.json` only for an area's stroke points.
+6. Each mark: change the build script, publish, then `review.py reply <dir> <id> done "what changed, with numbers"`.
    Not doing it: `question`, `later` or `declined` with the reason. Only the user accepts or reopens; a reopened mark
-   comes back open with what is still wrong.
-6. A question about a place: `review.py pin <dir> x,y,z "question" [object]`. The user's answer turns it open with the
+   comes back open with what is still wrong. No frame to check a mark: its numbers and the user's look are the check.
+7. A question about a place: `review.py pin <dir> x,y,z "question" [object]`. The user's answer turns it open with the
    reply.
 
 ## Reading a mark

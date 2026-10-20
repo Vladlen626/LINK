@@ -103,6 +103,30 @@ check("an answer without a Markdown root or buttons completes once Stop is gone,
   expect("why it ended is kept", JSON.parse(completed?.diagnostics ?? "{}").completedBy, "settled without Markdown");
 });
 
+check("a picture is announced while ChatGPT draws it and completes the answer, staying in the page", async () => {
+  const page = await openChat({ image: true });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Нарисуй колесо");
+  await ask(api, request);
+  const completed = await completedOf(bridge, request);
+  const announced = bridge.of(request.requestId, "image");
+  expect("LINK is told once that a picture is coming, with no picture data", announced.map(event => event.image), [undefined]);
+  expect("the answer is a picture without text", [completed?.text, completed?.picture], ["", true]);
+  expect("it is a usual end", completed?.diagnostics, undefined);
+  expect("the status line never streams as the answer", bridge.of(request.requestId, "receiving").length, 0);
+});
+
+check("a done picture whose turn lost the answer's mark still completes the answer", async () => {
+  const page = await openChat({ image: true, imageUnmarked: true });
+  const { api, bridge } = await startCompanion(page);
+  const request = promptRequest(page.conversationId, "Нарисуй колесо");
+  await ask(api, request);
+  const completed = await completedOf(bridge, request);
+  expect("LINK was told a picture is coming", bridge.of(request.requestId, "image").length, 1);
+  expect("the answer is a picture without text", [completed?.text, completed?.picture], ["", true]);
+  expect("why it ended is kept", JSON.parse(completed?.diagnostics ?? "{}").completedBy, "picture made");
+});
+
 check("an answer that stops changing completes even if Stop never goes away", async () => {
   const page = await openChat({ actions: false, stopAfter: "visible" });
   const { api, bridge } = await startCompanion(page);

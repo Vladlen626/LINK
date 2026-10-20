@@ -52,6 +52,8 @@
 7. **Что уходит с вопросом** — чипы: приложение и заголовок его окна, состояние проекта, буфер; `×` убирает на этот
    запрос. Над ответом — **Saw: …**: что ушло на самом деле, с миниатюрой отправленного кадра.
 8. **Ответ** приходит по мере печати, Markdown с кодом и таблицами; **Listen** читает вслух, **Copy** копирует.
+   Картинка ChatGPT — карточкой в ответе: пока рисуется, «Creating image… N s» с полосой, потом «Image ready»; клик
+   открывает окно ChatGPT в Link — посмотреть, сохранить или продолжить там.
 9. **Под ответом два действия.** **Ask again ▾** — тот же вопрос из того же снимка: глубже, со свежим экраном, только
    ваш текст или с поправкой (Edit the question — поправить ослышку). **→ Agent task** — карточка задачи, где бриф —
    выделенная часть ответа, его блок `link-task` или весь ответ, плюс вопрос; ничего не запускается до Run.
@@ -250,9 +252,12 @@ Add to Home screen; 🔔 there sends a notification when a task needs you while 
 
 **Telegram bot.** No tunnel and no second VPN on the phone: Link asks Telegram for news itself. In Telegram,
 @BotFather → `/newbot` gives a token; Settings → Remote control → paste it, Pair Telegram, send the code to the bot.
-While you are away from the computer, a task that needs you comes as a message with buttons (the agent's options,
-Allow, Stop, No-stop); words answer the task Link last wrote about (or reply to its message); `/tasks`, `/new`,
-`/plan`, `/auto` (No-stop) and `/spent` do the rest. Only the paired chat is heard; the words go through Telegram.
+Each task Link writes about gets one card that changes silently as the task goes (status, last words, one picture of its
+run: the one its answer names, or the newest); when the task needs you while you are away, a new card notifies, with
+buttons: the agent's options, Allow, Always, Deny, Stop, No-stop, Changes (a `.patch` file). Turn on topics for the
+bot in @BotFather (Bot Settings) and each task gets a topic of its own. Words or a photo answer the task of the topic,
+of the message you reply to, or of the last card; `/new`, `/plan` and `/auto` (No-stop) ask the project and the agent
+with buttons; `/tasks` and `/spent` do the rest. Voice notes are not understood yet: type or dictate. Only the paired chat is heard; the words go through Telegram.
 
 **What was spent.** Under the usage bars: today and this month at API prices, read by
 [ccusage](https://ccusage.com) from every Claude Code and Codex session's logs (Link's or not); hover for the week,
@@ -326,7 +331,9 @@ Codex и вошли ли вы (ссылка на установку, если н
 1. **ChatGPT.** Откройте панель (Expand в заголовке) и нажмите **Open chat**, войдите в свой аккаунт — один раз:
    вход хранится в профиле `%LocalAppData%\Link\WebView2`. Откройте нужную беседу, закройте окно, в панели нажмите
    строку беседы и **Link**. Или сразу **New chat** — первое сообщение из Link создаст беседу и свяжет её с проектом.
-2. **Агенты.** Один раз `claude auth login` или `codex login`. Settings → Agents показывает, найден ли агент, вошли
+2. **Агенты.** Войти один раз: Claude Code — Settings → Agents → **Sign in** (вход откроется в браузере, а код, если
+   страница его покажет, вставляется в окно Link; задача, упавшая без входа, предложит то же), Codex — `codex login`.
+   Claude Code, запущенный Link, входит отдельно от приложения Claude. Settings → Agents показывает, найден ли агент, вошли
    ли вы и его версию; там же — агент по умолчанию, доступ, с которого начинается карточка, свой путь к exe, модель
    (у Claude — Opus 5.5, Fable 5.1, Sonnet 5.5, Haiku 4.5; у Codex — модели вашего аккаунта из его списка; Default —
    настройка самого агента) и effort: Low, Medium, High, Extra high, Max — самый высокий. Ultra у Codex и ultracode у

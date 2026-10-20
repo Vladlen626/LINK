@@ -96,6 +96,10 @@ public sealed class ProjectResponse
 {
     public required string ConversationId { get; init; }
     public required string Text { get; init; }
+
+    /// <summary>ChatGPT made a picture, to look at in the chat.</summary>
+    public bool Picture { get; init; }
+
     public DateTimeOffset ReceivedAt { get; init; } = DateTimeOffset.Now;
 }
 
@@ -111,6 +115,9 @@ public sealed class ProjectExchange
 
     /// <summary>What went along besides the words, as the chips named it ("Screen · Unreal Editor"); empty when nothing.</summary>
     public string Carried { get; init; } = string.Empty;
+
+    /// <summary>ChatGPT made a picture, to look at in the chat.</summary>
+    public bool Picture { get; init; }
 }
 
 /// <summary>A ChatGPT chat of the project, as the panel lists it.</summary>

@@ -136,7 +136,8 @@ public partial class App : System.Windows.Application
         _mainWindow.Show();
         // Remote control listens only while Settings turn it on, on this computer only.
         _remote = new RemoteControl(_settings, _mainWindow, new RemotePush(new ApiKeyStore(paths.RemotePushKeyFile, "Link remote push"), Log),
-            new ApiKeyStore(paths.TelegramTokenFile, "Link Telegram bot"), action => Dispatcher.BeginInvoke(action), UserIdle.Time, Log);
+            new ApiKeyStore(paths.TelegramTokenFile, "Link Telegram bot"), action => Dispatcher.BeginInvoke(action), UserIdle.Time, Log,
+            paths.Images, paths.TelegramCardsFile);
         _remote.Apply();
         // The ChatGPT page loads once the overlay is up, so Link starts as fast as without it.
         Dispatcher.InvokeAsync(() => StartChatPage(chat, paths), DispatcherPriority.ApplicationIdle);

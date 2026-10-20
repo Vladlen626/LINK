@@ -1,6 +1,9 @@
 # Rebuilds the user's Link from this repo and starts it again: closes it gracefully (never while an agent works in
 # it), builds Release, runs the tests and starts the new Link through Explorer. The "Rebuild Link" Start shortcut
-# runs it (install-shortcuts.ps1). ASCII only: Windows PowerShell 5.1 reads a BOM-less UTF-8 script as ANSI.
+# runs it (install-shortcuts.ps1). -Pull first takes the branch's new commits (git pull --ff-only): updating at home.
+# ASCII only: Windows PowerShell 5.1 reads a BOM-less UTF-8 script as ANSI.
+param([switch]$Pull)
+
 $repo = (Resolve-Path "$PSScriptRoot\..\..\..").Path
 $exe = "$repo\src\Link.Desktop\bin\Release\net10.0-windows\Link.exe"
 
@@ -11,6 +14,12 @@ function Stop-WithError($message) {
   Write-Host $message -ForegroundColor Red
   Read-Host 'Press Enter to close'
   exit 1
+}
+
+if ($Pull) {
+  Write-Host 'Pulling...'
+  git -C $repo pull --ff-only
+  if ($LASTEXITCODE -ne 0) { Stop-WithError 'git pull failed: Link was left as it was.' }
 }
 
 Write-Host 'Closing Link...'

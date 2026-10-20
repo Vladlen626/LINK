@@ -367,6 +367,13 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   in is the user's own Telegram bot: Link long-polls the Bot API, pairs one chat by a code, buttons per task;
   a relay server on the user's VPS was the other choice. Spending comes from ccusage (`npx ccusage@<pinned>`, offline prices), not
   from prices of Link's own.
+- Pictures and the bot's Phase 1 (2026-10-20, the user's choice): a ChatGPT picture is a card in the overlay's answer (a
+  progress bar by time, then "Image ready") that opens Link's ChatGPT window: the picture stays there, not copied, so
+  the user looks, saves or goes on in the chat (the user's choice over a viewer of Link's own); Codex's image_gen
+  pictures come from its rollout into the run's thread. The Telegram bot stays a chat bot (no Mini App yet): one
+  silently edited card per task, a topic per task when topics are on, Deny, photos both ways (one picture per run, the
+  one its answer names, else the newest: the user wants no stack of check frames), a picker for /new; no /ask to ChatGPT from the phone. Voice notes wait for a decision on an
+  OGG/Opus decoder (Windows cannot read them).
 - UI and flow closer to Claude's app (2026-10-20, accepted by the user): one theme, the overlay's colours, for every
   window (opaque, title bars painted by DWM); Settings in pages that save each change; the task card as a composer;
   the task list searched and grouped by what it waits for. Claude Code asks for a tool outside the rules during the

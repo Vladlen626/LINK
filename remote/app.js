@@ -178,7 +178,8 @@ async function taskView(id) {
     parts.push(el('div', { className: 'card waits' },
       el('div', { className: 'words', text: data.decision.text }),
       data.decision.canRemember ? el('label', { className: 'check' }, always, 'Always allow for this project') : null,
-      el('div', { className: 'row' }, el('button', { text: data.decision.button, onclick: () => act('decide', { always: always.checked }) }))));
+      el('div', { className: 'row' }, el('button', { text: data.decision.button, onclick: () => act('decide', { always: always.checked }) }),
+        data.decision.canRefuse ? el('button', { className: 'plain', text: 'Deny', onclick: () => act('refuse') }) : null)));
   }
 
   if (data.limit) parts.push(el('div', { className: 'card waits words', text: data.limit }));

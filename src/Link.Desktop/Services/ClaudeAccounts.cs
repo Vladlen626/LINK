@@ -47,16 +47,4 @@ public static class ClaudeAccounts
         if (junction is not null) await junction.WaitForExitAsync();
         return name;
     }
-
-    /// <summary>
-    /// <c>claude auth login</c> for an account in a console of its own, which opens the browser; done when the console
-    /// closes, signed in or not.
-    /// </summary>
-    public static async Task SignInAsync(string executable, string? account)
-    {
-        var info = new ProcessStartInfo("cmd.exe", $"/c \"\"{executable}\" auth login\"") { UseShellExecute = false };
-        foreach (var (name, value) in Variables(account)) info.Environment[name] = value;
-        using var console = Process.Start(info);
-        if (console is not null) await console.WaitForExitAsync();
-    }
 }

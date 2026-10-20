@@ -64,6 +64,7 @@ public sealed class UsageReport(Action<string> log)
     public static readonly TimeSpan Fresh = TimeSpan.FromMinutes(5);
     private static readonly TimeSpan Wait = TimeSpan.FromSeconds(90);
     private Task<UsageSummary?>? _reading;
+    private int _toldNoNode;
 
     public UsageSummary? Last { get; private set; }
 
@@ -152,7 +153,8 @@ public sealed class UsageReport(Action<string> log)
         // Windows starts it) and fails every time.
         if (AgentExecutables.SearchPath("npx.cmd") is not { } npx)
         {
-            log("[Usage] ccusage could not run: npx is not on PATH (is Node installed?)");
+            // Once a run of Link: it is asked after every task, two reports at once, and Node does not appear in between.
+            if (Interlocked.Exchange(ref _toldNoNode, 1) == 0) log("[Usage] ccusage could not run: npx is not on PATH (is Node installed?)");
             return null;
         }
 

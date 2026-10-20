@@ -236,10 +236,10 @@
                         <StackPanel x:Name="AgentsPage">
                             <TextBlock Style="{StaticResource PageTitleStyle}" Text="Agents" />
                             <TextBlock Style="{StaticResource PageNoteStyle}"
-                                       Text="Claude Code and Codex on your own subscription: Link neither installs them nor signs in for you.">
+                                       Text="Claude Code and Codex on your own subscription: Link does not install them.">
                                 <TextBlock.ToolTip>
                                     <TextBlock MaxWidth="420" TextWrapping="Wrap"
-                                               Text="Run 'claude auth login' or 'codex login' once. They spend your Claude or ChatGPT subscription. The task card offers each agent's own models and efforts and starts from Default. Plan first makes the plan on Strong and carries it out on the card's choice in the same session; Escalate goes on with Strong; Link's own answers (map, skill, note) run on Quick; Hand off ▾ offers all three for the same session. Default leaves the model or the effort to the agent's own settings. Agents run without subagents, so Codex's Ultra and Claude's ultracode, which work through them, are not offered." />
+                                               Text="Each signs in once: Claude Code with Sign in below, Codex with 'codex login'. They spend your Claude or ChatGPT subscription. The task card offers each agent's own models and efforts and starts from Default. Plan first makes the plan on Strong and carries it out on the card's choice in the same session; Escalate goes on with Strong; Link's own answers (map, skill, note) run on Quick; Hand off ▾ offers all three for the same session. Default leaves the model or the effort to the agent's own settings. Agents run without subagents, so Codex's Ultra and Claude's ultracode, which work through them, are not offered." />
                                 </TextBlock.ToolTip>
                             </TextBlock>
 
@@ -298,7 +298,7 @@
                                         <Button Grid.Column="2" Width="28" Height="26" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}" Padding="0"
                                                 Click="AddClaudeAccount_OnClick" Content="+" ToolTip="Another Claude account: Link opens its sign-in" />
                                         <Button Grid.Column="3" Height="26" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}" Click="SignInClaude_OnClick"
-                                                Content="Sign in" ToolTip="Sign the chosen account in, or into another Claude account, in a console that opens the browser" />
+                                                Content="Sign in" ToolTip="Sign the chosen account in, or into another Claude account: Link opens the sign-in in the browser" />
                                     </Grid>
                                     <Grid Margin="0,8,0,0">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="*" /><ColumnDefinition Width="170" /></Grid.ColumnDefinitions>

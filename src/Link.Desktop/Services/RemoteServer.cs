@@ -265,13 +265,15 @@ public sealed class RemoteServer : IDisposable
                 return await _host.TaskAsync(id) is { } view ? Ok(view) : Error(404, "No such task");
             case ("POST", 2, _) when parts[1] == "tasks":
                 return Body<RemoteNewTask>(request) is { Goal.Length: > 0 } task
-                    ? Done(await _host.StartAsync(task with { Goal = task.Goal.Trim() }, device))
+                    // The page names no files on this computer.
+                    ? Done(await _host.StartAsync(task with { Goal = task.Goal.Trim(), Attached = null }, device))
                     : Error(400, "Write the task");
             case ("POST", 4, true):
                 return parts[3] switch
                 {
                     "reply" => Body<WordsRequest>(request) is { Words.Length: > 0 } reply ? Done(await _host.ReplyAsync(id, reply.Words, device)) : Error(400, "Write something"),
                     "decide" => Done(await _host.DecideAsync(id, Body<DecideRequest>(request)?.Always == true, device)),
+                    "refuse" => Done(await _host.RefuseAsync(id, device)),
                     "stop" => Done(await _host.StopAsync(id, device)),
                     "nostop" => Body<SwitchRequest>(request) is { } change ? Done(await _host.SetNoStopAsync(id, change.On, device)) : Error(400, "Say on or off"),
                     _ => Error(404, "Not found")

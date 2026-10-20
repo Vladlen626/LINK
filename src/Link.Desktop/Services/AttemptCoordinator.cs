@@ -102,7 +102,8 @@ public sealed class AttemptCoordinator
             project.LastResponse = new ProjectResponse
             {
                 ConversationId = project.LinkedConversation?.ConversationId ?? conversation.ConversationId,
-                Text = response.Text
+                Text = response.Text,
+                Picture = response.Picture
             };
             _projects.Save();
             _log(latency.Describe(attempt, "answer", response.Text.Length));

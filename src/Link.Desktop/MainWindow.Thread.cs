@@ -132,7 +132,9 @@ public partial class MainWindow
         // A team's answers were kept with the lead's plan before Link took it out, a training's with its lessons.
         var words = record.Mode is TaskMode.Team or TaskMode.Training ? TeamPlan.WithoutBlocks(run.Words) : run.Words;
         var (said, next) = AgentNext.Split(AgentQuestion.Split(words).Text);
-        turn.Said = AgentChanges.SplitChangelistLine(said).Text;
+        var (unpaged, pages) = LocalPages.Split(said);
+        turn.Said = AgentChanges.SplitChangelistLine(unpaged).Text;
+        turn.Pages = pages;
         if (showNext && next is not null) turn.Next = next.Line;
         turn.Files = run.Files.Select(file => new AgentChangeRow(file, Path.Combine(record.Workspace, file))).ToArray();
         turn.Images = [.. run.Images.Where(File.Exists).Select(path => new ThreadImage(path))];

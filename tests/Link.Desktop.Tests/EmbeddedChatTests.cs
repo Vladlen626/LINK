@@ -19,6 +19,7 @@ internal static class EmbeddedChatTests
     public static async Task RunAsync()
     {
         await StreamedAnswerAsync();
+        await PictureAnswerAsync();
         await OtherChatAsync();
         await LostPageAsync();
         await CancelAsync();
@@ -182,6 +183,30 @@ internal static class EmbeddedChatTests
         Program.Equal("the finished answer arrives", (await answer).Text, "Hello.");
         Program.Equal("the states follow the answer", rig.Progress.States, "Sending, Sending, Waiting, Receiving, Completed");
         Program.Equal("a late event is turned away as answered", await rig.Page.ReportAsync(request.Id, "heartbeat"), "404 completed");
+    }
+
+    /// <summary>
+    /// An answer that is a picture: announced while ChatGPT makes it, then completed without text; the picture stays in
+    /// ChatGPT's page. An empty answer that is no picture still fails.
+    /// </summary>
+    private static async Task PictureAnswerAsync()
+    {
+        using var rig = new EmbeddedRig();
+        await rig.Page.AnnounceAsync("chat-1");
+        var answer = rig.SendAsync("Draw a wheel");
+        var request = await rig.Page.NextRequestAsync();
+        await rig.Page.ReportAsync(request.Id, "waiting");
+
+        Program.Equal("a picture on its way is announced", await rig.Page.ReportAsync(request.Id, "image"), "ok");
+        Program.Equal("the progress says a picture is coming", (rig.Progress.Last?.State, rig.Progress.Last?.Picture), (ChatProgressState.Receiving, true));
+        Program.Equal("an answer that is only a picture completes", await rig.Page.ReportAsync(request.Id, "completed", "", picture: true), "ok");
+        var response = await answer;
+        Program.Equal("the answer is a picture without text", (response.Text, response.Picture), ("", true));
+
+        var empty = rig.SendAsync("Say nothing");
+        var second = await rig.Page.NextRequestAsync();
+        await rig.Page.ReportAsync(second.Id, "completed", "");
+        Program.Equal("an empty answer that is no picture fails", await ErrorOfAsync(empty), "ChatGPT returned an empty response.");
     }
 
     /// <summary>A page on another chat is taken to the linked one before the prompt is handed over.</summary>
@@ -589,7 +614,7 @@ internal sealed class FakeChatPage : IChatPage
 
     /// <summary>
     /// Reports on a request as the companion does: "ok", or the status and reason LINK turned it away with. A new chat's
-    /// events carry the conversation ChatGPT started for it.
+    /// events carry the conversation ChatGPT started for it; a completed picture says so.
     /// </summary>
     public async Task<string> ReportAsync(
         Guid requestId,
@@ -597,12 +622,13 @@ internal sealed class FakeChatPage : IChatPage
         string? text = null,
         object? conversation = null,
         string? error = null,
-        string? diagnostics = null)
+        string? diagnostics = null,
+        bool picture = false)
     {
         var response = await CallAsync(new
         {
             type = "link-event",
-            @event = new { requestId, state, text, conversation, error, diagnostics }
+            @event = new { requestId, state, text, conversation, error, diagnostics, picture }
         });
         return response.GetProperty("ok").GetBoolean()
             ? "ok"

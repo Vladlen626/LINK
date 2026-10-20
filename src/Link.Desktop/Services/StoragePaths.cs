@@ -9,12 +9,14 @@ public sealed class StoragePaths
         Recordings = Path.Combine(Root, "Recordings");
         Models = Path.Combine(Root, "Models");
         Projects = Path.Combine(Root, "Projects");
+        Images = Path.Combine(Root, "Images");
 
         Directory.CreateDirectory(Root);
         Directory.CreateDirectory(Screenshots);
         Directory.CreateDirectory(Recordings);
         Directory.CreateDirectory(Models);
         Directory.CreateDirectory(Projects);
+        Directory.CreateDirectory(Images);
     }
 
     public string Root { get; }
@@ -22,6 +24,9 @@ public sealed class StoragePaths
     public string Recordings { get; }
     public string Models { get; }
     public string Projects { get; }
+
+    /// <summary>The pictures sent to the Telegram bot, kept until the user deletes them.</summary>
+    public string Images { get; }
     public string SettingsFile => Path.Combine(Root, "settings.json");
     public string ProjectsFile => Path.Combine(Root, "projects.json");
     public string LastRequestFile => Path.Combine(Root, "last-request.json");
@@ -43,4 +48,7 @@ public sealed class StoragePaths
 
     /// <summary>The token of the user's Telegram bot for remote control, encrypted for this Windows user.</summary>
     public string TelegramTokenFile => Path.Combine(Root, "telegram-bot.key");
+
+    /// <summary>The Telegram bot's messages about tasks (each task's topic and live message), kept across restarts.</summary>
+    public string TelegramCardsFile => Path.Combine(Root, "telegram-cards.json");
 }

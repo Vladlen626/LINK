@@ -26,8 +26,10 @@ public sealed class RemoteControl : IDisposable
     /// <param name="onWindow">Runs an action on the window's thread, where the settings are kept.</param>
     /// <param name="idle">How long the user has not touched this computer.</param>
     /// <param name="telegramToken">The Telegram bot's token, kept encrypted.</param>
+    /// <param name="pictures">Where the pictures sent to the bot are kept.</param>
+    /// <param name="telegramCards">Where the bot keeps its messages about tasks.</param>
     public RemoteControl(SettingsService settings, IRemoteHost host, RemotePush push, ApiKeyStore telegramToken, Action<Action> onWindow,
-        Func<TimeSpan> idle, Action<string> log)
+        Func<TimeSpan> idle, Action<string> log, string pictures, string telegramCards)
     {
         _settings = settings;
         _host = host;
@@ -36,13 +38,14 @@ public sealed class RemoteControl : IDisposable
         _idle = idle;
         _log = log;
         _telegramToken = telegramToken;
-        _telegram = new TelegramBot(TelegramBot.Over(TelegramHttp, telegramToken.Read, log), host, () => settings.Current.Remote.TelegramChat,
+        _telegram = new TelegramBot(TelegramBot.Over(TelegramHttp, telegramToken.Read, log), TelegramBot.FilesOver(TelegramHttp, telegramToken.Read), host,
+            () => settings.Current.Remote.TelegramChat,
             chat => onWindow(() =>
             {
                 _settings.Current.Remote.TelegramChat = chat;
                 _settings.Save();
                 Paired?.Invoke();
-            }), log);
+            }), log, pictures, telegramCards);
         _pairing = new RemotePairing(settings.Current.Remote.Devices, device => onWindow(() =>
             {
                 _settings.Current.Remote.Devices.Add(device);

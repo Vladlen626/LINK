@@ -116,6 +116,7 @@ public partial class MainWindow
         _receivingSince = null;
         SetSending(true);
         _chatHeardAt = DateTime.UtcNow;
+        SetPicture(false);
         ShowResponse(ChatProgressState.Sending, string.Empty);
         SetStatus("Asking the current chat for a summary…");
         try
@@ -270,6 +271,7 @@ public partial class MainWindow
             {
                 project.LastResponse = new ProjectResponse { ConversationId = conversation.ConversationId, Text = snapshot.Text };
                 _projects.Save();
+                SetPicture(false);
                 ShowResponse(ChatProgressState.Completed, snapshot.Text);
                 SetStatus("Answer taken from the chat");
             }

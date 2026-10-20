@@ -400,7 +400,7 @@ public static class MarkdownText
         parent.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta) { RoutedEvent = UIElement.MouseWheelEvent, Source = sender });
     }
 
-    private static void Open(Uri uri)
+    internal static void Open(Uri uri)
     {
         try
         {

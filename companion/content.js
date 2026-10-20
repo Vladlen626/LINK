@@ -54,8 +54,12 @@ const LOGIN_BUTTONS = '[data-testid="login-button"], [data-login-button], [data-
 // The `i` flag folds only Latin case, so the Russian label is matched as ChatGPT writes it ("Остановить").
 const STOP_BUTTONS = 'button[data-testid="stop-button"], button[data-composer-submit], ' +
   'button[aria-label*="stop" i], button[aria-label*="Останов"], button[aria-label*="останов"]';
-// Status lines that stand in for an answer while ChatGPT thinks or searches.
-const STATUS_LINE = /^(thinking|thought|reasoning|searching|analy[sz]|думаю|думал|размышл|рассужд|ищу|поиск|анализ)/i;
+// Status lines that stand in for an answer while ChatGPT thinks, searches or makes a picture.
+const STATUS_LINE = /^(thinking|thought|reasoning|searching|analy[sz]|creating image|generating image|image created|думаю|думал|размышл|рассужд|ищу|поиск|анализ|создаю изображени|создание изображени|изображение создано)/i;
+// The line ChatGPT shows while it makes a picture: the answer is not done, and LINK shows that a picture is coming.
+const IMAGE_STATUS = /^(creating image|generating image|создаю изображени|создание изображени)/i;
+// A picture of the answer is at least this large on either side; avatars and icons are smaller.
+const IMAGE_MIN_SIDE = 200;
 // ChatGPT's answer modes as its picker names them. Since June 2026 the picker sits in the composer (Instant, Medium,
 // High, Extra High; "Мгновенный", "Средний", "Высокий", "Очень высокий"); the older header picker offered Instant,
 // Auto and Thinking. Extra High is tried first, so it never passes for High.
@@ -927,6 +931,13 @@ async function watchAnswer(job) {
     let told = !job.resumed;
     let promptLookAt = 0;
     let searchedAt = 0;
+    // The answer's pictures (their sources, in page order), whether ChatGPT says it is making one, whether the answer
+    // is a picture and LINK was told so, and when ChatGPT last wrote or drew.
+    let pictures = [];
+    let creating = false;
+    let picture = false;
+    let announced = false;
+    let busyAt = startedAt;
 
     while (true) {
       if (job.stopReason) throw job.stopReason;
@@ -986,23 +997,38 @@ async function watchAnswer(job) {
         const read = readAnswer(response);
         // A long answer is converted less often, so the page keeps its time for ChatGPT.
         readInterval = Math.max(PROGRESS_INTERVAL_MS, (performance.now() - started) * 10);
-        if (read.markdown !== text || read.plain !== plain) {
+        const turn = job.turn ?? response;
+        const seen = answerPictures(turn);
+        creating = !read.markdown && isCreatingImage(turn);
+        if (read.markdown !== text || read.plain !== plain || seen.join("\n") !== pictures.join("\n")) {
           text = read.markdown;
           plain = read.plain;
+          pictures = seen;
           changedAt = now;
         }
+        picture ||= creating || pictures.length > 0;
+      } else if (!response && picture) {
+        // A finished picture may lose the answer's mark: ChatGPT's line for it is looked for in the whole thread.
+        creating = isCreatingImage(job.thread?.isConnected ? job.thread : document.body);
       }
+      const busy = generating || creating;
+      if (busy) busyAt = now;
 
-      // A finished turn settles it even if some Stop-like button lingers. Otherwise only the answer's own text
-      // completes it, never a status such as "Thinking", and only once ChatGPT has stopped writing.
-      const answered = Boolean(text || (plain && !isStatusLine(plain)));
+      // A finished turn settles it even if some Stop-like button lingers. Otherwise only the answer's own text or
+      // pictures complete it, never a status such as "Thinking", and only once ChatGPT has stopped writing. A picture
+      // whose answer the page no longer marks is done once ChatGPT has stopped for a while.
+      const answered = Boolean(text || (plain && !isStatusLine(plain)) || pictures.length);
       const settle = text ? SETTLE_MS : LONG_SETTLE_MS;
       let reason = null;
       if (response && signs.actions) reason = "turn actions";
-      else if (answered && !generating && signs.flagged) reason = "completion flag";
-      else if (answered && !generating && now - changedAt >= settle) reason = text ? "settled" : "settled without Markdown";
-      else if (text && now - changedAt >= STALL_MS && now - page.turnChangedAt() >= STALL_MS) reason = "unchanged for a minute";
-      if (reason) return finishAnswer(job, response, reason, text || plain);
+      else if (answered && !busy && signs.flagged) reason = "completion flag";
+      else if (answered && !busy && now - changedAt >= settle) reason = text ? "settled" : "settled without Markdown";
+      else if ((text || pictures.length) && now - changedAt >= STALL_MS && now - page.turnChangedAt() >= STALL_MS) reason = "unchanged for a minute";
+      else if (picture && !response && !busy && now - busyAt >= LONG_SETTLE_MS) reason = "picture made";
+      if (reason) return finishAnswer(job, response, reason, text || plain, picture);
+
+      // LINK shows that a picture is coming; the picture itself stays in the ChatGPT window.
+      if (picture && !announced) announced = await tell("image");
 
       if (!job.resumed && !job.prompt && !response && !signs.stop && now - job.sentAt >= SEND_CONFIRM_MS) {
         const composer = findComposer();
@@ -1032,7 +1058,7 @@ async function watchAnswer(job) {
 
       let wait = HEARTBEAT_INTERVAL_MS - (Date.now() - eventAt);
       if (response && stale) wait = Math.min(wait, readAt + readInterval - now);
-      if (answered && !generating) wait = Math.min(wait, changedAt + settle - now);
+      if (answered && !busy) wait = Math.min(wait, changedAt + settle - now);
       if (!job.prompt || !response) wait = Math.min(wait, 500);
       await page.next(wait);
     }
@@ -1042,17 +1068,61 @@ async function watchAnswer(job) {
   }
 }
 
-/** The complete answer, read once more; what LINK logs when ChatGPT's own signs of the end were missing. */
-function finishAnswer(job, response, reason, seen) {
-  const read = readAnswer(response);
-  const text = read.markdown || read.plain || seen;
-  if (!text) throw new Error("ChatGPT's answer has no text LINK can show. Look at the ChatGPT page.");
-  const usual = (reason === "turn actions" || reason === "completion flag" || reason === "settled") && read.markdown;
-  return usual ? { text } : { text, diagnostics: JSON.stringify({ completedBy: reason, ...diagnose(job, response) }) };
+/**
+ * The complete answer, read once more; what LINK logs when ChatGPT's own signs of the end were missing. An answer may
+ * be only a picture, which LINK does not copy: it says one was made, to look at in the ChatGPT window.
+ */
+function finishAnswer(job, response, reason, seen, picture) {
+  const read = response ? readAnswer(response) : { markdown: "", plain: "" };
+  let text = read.markdown || read.plain || seen;
+  if (picture && isStatusLine(text)) text = "";
+  if (!text && !picture) throw new Error("ChatGPT's answer has no text LINK can show. Look at the ChatGPT page.");
+  const answer = picture ? { text, picture } : { text };
+  const usual = (reason === "turn actions" || reason === "completion flag" || reason === "settled") && (read.markdown || picture);
+  return usual ? answer : { ...answer, diagnostics: JSON.stringify({ completedBy: reason, ...diagnose(job, response) }) };
 }
 
 function isStatusLine(text) {
   return text.length < 80 && STATUS_LINE.test(text);
+}
+
+/**
+ * The pictures of the answer's turn, as the sources of their images in page order: large ones only, from ChatGPT
+ * itself (its files, blobs or data), not the prompt's. A picture drawn twice (a blurred copy behind it) counts once.
+ */
+function answerPictures(turn) {
+  const sources = [];
+  for (const image of turn?.querySelectorAll("img") ?? []) {
+    if (!isAnswerPicture(image)) continue;
+    const src = image.currentSrc || image.src;
+    if (!sources.includes(src)) sources.push(src);
+  }
+  return sources;
+}
+
+function isAnswerPicture(image) {
+  const src = image.currentSrc || image.src;
+  if (!src || image.closest(USER_MESSAGES) || image.closest('[aria-hidden="true"]') || !isOwnSource(src)) return false;
+  const box = image.getBoundingClientRect();
+  return Math.min(image.naturalWidth || box.width, image.naturalHeight || box.height) >= IMAGE_MIN_SIDE;
+}
+
+// ChatGPT's own files: a picture from another site (a search result's) is not one it made.
+function isOwnSource(src) {
+  try {
+    const url = new URL(src, location.href);
+    return url.protocol === "blob:" || url.protocol === "data:" || url.origin === location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/** ChatGPT's line while it makes a picture ("Creating image"), anywhere in the answer's turn. */
+function isCreatingImage(turn) {
+  for (const element of turn?.querySelectorAll("span, div, p") ?? []) {
+    if (element.childElementCount === 0 && IMAGE_STATUS.test(element.textContent.trim())) return true;
+  }
+  return false;
 }
 
 function watchPage() {
@@ -1065,15 +1135,15 @@ function watchPage() {
     if (turn && records.some(record => turn.contains(record.target))) turnChangedAt = Date.now();
     wake?.();
   });
-  // Text streams in as nodes and characters; Stop and ChatGPT's completion flags change attributes. Classes and styles
-  // change all the time on the page (hover, animations) and would only wake the watch: a Stop hidden by them is seen
-  // at the next heartbeat.
+  // Text streams in as nodes and characters, a picture sharpens through its src; Stop and ChatGPT's completion flags
+  // change attributes. Classes and styles change all the time on the page (hover, animations) and would only wake the
+  // watch: a Stop hidden by them is seen at the next heartbeat.
   observer.observe(document.body, {
     subtree: true,
     childList: true,
     characterData: true,
     attributes: true,
-    attributeFilter: ["aria-label", "data-testid", "data-message-complete", "data-markdown-animated", "hidden"]
+    attributeFilter: ["aria-label", "data-testid", "data-message-complete", "data-markdown-animated", "hidden", "src"]
   });
   return {
     takeChanges() {
@@ -1200,7 +1270,8 @@ function renderInlineNode(node) {
     case "A":
       return renderLink(node);
     case "IMG":
-      return node.getAttribute("alt") ?? "";
+      // The answer's own pictures stay in the ChatGPT window; their alt text is no answer.
+      return isAnswerPicture(node) ? "" : node.getAttribute("alt") ?? "";
     default:
       // Italics and other inline styles stay plain: LINK renders code, bold and links only.
       return renderInline(node);

@@ -331,6 +331,38 @@ public partial class AgentPanel
     private void Escalate_OnClick(object sender, RoutedEventArgs e) => EscalateRequested?.Invoke();
     private void RestartNotNow_OnClick(object sender, RoutedEventArgs e) => ShowRestart(false);
 
+    /// <summary>
+    /// A page the agent opened opens in the browser, served again first by the skill's own command (a review window's
+    /// server ends a while after its tab closes): no agent run for it. One Link cannot bring back is the agent's: the
+    /// words for it wait in the reply box.
+    /// </summary>
+    private async void OpenPage_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: LocalPages.Page page } button) return;
+        button.IsEnabled = false;
+        var address = await LocalPages.ReopenAsync(page, _card?.Workspace)
+            ?? (await LocalPages.IsUpAsync(page.Address) ? page.Address : null);
+        button.IsEnabled = true;
+        if (address is null && _replyShown && !_running)
+        {
+            var words = $"The page {page.Address} does not open any more: open it again.";
+            ReplyBox.Text = ReplyBox.Text.Trim().Length == 0 ? words : ReplyBox.Text.TrimEnd() + "\n" + words;
+            ReplyBox.CaretIndex = ReplyBox.Text.Length;
+            ReplyBox.Focus();
+            return;
+        }
+
+        MarkdownText.Open(address ?? page.Address);
+    }
+
+    // The page's reply ("Apply marks"): the user's work there goes to the agent without typing it; mid-run it waits its turn.
+    private void PageReply_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { DataContext: LocalPages.Page { Reply: { } reply } }) return;
+        if (_running) QueueRequested?.Invoke(reply.Text, []);
+        else if (_replyShown) ContinueRequested?.Invoke(reply.Text, []);
+    }
+
     private void OpenFile_OnClick(object sender, RoutedEventArgs e)
     {
         var path = (sender as FrameworkElement)?.DataContext switch

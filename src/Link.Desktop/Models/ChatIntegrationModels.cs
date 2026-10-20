@@ -43,7 +43,11 @@ public sealed class AvailableChatConversation
 
 public sealed class ChatResponse
 {
+    /// <summary>Empty when the answer is only a picture.</summary>
     public required string Text { get; init; }
+
+    /// <summary>ChatGPT made a picture, which stays in its window to look at there.</summary>
+    public bool Picture { get; init; }
 }
 
 /// <summary>
@@ -76,6 +80,9 @@ public sealed class ChatProgress
 
     /// <summary>With <see cref="ChatProgressState.ChatStarted"/>: the conversation the prompt started.</summary>
     public AvailableChatConversation? StartedConversation { get; init; }
+
+    /// <summary>With <see cref="ChatProgressState.Receiving"/>: ChatGPT is making a picture; the text then is not reported.</summary>
+    public bool Picture { get; init; }
 }
 
 public enum ChatConnectionState

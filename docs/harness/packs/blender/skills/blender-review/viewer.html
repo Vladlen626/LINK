@@ -15,9 +15,10 @@ html, body { margin: 0; height: 100%; background: var(--bg); color: var(--text);
   font: 13px/1.45 "Segoe UI", system-ui, sans-serif; }
 body { display: flex; overflow: hidden; }
 button, input, textarea { font: inherit; color: inherit; }
-button { background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 2px 9px; cursor: pointer; }
+button { background: var(--raise); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; cursor: pointer; }
 button:hover { border-color: #4a5462; }
 button.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+button:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 input[type=number], textarea { background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
 textarea { width: 100%; min-height: 58px; resize: vertical; }
 label { display: inline-flex; align-items: center; gap: 4px; cursor: pointer; color: var(--dim); }
@@ -46,15 +47,39 @@ kbd { font: 11px Consolas, monospace; padding: 0 4px; border: 1px solid var(--li
 #editor .title { color: var(--dim); margin-bottom: 6px; }
 #editor .row { margin-top: 6px; }
 
-aside { width: 350px; flex: none; display: flex; flex-direction: column; background: var(--panel);
-  border-left: 1px solid var(--line); min-height: 0; }
-aside > section { padding: 8px 12px; border-bottom: 1px solid var(--line); }
+aside { width: 360px; flex: none; display: flex; flex-direction: column; background: var(--panel);
+  border-left: 1px solid var(--line); min-height: 0; overflow: auto; }
+aside > section { padding: 10px 14px; border-bottom: 1px solid var(--line); }
 .row { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
 .dim { color: var(--dim); }
 .warn { color: var(--open); }
 .good { color: var(--accepted); }
-h1 { font-size: 14px; margin: 0 0 2px; font-weight: 600; word-break: break-all; }
-#list { flex: 1; overflow: auto; min-height: 80px; }
+h1 { font-size: 15px; margin: 0 0 4px; font-weight: 600; word-break: break-all; }
+h2 { margin: 0 0 7px; font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--dim); }
+.facts { display: grid; grid-template-columns: auto 1fr; gap: 1px 12px; font-size: 12px; }
+.facts > :nth-child(odd) { color: var(--dim); }
+.facts > .all { grid-column: 1 / -1; color: var(--dim); }
+.tools { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+.tools button { display: flex; flex-direction: column; align-items: center; padding: 5px 0 3px; }
+.tools kbd { border: 0; padding: 0; opacity: .6; font-size: 10px; }
+#tip { margin-top: 8px; padding: 6px 9px; border-radius: 6px; background: var(--raise); font-size: 12px;
+  border-left: 3px solid var(--line); }
+#tip.active { border-left-color: var(--accent); }
+#radiusBox { margin-top: 8px; color: var(--text); }
+#radiusBox input { width: 120px; }
+label.off { opacity: .4; pointer-events: none; }
+.hint { color: var(--dim); font-size: 12px; margin-top: 5px; }
+.slider { display: grid; grid-template-columns: 96px 1fr 62px 26px; gap: 6px; align-items: center; margin-top: 3px; }
+.slider > span:first-child { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.slider input { min-width: 0; }
+#sliderStatus.bad { color: var(--danger); white-space: pre-wrap; max-height: 90px; overflow: auto; }
+.marks { display: flex; align-items: center; gap: 6px; }
+.marks h2 { margin: 0; }
+.marks #counts { flex: 1; font-size: 12px; }
+.empty { padding: 12px 14px; color: var(--dim); }
+.empty ol { margin: 6px 0 8px; padding-left: 18px; color: var(--text); }
+#list { flex: 1; overflow: auto; min-height: 120px; }
 .note { padding: 7px 12px 8px 10px; border-left: 3px solid var(--c); cursor: pointer; border-bottom: 1px solid #23272f; }
 .note:hover { background: #20242c; }
 .note.sel { background: #252a34; }
@@ -91,26 +116,37 @@ footer { padding: 7px 12px; color: var(--dim); font-size: 12px; border-top: 1px 
     <div class="title"></div>
     <div class="row measure"><span class="dim">Should be</span> <input type="number" id="target" min="0" step="1"
       style="width: 90px"> <span class="dim">mm</span></div>
-    <textarea id="text" placeholder="What to change here"></textarea>
-    <div class="row"><button id="save" class="on">Save</button> <button id="cancel">Cancel</button>
+    <textarea id="text" placeholder="What to change here, e.g. a deeper tread"></textarea>
+    <div class="row"><button id="save" class="on">Save mark</button> <button id="cancel">Cancel</button>
       <span class="dim"><kbd>Enter</kbd> save, <kbd>Esc</kbd> cancel</span></div>
   </div>
 </div>
 <aside>
   <section>
     <h1 id="name">Model review</h1>
-    <div id="info" class="dim">Waiting for the model…</div>
+    <div id="info" class="facts"><span class="all">Waiting for the model…</span></div>
+  </section>
+  <section id="adjust" style="display: none">
+    <h2>Adjust the build</h2>
+    <div id="sliders"></div>
+    <div class="row" style="margin-top: 8px"><button id="slidersReset" title="The build script's own values">Reset</button>
+      <span id="sliderStatus" class="hint" style="flex: 1; margin: 0"></span></div>
   </section>
   <section>
-    <div class="row">
-      <button data-tool="orbit" title="Orbit (Q)">Orbit</button>
-      <button data-tool="point" title="Mark a point (P)">Point</button>
-      <button data-tool="area" title="Paint an area (A)">Area</button>
-      <button data-tool="measure" title="Measure between two points (M)">Measure</button>
-      <label id="radiusBox" title="Brush radius ([ and ])">r <input type="range" id="radius" min="0.2" max="15" step="0.1"
-        style="width: 70px"> <span id="radiusText"></span></label>
+    <h2>Mark what to change</h2>
+    <div class="tools">
+      <button data-tool="orbit" title="Just look: drag turns the model, nothing is marked (Q)">Look<kbd>Q</kbd></button>
+      <button data-tool="point" title="Mark a point (P)">Point<kbd>P</kbd></button>
+      <button data-tool="area" title="Paint an area (A)">Area<kbd>A</kbd></button>
+      <button data-tool="measure" title="Measure between two points (M)">Measure<kbd>M</kbd></button>
     </div>
-    <div class="row" style="margin-top: 6px">
+    <div id="tip"></div>
+    <label id="radiusBox" title="Brush size ([ and ])">Brush <input type="range" id="radius" min="0.2" max="15"
+      step="0.1"> <span id="radiusText"></span> <kbd>[</kbd> <kbd>]</kbd></label>
+  </section>
+  <section>
+    <h2>View</h2>
+    <div class="row">
       <button data-view="front" title="Front (1, Ctrl+1 back)">Front</button>
       <button data-view="right" title="Right (3, Ctrl+3 left)">Side</button>
       <button data-view="top" title="Top (7, Ctrl+7 bottom)">Top</button>
@@ -118,32 +154,38 @@ footer { padding: 7px 12px; color: var(--dim); font-size: 12px; border-top: 1px 
       <button id="ortho" title="Orthographic (5)">Ortho</button>
       <button id="frame" title="Frame all (F)">Frame</button>
     </div>
-    <div class="row" style="margin-top: 6px">
+    <div class="row" style="margin-top: 8px">
       <label title="Wireframe (W)"><input type="checkbox" id="wire"> Wire</label>
       <label title="Flat shading"><input type="checkbox" id="flat"> Flat</label>
       <label title="Back faces in red: inverted normals and holes"><input type="checkbox" id="back" checked> Backfaces</label>
-      <label title="Check issues on the model"><input type="checkbox" id="issues" checked> Issues</label>
-    </div>
-    <div class="row" style="margin-top: 4px">
-      <label title="The previous revision as a ghost; hold B to see it instead"><input type="checkbox" id="prev"> Previous</label>
-      <label title="Reference model as a ghost (R)"><input type="checkbox" id="ref" checked> Ref model</label>
-      <label title="Reference image over the view (I); Alt+drag moves it, Alt+wheel scales it"><input type="checkbox"
-        id="imgOn" checked> Image</label>
-      <input type="range" id="imgAlpha" min="0" max="1" step="0.05" value="0.5" style="width: 70px"
-        title="Image opacity">
+      <label title="Pins where the model check found a problem"><input type="checkbox" id="issues" checked> Issues</label>
     </div>
   </section>
-  <section class="row">
-    <button data-filter="active">Active</button><button data-filter="all">All</button>
-    <span id="counts" class="dim"></span>
+  <section>
+    <h2>Compare</h2>
+    <div class="row">
+      <label id="prevBox" title="The previous revision as a ghost; hold B to see it instead"><input type="checkbox"
+        id="prev"> Previous revision</label>
+      <label id="refBox" title="Reference model as a ghost (R)"><input type="checkbox" id="ref" checked> Reference
+        model</label>
+      <label id="imgBox" title="Reference image over the view (I); Alt+drag moves it, Alt+wheel scales it"><input
+        type="checkbox" id="imgOn" checked> Reference image <input type="range" id="imgAlpha" min="0" max="1"
+        step="0.05" value="0.5" style="width: 70px" title="Image opacity"></label>
+    </div>
+    <div id="refHint" class="hint">Drop a .glb or a picture on the view to compare the model with it.</div>
+  </section>
+  <section class="marks">
+    <h2>Marks</h2><span id="counts" class="dim"></span>
+    <button data-filter="active" title="Hide accepted and declined marks">Current</button><button
+      data-filter="all">All</button>
   </section>
   <div id="list"></div>
   <section>
     <details id="checkBox"><summary>Check</summary><ul id="checks"></ul></details>
     <details id="objectBox"><summary>Objects</summary><ul id="objects"></ul></details>
   </section>
-  <footer>Drop an image or a .glb to set the reference. Drag orbits, right drag or Shift+drag pans, wheel zooms;
-    hold <kbd>B</kbd> for the previous revision.</footer>
+  <footer>Drag turns, right drag or Shift+drag pans, wheel zooms, <kbd>F</kbd> frames the model; hold <kbd>B</kbd>
+    for the previous revision.</footer>
 </aside>
 <script>
 'use strict';
@@ -385,8 +427,9 @@ function release(layer) {
 }
 
 // ---- State
-const PALETTE = [[0.80, 0.82, 0.86], [0.70, 0.80, 0.92], [0.88, 0.80, 0.68], [0.72, 0.87, 0.75], [0.90, 0.75, 0.80],
-  [0.80, 0.75, 0.92], [0.68, 0.85, 0.87], [0.90, 0.85, 0.64]];
+// Clay with a faint tint per object: the parts stay apart, and the orange paint and coloured pins stand out on all.
+const PALETTE = [[0.78, 0.79, 0.81], [0.70, 0.73, 0.78], [0.80, 0.77, 0.72], [0.72, 0.77, 0.73], [0.77, 0.73, 0.75],
+  [0.74, 0.73, 0.79], [0.70, 0.76, 0.77], [0.79, 0.77, 0.70]];
 const S = {
   folder: '', files: {}, state: {}, notes: [], notesKey: '', report: null, tool: 'orbit', filter: 'active',
   selected: null, draft: null, hidden: new Set(), showPrev: false, hover: null, image: null,
@@ -719,6 +762,12 @@ function setTool(t) {
   S.tool = t;
   for (const b of document.querySelectorAll('[data-tool]')) b.classList.toggle('on', b.dataset.tool === t);
   $('#radiusBox').style.display = t === 'area' ? '' : 'none';
+  const tips = { orbit: 'Looking only: drag turns the model, the wheel zooms. Pick Point, Area or Measure to mark a change.',
+    point: 'Click the model where something should change, then write what.',
+    area: 'Paint over the part; let go to write what to change. Esc goes back to Look.',
+    measure: 'Click two points on the model, then type the length it should be.' };
+  $('#tip').textContent = tips[t];
+  $('#tip').classList.toggle('active', t !== 'orbit');
   canvas.style.cursor = t === 'orbit' ? 'grab' : 'crosshair';
   hud();
   redraw();
@@ -729,7 +778,7 @@ function hud() {
   const parts = [];
   if (S.showPrev) parts.push('PREVIOUS revision');
   if (S.hover && S.tool !== 'area') parts.push(S.hover.ob.name);
-  if (tips[S.tool]) parts.push(tips[S.tool] + ' · Esc back to orbit');
+  if (tips[S.tool]) parts.push(tips[S.tool] + ' · Esc back to Look');
   $('#hud').textContent = parts.join(' · ');
 }
 function paintAt(x, y) {
@@ -846,7 +895,10 @@ function frameAll() {
   if (!b) return;
   cam.radius = b.radius;
   cam.target = b.center;
-  cam.dist = b.radius / Math.sin(cam.fov / 2) * 1.05;
+  // Fit the narrower of the two angles: a tall, narrow view cuts the model at the sides otherwise.
+  const a = (canvas.clientWidth || 1) / (canvas.clientHeight || 1);
+  const half = Math.min(cam.fov / 2, Math.atan(Math.tan(cam.fov / 2) * a));
+  cam.dist = b.radius / Math.sin(half) * 1.1;
   redraw();
 }
 function setView(name, opposite) {
@@ -869,6 +921,7 @@ function focusOn(p) {
 
 // ---- Server
 async function post(path, body, type) {
+  if (S.lost) throw new Error('another review');
   const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': type || 'application/json' },
     body: type ? body : JSON.stringify(body) });
   const data = await r.json().catch(() => ({}));
@@ -907,7 +960,15 @@ async function refresh() {
   try {
     st = await (await fetch('/api/state?page=1', { cache: 'no-store' })).json();
   } catch (e) {
-    $('#info').textContent = 'The server is not running: ask the agent to open the review again.';
+    say('The server is not running: open the review again from Link.');
+    return;
+  }
+  // The server stops itself when nobody looks, and another asset's server may take its port: never show or mark that one
+  if (S.folder && st.folder !== S.folder) {
+    S.lost = true;
+    const text = 'This address now serves another review (' + st.name + '): open this one again from Link.';
+    say(text);
+    banner(text, true);
     return;
   }
   const old = S.files, f = st.files, first = !S.folder;
@@ -931,10 +992,55 @@ async function refresh() {
   if (imgSrc !== (S.image && S.image.src || '')) setImage(imgSrc);
   const key = JSON.stringify(st.notes);
   if (key !== S.notesKey) applyNotes(st.notes);
+  renderSliders(st.sliders);
   renderInfo();
+  renderCompare();
   renderChecks();
   redraw();
 }
+
+// ---- Sliders: the build script's parameters; a change builds the model again in Blender, with no agent run
+function renderSliders(s) {
+  S.sliders = s;
+  $('#adjust').style.display = s ? '' : 'none';
+  if (!s) { S.slidersKey = ''; return; }
+  const key = JSON.stringify([s.script, s.params]);
+  if (key !== S.slidersKey) {
+    S.slidersKey = key;
+    $('#sliders').replaceChildren(...s.params.map(p => {
+      const row = el('div', 'slider'), range = el('input'), num = el('input');
+      row.title = p.what || p.name;
+      range.type = 'range';
+      num.type = 'number';
+      for (const input of [range, num]) Object.assign(input, { min: p.min, max: p.max });
+      range.step = p.int ? 1 : +((p.max - p.min) / 100).toPrecision(2);
+      num.step = p.int ? 1 : 'any';
+      range.dataset.name = num.dataset.name = p.name;
+      range.oninput = () => { num.value = +(+range.value).toFixed(4); };
+      // On release, not while dragging: each value is a build in Blender.
+      range.onchange = num.onchange = e => { range.value = num.value = e.target.value; sendSliders(); };
+      row.append(el('span', '', p.name), range, num, el('span', 'dim', p.unit || ''));
+      return row;
+    }));
+  }
+  for (const input of $('#sliders').querySelectorAll('input'))
+    if (document.activeElement !== input) input.value = s.values[input.dataset.name];
+  const run = s.run || {}, status = $('#sliderStatus');
+  status.className = 'hint' + (run.state === 'failed' ? ' bad' : '');
+  status.textContent = run.state === 'running' ? 'Building in Blender…'
+    : run.state === 'failed' ? 'Not built: ' + run.message
+    : run.state === 'ok' ? 'Built in ' + run.seconds + ' s.'
+    : 'Move a slider: Blender builds the model again, with no agent run.';
+}
+async function sendSliders(values) {
+  if (!values) {
+    values = {};
+    for (const input of $('#sliders').querySelectorAll('input[type=range]')) values[input.dataset.name] = +input.value;
+  }
+  renderSliders(await post('/api/sliders', { values }));
+}
+$('#slidersReset').onclick = () =>
+  sendSliders(Object.fromEntries(S.sliders.params.map(p => [p.name, p.default])));
 function applyNotes(notes) {
   S.notesKey = JSON.stringify(notes);
   S.notes = notes;
@@ -973,20 +1079,30 @@ document.addEventListener('drop', async e => {
 });
 
 // ---- The side panel
+function say(text) {
+  $('#info').replaceChildren(el('span', 'all', text));
+}
 function renderInfo() {
-  const r = S.report, st = S.state, parts = [];
-  if (st.rev) parts.push('rev ' + st.rev + (st.time ? ' · ' + st.time.replace('T', ' ').slice(5, 16) : ''));
+  const r = S.report, st = S.state, rows = [];
+  if (!layers.model) return say('No model yet: the agent publishes it with publish.py.');
+  if (st.rev) rows.push(['Revision', st.rev + (st.time ? ' · ' + st.time.replace('T', ' ').slice(5, 16) : '')]);
   if (r) {
-    let tris = r.tris + ' tris';
-    if (r.tris_budget) tris += ' / ' + r.tris_budget;
-    parts.push(tris);
-    let size = r.size.map(v => v.toFixed(2)).join(' × ') + ' m';
-    if (r.size_target) size += ' (target ' + r.size_target.map(v => v == null ? '?' : v).join(' × ') + ')';
-    parts.push(size);
+    const count = v => v.toLocaleString('en-US'), over = r.tris_budget && r.tris > r.tris_budget;
+    rows.push(['Triangles', count(r.tris) + (r.tris_budget ? ' of ' + count(r.tris_budget) + (over ? ' · over budget' : ' ✓')
+      : ''), over ? 'warn' : '']);
+    const off = (r.size_target || []).map((v, a) => [a, v ? Math.round((r.size[a] / v - 1) * 100) : 0])
+      .filter(d => d[1]).map(([a, d]) => 'XYZ'[a] + ' ' + (d > 0 ? '+' : '') + d + '%').join(', ');
+    rows.push(['Size', r.size.map(v => v.toFixed(3)).join(' × ') + ' m' + (r.size_target && !off ? ' ✓ target' : '')]);
+    if (off) rows.push(['Target', r.size_target.map(v => v || '–').join(' × ') + ' m · off ' + off]);
   }
-  const info = $('#info');
-  info.textContent = layers.model ? parts.join(' · ') : 'No model yet: the agent publishes it with publish.py.';
-  if (r && r.tris_budget && r.tris > r.tris_budget) info.classList.add('warn'); else info.classList.remove('warn');
+  $('#info').replaceChildren(...rows.flatMap(([k, v, cls]) => [el('span', '', k), el('span', cls || '', v)]));
+}
+// What there is to compare with: the rest is greyed out, and how to add a reference is said while there is none.
+function renderCompare() {
+  $('#prevBox').classList.toggle('off', !S.files['model.prev.glb']);
+  $('#refBox').classList.toggle('off', !layers.ref);
+  $('#imgBox').classList.toggle('off', !S.image);
+  $('#refHint').style.display = layers.ref || S.image ? 'none' : '';
 }
 function renderChecks() {
   const list = $('#checks'), items = (S.report && S.report.issues) || [];
@@ -1018,12 +1134,18 @@ function renderNotes() {
   S.pendingRender = false;
   const counts = {};
   for (const n of S.notes) counts[n.status] = (counts[n.status] || 0) + 1;
-  $('#counts').textContent = Object.entries(counts).map(([k, v]) => v + ' ' + k).join(' · ') || 'no marks yet';
+  $('#counts').textContent = Object.entries(counts).map(([k, v]) => v + ' ' + k).join(' · ');
   for (const b of document.querySelectorAll('[data-filter]')) b.classList.toggle('on', b.dataset.filter === S.filter);
   const notes = visibleNotes();
   if (!notes.length) {
-    list.replaceChildren(el('div', 'dim', S.notes.length ? '' : 'Pick Point, Area or Measure and mark the model.'));
-    list.firstChild.style.padding = '10px 12px';
+    const empty = el('div', 'empty', S.notes.length ? 'All marks are closed: All shows them.' : 'No marks yet.');
+    if (!S.notes.length) {
+      const steps = el('ol');
+      for (const s of ['Pick Point, Area or Measure above.', 'Click or paint on the model.',
+        'Write what to change and save the mark.']) steps.append(el('li', '', s));
+      empty.append(steps, 'The agent reads the open marks at its next step, or when you tell it to look.');
+    }
+    list.replaceChildren(empty);
     return;
   }
   list.replaceChildren(...notes.slice().reverse().map(noteItem));
@@ -1125,13 +1247,13 @@ $('#imgAlpha').oninput = placeImage;
 $('#radius').value = 2.5;
 $('#radius').oninput = () => {
   $('#radiusText').textContent = (brushRadius() * 1000).toFixed(0) + ' mm';
-  if (S.draft && S.draft.kind === 'area' && !S.draft.points.length) S.draft.radius = brushRadius();
+  if (S.draft && S.draft.kind === 'area' && !S.draft.strokes.length) S.draft.radius = brushRadius();
   redraw();
 };
 new ResizeObserver(redraw).observe($('#view'));
 
 if (!gl) {
-  $('#info').textContent = 'This browser has no WebGL 2.';
+  say('This browser has no WebGL 2.');
 } else {
   initGl();
   setTool('orbit');

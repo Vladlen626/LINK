@@ -282,7 +282,8 @@ public partial class SettingsWindow : Window
             ShowClaudeAccounts();
             await SignInClaudeAsync();
         }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception)
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or System.ComponentModel.Win32Exception
+                                              or InvalidOperationException)
         {
             ClaudeStatusText.Text = $"Could not add the account: {exception.Message}";
         }
@@ -294,13 +295,13 @@ public partial class SettingsWindow : Window
         {
             await SignInClaudeAsync();
         }
-        catch (System.ComponentModel.Win32Exception exception)
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
-            ClaudeStatusText.Text = $"Could not open the sign-in: {exception.Message}";
+            ClaudeStatusText.Text = $"Could not start the sign-in: {exception.Message}";
         }
     }
 
-    /// <summary>The chosen account's sign-in in a console; the status is checked again when it closes.</summary>
+    /// <summary>The chosen account's sign-in in Link's own window; the status is checked again when it closes.</summary>
     private async Task SignInClaudeAsync()
     {
         if (AgentExecutables.Find(AgentProviderKind.ClaudeCode, _agentPaths.ClaudePath) is not { } executable)
@@ -309,8 +310,7 @@ public partial class SettingsWindow : Window
             return;
         }
 
-        ClaudeStatusText.Text = "Signing in: finish it in the browser…";
-        await ClaudeAccounts.SignInAsync(executable, _agentPaths.ClaudeAccount);
+        ClaudeSignInWindow.Run(this, executable, _agentPaths.ClaudeAccount);
         await CheckAgentsAsync();
     }
 
@@ -568,7 +568,8 @@ public partial class SettingsWindow : Window
             ?? assembly.GetName().Version?.ToString()
             ?? "unknown";
         var buildId = assembly.ManifestModule.ModuleVersionId.ToString("N")[..8];
-        return $"{version} · build {buildId}";
+        // The SDK adds the commit after "+": the build id already tells one build from another.
+        return $"{version.Split('+')[0]} · build {buildId}";
     }
 
     private void HotkeyButton_OnClick(object sender, RoutedEventArgs e)

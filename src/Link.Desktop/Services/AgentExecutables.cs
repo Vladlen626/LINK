@@ -1,4 +1,6 @@
+using System.Runtime.InteropServices;
 using Link.Desktop.Models;
+using Windows.Management.Deployment;
 
 namespace Link.Desktop.Services;
 
@@ -8,6 +10,8 @@ namespace Link.Desktop.Services;
 /// </summary>
 public static class AgentExecutables
 {
+    private const string CodexPackageFamily = "OpenAI.Codex_2p2nqsd0c76g0";
+
     public static string? Find(AgentProviderKind provider, string? chosenPath)
     {
         if (chosenPath is not null) return File.Exists(chosenPath) ? chosenPath : null;
@@ -56,6 +60,26 @@ public static class AgentExecutables
             // npm's codex.cmd starts this exe through node; the exe itself needs no node.
             yield return Path.Combine(roaming, "npm", "node_modules", "@openai", "codex", "node_modules",
                 "@openai", "codex-win32-x64", "vendor", "x86_64-pc-windows-msvc", "codex", "codex.exe");
+            // The Codex app from the Microsoft Store keeps the CLI in its package, whose folder cannot be listed.
+            if (PackageFolder(CodexPackageFamily) is { } package)
+            {
+                yield return Path.Combine(package, "app", "resources", "codex.exe");
+            }
+        }
+    }
+
+    /// <summary>Where Windows installed a Store app's package for this user; null when it is not installed.</summary>
+    private static string? PackageFolder(string familyName)
+    {
+        try
+        {
+            return new PackageManager().FindPackagesForUser(string.Empty, familyName)
+                .Select(package => package.InstalledPath)
+                .FirstOrDefault();
+        }
+        catch (Exception exception) when (exception is COMException or UnauthorizedAccessException)
+        {
+            return null;
         }
     }
 

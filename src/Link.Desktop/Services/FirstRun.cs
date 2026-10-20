@@ -2,7 +2,7 @@ using Link.Desktop.Models;
 
 namespace Link.Desktop.Services;
 
-/// <summary>What the first-run window tells about an agent's CLI. Link neither installs nor signs in to an agent.</summary>
+/// <summary>What the first-run window tells about an agent's CLI. Link installs no agent; Claude Code signs in from Settings.</summary>
 public static class FirstRun
 {
     /// <summary>Where the agent's CLI is installed from.</summary>
@@ -14,11 +14,11 @@ public static class FirstRun
     public static string Status(AgentProviderKind kind, AgentProviderStatus status)
     {
         if (!status.Installed) return "Not found";
-        var signIn = kind == AgentProviderKind.Codex ? "codex login" : "claude auth login";
+        var signIn = kind == AgentProviderKind.Codex ? "run 'codex login' once" : "Settings → Sign in";
         return status.SignedIn switch
         {
             true => "Found, signed in",
-            false => $"Found, not signed in: run '{signIn}' once",
+            false => $"Found, not signed in: {signIn}",
             null => "Found, sign-in unknown"
         };
     }

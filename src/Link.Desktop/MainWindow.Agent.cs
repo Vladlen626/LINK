@@ -26,6 +26,10 @@ public partial class MainWindow
     private static readonly Regex ServiceError = new(
         @"\bAPI Error\b|Failed to authenticate|overloaded_error|Internal server error|ECONNRESET|ETIMEDOUT|stream disconnected",
         RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+    // Claude Code that Link runs signs in apart from the Claude app: without it a run ends at once on these words.
+    private static readonly Regex SignedOut = new(
+        @"\bNot logged in\b|Please run /login|OAuth token has expired",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
     private static readonly TimeSpan ActivityFlush = TimeSpan.FromMilliseconds(100);
     // So many of the task's last steps are kept with it, for an agent that takes it over.
     private const int StepsHandedOn = 40;
@@ -59,7 +63,7 @@ public partial class MainWindow
     // The specialist's name in the header, which is drawn at every tick of a run: its file is read once, not at each.
     private (string? Id, string? Workspace, string? Name) _roleName;
     // The project's stats for the inspector, which reads them again only after a task is saved.
-    private (Guid Project, IReadOnlyList<StatsRow> Rows, IReadOnlyList<string> TeamVsSolo)? _stats;
+    private (Guid Project, IReadOnlyList<StatsRow> Rows, IReadOnlyList<string> TeamVsSolo, IReadOnlyList<string> Reflection)? _stats;
 
     /// <summary>
     /// The agent a new card, the map and Link's own answers start on: Settings' default, or the other one only while the
@@ -881,12 +885,15 @@ public partial class MainWindow
         var checkFailed = !stopped && run.Check is { Passed: false };
         var limitReached = !result.Succeeded && !stopped &&
                            (LimitReached.IsMatch(result.Summary) || _limits.ReachedUntil(task.Provider) is not null);
+        var signedOut = !result.Succeeded && !stopped && !limitReached && task.Provider == AgentProviderKind.ClaudeCode &&
+                        SignedOut.IsMatch(result.Summary);
         // The service, not the work, failed (a sign-in, an API or network error): the same words go again once it is back.
-        var serviceError = !result.Succeeded && !stopped && !limitReached && ServiceError.IsMatch(result.Summary);
+        var serviceError = !result.Succeeded && !stopped && !limitReached && (signedOut || ServiceError.IsMatch(result.Summary));
         // A limit or a service error is no failure of the work: Auto effort does not raise the next run for it, and no
         // critic judges it.
         var ending = stopped ? $"Stopped after {elapsed}"
             : limitReached ? $"Stopped at the usage limit after {elapsed}"
+            : signedOut ? "Not signed in"
             : serviceError ? $"Stopped by a service error after {elapsed}"
             : !result.Succeeded ? $"Failed after {elapsed}"
             : checkFailed ? $"Check failed after {elapsed}"
@@ -894,8 +901,10 @@ public partial class MainWindow
         // The lead's plan is the plan card and its verdict a line of the thread: the answer is shown and kept without them.
         var answer = record.Mode is TaskMode.Team or TaskMode.Training ? TeamPlan.WithoutBlocks(result.Summary) : result.Summary;
         var (answerText, question) = AgentQuestion.Split(answer);
-        // The changelist's line is for P4V and the next step is for Link's Auto effort; the thread shows the answer without them.
-        var said = AgentChanges.SplitChangelistLine(AgentNext.Split(answerText).Text).Text;
+        // The changelist's line is for P4V, the next step for Link's Auto effort and the pages for their buttons; the thread
+        // shows the answer without them.
+        var (unpaged, pages) = LocalPages.Split(AgentNext.Split(answerText).Text);
+        var said = AgentChanges.SplitChangelistLine(unpaged).Text;
         // A question is asked by a run that ended well; one cut short asks nothing.
         work.Question = !stopped && result.Succeeded && !checkFailed ? question : null;
         var text = checkFailed ? CheckReport(task, run.Check!) + (said.Length > 0 ? "\n\n" + said : string.Empty) : said;
@@ -915,11 +924,18 @@ public partial class MainWindow
         turn.Outcome = ending;
         turn.OutcomeBrush = OutcomeBrush(ending);
         turn.Said = text;
+        turn.Pages = pages;
         turn.Files = run.Changes.Select(change => ToChangeRow(change, record.Workspace)).ToArray();
         turn.Stats = StatsLine(result.Stats) + SpentLine(task.Provider, spent);
         turn.StepsOpen = false;
 
         var decision = OfferDecision(work, run);
+        if (signedOut)
+        {
+            OfferSignIn(work, run);
+            decision = true;
+        }
+
         var needsYou = decision || work.Question is not null;
         RecordRun(work, live, run, ending, text, checkFailed ? text : answer, needsYou, stopped || serviceError, checkFailed, spent);
         // The header counts the lines of one task, the open one: another's are counted when it is opened.
@@ -988,6 +1004,49 @@ public partial class MainWindow
             : $"{provider.Name}: {ending.ToLowerInvariant()} · {Plural(run.Changes.Count, "file")} changed");
         NoStopSoon(work);
         _ = RefreshSpentAsync(now: false);
+    }
+
+    /// <summary>
+    /// Claude Code is not signed in on this computer: the card signs it in and runs the same task again. No-stop leaves
+    /// it to the user, whose browser it opens.
+    /// </summary>
+    private void OfferSignIn(TaskWork work, AgentRun failed) => OfferChoice(work,
+        "Claude Code is not signed in on this computer: Link runs it apart from the Claude app, so it signs in once on its own.",
+        "Sign in to Claude",
+        canRemember: false,
+        () => _ = SignInAndRunAgainAsync(work, failed),
+        noStop: false);
+
+    private async Task SignInAndRunAgainAsync(TaskWork work, AgentRun failed)
+    {
+        // The window waits for the user: whoever took the card (a phone, say) is answered first.
+        await Task.Yield();
+        var setup = _settings.Current.Agent;
+        if (AgentExecutables.Find(AgentProviderKind.ClaudeCode, setup.ClaudePath) is not { } executable)
+        {
+            SetError("Claude Code is not found. Install it, or choose its file in Settings.");
+            OfferSignIn(work, failed);
+            return;
+        }
+
+        try
+        {
+            ClaudeSignInWindow.Run(_studio is { IsVisible: true } studio ? studio : this, executable, setup.ClaudeAccount);
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
+        {
+            SetError($"The sign-in could not start: {exception.Message}");
+        }
+
+        var status = await _agents.Provider(AgentProviderKind.ClaudeCode).CheckAsync(setup, CancellationToken.None);
+        if (status.SignedIn != true || !_works.Contains(work))
+        {
+            if (_works.Contains(work)) OfferSignIn(work, failed);
+            return;
+        }
+
+        work.Record.Add(AgentEntryKind.Note, "Signed in to Claude: the run goes again");
+        _ = StartAgentAsync(work, failed.Task, failed.Task.ResumeSessionId is null ? null : failed);
     }
 
     /// <summary>The agent could not start: why, in its thread; another agent can still take the task.</summary>
@@ -1258,6 +1317,7 @@ public partial class MainWindow
             ToolRules = workspace is null ? [] : AgentCoordinator.Tools(project, workspace),
             Stats = ProjectStats(project, workspace),
             TeamVsSolo = _stats?.TeamVsSolo ?? [],
+            Reflection = _stats?.Reflection ?? [],
             AgentName = AgentName
         });
     }
@@ -1270,7 +1330,8 @@ public partial class MainWindow
         var tasks = _projects.ReadAgentTasks(project);
         var rows = AgentStatsReport.For(tasks, AgentName,
             id => id is null ? "General" : roles.FirstOrDefault(role => string.Equals(role.Id, id, StringComparison.OrdinalIgnoreCase))?.Name ?? id);
-        _stats = (project.Id, rows, TeamVsSolo.Lines(tasks, _settings.Current.Agent.DefaultProvider));
+        _stats = (project.Id, rows, TeamVsSolo.Lines(tasks, _settings.Current.Agent.DefaultProvider),
+            Reflection.Lines(tasks, [.. ProjectSkills.In(workspace).Select(skill => skill.Name)], DateTimeOffset.Now));
         return rows;
     }
 
@@ -1483,7 +1544,7 @@ public partial class MainWindow
             .Append(record.LastRun is { } last ? $" ({AgentName(last.Provider)}, {last.Outcome.ToLowerInvariant()})" : string.Empty)
             .Append(files.Length > 0 ? "\n\nChanged files:\n" + string.Join('\n', files) : "\n\nNo files changed.");
         if (record.LastCheck is { } check) text.Append("\n\nCheck:\n").Append(check);
-        if (AgentNext.Split(AgentQuestion.Split(run.Result.Summary).Text).Text.Trim() is { Length: > 0 } words) text.Append("\n\nThe agent's last words:\n").Append(Shorten(words, 1500));
+        if (LocalPages.Split(AgentNext.Split(AgentQuestion.Split(run.Result.Summary).Text).Text).Text.Trim() is { Length: > 0 } words) text.Append("\n\nThe agent's last words:\n").Append(Shorten(words, 1500));
         if (diff is not null) text.Append("\n\nThe diff:\n```diff\n").Append(diff).Append("\n```");
         foreach (var old in _context.Where(item => item.Type == ContextItemType.AgentResult).ToArray()) _context.Remove(old);
         AddContext(new ContextItem

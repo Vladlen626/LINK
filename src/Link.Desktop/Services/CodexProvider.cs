@@ -195,14 +195,28 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
     private static string WindowOf(long minutes) => minutes switch { 300 => "5 h", 10080 => "week", > 0 => $"{minutes / 60} h", _ => "window" };
 
     /// <summary>
-    /// Codex's exec events carry no rate limits and no context size; its own log of the session does, so they are read
-    /// from there.
+    /// Codex's exec events carry no rate limits, no context size and no images it made; its own log of the session
+    /// does, so they are read from there.
     /// </summary>
     protected override IReadOnlyList<AgentEvent> AfterRun(AgentResult result)
     {
         if (result.SessionId is not { } session) return [];
-        var (limits, context) = SessionReport(Path.Combine(CodexHome, "sessions"), session);
+        // A session that goes on keeps its earlier runs' images in the same log: only this run's are its own.
+        var startedAt = DateTimeOffset.Now - result.Stats.Duration - TimeSpan.FromSeconds(5);
+        var (limits, context, images) = SessionReport(Path.Combine(CodexHome, "sessions"), session, startedAt);
         var events = new List<AgentEvent>();
+        foreach (var image in images)
+        {
+            var line = image.Prompt.Split('\n', 2)[0].Trim();
+            events.Add(new AgentEvent(AgentEventKind.Tool, "Image: " + (line.Length <= 110 ? line : line[..109] + "…"), "imagegen")
+            {
+                IsWork = true,
+                Arguments = image.Prompt.Length <= 2000 ? image.Prompt : image.Prompt[..2000],
+                Image = image.Path
+            });
+            if (image.Path is null) events.Add(new AgentEvent(AgentEventKind.ToolFailed, image.Failure ?? "Codex did not make the image.", "imagegen"));
+        }
+
         if (limits.Count > 0) events.Add(new AgentEvent(AgentEventKind.Limit, "Usage reported") { Limits = limits });
         if (context is not null) events.Add(context);
         return events;
@@ -211,30 +225,64 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
     /// <summary>
     /// What Codex last wrote into its log of a session (<c>rollout-…-&lt;session&gt;.jsonl</c>) in a token count: the
     /// 5-hour and weekly windows (<c>rate_limits</c>) and the context now (<c>last_token_usage</c> with the model's
-    /// window). Only those lines are looked at; nothing else of the session is read.
+    /// window); and the images its <c>image_gen</c> tool finished since <paramref name="imagesSince"/>. Only those lines
+    /// are looked at; nothing else of the session is read.
     /// </summary>
-    internal static (IReadOnlyList<AgentLimit> Limits, AgentEvent? Context) SessionReport(string sessionsFolder, string session)
+    internal static (IReadOnlyList<AgentLimit> Limits, AgentEvent? Context, IReadOnlyList<CodexImage> Images) SessionReport(
+        string sessionsFolder, string session, DateTimeOffset? imagesSince = null)
     {
         try
         {
             var file = Directory.Exists(sessionsFolder)
                 ? Directory.EnumerateFiles(sessionsFolder, $"rollout-*{session}.jsonl", SearchOption.AllDirectories).FirstOrDefault()
                 : null;
-            if (file is null) return ([], null);
+            if (file is null) return ([], null, []);
             string? limits = null, count = null;
+            var images = new List<CodexImage>();
             foreach (var line in File.ReadLines(file))
             {
                 if (line.Contains("\"rate_limits\"") && line.Contains("\"codex\"")) limits = line;
                 if (line.Contains("\"token_count\"") && line.Contains("\"last_token_usage\"")) count = line;
+                if (imagesSince is { } since && line.Contains("\"image_gen.generation\"") && line.Contains("\"item_completed\"") &&
+                    ImageIn(line, since) is { } image)
+                {
+                    images.Add(image);
+                }
             }
 
-            return (limits is null ? [] : LimitsIn(limits), count is null ? null : ContextIn(count));
+            return (limits is null ? [] : LimitsIn(limits), count is null ? null : ContextIn(count), images);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
-            return ([], null);
+            return ([], null, []);
         }
     }
+
+    /// <summary>An image Codex's tool finished (its file, or why there is none) and the prompt it was made from.</summary>
+    internal sealed record CodexImage(string? Path, string Prompt, string? Failure);
+
+    /// <summary>An image of the log's completed items, if it was finished since <paramref name="since"/>.</summary>
+    private static CodexImage? ImageIn(string line, DateTimeOffset since)
+    {
+        using var document = JsonDocument.Parse(line);
+        var payload = Child(document.RootElement, "payload");
+        var item = Child(payload, "item");
+        if (Words(item, "kind") != "image_gen.generation" || AgentEventParser.Number(payload, "completed_at_ms") < since.ToUnixTimeMilliseconds()) return null;
+        var path = Words(item, "savedPath");
+        var failure = Child(item, "failure");
+        return new CodexImage(
+            Words(item, "status") == "completed" && path is { Length: > 0 } ? path : null,
+            Words(item, "revisedPrompt") ?? string.Empty,
+            failure.ValueKind switch
+            {
+                JsonValueKind.String => failure.GetString(),
+                JsonValueKind.Object or JsonValueKind.Array => failure.GetRawText(),
+                _ => null
+            });
+    }
+
+    private static string? Words(JsonElement element, string name) =>
+        Child(element, name) is { ValueKind: JsonValueKind.String } value ? value.GetString() : null;
 
     private static IReadOnlyList<AgentLimit> LimitsIn(string line)
     {

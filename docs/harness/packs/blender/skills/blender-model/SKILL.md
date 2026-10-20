@@ -6,6 +6,8 @@ description: Model game assets in Blender by script - real scale from references
 # Modeling for a game
 
 Work through the bridge of `blender-live`; build by scripts kept in the project, so a change is a rerun, not clicks.
+The sizes a user would tune (a diameter, a count, a width) are the build script's `PARAMS`: in the review window they
+become sliders that rebuild the model with no agent run (skill `blender-review`).
 How the game looks - finish, palette, camera, budgets - is the project's art profile (skill `art-style`); a class of
 asset that repeats is made by a generator (skill `blender-procedural`, beside this one); a vehicle adds `vehicle.md`
 beside this file. Every step is published and judged by its numbers, and the user reviews by marks on the model in a
@@ -24,7 +26,9 @@ window, not by screenshots: skill `blender-review`, beside this one - read it be
 
 ## Stages: the form before the detail
 A model that exports cleanly can still look built of primitives. Work in stages; each ends with frames from the same
-cameras, compared with the references, and a stage that fails is fixed there, not covered with detail.
+cameras, compared with the references, and a stage that fails is fixed there, not covered with detail. Frames cost
+tokens on every later request: only at a stage's end, one sheet of the views that answer its question (blockout:
+front, side, 3/4 lit; forms: side and 3/4 matcap), and after a fix only the views that showed the fault.
 1. References: what each one is taken for (silhouette, construction, detail density, materials), real sizes, where a
    drawn reference breaks the mechanics, and what not to copy.
 2. Blockout: big masses at real size, nothing else: the silhouette and proportions read from front, side and 3/4, and
@@ -68,7 +72,8 @@ height, wheel to body, cabin to bonnet) measured on the picture and on the mesh,
   one call) judges the construction and closes the game-ready stage.
 - Critique the form, not the presence of parts, worst first: silhouette, proportions, the quality of transitions, a
   primitive look (boxes and cylinders butted together, one bevel everywhere, no secondary forms), detail hierarchy,
-  fidelity to the references. Fix the worst in the source, render the same frames again, and say what is left.
+  fidelity to the references. Fix the worst in the source, render again the frames that showed it, and say what is
+  left.
 
 ## Parts that move
 - Each moving part is its own object: wheels, doors, hood, lids, hatches. Its origin sits on its axis of motion
