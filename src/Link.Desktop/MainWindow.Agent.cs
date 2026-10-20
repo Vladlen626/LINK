@@ -158,6 +158,13 @@ public partial class MainWindow
             UserSpoke(work);
             TakeDecision(work, decision, always);
         };
+        panel.DecisionRefused += () =>
+        {
+            panel.HideDecision();
+            if (_open is not { Decision: { } decision } work) return;
+            UserSpoke(work);
+            RefuseDecision(work, decision);
+        };
         panel.RatingChosen += RateExam;
         panel.RestartRequested += RequestRestart;
         panel.EscalateRequested += Escalate;
@@ -181,6 +188,16 @@ public partial class MainWindow
         _ = RefreshSpentAsync(now: false);
         // The card is in the Studio, so the Studio is there to open its column.
         panel.HarnessRequested += () => _studio?.ShowInspector(true);
+        // The folder chosen on the card is the project's, as if chosen in the Project tab; the card takes its harness.
+        panel.WorkspaceChosen += (projectId, folder) =>
+        {
+            if (_projects.Projects.FirstOrDefault(each => each.Id == projectId) is not { } project) return;
+            project.WorkspaceRoot = folder;
+            _projects.Save();
+            if (project == _projects.ActiveProject) _projectPanel?.ShowProject(project);
+            panel.RefreshSetup();
+            RefreshStudio();
+        };
         panel.ShowList(TaskRows(), AllLimitRows(), null);
         return panel;
     }
@@ -243,9 +260,17 @@ public partial class MainWindow
             var who = provider is { } agent ? AgentName(agent) + " · " : string.Empty;
             if (!roles.TryGetValue(record.Workspace, out var inWorkspace)) roles[record.Workspace] = inWorkspace = WorkspaceRoles(record.Workspace);
             return new TaskRow(record.Goal, ToPreviewText(record.LastWords), ShortTime(record.UpdatedAt), who + status, brush,
-                RoleBrushes.For(record.RoleId, inWorkspace), record);
+                RoleBrushes.For(record.RoleId, inWorkspace), record) { Group = GroupOf(record, work) };
         }).ToArray();
     }
+
+    /// <summary>The sidebar's group of a task: at work (or waiting for its folder), waiting for the user, or the rest.</summary>
+    private static TaskGroup GroupOf(AgentTaskRecord record, TaskWork? work) =>
+        // A running task that asks for a tool waits on the user.
+        work?.Run is not null && work.Decision is not null ? TaskGroup.NeedsYou
+        : work?.Run is not null || work?.Waiting is not null ? TaskGroup.Running
+        : record.Status is AgentTaskStatus.NeedsYou or AgentTaskStatus.CheckFailed or AgentTaskStatus.Failed ? TaskGroup.NeedsYou
+        : TaskGroup.Recent;
 
     /// <summary>How a task stands, in words and the colour of its dot: at work and for how long, waiting for its folder, or as its record says.</summary>
     private (string Text, Brush Dot) Standing(AgentTaskRecord record)
@@ -633,7 +658,9 @@ public partial class MainWindow
             ContextBudget = _settings.Current.Agent.ContextBudget,
             EffortReason = null,
             NoStop = record.NoStop,
-            Deny = record.NoStop ? _settings.Current.Agent.NoStopDeny : []
+            Deny = record.NoStop ? _settings.Current.Agent.NoStopDeny : [],
+            // A tool its rules do not allow is asked while it works; No-stop asks nothing.
+            AskPermission = record.NoStop ? null : (ask, token) => AskPermissionAsync(work, ask, token)
         };
         CancelNoStop(work);
         if (work.AttachedFiles.Count > 0)
@@ -1356,7 +1383,8 @@ public partial class MainWindow
             return true;
         }
 
-        if (task.Provider == AgentProviderKind.ClaudeCode && result.Denials.Count > 0)
+        // A run that asked while it worked had the user's answer to each tool already: a Deny is not offered again.
+        if (task.Provider == AgentProviderKind.ClaudeCode && task.AskPermission is null && result.Denials.Count > 0)
         {
             var rules = result.Denials;
             OfferChoice(work,
@@ -1390,6 +1418,57 @@ public partial class MainWindow
         foreach (var rule in rules.Where(rule => !project.AgentDoTools.Contains(rule))) project.AgentDoTools.Add(rule);
 
         _projects.Save();
+    }
+
+    /// <summary>
+    /// A tool the running agent asks for, as Claude's own app asks: Allow, with "always for this project", or Deny, while the
+    /// run waits. The task needs the user as a finished one would; the end of the run takes the card away unanswered.
+    /// </summary>
+    private Task<AgentPermissionAnswer> AskPermissionAsync(TaskWork work, AgentPermissionAsk ask, CancellationToken cancellationToken)
+    {
+        var answer = new TaskCompletionSource<AgentPermissionAnswer>(TaskCreationOptions.RunContinuationsAsynchronously);
+        Dispatcher.BeginInvoke(() =>
+        {
+            if (cancellationToken.IsCancellationRequested || work.Run is not { } live)
+            {
+                answer.TrySetCanceled(cancellationToken);
+                return;
+            }
+
+            var record = work.Record;
+            var provider = AgentName(live.Task.Provider);
+            var rules = string.Join(", ", ask.Rules);
+            var asked = OfferChoice(work, $"{provider} asks to use {ask.Tool}" + (ask.What.Length > 0 ? $": {Shorten(ask.What, 400)}" : "."), "Allow",
+                canRemember: true,
+                () =>
+                {
+                    if (_rememberAllowance) RememberAllowance(work.Project, ask.Rules);
+                    record.Add(AgentEntryKind.You, $"Allowed {rules}");
+                    answer.TrySetResult(new AgentPermissionAnswer(true, _rememberAllowance));
+                    RefreshTaskList();
+                },
+                noStop: false,
+                refuse: () =>
+                {
+                    record.Add(AgentEntryKind.You, $"Denied {rules}");
+                    answer.TrySetResult(new AgentPermissionAnswer(false));
+                    RefreshTaskList();
+                });
+            var ended = cancellationToken.Register(() => Dispatcher.BeginInvoke(() =>
+            {
+                if (work.Decision == asked) ClearChoice(work);
+                answer.TrySetCanceled(cancellationToken);
+            }));
+            _ = answer.Task.ContinueWith(_ => ended.Dispose(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            RefreshTaskList();
+            if (!IsVisible) _unseen = LinkState.NeedsDecision;
+            _cues.Play(SoundCue.NeedsDecision);
+            SayAgent($"{ShortName(live.Task.Provider)} ждёт разрешения.", $"{ShortName(live.Task.Provider)} asks for a permission.");
+            NotifyIfAway(work.Project, $"{provider} asks to use {ask.Tool}", Shorten(ask.What, 200));
+            RemoteAlert?.Invoke(record.Id, $"{provider} needs you · {Shorten(record.Goal, 60)}", $"Allow {Shorten(rules, 200)}?");
+            AgentStatus(work, $"{provider} asks to use {ask.Tool} · allow or deny it in the Studio");
+        });
+        return answer.Task;
     }
 
     /// <summary>

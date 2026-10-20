@@ -421,6 +421,12 @@ public sealed record AgentTask
     /// <summary>Tool rules Claude Code may never use, such as <c>Bash(git push:*)</c>: a No-stop run's deny list.</summary>
     public IReadOnlyList<string> Deny { get; init; } = [];
 
+    /// <summary>
+    /// The user is there to answer: Claude Code asks for a tool its rules do not allow while it works, and the run goes on
+    /// with the answer. Null: such a tool is refused, and the result lists it (a run nobody watches must never wait).
+    /// </summary>
+    public Func<AgentPermissionAsk, CancellationToken, Task<AgentPermissionAnswer>>? AskPermission { get; init; }
+
     /// <summary>The model to run, such as claude-opus-5-5; null leaves it to the CLI's own settings.</summary>
     public string? Model { get; init; }
 
@@ -463,6 +469,12 @@ public sealed record AgentTask
     /// </summary>
     public bool WithoutMcp { get; init; }
 }
+
+/// <summary>A tool the agent asks for while it works: its name, what it would do, and the rules that would allow it.</summary>
+public sealed record AgentPermissionAsk(string Tool, string What, IReadOnlyList<string> Rules);
+
+/// <summary>The user's answer to an <see cref="AgentPermissionAsk"/>; Always allows its rule for the rest of the run too.</summary>
+public sealed record AgentPermissionAnswer(bool Allow, bool Always = false);
 
 public enum AgentEventKind
 {

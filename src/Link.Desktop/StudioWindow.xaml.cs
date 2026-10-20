@@ -49,7 +49,7 @@ public partial class StudioWindow : Window
         ApplyState();
         PreviewKeyDown += OnPreviewKeyDown;
         StateChanged += (_, _) => ApplyState();
-        SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
+        SourceInitialized += (_, _) => ThemeService.PaintFrame(this);
         Closing += (_, _) =>
         {
             Remember();
@@ -93,13 +93,6 @@ public partial class StudioWindow : Window
     public void ShowHarness(HarnessView view) => Inspector.Show(view);
 
     public void ShowTeamPackStatus(string text) => Inspector.ShowTeamPackStatus(text);
-
-    /// <summary>
-    /// The glass: the tint over the backdrop follows Link's Glass setting (0.2..1) as the overlay's does, but never gets
-    /// thinner than the text needs for long reading. With Windows' transparency effects off it is solid.
-    /// </summary>
-    public void ApplyGlass(double glass) =>
-        Tint.Opacity = ThemeService.IsTransparencyEnabled ? Math.Clamp(0.25 + (glass - 0.2) * 0.875, 0.45, 1) : 1;
 
     /// <summary>Opens or folds the inspector column, and keeps the choice.</summary>
     public void ShowInspector(bool open)
@@ -147,9 +140,10 @@ public partial class StudioWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Ctrl+B for the tasks and Ctrl+Shift+H for the Harness, wherever the focus is in the Studio.
+        // Ctrl+B for the tasks, Ctrl+Shift+H for the Harness and Ctrl+N for a new task, wherever the focus is in the Studio.
         if (e.Key == Key.B && Keyboard.Modifiers == ModifierKeys.Control) ShowSidebar(!_settings.SidebarOpen);
         else if (e.Key == Key.H && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) ShowInspector(!_settings.InspectorOpen);
+        else if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control) _tasks.RequestNewTask();
         else return;
         e.Handled = true;
     }

@@ -27,58 +27,33 @@ public static class WindowStyleService
         }
     }
 
-    // Dialogs keep the standard caption and show the system acrylic behind their transparent client area.
-    public static void EnableBackdrop(Window window, bool dark)
+    // The big windows and dialogs are solid in the overlay's colours: a system backdrop is milky grey and cannot be
+    // tinted. Their frame takes the same colours: the dark caption buttons everywhere, and on Windows 11 the caption,
+    // its text and the border.
+    public static void PaintFrame(Window window, bool dark, Color caption, Color text)
     {
         var handle = new WindowInteropHelper(window).Handle;
         if (handle == IntPtr.Zero) return;
 
         try
         {
-            window.Background = Brushes.Transparent;
-            if (HwndSource.FromHwnd(handle)?.CompositionTarget is { } target)
-            {
-                target.BackgroundColor = Colors.Transparent;
-            }
-
-            var margins = new DwmMargins { Left = -1, Right = -1, Top = -1, Bottom = -1 };
-            NativeMethods.DwmExtendFrameIntoClientArea(handle, ref margins);
-
-            var darkMode = dark ? 1 : 0;
-            NativeMethods.DwmSetWindowAttribute(
-                handle,
-                NativeMethods.DwmwaUseImmersiveDarkMode,
-                ref darkMode,
-                Marshal.SizeOf<int>());
-
-            if (Environment.OSVersion.Version.Build >= 22000)
-            {
-                var backdropType = NativeMethods.DwmSystemBackdropTypeTransientWindow;
-                var result = NativeMethods.DwmSetWindowAttribute(
-                    handle,
-                    NativeMethods.DwmwaSystemBackdropType,
-                    ref backdropType,
-                    Marshal.SizeOf<int>());
-                if (result == 0) return;
-            }
-
-            SetAccent(handle, new AccentPolicy
-            {
-                AccentState = NativeMethods.AccentEnableAcrylicBlurBehind,
-                AccentFlags = 2,
-                // AccentPolicy uses AABBGGRR.
-                GradientColor = unchecked((int)(dark ? 0xB0201A17 : 0x78FCF7E8))
-            });
+            SetDwmInt(handle, NativeMethods.DwmwaUseImmersiveDarkMode, dark ? 1 : 0);
+            if (Environment.OSVersion.Version.Build < 22000) return;
+            SetDwmInt(handle, NativeMethods.DwmwaCaptionColor, ColorRef(caption));
+            SetDwmInt(handle, NativeMethods.DwmwaBorderColor, ColorRef(caption));
+            SetDwmInt(handle, NativeMethods.DwmwaTextColor, ColorRef(text));
         }
         catch (DllNotFoundException)
         {
-            // The XAML tint remains the compatibility fallback.
-        }
-        catch (EntryPointNotFoundException)
-        {
-            // The XAML tint remains the compatibility fallback.
+            // Without DWM the frame stays the system's.
         }
     }
+
+    private static void SetDwmInt(IntPtr handle, int attribute, int value) =>
+        NativeMethods.DwmSetWindowAttribute(handle, attribute, ref value, Marshal.SizeOf<int>());
+
+    // COLORREF is 0x00BBGGRR.
+    private static int ColorRef(Color color) => color.R | color.G << 8 | color.B << 16;
 
     private static bool SetAccent(IntPtr handle, AccentPolicy accent)
     {

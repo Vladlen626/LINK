@@ -26,7 +26,7 @@ public partial class FirstRunWindow : Window
     public FirstRunWindow(IEnumerable<IAgentProvider> agents, AgentSettings settings, Action openSettings, Func<string, string> addProject)
     {
         InitializeComponent();
-        SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
+        SourceInitialized += (_, _) => ThemeService.PaintFrame(this);
         _agents = agents.ToArray();
         _settings = settings;
         _openSettings = openSettings;

@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Link.Desktop.Models;
@@ -295,7 +294,7 @@ public partial class MainWindow
     private void Sees_OnClick(object sender, RoutedEventArgs e)
     {
         var hotkeys = _settings.Current.Hotkeys;
-        var menu = new ContextMenu { PlacementTarget = SeesButton, Placement = PlacementMode.Bottom };
+        var menu = MenuPlacement.Under(SeesButton);
         AddCapture(menu, "This window now", hotkeys.CaptureActiveWindow, CaptureActiveWindowAsync);
         var auto = new MenuItem
         {

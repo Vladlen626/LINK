@@ -18,7 +18,9 @@
     <SolidColorBrush x:Key="BrandBrush" Color="#EC6A26" />
     <SolidColorBrush x:Key="GlyphEyeBrush" Color="#2B1810" />
 
-    <!-- Window glass: the tint sits over the blurred backdrop, MainWindow scales its opacity. -->
+    <!-- Window glass: the tint sits over the blurred backdrop, MainWindow scales its opacity; the big windows and
+         dialogs show it solid, under a caption of the gradient's top colour. -->
+    <Color x:Key="CaptionColor">#F9FBFD</Color>
     <LinearGradientBrush x:Key="PanelBrush" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0" Color="#FFF9FBFD" />
         <GradientStop Offset="1" Color="#FFEDF2F7" />

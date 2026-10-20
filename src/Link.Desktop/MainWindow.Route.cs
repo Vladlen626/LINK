@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using Link.Desktop.Models;
 
 namespace Link.Desktop;
@@ -11,7 +10,7 @@ public partial class MainWindow
     /// <summary>The menu of a label under the prompt: one line per option, the current one checked.</summary>
     private static void ShowOptions<T>(Button button, (T Value, string Label, string Description)[] options, T current, Action<T> choose)
     {
-        var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
+        var menu = MenuPlacement.Under(button);
         foreach (var option in options)
         {
             var item = new MenuItem { Header = option.Description, IsCheckable = true, IsChecked = Equals(option.Value, current) };

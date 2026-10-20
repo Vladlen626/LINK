@@ -1,345 +1,456 @@
 <Window x:Class="Link.Desktop.SettingsWindow"
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
-        Title="Link Settings" Width="560" Height="720" MinWidth="500" MinHeight="620"
+        Title="Link Settings" Width="820" Height="660" MinWidth="660" MinHeight="520"
         PreviewKeyDown="Window_OnPreviewKeyDown" Style="{StaticResource LinkWindowStyle}"
         WindowStartupLocation="CenterOwner" ResizeMode="CanResize">
+    <Window.Resources>
+        <!-- The section list: the chosen page is a quiet fill, as in a sidebar, not the accent of a choice. -->
+        <Style x:Key="NavItemStyle" TargetType="ListBoxItem">
+            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+            <Setter Property="Cursor" Value="Hand" />
+            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ListBoxItem">
+                        <Border x:Name="NavChrome" Margin="0,1" Padding="10,7" Background="Transparent" CornerRadius="6">
+                            <ContentPresenter />
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="NavChrome" Property="Background" Value="{StaticResource HoverBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                            </Trigger>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="NavChrome" Property="Background" Value="{StaticResource SubtleGlassBrush}" />
+                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                <Setter Property="FontWeight" Value="SemiBold" />
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <Style x:Key="PageTitleStyle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="18" />
+            <Setter Property="FontWeight" Value="SemiBold" />
+        </Style>
+        <Style x:Key="PageNoteStyle" TargetType="TextBlock" BasedOn="{StaticResource SecondaryTextStyle}">
+            <Setter Property="Margin" Value="0,3,0,14" />
+            <Setter Property="TextWrapping" Value="Wrap" />
+        </Style>
+        <Style x:Key="StatusDotStyle" TargetType="Ellipse">
+            <Setter Property="Width" Value="8" />
+            <Setter Property="Height" Value="8" />
+            <Setter Property="Margin" Value="0,0,8,0" />
+            <Setter Property="VerticalAlignment" Value="Center" />
+            <Setter Property="Fill" Value="{StaticResource IdleOrbBrush}" />
+        </Style>
+    </Window.Resources>
     <Grid>
-        <Border Style="{StaticResource DialogTintStyle}" />
-        <Grid Margin="26,20,26,20">
-            <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+        <Border Style="{StaticResource DialogSurfaceStyle}" />
+        <Grid>
+            <Grid.ColumnDefinitions><ColumnDefinition Width="200" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
 
-            <StackPanel Orientation="Horizontal">
-                <Control Width="30" Height="30" Focusable="False" Foreground="{StaticResource BrandBrush}"
-                         Template="{StaticResource LinkGlyphTemplate}" />
-                <StackPanel Margin="12,-1,0,0">
-                    <TextBlock FontSize="19" FontWeight="SemiBold" Text="Settings" />
-                    <TextBlock Style="{StaticResource SecondaryTextStyle}" Text="Make Link feel at home on your desktop" />
-                </StackPanel>
-            </StackPanel>
+            <Border Background="{StaticResource SidebarBrush}" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,1,0">
+                <Grid Margin="14,18,14,14">
+                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                    <StackPanel Margin="4,0,0,0" Orientation="Horizontal">
+                        <Control Width="24" Height="24" Focusable="False" Foreground="{StaticResource BrandBrush}"
+                                 Template="{StaticResource LinkGlyphTemplate}" />
+                        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" FontSize="16" FontWeight="SemiBold" Text="Settings" />
+                    </StackPanel>
+                    <ListBox x:Name="SectionList" Grid.Row="1" Margin="0,18,0,0" Background="Transparent" BorderThickness="0"
+                             ItemContainerStyle="{StaticResource NavItemStyle}" SelectionChanged="Sections_OnSelectionChanged"
+                             ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                        <ListBoxItem Tag="AppearancePage" Content="Appearance" />
+                        <ListBoxItem Tag="BehaviorPage" Content="Behavior" />
+                        <ListBoxItem Tag="VoicePage" Content="Voice" />
+                        <ListBoxItem Tag="RepliesPage" Content="Voice replies" />
+                        <ListBoxItem Tag="AgentsPage" Content="Agents" />
+                        <ListBoxItem Tag="RemotePage" Content="Remote control" />
+                        <ListBoxItem Tag="HotkeysPage" Content="Hotkeys" />
+                    </ListBox>
+                    <TextBlock x:Name="VersionText" Grid.Row="2" Margin="4,0,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                </Grid>
+            </Border>
 
-            <ScrollViewer Grid.Row="1" Margin="0,18,0,0" VerticalScrollBarVisibility="Auto">
-                <StackPanel Margin="0,0,8,0">
-                    <TextBlock Margin="2,0,0,6" Style="{StaticResource SectionLabelStyle}" Text="APPEARANCE" />
-                    <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions><RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="40" /></Grid.RowDefinitions>
-                            <TextBlock VerticalAlignment="Center" Text="Theme" />
-                            <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
-                                <ComboBox x:Name="ThemeCombo" Width="150" />
-                                <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}"
-                                           Text="applies after restart" />
-                            </StackPanel>
-                            <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Glass tint" />
-                            <Grid Grid.Row="1" Grid.Column="1" VerticalAlignment="Center">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
-                                <Slider x:Name="OpacitySlider" Minimum="0.2" Maximum="1" SmallChange="0.05" LargeChange="0.1"
-                                        ToolTip="Lower is more transparent" />
-                                <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
-                                           Text="{Binding ElementName=OpacitySlider, Path=Value, StringFormat={}{0:P0}}" />
-                            </Grid>
-                            <CheckBox x:Name="BlurBackgroundBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center"
-                                      Content="Blur what is behind Link (turn off for clear glass)" />
-                        </Grid>
-                    </Border>
+            <Grid Grid.Column="1">
+                <Grid.RowDefinitions><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                <ScrollViewer x:Name="PageScroll" VerticalScrollBarVisibility="Auto">
+                    <!-- One page at a time, as the list on the left picks it. -->
+                    <StackPanel x:Name="Pages" Margin="28,20,24,20">
+                        <StackPanel x:Name="AppearancePage">
+                            <TextBlock Style="{StaticResource PageTitleStyle}" Text="Appearance" />
+                            <TextBlock Style="{StaticResource PageNoteStyle}" Text="How Link looks on your desktop." />
+                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="40" /></Grid.RowDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Text="Theme" />
+                                    <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
+                                        <ComboBox x:Name="ThemeCombo" Width="150" />
+                                        <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}"
+                                                   Text="applies after restart" />
+                                    </StackPanel>
+                                    <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Glass tint" />
+                                    <Grid Grid.Row="1" Grid.Column="1" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
+                                        <Slider x:Name="OpacitySlider" Minimum="0.2" Maximum="1" SmallChange="0.05" LargeChange="0.1"
+                                                ToolTip="Lower is more transparent" />
+                                        <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
+                                                   Text="{Binding ElementName=OpacitySlider, Path=Value, StringFormat={}{0:P0}}" />
+                                    </Grid>
+                                    <CheckBox x:Name="BlurBackgroundBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                              Content="Blur what is behind Link (turn off for clear glass)" />
+                                </Grid>
+                            </Border>
+                        </StackPanel>
 
-                    <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="BEHAVIOR" />
-                    <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
-                                <RowDefinition Height="36" /><RowDefinition Height="36" /><RowDefinition Height="36" />
-                            </Grid.RowDefinitions>
-                            <TextBlock VerticalAlignment="Center" Text="Screenshot history" />
-                            <TextBox x:Name="HistorySizeBox" Grid.Column="1" Width="72" HorizontalAlignment="Left" VerticalAlignment="Center" />
-                            <CheckBox x:Name="AlwaysOnTopBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Always on top" />
-                            <CheckBox x:Name="LaunchWithWindowsBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Launch with Windows" />
-                            <CheckBox x:Name="SoundCuesBox" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center"
-                                      Content="Short sounds: listening, heard, sent, answer ready, needs you, error"
-                                      ToolTip="Quiet while Link speaks, except when it needs you" />
-                            <CheckBox x:Name="OutlineCapturedWindowBox" Grid.Row="5" Grid.ColumnSpan="2" VerticalAlignment="Center"
-                                      Content="Outline a window for a moment when Link captures it"
-                                      ToolTip="Shows which window went with the question; never over a window in fullscreen" />
-                            <CheckBox x:Name="DiagnosticsBox" Grid.Row="4" Grid.ColumnSpan="2" VerticalAlignment="Center"
-                                      Content="Diagnostics: keep the last request in last-request.json"
-                                      ToolTip="Its prompt, file paths and window title stay in Link's data folder until the next request" />
-                        </Grid>
-                    </Border>
-                    <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="VOICE" />
-                    <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
-                                <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <TextBlock VerticalAlignment="Center" Text="Voice language" />
-                            <ComboBox x:Name="VoiceLanguageCombo" Grid.Column="1" Width="190" HorizontalAlignment="Left" />
-                            <CheckBox x:Name="LiveTranscriptionBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center"
-                                      Content="Show my words while I speak (live draft, recognized locally)" />
-                            <CheckBox x:Name="ConversationModeBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center"
-                                      Content="Conversation: listen by itself, send after a pause, answer aloud, listen again"
-                                      ToolTip="The microphone stays open while Link is free; typing in the prompt pauses it" />
-                            <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Input device" />
-                            <ComboBox x:Name="MicrophoneCombo" Grid.Row="3" Grid.Column="1" />
-                            <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Check" />
-                            <Grid Grid.Row="4" Grid.Column="1" VerticalAlignment="Center">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                <Button x:Name="MicrophoneTestButton" Style="{StaticResource ChipButtonStyle}" Click="MicrophoneTest_OnClick"
-                                        Content="Test microphone" />
-                                <Border Grid.Column="1" Height="6" Margin="12,0,0,0" CornerRadius="3"
-                                        Background="{StaticResource HairlineBrush}" ClipToBounds="True">
-                                    <Border x:Name="MicrophoneLevelFill" CornerRadius="3" Background="{StaticResource SuccessBrush}"
-                                            RenderTransformOrigin="0,0.5">
-                                        <Border.RenderTransform><ScaleTransform ScaleX="0" /></Border.RenderTransform>
-                                    </Border>
-                                </Border>
-                            </Grid>
-                            <TextBlock x:Name="MicrophoneTestText" Grid.Row="5" Grid.ColumnSpan="2" Margin="0,0,0,6"
-                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                                       Text="Test records three seconds and shows whether this microphone hears you." />
-                        </Grid>
-                    </Border>
+                        <StackPanel x:Name="BehaviorPage">
+                            <TextBlock Style="{StaticResource PageTitleStyle}" Text="Behavior" />
+                            <TextBlock Style="{StaticResource PageNoteStyle}" Text="How Link keeps out of your way and what it remembers." />
+                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
+                                        <RowDefinition Height="36" /><RowDefinition Height="36" /><RowDefinition Height="36" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Text="Screenshot history" />
+                                    <TextBox x:Name="HistorySizeBox" Grid.Column="1" Width="72" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                             ToolTip="From 1 to 20" />
+                                    <CheckBox x:Name="AlwaysOnTopBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Always on top" />
+                                    <CheckBox x:Name="LaunchWithWindowsBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Launch with Windows" />
+                                    <CheckBox x:Name="SoundCuesBox" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                              Content="Short sounds: listening, heard, sent, answer ready, needs you, error"
+                                              ToolTip="Quiet while Link speaks, except when it needs you" />
+                                    <CheckBox x:Name="DiagnosticsBox" Grid.Row="4" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                              Content="Diagnostics: keep the last request in last-request.json"
+                                              ToolTip="Its prompt, file paths and window title stay in Link's data folder until the next request" />
+                                    <CheckBox x:Name="OutlineCapturedWindowBox" Grid.Row="5" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                              Content="Outline a window for a moment when Link captures it"
+                                              ToolTip="Shows which window went with the question; never over a window in fullscreen" />
+                                </Grid>
+                            </Border>
+                        </StackPanel>
 
-                    <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="VOICE REPLIES" />
-                    <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="36" /><RowDefinition Height="32" /><RowDefinition Height="44" />
-                                <RowDefinition Height="44" /><RowDefinition Height="Auto" /><RowDefinition Height="44" />
-                                <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" />
-                                <RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <CheckBox x:Name="VoiceRepliesBox" Grid.ColumnSpan="2" VerticalAlignment="Center"
-                                      Content="Read the answer aloud when I ask by voice" />
-                            <CheckBox x:Name="ReadTypedAnswersBox" Grid.Row="1" Grid.ColumnSpan="2" Margin="26,0,0,0"
-                                      VerticalAlignment="Center" Content="…and when I type the question"
-                                      IsEnabled="{Binding ElementName=VoiceRepliesBox, Path=IsChecked}" />
-                            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Voice engine" />
-                            <ComboBox x:Name="ProviderCombo" Grid.Row="2" Grid.Column="1" />
-                            <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Gemini API key" />
-                            <Grid Grid.Row="3" Grid.Column="1" VerticalAlignment="Center">
-                                <Grid.ColumnDefinitions>
-                                    <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
-                                </Grid.ColumnDefinitions>
-                                <PasswordBox x:Name="GeminiKeyBox" PasswordChanged="GeminiKeyBox_OnPasswordChanged" />
-                                <Button x:Name="GeminiKeySaveButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}"
-                                        Click="GeminiKeySave_OnClick" Content="Save key" IsEnabled="False" />
-                                <Button x:Name="GeminiKeyRemoveButton" Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}"
-                                        Click="GeminiKeyRemove_OnClick" Content="Remove" />
-                            </Grid>
-                            <TextBlock x:Name="GeminiKeyText" Grid.Row="4" Grid.ColumnSpan="2" Margin="0,0,0,6"
-                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
-                            <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="Gemini voice" />
-                            <ComboBox x:Name="GeminiVoiceCombo" Grid.Row="5" Grid.Column="1" />
-                            <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="Local voice" />
-                            <Grid Grid.Row="6" Grid.Column="1" VerticalAlignment="Center">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <ComboBox x:Name="LocalVoiceCombo" />
-                                <Button x:Name="LocalDownloadButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}"
-                                        Click="LocalDownload_OnClick" />
-                            </Grid>
-                            <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Speed" />
-                            <Grid Grid.Row="7" Grid.Column="1" VerticalAlignment="Center">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
-                                <Slider x:Name="ReplySpeedSlider" Minimum="0.5" Maximum="2" SmallChange="0.1" LargeChange="0.2"
-                                        TickFrequency="0.1" IsSnapToTickEnabled="True" />
-                                <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
-                                           Text="{Binding ElementName=ReplySpeedSlider, Path=Value, StringFormat={}{0:0.0}×}" />
-                            </Grid>
-                            <TextBlock Grid.Row="8" VerticalAlignment="Center" Text="Check" />
-                            <Button x:Name="VoiceTestButton" Grid.Row="8" Grid.Column="1" HorizontalAlignment="Left"
-                                    Style="{StaticResource ChipButtonStyle}" Click="VoiceTest_OnClick" Content="Test voice" />
-                            <TextBlock x:Name="ReplyVoiceText" Grid.Row="9" Grid.ColumnSpan="2" Margin="0,0,0,6"
-                                       Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                        <StackPanel x:Name="VoicePage">
+                            <TextBlock Style="{StaticResource PageTitleStyle}" Text="Voice" />
+                            <TextBlock Style="{StaticResource PageNoteStyle}" Text="Speaking to Link: recognized on this computer." />
+                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
+                                        <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Text="Voice language" />
+                                    <ComboBox x:Name="VoiceLanguageCombo" Grid.Column="1" Width="220" HorizontalAlignment="Left" />
+                                    <CheckBox x:Name="LiveTranscriptionBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                              Content="Show my words while I speak (live draft, recognized locally)" />
+                                    <CheckBox x:Name="ConversationModeBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                              Content="Conversation: listen by itself, send after a pause, answer aloud, listen again"
+                                              ToolTip="The microphone stays open while Link is free; typing in the prompt pauses it" />
+                                    <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Input device" />
+                                    <ComboBox x:Name="MicrophoneCombo" Grid.Row="3" Grid.Column="1" />
+                                    <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Check" />
+                                    <Grid Grid.Row="4" Grid.Column="1" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                        <Button x:Name="MicrophoneTestButton" Style="{StaticResource ChipButtonStyle}" Click="MicrophoneTest_OnClick"
+                                                Content="Test microphone" />
+                                        <Border Grid.Column="1" Height="6" Margin="12,0,0,0" CornerRadius="3"
+                                                Background="{StaticResource HairlineBrush}" ClipToBounds="True">
+                                            <Border x:Name="MicrophoneLevelFill" CornerRadius="3" Background="{StaticResource SuccessBrush}"
+                                                    RenderTransformOrigin="0,0.5">
+                                                <Border.RenderTransform><ScaleTransform ScaleX="0" /></Border.RenderTransform>
+                                            </Border>
+                                        </Border>
+                                    </Grid>
+                                    <TextBlock x:Name="MicrophoneTestText" Grid.Row="5" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                                               Text="Test records three seconds and shows whether this microphone hears you." />
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+
+                        <StackPanel x:Name="RepliesPage">
+                            <TextBlock Style="{StaticResource PageTitleStyle}" Text="Voice replies" />
+                            <TextBlock Style="{StaticResource PageNoteStyle}"
                                        Text="Link reads the answer while it arrives; code and tables stay on screen. Push-to-talk interrupts, Esc stops." />
-                        </Grid>
-                    </Border>
-
-                    <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="AGENTS" />
-                    <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" />
-                            </Grid.RowDefinitions>
-                            <TextBlock VerticalAlignment="Center" Text="Default agent" />
-                            <ComboBox x:Name="DefaultAgentCombo" Grid.Column="1" Width="190" HorizontalAlignment="Left" />
-                            <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Task access" />
-                            <ComboBox x:Name="DefaultAccessCombo" Grid.Row="1" Grid.Column="1" Width="190" HorizontalAlignment="Left"
-                                      ToolTip="What the task card starts with; each task can change it">
-                                <ComboBoxItem Content="Edit" />
-                                <ComboBoxItem Content="Auto — asks nothing" />
-                            </ComboBox>
-                            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Context budget" />
-                            <ComboBox x:Name="ContextBudgetCombo" Grid.Row="2" Grid.Column="1" Width="190" HorizontalAlignment="Left"
-                                      ToolTip="Auto: each CLI compacts its session by its own window for the model, tuned for cost and quality. A number: the CLI compacts near it instead; a wider one re-sends more on every step" />
-                            <WrapPanel Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center" Orientation="Horizontal">
-                                <CheckBox x:Name="AutoEffortBox" VerticalAlignment="Center" Content="Auto effort"
-                                          ToolTip="Link picks each run's effort: high to plan, medium to carry out a plan, the agent's own word for its next step, one step up after a failure. An effort you choose on the card stays for the task." />
-                                <CheckBox x:Name="LeadReviewBox" Margin="24,0,0,0" VerticalAlignment="Center" Content="Team lead reviews each step"
-                                          ToolTip="In a team, the lead reads the diff of each step Codex or Haiku did and accepts it, sends it back with notes (twice at most) or gives it to a stronger worker. A short turn of the lead's own session, which changes nothing." />
-                                <CheckBox x:Name="ArtReviewBox" Margin="24,0,0,0" VerticalAlignment="Center" Content="Art critic"
-                                          ToolTip="An art critic, another agent than the artist's where one can, judges the frames of each art step of a team and of each art exam before you do: a ledger, the worst defects, a score 1-5. It changes nothing and is blind to the artist's account; it sends a step back twice at most. Your rating of an exam tells Link which critic agrees with you." />
-                                <CheckBox x:Name="AlternateBox" Margin="24,0,0,0" VerticalAlignment="Center" Content="Measure team vs solo"
-                                          ToolTip="A task that would go to the team goes, by turns for each kind of work, to the team or to the strong agent alone. The Harness inspector's Stats then compare their tokens per task." />
-                                <CheckBox x:Name="AutoLowerBox" Margin="24,0,0,0" VerticalAlignment="Center" Content="Cheaper proven worker"
-                                          ToolTip="A team step goes a tier down by itself where the cheaper worker has proven itself on that kind of step in this project (3 done or more, at most 20% failed). Off: Link only suggests it in the step's reason." />
-                            </WrapPanel>
-                            <TextBlock Grid.Row="4" Margin="0,6,0,0" Text="Claude Code" />
-                            <StackPanel Grid.Row="4" Grid.Column="1" Margin="0,6,0,0">
-                                <TextBlock x:Name="ClaudeStatusText" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Text="Checking…" />
-                                <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
-                                    <Button Style="{StaticResource ChipButtonStyle}" Height="26" Tag="ClaudeCode" Click="ChooseAgent_OnClick" Content="Choose file…" />
-                                    <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0" Tag="ClaudeCode" Click="AutoAgent_OnClick"
-                                            Content="Find automatically" />
-                                </StackPanel>
-                                <!-- The account Claude Code runs under: each has its own sign-in and limits, and they share the sessions. -->
-                                <StackPanel Margin="0,6,0,0" Orientation="Horizontal">
-                                    <ComboBox x:Name="ClaudeAccountCombo" Width="190" SelectionChanged="ClaudeAccountCombo_OnSelectionChanged"
-                                              ToolTip="The Claude account Claude Code runs under. Each has its own sign-in and usage limits; a task goes on in its session under another account" />
-                                    <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0" Click="AddClaudeAccount_OnClick" Content="Add account"
-                                            ToolTip="Another Claude account: Link opens its sign-in" />
-                                    <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0" Click="SignInClaude_OnClick" Content="Sign in"
-                                            ToolTip="Sign the chosen account in, or into another Claude account, in a console that opens the browser" />
-                                </StackPanel>
-                                <!-- Three setups of each agent, each a model and an effort: the card's default, a quick one, a strong one. -->
-                                <Grid Margin="0,8,0,0">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Quick"
-                                               ToolTip="Quick, cheaper work, and Link's own answers: a map, a skill, a note for Start over" />
-                                    <ComboBox x:Name="ClaudeLightModelCombo" Grid.Column="1" />
-                                    <ComboBox x:Name="ClaudeLightEffortCombo" Grid.Column="2" Margin="6,0,0,0" />
-                                    <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Default"
-                                               ToolTip="What the task card starts with; it offers all of the agent's own models and efforts" />
-                                    <ComboBox x:Name="ClaudeModelCombo" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" />
-                                    <ComboBox x:Name="ClaudeEffortCombo" Grid.Row="1" Grid.Column="2" Margin="6,6,0,0" />
-                                    <TextBlock Grid.Row="2" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Strong"
-                                               ToolTip="Plans of Plan first, hard problems, and Escalate after a task failed" />
-                                    <ComboBox x:Name="ClaudeDeepModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" />
-                                    <ComboBox x:Name="ClaudeDeepEffortCombo" Grid.Row="2" Grid.Column="2" Margin="6,6,0,0" />
+                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="36" /><RowDefinition Height="32" /><RowDefinition Height="44" />
+                                        <RowDefinition Height="44" /><RowDefinition Height="Auto" /><RowDefinition Height="44" />
+                                        <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" />
+                                        <RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <CheckBox x:Name="VoiceRepliesBox" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                              Content="Read the answer aloud when I ask by voice" />
+                                    <CheckBox x:Name="ReadTypedAnswersBox" Grid.Row="1" Grid.ColumnSpan="2" Margin="26,0,0,0"
+                                              VerticalAlignment="Center" Content="…and when I type the question"
+                                              IsEnabled="{Binding ElementName=VoiceRepliesBox, Path=IsChecked}" />
+                                    <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Voice engine" />
+                                    <ComboBox x:Name="ProviderCombo" Grid.Row="2" Grid.Column="1" />
+                                    <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Gemini API key" />
+                                    <Grid Grid.Row="3" Grid.Column="1" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                                        </Grid.ColumnDefinitions>
+                                        <PasswordBox x:Name="GeminiKeyBox" PasswordChanged="GeminiKeyBox_OnPasswordChanged" />
+                                        <Button x:Name="GeminiKeySaveButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}"
+                                                Click="GeminiKeySave_OnClick" Content="Save key" IsEnabled="False" />
+                                        <Button x:Name="GeminiKeyRemoveButton" Grid.Column="2" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}"
+                                                Click="GeminiKeyRemove_OnClick" Content="Remove" />
+                                    </Grid>
+                                    <TextBlock x:Name="GeminiKeyText" Grid.Row="4" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                                    <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="Gemini voice" />
+                                    <ComboBox x:Name="GeminiVoiceCombo" Grid.Row="5" Grid.Column="1" />
+                                    <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="Local voice" />
+                                    <Grid Grid.Row="6" Grid.Column="1" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <ComboBox x:Name="LocalVoiceCombo" />
+                                        <Button x:Name="LocalDownloadButton" Grid.Column="1" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}"
+                                                Click="LocalDownload_OnClick" />
+                                    </Grid>
+                                    <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Speed" />
+                                    <Grid Grid.Row="7" Grid.Column="1" VerticalAlignment="Center">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
+                                        <Slider x:Name="ReplySpeedSlider" Minimum="0.5" Maximum="2" SmallChange="0.1" LargeChange="0.2"
+                                                TickFrequency="0.1" IsSnapToTickEnabled="True" />
+                                        <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
+                                                   Text="{Binding ElementName=ReplySpeedSlider, Path=Value, StringFormat={}{0:0.0}×}" />
+                                    </Grid>
+                                    <TextBlock Grid.Row="8" VerticalAlignment="Center" Text="Check" />
+                                    <Button x:Name="VoiceTestButton" Grid.Row="8" Grid.Column="1" HorizontalAlignment="Left"
+                                            Style="{StaticResource ChipButtonStyle}" Click="VoiceTest_OnClick" Content="Test voice" />
+                                    <TextBlock x:Name="ReplyVoiceText" Grid.Row="9" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                                               Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
                                 </Grid>
-                            </StackPanel>
-                            <TextBlock Grid.Row="5" Margin="0,12,0,0" Text="Codex" />
-                            <StackPanel Grid.Row="5" Grid.Column="1" Margin="0,12,0,0">
-                                <TextBlock x:Name="CodexStatusText" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" Text="Checking…" />
-                                <StackPanel Margin="0,4,0,0" Orientation="Horizontal">
-                                    <Button Style="{StaticResource ChipButtonStyle}" Height="26" Tag="Codex" Click="ChooseAgent_OnClick" Content="Choose file…" />
-                                    <Button Style="{StaticResource ChipButtonStyle}" Height="26" Margin="6,0,0,0" Tag="Codex" Click="AutoAgent_OnClick"
-                                            Content="Find automatically" />
-                                </StackPanel>
-                                <Grid Margin="0,8,0,0">
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="160" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                                    <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Quick" />
-                                    <ComboBox x:Name="CodexLightModelCombo" Grid.Column="1" ToolTip="The models of your account, as Codex lists them" />
-                                    <ComboBox x:Name="CodexLightEffortCombo" Grid.Column="2" Margin="6,0,0,0" />
-                                    <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Default" />
-                                    <ComboBox x:Name="CodexModelCombo" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" />
-                                    <ComboBox x:Name="CodexEffortCombo" Grid.Row="1" Grid.Column="2" Margin="6,6,0,0" />
-                                    <TextBlock Grid.Row="2" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Strong" />
-                                    <ComboBox x:Name="CodexDeepModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" />
-                                    <ComboBox x:Name="CodexDeepEffortCombo" Grid.Row="2" Grid.Column="2" Margin="6,6,0,0" />
-                                </Grid>
-                            </StackPanel>
-                            <TextBlock Grid.Row="6" Grid.ColumnSpan="2" Margin="0,10,0,6" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                                       Text="Link neither installs the agents nor signs in to them: run 'claude auth login' or 'codex login' once. They spend your Claude or ChatGPT subscription. The task card offers each agent's own models and efforts and starts from Default. Plan first makes the plan on Strong and carries it out on the card's choice in the same session; Escalate goes on with Strong; Link's own answers (map, skill, note) run on Quick; Hand off ▾ offers all three for the same session. Default leaves the model or the effort to the agent's own settings. Agents run without subagents, so Codex's Ultra and Claude's ultracode, which work through them, are not offered." />
-                        </Grid>
-                    </Border>
+                            </Border>
+                        </StackPanel>
 
-                    <!-- Remote control: the tasks from a phone or another computer, through a page Link serves on this computer only. -->
-                    <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="REMOTE CONTROL" />
-                    <Border Style="{StaticResource GlassCardStyle}" Padding="16,10">
-                        <StackPanel>
-                            <Grid>
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <CheckBox x:Name="RemoteBox" VerticalAlignment="Center" Content="Control Link's tasks from a phone or a browser"
-                                          ToolTip="New tasks, replies, the agent's choices, Allow, Stop and No-stop; never the screen, the microphone, the chat or Settings" />
-                                <TextBlock Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Port" />
-                                <TextBox x:Name="RemotePortBox" Grid.Column="2" Width="72" VerticalAlignment="Center" />
-                            </Grid>
-                            <TextBlock x:Name="RemoteStatusText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
-                            <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
-                                <Button Style="{StaticResource ChipButtonStyle}" Click="RemotePair_OnClick" Content="Pair a device"
-                                        ToolTip="A code for the page on the phone or the browser, good for ten minutes and one device" />
-                                <TextBlock x:Name="RemoteCodeText" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="18" FontWeight="SemiBold" />
-                            </StackPanel>
-                            <StackPanel x:Name="RemoteDevicesPanel" Margin="0,6,0,0" />
+                        <StackPanel x:Name="AgentsPage">
+                            <TextBlock Style="{StaticResource PageTitleStyle}" Text="Agents" />
+                            <TextBlock Style="{StaticResource PageNoteStyle}"
+                                       Text="Claude Code and Codex on your own subscription: Link neither installs them nor signs in for you.">
+                                <TextBlock.ToolTip>
+                                    <TextBlock MaxWidth="420" TextWrapping="Wrap"
+                                               Text="Run 'claude auth login' or 'codex login' once. They spend your Claude or ChatGPT subscription. The task card offers each agent's own models and efforts and starts from Default. Plan first makes the plan on Strong and carries it out on the card's choice in the same session; Escalate goes on with Strong; Link's own answers (map, skill, note) run on Quick; Hand off ▾ offers all three for the same session. Default leaves the model or the effort to the agent's own settings. Agents run without subagents, so Codex's Ultra and Claude's ultracode, which work through them, are not offered." />
+                                </TextBlock.ToolTip>
+                            </TextBlock>
+
+                            <TextBlock Margin="2,0,0,6" Style="{StaticResource SectionLabelStyle}" Text="NEW TASKS" />
+                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="Auto" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Text="Default agent" />
+                                    <ComboBox x:Name="DefaultAgentCombo" Grid.Column="1" Width="220" HorizontalAlignment="Left" />
+                                    <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Task access" />
+                                    <ComboBox x:Name="DefaultAccessCombo" Grid.Row="1" Grid.Column="1" Width="220" HorizontalAlignment="Left"
+                                              ToolTip="What the task card starts with; each task can change it">
+                                        <ComboBoxItem Content="Edit" />
+                                        <ComboBoxItem Content="Auto — asks nothing" />
+                                    </ComboBox>
+                                    <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Context budget" />
+                                    <ComboBox x:Name="ContextBudgetCombo" Grid.Row="2" Grid.Column="1" Width="220" HorizontalAlignment="Left"
+                                              ToolTip="Auto: each CLI compacts its session by its own window for the model, tuned for cost and quality. A number: the CLI compacts near it instead; a wider one re-sends more on every step" />
+                                    <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Margin="0,6,0,8">
+                                        <CheckBox x:Name="AutoEffortBox" Margin="0,4" Content="Auto effort"
+                                                  ToolTip="Link picks each run's effort: high to plan, medium to carry out a plan, the agent's own word for its next step, one step up after a failure. An effort you choose on the card stays for the task." />
+                                        <CheckBox x:Name="LeadReviewBox" Margin="0,4" Content="Team lead reviews each step"
+                                                  ToolTip="In a team, the lead reads the diff of each step Codex or Haiku did and accepts it, sends it back with notes (twice at most) or gives it to a stronger worker. A short turn of the lead's own session, which changes nothing." />
+                                        <CheckBox x:Name="ArtReviewBox" Margin="0,4" Content="Art critic"
+                                                  ToolTip="An art critic, another agent than the artist's where one can, judges the frames of each art step of a team and of each art exam before you do: a ledger, the worst defects, a score 1-5. It changes nothing and is blind to the artist's account; it sends a step back twice at most. Your rating of an exam tells Link which critic agrees with you." />
+                                        <CheckBox x:Name="AlternateBox" Margin="0,4" Content="Measure team vs solo"
+                                                  ToolTip="A task that would go to the team goes, by turns for each kind of work, to the team or to the strong agent alone. The Harness inspector's Stats then compare their tokens per task." />
+                                        <CheckBox x:Name="AutoLowerBox" Margin="0,4" Content="Cheaper proven worker"
+                                                  ToolTip="A team step goes a tier down by itself where the cheaper worker has proven itself on that kind of step in this project (3 done or more, at most 20% failed). Off: Link only suggests it in the step's reason." />
+                                    </StackPanel>
+                                </Grid>
+                            </Border>
+
+                            <!-- Each agent: its state, its file, and three setups of a model and an effort: a quick one, the card's default, a strong one. -->
+                            <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="CLAUDE CODE" />
+                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,12">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <Ellipse x:Name="ClaudeStatusDot" Style="{StaticResource StatusDotStyle}" />
+                                        <TextBlock x:Name="ClaudeStatusText" Grid.Column="1" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="Checking…" />
+                                        <Button Grid.Column="2" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}" Height="26" Tag="ClaudeCode"
+                                                Click="ChooseAgent_OnClick" Content="Choose file…" />
+                                        <Button Grid.Column="3" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}" Height="26" Tag="ClaudeCode"
+                                                Click="AutoAgent_OnClick" Content="Find automatically" />
+                                    </Grid>
+                                    <!-- The account Claude Code runs under: each has its own sign-in and limits, and they share the sessions. -->
+                                    <Grid Margin="0,12,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Account" />
+                                        <ComboBox x:Name="ClaudeAccountCombo" Grid.Column="1" SelectionChanged="ClaudeAccountCombo_OnSelectionChanged"
+                                                  ToolTip="The Claude account Claude Code runs under. Each has its own sign-in and usage limits; a task goes on in its session under another account" />
+                                        <Button Grid.Column="2" Width="28" Height="26" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}" Padding="0"
+                                                Click="AddClaudeAccount_OnClick" Content="+" ToolTip="Another Claude account: Link opens its sign-in" />
+                                        <Button Grid.Column="3" Height="26" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}" Click="SignInClaude_OnClick"
+                                                Content="Sign in" ToolTip="Sign the chosen account in, or into another Claude account, in a console that opens the browser" />
+                                    </Grid>
+                                    <Grid Margin="0,8,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="*" /><ColumnDefinition Width="170" /></Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Quick"
+                                                   ToolTip="Quick, cheaper work, and Link's own answers: a map, a skill, a note for Start over" />
+                                        <ComboBox x:Name="ClaudeLightModelCombo" Grid.Column="1" />
+                                        <ComboBox x:Name="ClaudeLightEffortCombo" Grid.Column="2" Margin="6,0,0,0" />
+                                        <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Default"
+                                                   ToolTip="What the task card starts with; it offers all of the agent's own models and efforts" />
+                                        <ComboBox x:Name="ClaudeModelCombo" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" />
+                                        <ComboBox x:Name="ClaudeEffortCombo" Grid.Row="1" Grid.Column="2" Margin="6,6,0,0" />
+                                        <TextBlock Grid.Row="2" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Strong"
+                                                   ToolTip="Plans of Plan first, hard problems, and Escalate after a task failed" />
+                                        <ComboBox x:Name="ClaudeDeepModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" />
+                                        <ComboBox x:Name="ClaudeDeepEffortCombo" Grid.Row="2" Grid.Column="2" Margin="6,6,0,0" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+
+                            <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="CODEX" />
+                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,12">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <Ellipse x:Name="CodexStatusDot" Style="{StaticResource StatusDotStyle}" />
+                                        <TextBlock x:Name="CodexStatusText" Grid.Column="1" VerticalAlignment="Center" TextTrimming="CharacterEllipsis" Text="Checking…" />
+                                        <Button Grid.Column="2" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}" Height="26" Tag="Codex"
+                                                Click="ChooseAgent_OnClick" Content="Choose file…" />
+                                        <Button Grid.Column="3" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}" Height="26" Tag="Codex"
+                                                Click="AutoAgent_OnClick" Content="Find automatically" />
+                                    </Grid>
+                                    <Grid Margin="0,12,0,0">
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="*" /><ColumnDefinition Width="170" /></Grid.ColumnDefinitions>
+                                        <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
+                                        <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Quick" />
+                                        <ComboBox x:Name="CodexLightModelCombo" Grid.Column="1" ToolTip="The models of your account, as Codex lists them" />
+                                        <ComboBox x:Name="CodexLightEffortCombo" Grid.Column="2" Margin="6,0,0,0" />
+                                        <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Default" />
+                                        <ComboBox x:Name="CodexModelCombo" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" />
+                                        <ComboBox x:Name="CodexEffortCombo" Grid.Row="1" Grid.Column="2" Margin="6,6,0,0" />
+                                        <TextBlock Grid.Row="2" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Strong" />
+                                        <ComboBox x:Name="CodexDeepModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" />
+                                        <ComboBox x:Name="CodexDeepEffortCombo" Grid.Row="2" Grid.Column="2" Margin="6,6,0,0" />
+                                    </Grid>
+                                </StackPanel>
+                            </Border>
+                        </StackPanel>
+
+                        <!-- Remote control: the tasks from a phone or another computer, through a page Link serves on this computer only. -->
+                        <StackPanel x:Name="RemotePage">
+                            <TextBlock Style="{StaticResource PageTitleStyle}" Text="Remote control" />
+                            <TextBlock Style="{StaticResource PageNoteStyle}" Text="Link's tasks from a phone or a browser; never the screen, the microphone, the chat or Settings." />
+                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,10">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <CheckBox x:Name="RemoteBox" VerticalAlignment="Center" Content="Control Link's tasks from a phone or a browser"
+                                                  ToolTip="New tasks, replies, the agent's choices, Allow, Stop and No-stop; never the screen, the microphone, the chat or Settings" />
+                                        <TextBlock Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Port" />
+                                        <TextBox x:Name="RemotePortBox" Grid.Column="2" Width="72" VerticalAlignment="Center" />
+                                    </Grid>
+                                    <TextBlock x:Name="RemoteStatusText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                                    <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
+                                        <Button Style="{StaticResource ChipButtonStyle}" Click="RemotePair_OnClick" Content="Pair a device"
+                                                ToolTip="A code for the page on the phone or the browser, good for ten minutes and one device" />
+                                        <TextBlock x:Name="RemoteCodeText" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="18" FontWeight="SemiBold" />
+                                    </StackPanel>
+                                    <StackPanel x:Name="RemoteDevicesPanel" Margin="0,6,0,0" />
+                                </StackPanel>
+                            </Border>
                             <!-- The user's own Telegram bot: messages with buttons, no tunnel and no second VPN on the phone. -->
-                            <Grid Margin="0,12,0,0">
-                                <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                <TextBlock Margin="0,0,10,0" VerticalAlignment="Center" Text="Telegram bot" />
-                                <PasswordBox x:Name="TelegramTokenBox" Grid.Column="1" VerticalAlignment="Center"
-                                             ToolTip="The token @BotFather gives your new bot; it is kept encrypted for this Windows user" />
-                                <Button Grid.Column="2" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}" Click="TelegramPair_OnClick" Content="Pair Telegram"
-                                        ToolTip="Starts the bot and shows a code: send it to your bot, and that chat controls Link's tasks" />
-                                <Button x:Name="TelegramUnlinkButton" Grid.Column="3" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}" Click="TelegramUnlink_OnClick"
-                                        Content="Unlink" ToolTip="The bot stops, and Link forgets its chat and token" />
-                            </Grid>
-                            <TextBlock x:Name="TelegramStatusText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
-                            <TextBlock Margin="0,8,0,4" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
+                            <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="TELEGRAM" />
+                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,10">
+                                <StackPanel>
+                                    <Grid>
+                                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                        <TextBlock Margin="0,0,10,0" VerticalAlignment="Center" Text="Bot token" />
+                                        <PasswordBox x:Name="TelegramTokenBox" Grid.Column="1" VerticalAlignment="Center"
+                                                     ToolTip="The token @BotFather gives your new bot; it is kept encrypted for this Windows user" />
+                                        <Button Grid.Column="2" Margin="8,0,0,0" Style="{StaticResource ChipButtonStyle}" Click="TelegramPair_OnClick" Content="Pair Telegram"
+                                                ToolTip="Starts the bot and shows a code: send it to your bot, and that chat controls Link's tasks" />
+                                        <Button x:Name="TelegramUnlinkButton" Grid.Column="3" Margin="6,0,0,0" Style="{StaticResource ChipButtonStyle}" Click="TelegramUnlink_OnClick"
+                                                Content="Unlink" ToolTip="The bot stops, and Link forgets its chat and token" />
+                                    </Grid>
+                                    <TextBlock x:Name="TelegramStatusText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
+                                </StackPanel>
+                            </Border>
+                            <TextBlock Margin="2,12,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
                                        Text="Link listens on this computer only. To reach it from work, install Tailscale on this computer and the phone with one account and run once in a terminal: tailscale serve --bg &lt;port&gt;. Then open the https address Tailscale prints on the phone, enter the code and choose Add to Home screen." />
                         </StackPanel>
-                    </Border>
 
-                    <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="GLOBAL HOTKEYS" />
-                    <Border Style="{StaticResource GlassCardStyle}" Padding="16,6">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <Grid.RowDefinitions>
-                                <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
-                                <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
-                                <RowDefinition Height="42" /><RowDefinition Height="42" />
-                            </Grid.RowDefinitions>
-                            <TextBlock VerticalAlignment="Center" Text="Show / hide" />
-                            <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Push to talk" />
-                            <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Ask about the screen (hold)"
-                                       ToolTip="Hold, ask, let go: the question goes at once with a fresh frame of the window you work in, and the answer is read aloud" />
-                            <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Send prompt" />
-                            <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Capture desktop" />
-                            <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Capture active window" />
-                            <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="Select region" />
-                            <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="Conversation on / off" />
-                            <Button x:Name="ShowHideHotkey" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
-                                <TextBlock Text="Ctrl+Alt+Space" />
-                            </Button>
-                            <Button x:Name="PushToTalkHotkey" Grid.Row="1" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
-                                <TextBlock Text="Ctrl+Alt+V" />
-                            </Button>
-                            <Button x:Name="SendHotkey" Grid.Row="2" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
-                                <TextBlock Text="Ctrl+Alt+Enter" />
-                            </Button>
-                            <Button x:Name="DesktopHotkey" Grid.Row="3" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
-                                <TextBlock Text="Ctrl+Alt+D" />
-                            </Button>
-                            <Button x:Name="WindowHotkey" Grid.Row="4" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
-                                <TextBlock Text="Ctrl+Alt+W" />
-                            </Button>
-                            <Button x:Name="RegionHotkey" Grid.Row="5" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
-                                <TextBlock Text="Ctrl+Alt+Shift+R" />
-                            </Button>
-                            <Button x:Name="ConversationHotkey" Grid.Row="6" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
-                                <TextBlock Text="Ctrl+Alt+Shift+Space" />
-                            </Button>
-                            <Button x:Name="AskAboutScreenHotkey" Grid.Row="7" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
-                                <TextBlock Text="Ctrl+Alt+Shift+V" />
-                            </Button>
-                        </Grid>
-                    </Border>
-                    <TextBlock x:Name="VersionText" Margin="2,12,0,0" Style="{StaticResource SecondaryTextStyle}"
-                               TextTrimming="CharacterEllipsis" />
-                </StackPanel>
-            </ScrollViewer>
+                        <StackPanel x:Name="HotkeysPage">
+                            <TextBlock Style="{StaticResource PageTitleStyle}" Text="Hotkeys" />
+                            <TextBlock Style="{StaticResource PageNoteStyle}" Text="Global shortcuts: click one and press the new keys; Esc keeps the old." />
+                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,6">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="200" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                                    <Grid.RowDefinitions>
+                                        <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
+                                        <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
+                                        <RowDefinition Height="42" /><RowDefinition Height="42" />
+                                    </Grid.RowDefinitions>
+                                    <TextBlock VerticalAlignment="Center" Text="Show / hide" />
+                                    <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Push to talk" />
+                                    <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Send prompt" />
+                                    <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Capture desktop" />
+                                    <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Capture active window" />
+                                    <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="Select region" />
+                                    <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="Conversation on / off" />
+                                    <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Ask about the screen (hold)"
+                                               ToolTip="Hold, ask, let go: the question goes at once with a fresh frame of the window you work in, and the answer is read aloud" />
+                                    <Button x:Name="ShowHideHotkey" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                        <TextBlock Text="Ctrl+Alt+Space" />
+                                    </Button>
+                                    <Button x:Name="PushToTalkHotkey" Grid.Row="1" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                        <TextBlock Text="Ctrl+Alt+V" />
+                                    </Button>
+                                    <Button x:Name="SendHotkey" Grid.Row="2" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                        <TextBlock Text="Ctrl+Alt+Enter" />
+                                    </Button>
+                                    <Button x:Name="DesktopHotkey" Grid.Row="3" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                        <TextBlock Text="Ctrl+Alt+D" />
+                                    </Button>
+                                    <Button x:Name="WindowHotkey" Grid.Row="4" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                        <TextBlock Text="Ctrl+Alt+W" />
+                                    </Button>
+                                    <Button x:Name="RegionHotkey" Grid.Row="5" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                        <TextBlock Text="Ctrl+Alt+Shift+R" />
+                                    </Button>
+                                    <Button x:Name="ConversationHotkey" Grid.Row="6" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                        <TextBlock Text="Ctrl+Alt+Shift+Space" />
+                                    </Button>
+                                    <Button x:Name="AskAboutScreenHotkey" Grid.Row="7" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
+                                        <TextBlock Text="Ctrl+Alt+Shift+V" />
+                                    </Button>
+                                </Grid>
+                            </Border>
+                        </StackPanel>
+                    </StackPanel>
+                </ScrollViewer>
 
-            <Grid Grid.Row="2" Margin="0,16,0,0">
-                <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                <TextBlock x:Name="ErrorText" VerticalAlignment="Center" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap" />
-                <Button Grid.Column="1" Margin="8,0" Click="Cancel_OnClick" Content="Cancel" />
-                <Button Grid.Column="2" Style="{StaticResource PrimaryButtonStyle}" Click="Save_OnClick" Content="Save changes" />
+                <Border Grid.Row="1" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,1,0,0">
+                    <Grid Margin="28,10,24,12">
+                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                        <StackPanel VerticalAlignment="Center">
+                            <TextBlock x:Name="ErrorText" Foreground="{StaticResource ErrorBrush}" TextWrapping="Wrap" />
+                            <TextBlock x:Name="SavedText" Style="{StaticResource SecondaryTextStyle}" Text="Changes are saved as you make them" />
+                        </StackPanel>
+                        <Button Grid.Column="1" Margin="12,0,0,0" Click="Close_OnClick" Content="Close" IsCancel="True" />
+                    </Grid>
+                </Border>
             </Grid>
         </Grid>
     </Grid>

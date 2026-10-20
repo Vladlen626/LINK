@@ -1,6 +1,7 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
 
@@ -82,6 +83,9 @@ public partial class AgentPanel : UserControl
     /// <summary>The decision card's button; true: remember the allowance for the project.</summary>
     public event Action<bool>? DecisionTaken;
 
+    /// <summary>The decision card's Deny.</summary>
+    public event Action? DecisionRefused;
+
     /// <summary>A rating of a training's exam, 1-5.</summary>
     public event Action<int>? RatingChosen;
 
@@ -121,6 +125,9 @@ public partial class AgentPanel : UserControl
     /// <summary>The card's Harness button: the Studio's inspector column is to open.</summary>
     public event Action? HarnessRequested;
 
+    /// <summary>The card's Choose folder…: the folder is to be the workspace of the card's project (its id).</summary>
+    public event Action<Guid, string>? WorkspaceChosen;
+
     /// <summary>Opens or folds the sidebar; the window keeps the choice.</summary>
     public void ShowSidebar(bool open)
     {
@@ -137,6 +144,7 @@ public partial class AgentPanel : UserControl
         _rows = own is null ? tasks : tasks.Prepend(own).ToArray();
         DrawRows();
         TasksEmptyText.Visibility = _rows.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+        SearchField.Visibility = _rows.Count == 0 && SearchBox.Text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
         ShowLimits(limits);
     }
 
@@ -175,16 +183,58 @@ public partial class AgentPanel : UserControl
 
     private Guid? LitKey => TaskView.Visibility == Visibility.Visible ? _openTask ?? Guid.Empty : null;
 
+    /// <summary>The rows that have the search's words, under their groups' lines; the open task's row is lit.</summary>
     private void DrawRows()
     {
         _lit = LitKey;
-        TaskList.ItemsSource = _rows.Select(row => row with { IsOpen = _lit == (row.Record?.Id ?? Guid.Empty) }).ToArray();
+        var words = SearchBox.Text.Trim();
+        var rows = _rows.Where(row => words.Length == 0 || row.Title.Contains(words, StringComparison.CurrentCultureIgnoreCase)
+            || row.Preview.Contains(words, StringComparison.CurrentCultureIgnoreCase)).ToArray();
+        var items = new List<object>();
+        foreach (var group in rows.GroupBy(row => row.Group).OrderBy(group => group.Key))
+        {
+            items.Add(new TaskGroupHeader(GroupTitle(group.Key)));
+            items.AddRange(group.Select(row => row with { IsOpen = _lit == (row.Record?.Id ?? Guid.Empty) }));
+        }
+
+        TaskList.ItemsSource = items;
+        NoMatchText.Visibility = rows.Length == 0 && _rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static string GroupTitle(TaskGroup group) => group switch
+    {
+        TaskGroup.NeedsYou => "Needs you",
+        TaskGroup.Running => "Running",
+        _ => "Recent"
+    };
+
+    private void SearchBox_OnTextChanged(object sender, TextChangedEventArgs e)
+    {
+        SearchPlaceholder.Visibility = SearchBox.Text.Length == 0 ? Visibility.Visible : Visibility.Collapsed;
+        DrawRows();
+    }
+
+    private void SearchBox_OnPreviewKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape || SearchBox.Text.Length == 0) return;
+        SearchBox.Clear();
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Ctrl+N: a card for a new task, or, while a card is shown, its goal takes the focus, so that what is written there is
+    /// not lost to a new card.
+    /// </summary>
+    public void RequestNewTask()
+    {
+        if (CardView.Visibility == Visibility.Visible) GoalBox.Focus();
+        else NewTaskRequested?.Invoke();
     }
 
     /// <summary>A menu of the actions, a line between groups; the current choice of a group is checked.</summary>
     private static void ShowMenu(Button anchor, IReadOnlyList<IReadOnlyList<PanelAction>> groups, PlacementMode placement)
     {
-        var menu = new ContextMenu { PlacementTarget = anchor, Placement = placement };
+        var menu = placement == PlacementMode.Top ? MenuPlacement.Over(anchor) : MenuPlacement.Under(anchor);
         foreach (var group in groups.Where(group => group.Count > 0))
         {
             if (menu.Items.Count > 0) menu.Items.Add(new Separator());

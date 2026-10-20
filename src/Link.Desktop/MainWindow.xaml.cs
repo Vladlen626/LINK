@@ -124,7 +124,6 @@ public partial class MainWindow : Window
             ApplyGlass(_panel, _panel.ShellBorder);
         }
 
-        _studio?.ApplyGlass(_settings.Current.Opacity);
         UpdateSees();
         // Voice replies may have been switched off or on.
         UpdateReadAloudButton();
@@ -400,7 +399,7 @@ public partial class MainWindow : Window
 
     private void ProjectMenu_OnClick(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = ProjectMenuButton, Placement = PlacementMode.Bottom };
+        var menu = MenuPlacement.Under(ProjectMenuButton);
         foreach (var project in _projects.Projects)
         {
             var item = new MenuItem

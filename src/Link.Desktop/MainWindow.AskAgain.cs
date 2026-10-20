@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
 
@@ -17,7 +16,7 @@ public partial class MainWindow
     {
         if (_attemptOnScreen is not { } shown) return;
         var (snapshot, route, effort) = shown;
-        var menu = new ContextMenu { PlacementTarget = AskAgainButton, Placement = PlacementMode.Bottom };
+        var menu = MenuPlacement.Under(AskAgainButton);
         if (effort != ResponseEffort.Deep) AddAgain(menu, "Deeper", "The same question, thought over longer", Redirect.Deeper);
         if (snapshot.WorkWindow != IntPtr.Zero)
         {

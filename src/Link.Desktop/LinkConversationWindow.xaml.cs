@@ -19,7 +19,7 @@ public partial class LinkConversationWindow : Window
         _chat = chat;
         _currentConversationId = current?.ConversationId;
         InitializeComponent();
-        SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
+        SourceInitialized += (_, _) => ThemeService.PaintFrame(this);
 
         // A summary needs a chat to write it.
         SummaryBox.IsEnabled = current is { IsNew: false };

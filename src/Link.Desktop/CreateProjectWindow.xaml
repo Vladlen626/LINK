@@ -4,7 +4,7 @@
         Title="New Project" Width="410" Height="220" ResizeMode="NoResize"
         WindowStartupLocation="CenterOwner" Style="{StaticResource LinkWindowStyle}">
     <Grid>
-        <Border Style="{StaticResource DialogTintStyle}" />
+        <Border Style="{StaticResource DialogSurfaceStyle}" />
         <Grid Margin="24,18,24,20">
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="*" /></Grid.RowDefinitions>
             <StackPanel>

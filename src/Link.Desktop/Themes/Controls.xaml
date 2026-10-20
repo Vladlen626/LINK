@@ -82,10 +82,9 @@
         <Setter Property="CornerRadius" Value="{StaticResource SurfaceRadius}" />
     </Style>
 
-    <!-- Tint for dialogs whose client area shows the DWM backdrop. -->
-    <Style x:Key="DialogTintStyle" TargetType="Border">
+    <!-- A dialog's surface: the overlay's panel, solid. -->
+    <Style x:Key="DialogSurfaceStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource PanelBrush}" />
-        <Setter Property="Opacity" Value="0.55" />
         <Setter Property="IsHitTestVisible" Value="False" />
     </Style>
 

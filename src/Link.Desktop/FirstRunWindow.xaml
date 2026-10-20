@@ -4,7 +4,7 @@
         Title="Welcome to LINK" Width="500" SizeToContent="Height" ResizeMode="NoResize"
         WindowStartupLocation="CenterScreen" Style="{StaticResource LinkWindowStyle}">
     <Grid>
-        <Border Style="{StaticResource DialogTintStyle}" />
+        <Border Style="{StaticResource DialogSurfaceStyle}" />
         <Grid Margin="26,20,26,20">
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
 

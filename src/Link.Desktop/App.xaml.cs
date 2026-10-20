@@ -294,7 +294,7 @@ public partial class App : System.Windows.Application
         }
 
         var previousHotkeys = _settings.Current.Hotkeys.Clone();
-        var previousClaudeAccount = _settings.Current.Agent.ClaudeAccount;
+        var claudeAccount = _settings.Current.Agent.ClaudeAccount;
         var hotkeysRestarted = false;
         _hotkeys.Stop();
         _mainWindow.PauseConversation(true);
@@ -302,49 +302,44 @@ public partial class App : System.Windows.Application
         {
             var window = new SettingsWindow(_settings, _audio, _textToSpeech, _geminiKey, _speechModels, _agents.Providers, _remote);
             if (_mainWindow.IsVisible) window.Owner = _mainWindow;
-            if (window.ShowDialog() == true)
+            // Each change applies as soon as Settings saves it; the hotkeys, off while it records them, come back when it closes.
+            window.Saved += () =>
             {
                 _mainWindow.ApplySettings();
                 _remote?.Apply();
                 // Another account has limits of its own: the bars show its usage, not the last one's.
-                if (_settings.Current.Agent.ClaudeAccount != previousClaudeAccount) _mainWindow.RefreshLimits(Models.AgentProviderKind.ClaudeCode);
-                try
-                {
-                    var failures = _hotkeys.Start(_settings.Current.Hotkeys);
-                    hotkeysRestarted = true;
-                    if (failures.Count > 0)
-                    {
-                        _mainWindow.ShowNonBlockingWarning($"Hotkey unavailable: {string.Join("; ", failures)}.");
-                    }
-                }
-                catch (Exception exception)
-                {
-                    _settings.Current.Hotkeys = previousHotkeys;
-                    _settings.Save();
-                    try
-                    {
-                        _hotkeys.Start(previousHotkeys);
-                        hotkeysRestarted = true;
-                    }
-                    catch (Exception)
-                    {
-                        // The original binding may have been claimed while Settings was open.
-                    }
-                    MessageBox.Show(
-                        $"The new shortcut binding could not be registered and was reverted:\n{exception.Message}",
-                        "Link",
-                        MessageBoxButton.OK,
-                        MessageBoxImage.Warning);
-                }
-            }
-            else
+                if (_settings.Current.Agent.ClaudeAccount == claudeAccount) return;
+                claudeAccount = _settings.Current.Agent.ClaudeAccount;
+                _mainWindow.RefreshLimits(Models.AgentProviderKind.ClaudeCode);
+            };
+            window.ShowDialog();
+            try
             {
-                var failures = _hotkeys.Start(previousHotkeys);
+                var failures = _hotkeys.Start(_settings.Current.Hotkeys);
                 hotkeysRestarted = true;
                 if (failures.Count > 0)
                 {
                     _mainWindow.ShowNonBlockingWarning($"Hotkey unavailable: {string.Join("; ", failures)}.");
                 }
+            }
+            catch (Exception exception)
+            {
+                _settings.Current.Hotkeys = previousHotkeys;
+                _settings.Save();
+                try
+                {
+                    _hotkeys.Start(previousHotkeys);
+                    hotkeysRestarted = true;
+                }
+                catch (Exception)
+                {
+                    // The original binding may have been claimed while Settings was open.
+                }
+                MessageBox.Show(
+                    $"The new shortcut binding could not be registered and was reverted:\n{exception.Message}",
+                    "Link",
+                    MessageBoxButton.OK,
+                    MessageBoxImage.Warning);
             }
         }
         finally

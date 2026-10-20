@@ -218,13 +218,17 @@ public partial class AgentPanel
         }
     }
 
-    /// <summary>A choice for the user; <paramref name="canRemember"/> offers "always for this project".</summary>
-    public void ShowDecision(string text, string button, bool canRemember)
+    /// <summary>
+    /// A choice for the user; <paramref name="canRemember"/> offers "always for this project", <paramref name="refusable"/>
+    /// a Deny beside the button.
+    /// </summary>
+    public void ShowDecision(string text, string button, bool canRemember, bool refusable = false)
     {
         DecisionText.Text = text;
         DecisionButton.Content = button;
         AlwaysBox.IsChecked = false;
         AlwaysBox.Visibility = canRemember ? Visibility.Visible : Visibility.Collapsed;
+        DenyButton.Visibility = refusable ? Visibility.Visible : Visibility.Collapsed;
         DecisionCard.Visibility = Visibility.Visible;
     }
 
@@ -314,6 +318,8 @@ public partial class AgentPanel
 
     private void Stop_OnClick(object sender, RoutedEventArgs e) => StopRequested?.Invoke();
     private void Decision_OnClick(object sender, RoutedEventArgs e) => DecisionTaken?.Invoke(AlwaysBox.IsChecked == true);
+
+    private void Deny_OnClick(object sender, RoutedEventArgs e) => DecisionRefused?.Invoke();
 
     private void Rating_OnClick(object sender, RoutedEventArgs e)
     {

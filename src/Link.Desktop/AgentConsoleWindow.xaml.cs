@@ -21,7 +21,7 @@ public partial class AgentConsoleWindow : Window
     {
         _console = console;
         InitializeComponent();
-        SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
+        SourceInitialized += (_, _) => ThemeService.PaintFrame(this);
         // A few times a second is live enough, and the text box lays out a batch at once rather than every line.
         _timer = new DispatcherTimer(DispatcherPriority.Background) { Interval = TimeSpan.FromMilliseconds(250) };
         _timer.Tick += (_, _) => Refresh();

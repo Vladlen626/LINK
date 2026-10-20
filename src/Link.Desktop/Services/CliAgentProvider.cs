@@ -66,7 +66,10 @@ public abstract class CliAgentProvider : IAgentProvider
         var loops = new AgentLoopDetector(!task.PlanOnly);
         var clock = Stopwatch.StartNew();
         TimeSpan? firstEvent = null;
-        var command = new AgentCommand(executable, Arguments(task), task.Workspace, StandardInput(task))
+        var talk = Talks(task) ? new AgentInput() : null;
+        // A question the CLI leaves unanswered ends with its run.
+        using var talking = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        var command = new AgentCommand(executable, Arguments(task), task.Workspace, talk is null ? StandardInput(task) : Opening(StandardInput(task)))
         {
             EnvironmentVariables = EnvironmentVariables(task)
         };
@@ -96,19 +99,25 @@ public abstract class CliAgentProvider : IAgentProvider
                 {
                     _console?.Line(line);
                     lock (turn) Report(parser.Read(line));
+                    if (talk is not null) Talk(line, task, talk, talking.Token);
                 },
                 line =>
                 {
                     _console?.Line(line, error: true);
                     lock (turn) Report(parser.ReadError(line));
                 },
-                cancellationToken);
+                cancellationToken,
+                talk);
         }
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _log($"[Agent] {Name}: could not start ({exception.Message})");
             _console?.Line($"Link could not start it: {exception.Message}", error: true);
             throw;
+        }
+        finally
+        {
+            talking.Cancel();
         }
 
         var succeeded = !process.Stopped && process.ExitCode == 0 && !parser.Failed;
@@ -232,6 +241,20 @@ public abstract class CliAgentProvider : IAgentProvider
     public const string PlanRequest =
         "First a plan, not the work: look at what you need, then answer with the steps you would take, and stop there. " +
         "Do not make the change yet: the user reads the plan and runs it.\n\n";
+
+    /// <summary>
+    /// Whether the CLI is talked with while it works (<see cref="Talk"/>): its stdin stays open after the task, which goes
+    /// in as <see cref="Opening"/> makes it.
+    /// </summary>
+    protected virtual bool Talks(AgentTask task) => false;
+
+    /// <summary>The task as the first line of a talk.</summary>
+    protected virtual string Opening(string input) => input;
+
+    /// <summary>A line of the CLI's in a talk: a question to answer on <paramref name="input"/>, or the end of its work.</summary>
+    protected virtual void Talk(string line, AgentTask task, AgentInput input, CancellationToken cancellationToken)
+    {
+    }
 
     public abstract AgentEventParser CreateParser(AgentTask task);
 

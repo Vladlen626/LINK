@@ -23,6 +23,7 @@
     <Geometry x:Key="SidebarIconGeometry">M3,5 L21,5 L21,19 L3,19 Z M9,5 L9,19</Geometry>
     <Geometry x:Key="MaximizeIconGeometry">M6,6 L18,6 L18,18 L6,18 Z</Geometry>
     <Geometry x:Key="RestoreIconGeometry">M9,9 L9,6 L18,6 L18,15 L15,15 M6,9 L15,9 L15,18 L6,18 Z</Geometry>
+    <Geometry x:Key="SearchIconGeometry">M10.5,4 A6.5,6.5 0 1 0 10.5,17 A6.5,6.5 0 1 0 10.5,4 M15.2,15.2 L20,20</Geometry>
     <Geometry x:Key="OpenWindowIconGeometry">M13,5 L7,5 A2,2 0 0 0 5,7 L5,17 A2,2 0 0 0 7,19 L17,19 A2,2 0 0 0 19,17 L19,11 M14,4 L20,4 L20,10 M20,4 L11,13</Geometry>
 
     <CornerRadius x:Key="ShellRadius">8</CornerRadius>

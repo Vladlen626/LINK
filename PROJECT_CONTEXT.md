@@ -367,6 +367,11 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   in is the user's own Telegram bot: Link long-polls the Bot API, pairs one chat by a code, buttons per task;
   a relay server on the user's VPS was the other choice. Spending comes from ccusage (`npx ccusage@<pinned>`, offline prices), not
   from prices of Link's own.
+- UI and flow closer to Claude's app (2026-10-20, accepted by the user): one theme, the overlay's colours, for every
+  window (opaque, title bars painted by DWM); Settings in pages that save each change; the task card as a composer;
+  the task list searched and grouped by what it waits for. Claude Code asks for a tool outside the rules during the
+  run (`--permission-prompt-tool stdio` over stream-json stdin), answered Allow / Deny on the card; "Allow and retry"
+  after the run stays only where Link does not ask (No-stop).
 
 ## ChatGPT-транспорт
 

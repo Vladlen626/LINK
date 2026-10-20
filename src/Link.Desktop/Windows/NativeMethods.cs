@@ -23,12 +23,12 @@ internal static class NativeMethods
     internal const uint WinEventOutOfContext = 0x0000;
     internal const int DwmwaExtendedFrameBounds = 9;
     internal const int DwmwaUseImmersiveDarkMode = 20;
-    internal const int DwmwaSystemBackdropType = 38;
-    internal const int DwmSystemBackdropTypeTransientWindow = 3;
+    internal const int DwmwaBorderColor = 34;
+    internal const int DwmwaCaptionColor = 35;
+    internal const int DwmwaTextColor = 36;
     internal const int WcaAccentPolicy = 19;
     internal const int AccentDisabled = 0;
     internal const int AccentEnableBlurBehind = 3;
-    internal const int AccentEnableAcrylicBlurBehind = 4;
     internal const uint ModAlt = 0x0001;
     internal const uint ModControl = 0x0002;
     internal const uint ModShift = 0x0004;
@@ -186,9 +186,6 @@ internal static class NativeMethods
 
     [DllImport("dwmapi.dll")]
     internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int valueSize);
-
-    [DllImport("dwmapi.dll")]
-    internal static extern int DwmExtendFrameIntoClientArea(IntPtr hwnd, ref DwmMargins margins);
 
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
@@ -420,15 +417,6 @@ internal struct MonitorInfo
     public NativeRect Monitor;
     public NativeRect Work;
     public uint Flags;
-}
-
-[StructLayout(LayoutKind.Sequential)]
-internal struct DwmMargins
-{
-    public int Left;
-    public int Right;
-    public int Top;
-    public int Bottom;
 }
 
 [StructLayout(LayoutKind.Sequential)]

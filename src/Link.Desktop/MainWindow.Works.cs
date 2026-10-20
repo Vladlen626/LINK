@@ -102,12 +102,14 @@ public partial class MainWindow
     /// <summary>
     /// A choice only the user makes for the task: kept with it, on its card whenever the Studio shows the task. No-stop
     /// takes it, unless <paramref name="noStop"/> is off (a choice beyond the task, such as sharing a skill with every project).
+    /// With <paramref name="refuse"/> the card has Deny too.
     /// </summary>
-    private void OfferChoice(TaskWork work, string text, string button, bool canRemember, Action take, bool noStop = true)
+    private TaskDecision OfferChoice(TaskWork work, string text, string button, bool canRemember, Action take, bool noStop = true, Action? refuse = null)
     {
-        work.Decision = new TaskDecision(text, button, canRemember, take, noStop);
-        if (Shows(work)) _agentPanel!.ShowDecision(text, button, canRemember);
+        var decision = work.Decision = new TaskDecision(text, button, canRemember, take, noStop, refuse);
+        if (Shows(work)) _agentPanel!.ShowDecision(text, button, canRemember, refuse is not null);
         if (noStop) NoStopSoon(work);
+        return decision;
     }
 
     /// <summary>The task's decision is taken, by the user or No-stop: it leaves the card, then what it does is done.</summary>
@@ -117,6 +119,14 @@ public partial class MainWindow
         work.Decision = null;
         if (Shows(work)) _agentPanel!.HideDecision();
         decision.Take();
+    }
+
+    /// <summary>The user refused the task's decision: it leaves the card, then its refusal is done.</summary>
+    private void RefuseDecision(TaskWork work, TaskDecision decision)
+    {
+        work.Decision = null;
+        if (Shows(work)) _agentPanel!.HideDecision();
+        decision.Refuse?.Invoke();
     }
 
     private void ClearChoice(TaskWork work)
@@ -308,10 +318,10 @@ public partial class MainWindow
     private sealed record WaitingRun(Func<Task> Start, string Why, DateTimeOffset Since);
 
     /// <summary>
-    /// A choice on the task's card: its words, its button, whether "always for this project" is offered, what it does, and
-    /// whether No-stop may take it.
+    /// A choice on the task's card: its words, its button, whether "always for this project" is offered, what it does,
+    /// whether No-stop may take it, and what Deny does when the choice can be refused.
     /// </summary>
-    private sealed record TaskDecision(string Text, string Button, bool CanRemember, Action Take, bool NoStop = true);
+    private sealed record TaskDecision(string Text, string Button, bool CanRemember, Action Take, bool NoStop = true, Action? Refuse = null);
 
     /// <summary>The task's card of a usage limit: its words, the ways on, and the box of what goes on by itself.</summary>
     private sealed record LimitCard(string Text, IReadOnlyList<PanelAction> Actions, PanelToggle? Toggle);

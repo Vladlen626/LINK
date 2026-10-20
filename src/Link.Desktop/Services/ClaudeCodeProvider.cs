@@ -1,11 +1,13 @@
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using Link.Desktop.Models;
 
 namespace Link.Desktop.Services;
 
 /// <summary>
 /// Claude Code in print mode with stream-json events. A run is in <c>acceptEdits</c> (a command not allowed by the
-/// project's rules is refused and listed in the result), or in <c>auto</c> on Auto, where Claude Code's own check stops
+/// project's rules is asked of the user while it works when the task can ask, else refused and listed in the result),
+/// or in <c>auto</c> on Auto, where Claude Code's own check stops
 /// risky actions. A No-stop task runs in <c>bypassPermissions</c> with its deny list. No run is read only: <c>plan</c>
 /// and <c>dontAsk</c> are never used.
 /// </summary>
@@ -60,6 +62,8 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         // Task tab shows as a choice. Subagents are the agent's own choice.
         // No-stop's deny list holds in bypassPermissions too: deny rules win over every mode.
         arguments.AddRange(["--disallowedTools", "AskUserQuestion", .. task.Deny]);
+        // A tool the rules do not allow is asked on stdin (Talk) instead of refused, while the user is there to answer.
+        if (Talks(task)) arguments.AddRange(["--input-format", "stream-json", "--permission-prompt-tool", "stdio"]);
         // MCP servers come only from the workspace's .mcp.json, as for Codex: otherwise the user's claude.ai
         // connectors ride along too, such as a docs app in a game task. Link's own answers get none.
         arguments.Add("--strict-mcp-config");
@@ -88,6 +92,135 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         task.Images.Count == 0
             ? task.Prompt
             : task.Prompt + "\n\nImages attached to this task (open them with Read):\n" + string.Join('\n', task.Images);
+
+    /// <summary>What the agent is told when the user does not allow a tool: the run goes on without it.</summary>
+    internal const string Refused = "The user did not allow this. Do the task another way, or stop and say what you need.";
+
+    // The task's own words as they are, in the console too: stdin is no web page, so nothing but JSON needs escaping.
+    private static readonly JsonSerializerOptions Plain = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
+
+    protected override bool Talks(AgentTask task) => task.AskPermission is not null;
+
+    /// <summary>The task as stream-json's first user message.</summary>
+    protected override string Opening(string input) => new JsonObject
+    {
+        ["type"] = "user",
+        ["message"] = new JsonObject { ["role"] = "user", ["content"] = input },
+        ["parent_tool_use_id"] = null,
+        ["session_id"] = string.Empty
+    }.ToJsonString(Plain);
+
+    /// <summary>
+    /// A <c>can_use_tool</c> request waits for the user's answer, which goes back as its <c>control_response</c>; the
+    /// result ends the talk, and the CLI then exits.
+    /// </summary>
+    protected override void Talk(string line, AgentTask task, AgentInput input, CancellationToken cancellationToken)
+    {
+        // Most lines are the agent's events: only these two are parsed again.
+        if (!line.Contains("\"type\":\"control_request\"", StringComparison.Ordinal) && !line.Contains("\"type\":\"result\"", StringComparison.Ordinal)) return;
+        if (Request(line) is not { } request) return;
+        if (request.Ended)
+        {
+            _ = input.CloseAsync();
+            return;
+        }
+
+        _ = request.Ask is { } ask && task.AskPermission is { } asking
+            ? AnswerAsync(input, request.Id, ask, request.ToolInput, request.Rules, asking, cancellationToken)
+            : input.SendAsync(Failure(request.Id, "Link answers only tool permission requests."));
+    }
+
+    /// <summary>A line of the CLI's in a talk: its result, or a request with its id, and a tool to ask about when it is one.</summary>
+    internal sealed record TalkRequest(bool Ended, string Id, AgentPermissionAsk? Ask = null, JsonNode? ToolInput = null, JsonArray? Rules = null);
+
+    internal static TalkRequest? Request(string line)
+    {
+        JsonObject root;
+        try
+        {
+            if (JsonNode.Parse(line) is not JsonObject parsed) return null;
+            root = parsed;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+
+        var type = TextOf(root["type"]);
+        if (type == "result") return new TalkRequest(true, string.Empty);
+        if (type != "control_request" || TextOf(root["request_id"]) is not { } id || root["request"] is not JsonObject request) return null;
+        if (TextOf(request["subtype"]) != "can_use_tool" || TextOf(request["tool_name"]) is not { } tool) return new TalkRequest(false, id);
+        var toolInput = request["input"] as JsonObject;
+        // Claude Code suggests the rules that allow it, such as Bash(npm test:*); without one, the rule of its denials.
+        var rules = (request["permission_suggestions"] as JsonArray)?.OfType<JsonObject>()
+            .Where(suggestion => TextOf(suggestion["type"]) == "addRules")
+            .Select(suggestion => suggestion["rules"] as JsonArray)
+            .FirstOrDefault(found => found is { Count: > 0 });
+        string[] named = [.. (rules?.OfType<JsonObject>() ?? []).Select(rule => TextOf(rule["toolName"]) is { } name
+            ? TextOf(rule["ruleContent"]) is { Length: > 0 } content ? $"{name}({content})" : name
+            : null).OfType<string>()];
+        var command = TextOf(toolInput?["command"]);
+        if (named.Length == 0) named = [tool == "Bash" && command is { Length: > 0 } ? $"Bash({command})" : tool];
+        var what = new[] { "command", "file_path", "notebook_path", "url", "query", "pattern", "path" }
+            .Select(key => TextOf(toolInput?[key]))
+            .FirstOrDefault(text => text is { Length: > 0 }) ?? TextOf(request["description"]) ?? string.Empty;
+        return new TalkRequest(false, id, new AgentPermissionAsk(tool, what, named), toolInput?.DeepClone(), (JsonArray?)rules?.DeepClone());
+    }
+
+    private static string? TextOf(JsonNode? node) => node is JsonValue value && value.TryGetValue<string>(out var text) ? text : null;
+
+    private static async Task AnswerAsync(AgentInput input, string id, AgentPermissionAsk ask, JsonNode? toolInput, JsonArray? rules,
+        Func<AgentPermissionAsk, CancellationToken, Task<AgentPermissionAnswer>> asking, CancellationToken cancellationToken)
+    {
+        AgentPermissionAnswer answer;
+        try
+        {
+            answer = await asking(ask, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            // The run ended first.
+            return;
+        }
+
+        await input.SendAsync(Answer(id, answer, toolInput, rules));
+    }
+
+    /// <summary>
+    /// The answer to a tool request: allowed with its input as it was, and on Always its rules for the rest of the session
+    /// (never written to the workspace's settings: Link keeps the project's rules); refused with a word for the agent.
+    /// </summary>
+    internal static string Answer(string id, AgentPermissionAnswer answer, JsonNode? toolInput, JsonArray? rules)
+    {
+        var response = new JsonObject { ["behavior"] = answer.Allow ? "allow" : "deny" };
+        if (!answer.Allow)
+        {
+            response["message"] = Refused;
+        }
+        else
+        {
+            response["updatedInput"] = toolInput?.DeepClone() ?? new JsonObject();
+            if (answer.Always && rules is not null)
+            {
+                response["updatedPermissions"] = new JsonArray(new JsonObject
+                {
+                    ["type"] = "addRules", ["rules"] = rules.DeepClone(), ["behavior"] = "allow", ["destination"] = "session"
+                });
+            }
+        }
+
+        return new JsonObject
+        {
+            ["type"] = "control_response",
+            ["response"] = new JsonObject { ["subtype"] = "success", ["request_id"] = id, ["response"] = response }
+        }.ToJsonString(Plain);
+    }
+
+    private static string Failure(string id, string error) => new JsonObject
+    {
+        ["type"] = "control_response",
+        ["response"] = new JsonObject { ["subtype"] = "error", ["request_id"] = id, ["error"] = error }
+    }.ToJsonString(Plain);
 
     /// <summary>
     /// A set budget is Claude Code's auto-compact window: it compacts near it, and never above the model's own window.

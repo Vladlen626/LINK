@@ -10,7 +10,7 @@ public partial class CreateProjectWindow : Window
     public CreateProjectWindow(string? initialName = null, bool isRename = false)
     {
         InitializeComponent();
-        SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
+        SourceInitialized += (_, _) => ThemeService.PaintFrame(this);
         if (isRename)
         {
             Title = "Rename Project";

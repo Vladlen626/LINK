@@ -5,7 +5,7 @@
         MinWidth="440" MinHeight="300" WindowStartupLocation="CenterOwner"
         Style="{StaticResource LinkWindowStyle}">
     <Grid>
-        <Border Style="{StaticResource DialogTintStyle}" />
+        <Border Style="{StaticResource DialogSurfaceStyle}" />
         <Grid Margin="18">
             <Grid.RowDefinitions>
                 <RowDefinition Height="Auto" />

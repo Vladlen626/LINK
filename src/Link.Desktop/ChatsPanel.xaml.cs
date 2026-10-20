@@ -1,6 +1,5 @@
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Media;
 using Link.Desktop.Models;
 
@@ -72,7 +71,7 @@ public partial class ChatsPanel : UserControl
 
     private void NewChat_OnClick(object sender, RoutedEventArgs e)
     {
-        var menu = new ContextMenu { PlacementTarget = NewChatButton, Placement = PlacementMode.Bottom };
+        var menu = MenuPlacement.Under(NewChatButton);
         var plain = new MenuItem { Header = "New chat" };
         plain.Click += (_, _) => NewChatRequested?.Invoke(false);
         var summarized = new MenuItem

@@ -42,7 +42,6 @@ public partial class MainWindow
         if (!work.Busy && waiting is null)
         {
             panel.ShowQuestion(work.Question);
-            if (work.Decision is { } decision) panel.ShowDecision(decision.Text, decision.Button, decision.CanRemember);
             // A task that waits for its agent's limit to reset keeps the card, with the box that ends the wait.
             if (work.Limit is null && record.ContinueAt is { } continueAt && record.LastRun is { } stopped) ShowLimitReached(work, stopped.Provider, continueAt.AddMinutes(-1));
             panel.ShowRestart(work.Restart.Show, work.Restart.Escalate);
@@ -53,6 +52,9 @@ public partial class MainWindow
             panel.ShowQuestion(null);
             ShowTrainingOf(work, live: true);
         }
+
+        // A decision of a running task is a tool its agent asks for and waits on.
+        if (waiting is null && work.Decision is { } decision) panel.ShowDecision(decision.Text, decision.Button, decision.CanRemember, decision.Refuse is not null);
 
         // The card of a limit stays while the agent works on: near the limit, it offers to stop and hand off.
         if (waiting is null) panel.ShowLimit(work.Limit?.Text, work.Limit?.Actions ?? [], work.Limit?.Toggle);

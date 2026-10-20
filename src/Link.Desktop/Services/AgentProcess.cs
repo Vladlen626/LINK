@@ -39,11 +39,16 @@ public static class AgentProcess
 
     private static readonly TimeSpan LeftoverGrace = TimeSpan.FromSeconds(2);
 
+    /// <param name="talk">
+    /// Given, stdin stays open after the task for the caller's answers while the CLI works, until the caller closes it or
+    /// the process ends.
+    /// </param>
     public static async Task<AgentProcessResult> RunAsync(
         AgentCommand command,
         Action<string> onLine,
         Action<string>? onErrorLine,
-        CancellationToken cancellationToken)
+        CancellationToken cancellationToken,
+        AgentInput? talk = null)
     {
         using var process = new Process { StartInfo = StartInfo(command) };
         using var job = new ProcessJob();
@@ -78,8 +83,9 @@ public static class AgentProcess
         {
             // The task goes in while the process runs: a CLI that ends before it read a long task, leaving a child that
             // holds stdin open, would otherwise keep the write and the run waiting for that child.
-            var input = WriteInputAsync(process, command.Input);
+            var input = talk is null ? WriteInputAsync(process, command.Input) : talk.OpenAsync(process.StandardInput, command.Input);
             await process.WaitForExitAsync(CancellationToken.None);
+            if (talk is not null) await talk.CloseAsync();
             // A process the agent left running (a dev server, a watcher) holds the pipes open and would keep the run
             // going: after a moment for the last lines, the job ends it.
             var pumps = Task.WhenAll(output, errors, input);
@@ -186,6 +192,61 @@ public static class AgentProcess
         public override string ToString()
         {
             lock (_lock) return _text.ToString();
+        }
+    }
+}
+
+/// <summary>
+/// The stdin of a run that is talked with while it works (<see cref="AgentProcess.RunAsync"/>): the task goes in first,
+/// then answers line by line, from any thread, until it is closed. A CLI that ended takes no more and raises nothing.
+/// </summary>
+public sealed class AgentInput
+{
+    private readonly SemaphoreSlim _gate = new(1, 1);
+    private StreamWriter? _writer;
+
+    internal async Task OpenAsync(StreamWriter writer, string first)
+    {
+        _writer = writer;
+        await SendAsync(first);
+    }
+
+    /// <summary>One line; a line feed ends it whatever the system's own.</summary>
+    public async Task SendAsync(string line)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            if (_writer is null) return;
+            await _writer.WriteAsync(line + "\n");
+            await _writer.FlushAsync();
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+        {
+            _writer = null;
+        }
+        finally
+        {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>The CLI's stdin ends: it finishes what it does and exits.</summary>
+    public async Task CloseAsync()
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            _writer?.Close();
+        }
+        catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+        {
+            // Already gone.
+        }
+        finally
+        {
+            _writer = null;
+            _gate.Release();
         }
     }
 }

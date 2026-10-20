@@ -4,6 +4,7 @@ using System.Windows.Input;
 using System.Windows.Media;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
+using Microsoft.Win32;
 
 namespace Link.Desktop;
 
@@ -95,8 +96,7 @@ public partial class AgentPanel
         TrainBox.IsChecked = false;
         GoalBox.Text = card.Goal;
         ProjectText.Text = card.ProjectName;
-        WorkspaceText.Text = card.Workspace ?? "Not chosen: choose it in the Project tab";
-        WorkspaceText.Foreground = (Brush)FindResource(card.Workspace is null ? "ErrorBrush" : "MutedBrush");
+        ShowWorkspace(card);
         HarnessLineText.Text = card.HarnessLine;
         CardNoticeText.Text = card.Notice ?? string.Empty;
         CardNoticeText.Visibility = card.Notice is null ? Visibility.Collapsed : Visibility.Visible;
@@ -115,10 +115,11 @@ public partial class AgentPanel
     }
 
     /// <summary>
-    /// Settings were saved while the card is open: its agents (their models and efforts, the defaults, Auto), their
-    /// usage and the line of what goes with the run are made anew. The goal, the specialist and the skills stay, and so
-    /// do the agent, model and effort the user picked here while they still exist; a model or effort the user left alone
-    /// follows the new default.
+    /// Settings or the project's workspace were saved while the card is open: its agents (their models and efforts, the
+    /// defaults, Auto), their usage and the line of what goes with the run are made anew. The goal, the specialist and
+    /// the skills stay, and so do the agent, model and effort the user picked here while they still exist; a model or
+    /// effort the user left alone follows the new default. Another workspace brings its own specialists and skills,
+    /// picked from the goal as it stands.
     /// </summary>
     public void RefreshSetup()
     {
@@ -127,6 +128,20 @@ public partial class AgentPanel
         var fresh = renew();
         var card = _card = old with { Providers = fresh.Providers, AutoEffort = fresh.AutoEffort, HarnessLine = fresh.HarnessLine };
         _fillingCard = true;
+        if (fresh.Workspace != old.Workspace)
+        {
+            card = _card = card with
+            {
+                Workspace = fresh.Workspace,
+                Roles = fresh.Roles,
+                RoleId = ProjectRoles.Suggest(GoalBox.Text, fresh.Roles)?.Id,
+                WorkspaceSkills = fresh.WorkspaceSkills
+            };
+            ShowWorkspace(card);
+            TrainBox.Visibility = card.Roles.Count > 0 && !card.FixedProvider ? Visibility.Visible : Visibility.Collapsed;
+            ShowRoles(card);
+        }
+
         ProviderCombo.ItemsSource = card.Providers.Select(provider => provider.Name).ToArray();
         var kinds = card.Providers.Select(provider => provider.Kind).ToList();
         ProviderCombo.SelectedIndex = Math.Max(0, kinds.IndexOf(kinds.Contains(was.Kind) ? was.Kind : card.Provider));
@@ -154,6 +169,21 @@ public partial class AgentPanel
 
         _fillingCard = false;
         UpdateCard();
+    }
+
+    /// <summary>The folder the run works in, or the way to choose one: Run waits for it.</summary>
+    private void ShowWorkspace(AgentCardModel card)
+    {
+        WorkspaceText.Text = card.Workspace ?? "Not chosen yet: the agent needs the folder it works in";
+        WorkspaceText.Foreground = (Brush)FindResource(card.Workspace is null ? "ErrorBrush" : "MutedBrush");
+        ChooseWorkspaceButton.Visibility = card.Workspace is null ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private void ChooseWorkspace_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_card is not { } card) return;
+        var dialog = new OpenFolderDialog { Title = $"Choose the folder {card.ProjectName}'s work lives in" };
+        if (dialog.ShowDialog(Window.GetWindow(this)) == true) WorkspaceChosen?.Invoke(card.ProjectId, dialog.FolderName);
     }
 
     /// <summary>The card is gone: back to the open task, or to the empty middle.</summary>
@@ -311,11 +341,11 @@ public partial class AgentPanel
         CheckText.Text = $"After the edits Link runs the check itself, and the agent is told so: {card.CheckCommand}. " +
                          $"While it fails, the agent gets its output, {AgentCoordinator.CheckRetries} times at most.";
         CheckText.Visibility = card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
-        PlanFirstBox.Content = "Plan first: a plan, then you run it";
-        PlanFirstBox.ToolTip = "The agent proposes a plan before the work, on Settings' Strong model; you run it, on the model above, in the same session";
+        PlanFirstBox.ToolTip = "A plan, then you run it: the agent proposes a plan before the work, on Settings' Strong model; you run it, on the model chosen here, in the same session";
         // A team always plans first, on the lead; a training studies first.
         PlanFirstBox.IsEnabled = !Team && !Train;
         RunButton.IsEnabled = card.Workspace is not null;
+        RunButton.ToolTip = card.Workspace is null ? "Choose the workspace folder first: Choose folder… below" : null;
         RunButton.Content = card.RunLabel ?? (Team ? "Plan the team" : Train ? "Start training" : PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
     }
 

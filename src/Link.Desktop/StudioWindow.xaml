@@ -15,8 +15,8 @@
     <!-- Padded by the frame while the window is maximized, which WindowChrome lets overflow the screen. -->
     <Border x:Name="Root">
         <Grid>
-            <!-- Link's glass: the tint over the system backdrop follows the Glass setting. -->
-            <Border x:Name="Tint" Background="{StaticResource PanelBrush}" IsHitTestVisible="False" />
+            <!-- The overlay's panel, solid: long reading needs no glass. -->
+            <Border Background="{StaticResource PanelBrush}" IsHitTestVisible="False" />
             <Border BorderBrush="{StaticResource RimLightBrush}" BorderThickness="1" IsHitTestVisible="False" />
 
             <Grid>

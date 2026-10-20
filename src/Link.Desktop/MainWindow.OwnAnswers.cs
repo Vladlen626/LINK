@@ -71,7 +71,10 @@ public partial class MainWindow
         var running = own.Live is not null;
         var status = running ? "working" : own.Status;
         return new TaskRow($"Link writes {OwnWhat(own.Task)}", "Link's own answer, apart from the tasks",
-            string.Empty, $"{AgentName(own.Task.Provider)} · {status}", (Brush)FindResource(running ? "BusyOrbBrush" : own.Dot), RoleBrushes.Link, null);
+            string.Empty, $"{AgentName(own.Task.Provider)} · {status}", (Brush)FindResource(running ? "BusyOrbBrush" : own.Dot), RoleBrushes.Link, null)
+        {
+            Group = running ? TaskGroup.Running : TaskGroup.Recent
+        };
     }
 
     /// <summary>

@@ -109,7 +109,8 @@ public partial class MainWindow : IRemoteHost
     {
         var work = WorkOf(record.Id);
         var waits = work is null ? (record.Status == AgentTaskStatus.NeedsYou ? "your answer" : null)
-            : work.Busy ? null
+            // A running task's decision is a tool its agent waits on.
+            : work.Busy ? work.Decision?.Button
             : work.Question is not null ? "your answer"
             : work.Decision is { } decision ? decision.Button
             : work.Limit is not null ? "a usage limit"

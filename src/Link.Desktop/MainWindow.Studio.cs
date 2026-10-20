@@ -30,7 +30,6 @@ public partial class MainWindow
     private StudioWindow CreateStudio(AgentPanel tasks)
     {
         var studio = new StudioWindow(_settings.Current.Studio, tasks);
-        studio.ApplyGlass(_settings.Current.Opacity);
         studio.CompactRequested += () =>
         {
             if (_open is { } work) _ = CompactTask(work);
@@ -41,13 +40,29 @@ public partial class MainWindow
         studio.TeamPackExportRequested += ExportTeamPack;
         studio.TeamPackImportRequested += ImportTeamPack;
         // Back from editing a rules, role or skill file: the inspector reads it again.
-        studio.Activated += (_, _) => RefreshStudio();
+        studio.Activated += (_, _) =>
+        {
+            KeepOnTop(false);
+            RefreshStudio();
+        };
+        studio.Deactivated += (_, _) => KeepOnTop(true);
         studio.Closed += (_, _) =>
         {
             _studio = null;
+            KeepOnTop(true);
             _settings.Save();
         };
         return studio;
+    }
+
+    /// <summary>
+    /// The overlay and its side panel stay on top of other apps, not of the Studio the user works in. Both go together:
+    /// an owned window cannot sit below a topmost owner.
+    /// </summary>
+    private void KeepOnTop(bool onTop)
+    {
+        Topmost = onTop && _settings.Current.AlwaysOnTop;
+        if (_panel is not null) _panel.Topmost = Topmost;
     }
 
     /// <summary>

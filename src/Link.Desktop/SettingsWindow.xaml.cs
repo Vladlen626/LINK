@@ -2,6 +2,7 @@ using System.Reflection;
 using System.Runtime.InteropServices;
 using System.Windows;
 using System.Windows.Controls;
+using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Threading;
@@ -30,19 +31,24 @@ public partial class SettingsWindow : Window
     private CancellationTokenSource? _microphoneTest;
     private CancellationTokenSource? _voiceTest;
     private readonly IAgentProvider[] _agents;
-    // The agents' files as chosen here; they apply on Save, like the rest.
+    // The agents' files and Claude account as chosen here, which the checks try.
     private readonly AgentSettings _agentPaths;
-    // What each model or effort list shows after its default, to read the choice back on Save.
+    // What each model or effort list shows after its default, to read the choice back when saving.
     private readonly Dictionary<ComboBox, List<AgentChoice>> _choices = [];
     // The context budgets Settings offers; a saved one the list lacks, such as one set by hand, joins it.
     private static readonly int[] ContextBudgets = [AgentSettings.DefaultContextBudget, 200_000, 300_000, 400_000, 450_000, 600_000, 800_000, 1_000_000];
-    // What the context budget box lists, to read the choice back on Save.
+    // What the context budget box lists, to read the choice back when saving.
     private readonly List<int> _budgets;
     private readonly CancellationTokenSource _agentChecks = new();
     // What the Claude account box lists, null for the user's own.
     private List<string?> _claudeAccounts = [];
-    // Pairing and paired devices act at once; on and the port apply on Save.
     private readonly RemoteControl? _remote;
+    // Every change is saved a moment after it is made, so a slider or typing saves once; true while the values load.
+    private readonly DispatcherTimer _saveTimer = new() { Interval = TimeSpan.FromMilliseconds(500) };
+    private bool _loading = true;
+
+    /// <summary>The settings were saved: the app applies them at once.</summary>
+    public event Action? Saved;
 
     public SettingsWindow(
         SettingsService settings,
@@ -62,10 +68,21 @@ public partial class SettingsWindow : Window
         _geminiKey = geminiKey;
         _models = models;
         InitializeComponent();
-        SourceInitialized += (_, _) => WindowStyleService.EnableBackdrop(this, ThemeService.IsDark);
+        SectionList.SelectedIndex = 0;
+        SourceInitialized += (_, _) => ThemeService.PaintFrame(this);
         _downloadTimer.Tick += (_, _) => ShowLocalVoiceState();
+        _saveTimer.Tick += (_, _) => SaveChanges();
+        var edited = new RoutedEventHandler(OnEdited);
+        AddHandler(ToggleButton.CheckedEvent, edited);
+        AddHandler(ToggleButton.UncheckedEvent, edited);
+        AddHandler(Selector.SelectionChangedEvent, edited);
+        AddHandler(RangeBase.ValueChangedEvent, edited);
+        AddHandler(TextBoxBase.TextChangedEvent, edited);
         Closing += (_, _) =>
         {
+            EndHotkeyCapture(restorePrevious: true);
+            if (_saveTimer.IsEnabled) SaveChanges();
+            SaveTypedGeminiKey();
             StopMicrophoneTest();
             _voiceTest?.Cancel();
             _downloadTimer.Stop();
@@ -132,6 +149,33 @@ public partial class SettingsWindow : Window
         }
         Closing += (_, _) => _agentChecks.Cancel();
         Loaded += (_, _) => _ = CheckAgentsAsync();
+        _loading = false;
+    }
+
+    /// <summary>
+    /// A box ticked, a choice made, a slider moved or a field typed in: saved a moment later. The lists and scroll bars
+    /// inside other controls are not edits.
+    /// </summary>
+    private void OnEdited(object sender, RoutedEventArgs e)
+    {
+        if (!_loading && e.OriginalSource is CheckBox or ComboBox or Slider or TextBox) SaveSoon();
+    }
+
+    private void SaveSoon()
+    {
+        _saveTimer.Stop();
+        _saveTimer.Start();
+    }
+
+    /// <summary>One section at a time, as the list on the left picks it.</summary>
+    private void Sections_OnSelectionChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (SectionList.SelectedItem is not ListBoxItem { Tag: string name }) return;
+        foreach (var section in Pages.Children.OfType<FrameworkElement>())
+        {
+            section.Visibility = section.Name == name ? Visibility.Visible : Visibility.Collapsed;
+        }
+        PageScroll.ScrollToTop();
     }
 
     /// <summary>
@@ -164,8 +208,9 @@ public partial class SettingsWindow : Window
     {
         foreach (var agent in _agents)
         {
-            var text = agent.Kind == AgentProviderKind.ClaudeCode ? ClaudeStatusText : CodexStatusText;
+            var (text, dot) = agent.Kind == AgentProviderKind.ClaudeCode ? (ClaudeStatusText, ClaudeStatusDot) : (CodexStatusText, CodexStatusDot);
             text.Text = "Checking…";
+            dot.Fill = (Brush)FindResource("IdleOrbBrush");
             var chosen = _agentPaths.PathFor(agent.Kind);
             try
             {
@@ -174,7 +219,10 @@ public partial class SettingsWindow : Window
                     ? chosen is null ? "Not found. Install it, or choose its file." : $"Not found: {chosen}"
                     : $"{(status.SignedIn switch { true => "Signed in", false => "Not signed in", null => "Sign-in unknown" })}" +
                       (status.SignedIn == true && status.Account is { } account ? $" as {account}" : string.Empty) +
-                      $" · {status.Version ?? "version unknown"}\n{status.ExecutablePath}";
+                      $" · {status.Version ?? "version unknown"}";
+                // The line stays short; the file it runs is under the pointer.
+                text.ToolTip = status.Installed ? status.ExecutablePath : null;
+                dot.Fill = (Brush)FindResource(!status.Installed ? "ErrorOrbBrush" : status.SignedIn == true ? "SuccessOrbBrush" : "BusyOrbBrush");
             }
             catch (OperationCanceledException)
             {
@@ -204,10 +252,11 @@ public partial class SettingsWindow : Window
     {
         if (kind == AgentProviderKind.ClaudeCode) _agentPaths.ClaudePath = path;
         else _agentPaths.CodexPath = path;
+        SaveSoon();
         _ = CheckAgentsAsync();
     }
 
-    /// <summary>The Claude accounts, the user's own first, the chosen one selected; the choice applies on Save.</summary>
+    /// <summary>The Claude accounts, the user's own first, the chosen one selected.</summary>
     private void ShowClaudeAccounts()
     {
         _claudeAccounts = [null, .. ClaudeAccounts.Names()];
@@ -286,7 +335,7 @@ public partial class SettingsWindow : Window
         options.AddRange(devices);
         if (current.MicrophoneDeviceId is { } savedId && devices.All(device => device.Id != savedId))
         {
-            // Keep an unplugged choice instead of silently switching it to the default on Save.
+            // Keep an unplugged choice instead of silently switching it to the default when saving.
             _disconnectedMicrophone = new AudioInputDevice(savedId, $"{current.MicrophoneDeviceName ?? "Saved microphone"} (not connected)");
             options.Add(_disconnectedMicrophone);
         }
@@ -353,7 +402,7 @@ public partial class SettingsWindow : Window
         }
     }
 
-    /// <summary>Stores a key typed into the box; Test voice and Save changes use it too, so it is never left behind.</summary>
+    /// <summary>Stores a key typed into the box; Test voice and closing Settings use it too, so it is never left behind.</summary>
     private bool SaveTypedGeminiKey()
     {
         var key = GeminiKeyBox.Password.Trim();
@@ -576,6 +625,7 @@ public partial class SettingsWindow : Window
         parts.Add(key == Key.Return ? "Enter" : key.ToString());
         SetHotkey(_capturingHotkey, string.Join('+', parts));
         EndHotkeyCapture(restorePrevious: false);
+        SaveSoon();
     }
 
     private void EndHotkeyCapture(bool restorePrevious)
@@ -598,7 +648,7 @@ public partial class SettingsWindow : Window
         RemoteStatusText.Text = _remote is null ? "Remote control is not available."
             : _remote.Problem is { } problem ? problem
             : _remote.Address is { } address ? $"On: the page is at {address} on this computer."
-            : "Off: tick the box and Save to start it.";
+            : "Off: tick the box to start it.";
         ShowTelegram();
         RemoteDevicesPanel.Children.Clear();
         foreach (var device in _remote?.Devices.ToArray() ?? [])
@@ -657,15 +707,9 @@ public partial class SettingsWindow : Window
         RemoteCodeText.ToolTip = $"Enter it on the page within {RemotePairing.CodeLife.TotalMinutes:0} minutes; it is good for one device";
     }
 
-    private void Save_OnClick(object sender, RoutedEventArgs e)
+    /// <summary>The hotkeys as recorded here, or why they cannot be used.</summary>
+    private string? HotkeyProblem()
     {
-        EndHotkeyCapture(restorePrevious: true);
-        if (!int.TryParse(HistorySizeBox.Text, out var historySize) || historySize is < 1 or > 20)
-        {
-            ErrorText.Text = "Screenshot history must be between 1 and 20.";
-            return;
-        }
-
         var hotkeys = new[]
         {
             GetHotkey(ShowHideHotkey),
@@ -677,44 +721,48 @@ public partial class SettingsWindow : Window
             GetHotkey(ConversationHotkey),
             GetHotkey(AskAboutScreenHotkey)
         };
-        if (hotkeys.Any(string.IsNullOrWhiteSpace))
-        {
-            ErrorText.Text = "Each action must have a unique hotkey.";
-            return;
-        }
-
+        if (hotkeys.Any(string.IsNullOrWhiteSpace)) return "Each action must have a unique hotkey.";
         try
         {
             var gestures = hotkeys.Select(HotkeyGesture.Parse).ToArray();
-            if (gestures.Any(gesture => !gesture.IsSafeGlobalShortcut))
-            {
-                ErrorText.Text = "Global shortcuts must include a modifier or use a function key.";
-                return;
-            }
-
+            if (gestures.Any(gesture => !gesture.IsSafeGlobalShortcut)) return "Global shortcuts must include a modifier or use a function key.";
             // Compare keys, not text: "Ctrl+Alt+Enter" and "Ctrl+Alt+Return" are the same shortcut.
-            if (gestures.DistinctBy(gesture => (gesture.VirtualKey, gesture.Control, gesture.Alt, gesture.Shift, gesture.Windows))
-                    .Count() != gestures.Length)
-            {
-                ErrorText.Text = "Each action must have a unique hotkey.";
-                return;
-            }
+            return gestures.DistinctBy(gesture => (gesture.VirtualKey, gesture.Control, gesture.Alt, gesture.Shift, gesture.Windows))
+                .Count() != gestures.Length ? "Each action must have a unique hotkey." : null;
         }
         catch (FormatException exception)
         {
-            ErrorText.Text = exception.Message;
-            return;
+            return exception.Message;
         }
+    }
 
-        if (!int.TryParse(RemotePortBox.Text, out var remotePort) || remotePort is < 1024 or > 65535)
-        {
-            ErrorText.Text = "The remote port must be between 1024 and 65535.";
-            return;
-        }
-
+    /// <summary>
+    /// Saves everything as it stands here and lets the app apply it. A value that is not valid keeps the saved one, and
+    /// the line at the foot says why until it is put right.
+    /// </summary>
+    private void SaveChanges()
+    {
+        _saveTimer.Stop();
+        var problems = new List<string>();
         var current = _settings.Current;
+        if (int.TryParse(HistorySizeBox.Text, out var historySize) && historySize is >= 1 and <= 20) current.ScreenshotHistorySize = historySize;
+        else problems.Add("Screenshot history must be between 1 and 20.");
+        if (int.TryParse(RemotePortBox.Text, out var remotePort) && remotePort is >= 1024 and <= 65535) current.Remote.Port = remotePort;
+        else problems.Add("The remote port must be between 1024 and 65535.");
+        if (HotkeyProblem() is { } hotkeyProblem) problems.Add(hotkeyProblem);
+        else
+        {
+            current.Hotkeys.ShowHide = GetHotkey(ShowHideHotkey);
+            current.Hotkeys.PushToTalk = GetHotkey(PushToTalkHotkey);
+            current.Hotkeys.Send = GetHotkey(SendHotkey);
+            current.Hotkeys.CaptureDesktop = GetHotkey(DesktopHotkey);
+            current.Hotkeys.CaptureActiveWindow = GetHotkey(WindowHotkey);
+            current.Hotkeys.CaptureRegion = GetHotkey(RegionHotkey);
+            current.Hotkeys.Conversation = GetHotkey(ConversationHotkey);
+            current.Hotkeys.AskAboutScreen = GetHotkey(AskAboutScreenHotkey);
+        }
+
         current.Remote.Enabled = RemoteBox.IsChecked == true;
-        current.Remote.Port = remotePort;
         current.Theme = (AppTheme)(ThemeCombo.SelectedItem ?? AppTheme.System);
         current.Opacity = OpacitySlider.Value;
         current.BlurBackground = BlurBackgroundBox.IsChecked == true;
@@ -727,7 +775,6 @@ public partial class SettingsWindow : Window
             current.MicrophoneDeviceId = microphone?.Id;
             current.MicrophoneDeviceName = microphone?.Id is null ? null : microphone.Name;
         }
-        if (!SaveTypedGeminiKey()) return;
         var speech = ChosenSpeech();
         current.VoiceReplies = VoiceRepliesBox.IsChecked == true;
         current.ReadTypedAnswers = ReadTypedAnswersBox.IsChecked == true;
@@ -735,20 +782,11 @@ public partial class SettingsWindow : Window
         current.GeminiVoice = speech.GeminiVoice;
         current.LocalVoice = speech.LocalVoice;
         current.VoiceReplySpeed = speech.Speed;
-        current.ScreenshotHistorySize = historySize;
         current.AlwaysOnTop = AlwaysOnTopBox.IsChecked == true;
         current.LaunchWithWindows = LaunchWithWindowsBox.IsChecked == true;
         current.SoundCues = SoundCuesBox.IsChecked == true;
         current.Diagnostics = DiagnosticsBox.IsChecked == true;
         current.OutlineCapturedWindow = OutlineCapturedWindowBox.IsChecked == true;
-        current.Hotkeys.ShowHide = GetHotkey(ShowHideHotkey);
-        current.Hotkeys.PushToTalk = GetHotkey(PushToTalkHotkey);
-        current.Hotkeys.Send = GetHotkey(SendHotkey);
-        current.Hotkeys.CaptureDesktop = GetHotkey(DesktopHotkey);
-        current.Hotkeys.CaptureActiveWindow = GetHotkey(WindowHotkey);
-        current.Hotkeys.CaptureRegion = GetHotkey(RegionHotkey);
-        current.Hotkeys.Conversation = GetHotkey(ConversationHotkey);
-        current.Hotkeys.AskAboutScreen = GetHotkey(AskAboutScreenHotkey);
         current.Agent.DefaultProvider = DefaultAgentCombo.SelectedIndex >= 0 ? _agents[DefaultAgentCombo.SelectedIndex].Kind : current.Agent.DefaultProvider;
         current.Agent.ClaudePath = _agentPaths.ClaudePath;
         current.Agent.CodexPath = _agentPaths.CodexPath;
@@ -773,19 +811,20 @@ public partial class SettingsWindow : Window
         try
         {
             _settings.Save();
-            DialogResult = true;
+            Saved?.Invoke();
+            // Remote control may have started, stopped or moved to another port.
+            ShowRemote();
         }
         catch (Exception exception)
         {
-            ErrorText.Text = exception.Message;
+            problems.Add(exception.Message);
         }
+
+        ErrorText.Text = string.Join(" ", problems);
+        SavedText.Visibility = problems.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    private void Cancel_OnClick(object sender, RoutedEventArgs e)
-    {
-        EndHotkeyCapture(restorePrevious: true);
-        DialogResult = false;
-    }
+    private void Close_OnClick(object sender, RoutedEventArgs e) => Close();
 
     private static string GetHotkey(Button button) =>
         button.Content is TextBlock text ? text.Text : string.Empty;

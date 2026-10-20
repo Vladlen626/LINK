@@ -331,7 +331,8 @@ public sealed class AgentCoordinator
                 MaxTurns = 3,
                 Model = asking.Model,
                 Effort = asking.Effort,
-                WithoutMcp = true
+                WithoutMcp = true,
+                AskPermission = null
             }, new Progress<AgentEvent>(), cancellationToken);
             if (asked.Stopped) return null;
             if (asked.Succeeded) note = asked.Summary.Trim();

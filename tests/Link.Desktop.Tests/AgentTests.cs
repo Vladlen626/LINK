@@ -1868,6 +1868,36 @@ internal static class AgentTests
             string.Join(", ", codexUsage.Select(limit => $"{limit.Window} {limit.UsedPercent:0} {limit.Reached}")), "5 h 1 False, week 31 False");
         Program.Equal("usage: an error answer gives no windows", CodexProvider.AccountLimits("""{"id":2,"error":{"code":-32603}}""", now).Count, 0);
 
+        // Asked while it works: Claude Code's can_use_tool request and Link's answer, as claude 2.1.278 sends and takes them.
+        var asking = new ClaudeCodeProvider(() => new AgentSettings(), _ => { });
+        var watched = new AgentTask
+        {
+            Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Fix", AllowedTools = ["Read"],
+            AskPermission = (_, _) => System.Threading.Tasks.Task.FromResult(new AgentPermissionAnswer(true))
+        };
+        var talkArguments = asking.Arguments(watched);
+        Program.Equal("ask: a watched run takes stream-json in and asks on stdio, --allowedTools still last",
+            (string.Join(' ', talkArguments).Contains("--input-format stream-json --permission-prompt-tool stdio"), talkArguments[^2], talkArguments[^1],
+                string.Join(' ', asking.Arguments(watched with { AskPermission = null })).Contains("--permission-prompt-tool")),
+            (true, "--allowedTools", "Read", false));
+        var toolRequest = ClaudeCodeProvider.Request(
+            """{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","display_name":"Bash","input":{"command":"python -c \"print(42)\"","description":"Print 42"},"description":"Print 42","permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"python -c \"print(42)\""}],"behavior":"allow","destination":"localSettings"}],"tool_use_id":"toolu_1"}}""");
+        Program.Equal("ask: a tool request names the tool, the command and the rule Claude Code suggests",
+            (toolRequest?.Id, toolRequest?.Ask?.Tool, toolRequest?.Ask?.What, string.Join(", ", toolRequest?.Ask?.Rules ?? [])),
+            ((string?)"r1", (string?)"Bash", (string?)"python -c \"print(42)\"", "Bash(python -c \"print(42)\")"));
+        Program.Equal("ask: without a suggestion the rule is the denials' own; a result ends the talk, another request is no tool's",
+            (string.Join(", ", ClaudeCodeProvider.Request("""{"type":"control_request","request_id":"r2","request":{"subtype":"can_use_tool","tool_name":"WebFetch","input":{"url":"https://example.com"}}}""")?.Ask?.Rules ?? []),
+                ClaudeCodeProvider.Request("""{"type":"result","subtype":"success"}""")?.Ended,
+                ClaudeCodeProvider.Request("""{"type":"control_request","request_id":"r3","request":{"subtype":"hook_callback"}}""") is { Ask: null, Id: "r3" },
+                ClaudeCodeProvider.Request("""{"type":"assistant","message":{"content":[{"type":"text","text":"\"type\":\"result\""}]}}""")),
+            ("WebFetch", (bool?)true, true, (ClaudeCodeProvider.TalkRequest?)null));
+        Program.Equal("ask: Allow sends the input back as it was; Always adds the rules for the session only",
+            ClaudeCodeProvider.Answer("r1", new AgentPermissionAnswer(true, Always: true), toolRequest!.ToolInput, toolRequest.Rules),
+            """{"type":"control_response","response":{"subtype":"success","request_id":"r1","response":{"behavior":"allow","updatedInput":{"command":"python -c \"print(42)\"","description":"Print 42"},"updatedPermissions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"python -c \"print(42)\""}],"behavior":"allow","destination":"session"}]}}}""");
+        Program.Equal("ask: Deny tells the agent to go on without it",
+            ClaudeCodeProvider.Answer("r1", new AgentPermissionAnswer(false), toolRequest.ToolInput, toolRequest.Rules),
+            """{"type":"control_response","response":{"subtype":"success","request_id":"r1","response":{"behavior":"deny","message":"The user did not allow this. Do the task another way, or stop and say what you need."}}}""");
+
         var store = new AgentLimits(Path.Combine(Path.GetTempPath(), "link-limits-" + Guid.NewGuid().ToString("N") + ".json"));
         store.Update(windows);
         Program.Equal("limits: a full window means the agent is near its limit and waits for the reset",

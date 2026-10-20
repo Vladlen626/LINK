@@ -1,5 +1,7 @@
 using System.Windows;
+using System.Windows.Media;
 using Link.Desktop.Models;
+using Link.Desktop.Windows;
 using Microsoft.Win32;
 
 namespace Link.Desktop.Services;
@@ -27,6 +29,10 @@ public static class ThemeService
         dictionaries.Add(Load(IsDark ? "Themes/Colors.Dark.xaml" : "Themes/Colors.Light.xaml"));
         dictionaries.Add(Load("Themes/Controls.xaml"));
     }
+
+    /// <summary>Paints a window's system frame in the theme's colours; call it once the window has its handle.</summary>
+    public static void PaintFrame(Window window) =>
+        WindowStyleService.PaintFrame(window, IsDark, (Color)window.FindResource("CaptionColor"), (Color)window.FindResource("InkColor"));
 
     private static ResourceDictionary Load(string path) => new() { Source = new Uri(path, UriKind.Relative) };
 

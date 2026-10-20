@@ -4,7 +4,7 @@
         Title="Agent console · Link" Width="980" Height="640" MinWidth="560" MinHeight="320"
         WindowStartupLocation="CenterScreen" Style="{StaticResource LinkWindowStyle}">
     <Grid>
-        <Border Style="{StaticResource DialogTintStyle}" />
+        <Border Style="{StaticResource DialogSurfaceStyle}" />
         <Grid Margin="18,14,18,16">
             <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="*" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
 
