@@ -285,7 +285,7 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
 
     /// <summary>"Rigger · Claude Code · opus — 3 tasks, 1 done, 3 failed, 2:30 a run, 127k tokens a run, 3 steers".</summary>
     private static string Line(StatsRow row) =>
-        $"{row.Role} · {row.Agent} · {row.Model ?? "its own model"} — {Plural(row.Tasks, "task")}, {row.Done} done" +
+        $"{row.Role} · {row.Agent} · {row.Model ?? "default model"} — {Plural(row.Tasks, "task")}, {row.Done} done" +
         (row.Failed > 0 ? $", {row.Failed} failed" : string.Empty) +
         (row.AverageTime > TimeSpan.Zero ? $", {(int)row.AverageTime.TotalMinutes}:{row.AverageTime.Seconds:00} a run" : string.Empty) +
         (row.AverageTokens is { } tokens ? $", {AgentContext.Tokens(tokens)} tokens a run" : string.Empty) +

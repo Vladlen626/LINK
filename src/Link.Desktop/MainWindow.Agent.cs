@@ -694,7 +694,7 @@ public partial class MainWindow
         record.Status = AgentTaskStatus.Running;
         // A session that goes on keeps its tasks; the parser follows the agent's TaskUpdate by their numbers.
         if (task.ResumeSessionId is not null && record.LastRun?.Provider == task.Provider) task = task with { Plan = record.Plan };
-        var turn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason)}", "Starting…",
+        var turn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason, unknown: ".")}", "Starting…",
             (Brush)FindResource("AccentBrush"), RoleBrushes.For(task.RoleId, WorkspaceRoles(task.Workspace))) { StepsOpen = true };
         var live = new LiveRun(task, turn, _limits.For(task.Provider));
         // A session taken up again holds what its last run left, and the model's window stays until a run says otherwise.

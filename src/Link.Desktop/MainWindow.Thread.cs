@@ -226,6 +226,9 @@ public partial class MainWindow
         var shown = work is null ? _ownShown : Shows(work);
         var elapsed = live.Clock.Elapsed;
         live.Turn.Outcome = $"working · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
+        if (live.Pending.Count > 0) live.Heard = true;
+        if (live.Pending.LastOrDefault(agentEvent => agentEvent.Model is not null)?.Model is { } model) live.Model = model;
+        live.Turn.Who = $"{_agents.Provider(live.Task.Provider).Name} · {LiveSetup(live)}";
         if (shown)
         {
             panel.SetHeader(AgentHeader(live));
@@ -315,7 +318,19 @@ public partial class MainWindow
             : task.AutoApprove ? "auto" : "edits";
         var elapsed = live.Clock.Elapsed;
         return $"{RoleWords(task.RoleId, task.Workspace)}{_agents.Provider(task.Provider).Name} · " +
-               $"{SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason)} · {access} · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
+               $"{LiveSetup(live)} · {access} · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
+    }
+
+    /// <summary>
+    /// A running turn's model and effort. Where Link names no model, dots run till the CLI first speaks, then the model it
+    /// said it runs on (Claude Code does at once), else its default.
+    /// </summary>
+    private string LiveSetup(LiveRun live)
+    {
+        var task = live.Task;
+        var dots = new string('.', (int)live.Clock.Elapsed.TotalSeconds % 3 + 1);
+        return SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason,
+            live.Model is { } ran && ran != task.Model ? ran : null, live.Heard ? "default model" : dots);
     }
 
     /// <summary>The workspace's specialists, read when the first one is wanted: for the colours of their jellyfish.</summary>

@@ -85,7 +85,7 @@ public partial class MainWindow
     {
         task = task with { ContextBudget = _settings.Current.Agent.ContextBudget, EffortReason = null };
         var provider = _agents.Provider(task.Provider);
-        var turn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort)}", "Starting…",
+        var turn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort, unknown: ".")}", "Starting…",
             (Brush)FindResource("AccentBrush"), RoleBrushes.For(task.RoleId, WorkspaceRoles(task.Workspace))) { StepsOpen = true };
         var live = new LiveRun(task, turn, _limits.For(task.Provider));
         var own = _own = new OwnRun(task, turn) { Live = live };

@@ -2417,7 +2417,7 @@ internal static class AgentTests
             new StatsRow("General", "Codex", null, 1, 1, 1, 0, TimeSpan.Zero, null, 0));
         Program.Equal("harness stats: the runs in all, each row with what it has to tell",
             (busy.Value, busy.Note), ("5 runs in this project",
-                "Rigger · Claude Code · opus — 3 tasks, 1 done, 3 failed, 2:30 a run, 127k tokens a run, 3 steers\nGeneral · Codex · its own model — 1 task, 1 done"));
+                "Rigger · Claude Code · opus — 3 tasks, 1 done, 3 failed, 2:30 a run, 127k tokens a run, 3 steers\nGeneral · Codex · default model — 1 task, 1 done"));
         var many = StatsOf([.. Enumerable.Range(1, 8).Select(index => new StatsRow("R" + index, "Codex", null, 1, 1, 1, 0, TimeSpan.Zero, null, 0))]);
         Program.Equal("harness stats: only the first five rows show", (many.Value, many.Note!.Split('\n').Length), ("8 runs in this project", 5));
 
@@ -3275,7 +3275,7 @@ internal static class AgentTests
             "1. Write the dash — Code, Standard, Programmer, Codex: Done, sent back 1×\n   - Why this worker: Code → Codex\n" +
             "### Run 1 · Claude Code · claude-opus-5-5 · xhigh · as General · auto\n" +
             "- 2026-10-08 10:00 · Done in 1:00 · 20k in (18k cached), 1k out\n- Effort chosen by Link: a plan\n" +
-            "### Run 2 · Codex · its own model · high · as Programmer · edits · team step 1 (Code, Standard)");
+            "### Run 2 · Codex · default model · high · as Programmer · edits · team step 1 (Code, Standard)");
         Program.Equal("export: the thread in order, answers quoted so that their headings stay theirs, the answer's own lines once",
             (text.IndexOf("**The task**", StringComparison.Ordinal) < text.IndexOf("### Run 1", StringComparison.Ordinal),
                 text.Contains("> ## Plan\n> Step one\n", StringComparison.Ordinal), text.Contains("The plan is ready", StringComparison.Ordinal),

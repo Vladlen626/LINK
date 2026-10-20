@@ -539,6 +539,9 @@ public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail
     /// <summary>The picture a tool call looks at, its full path: Claude Code's Read of a render or a screenshot.</summary>
     public string? Image { get; init; }
 
+    /// <summary>The model the session runs on, on the status that it began, where the CLI names it.</summary>
+    public string? Model { get; init; }
+
     public IReadOnlyList<AgentPlanItem> Plan { get; init; } = [];
     public IReadOnlyList<AgentLimit> Limits { get; init; } = [];
 

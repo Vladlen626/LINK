@@ -182,14 +182,17 @@ public partial class MainWindow
     /// <summary>
     /// A run's model and effort as the user reads them, "Opus 5.5 · Extra high"; the CLI's own as its config names it.
     /// Where Link chose the effort, <paramref name="autoReason"/> says why: "Opus 5.5 · Medium · auto: a usual task". The
-    /// model the CLI said it ran (<paramref name="ranModel"/>) follows a family: "Haiku · latest (claude-haiku-4-5)".
+    /// model the CLI said it ran (<paramref name="ranModel"/>) follows a family: "Haiku · latest (claude-haiku-4-5)", and
+    /// stands alone where neither Link nor the CLI's config named one; else <paramref name="unknown"/>.
     /// </summary>
-    private string SetupWords(AgentProviderKind provider, string? model, string? effort, string? autoReason = null, string? ranModel = null)
+    private string SetupWords(AgentProviderKind provider, string? model, string? effort, string? autoReason = null, string? ranModel = null,
+        string unknown = "default model")
     {
         var agent = _agents.Provider(provider);
         var own = agent.OwnSetup;
-        var modelName = (model ?? own.Model) is { } chosen ? ModelName(agent, chosen) : "its own model";
-        if (ranModel is not null) modelName += $" ({ranModel})";
+        var modelName = (model ?? own.Model) is { } chosen
+            ? ranModel is null ? ModelName(agent, chosen) : $"{ModelName(agent, chosen)} ({ranModel})"
+            : ranModel ?? unknown;
         var words = (effort ?? own.Effort) is { } level ? $"{modelName} · {EffortName(agent, level)}" : modelName;
         return autoReason is null ? words : $"{words} · auto: {autoReason}";
     }

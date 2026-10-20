@@ -187,7 +187,7 @@ public static class TaskExport
 
     private static void Run(StringBuilder text, AgentRunRecord run, int number, Func<AgentProviderKind, string> agentName, Func<string?, string> roleName)
     {
-        text.Append("### Run ").Append(number).Append(" · ").Append(agentName(run.Provider)).Append(" · ").Append(run.Model ?? "its own model");
+        text.Append("### Run ").Append(number).Append(" · ").Append(agentName(run.Provider)).Append(" · ").Append(run.Model ?? "default model");
         if (run.RanModel is { } ran) text.Append(" (").Append(ran).Append(')');
         text.Append(" · ").Append(run.Effort ?? "its own effort").Append(" · as ").Append(roleName(run.RoleId))
             .Append(" · ").Append(run.Judge ? "judge" : run.AutoApprove ? "auto" : "edits");

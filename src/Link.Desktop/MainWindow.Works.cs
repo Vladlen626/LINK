@@ -312,6 +312,11 @@ public partial class MainWindow
 
         // The session as the CLI named it on the way: kept with the task should Link close before the run ends.
         public string? SessionId { get; set; }
+
+        // The model the CLI said the session runs on, and whether it has said anything yet: the header shows dots till then.
+        public string? Model { get; set; }
+
+        public bool Heard { get; set; }
     }
 
     /// <summary>A run that waits for another run's edits in its folder: what starts it, why it waits, and since when.</summary>

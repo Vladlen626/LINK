@@ -71,6 +71,7 @@ public sealed record ThreadAnswer(string Text, string Time, ProjectExchange Exch
 public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, Brush roleBrush) : INotifyPropertyChanged
 {
     private const int StepsKept = StepGroup.RowsKept;
+    private string _who = who;
     private string _outcome = outcome;
     private Brush _outcomeBrush = outcomeBrush;
     private string _current = string.Empty;
@@ -85,8 +86,12 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, B
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
-    /// <summary>"Claude Code · Opus 5.5 · Extra high".</summary>
-    public string Who { get; } = who;
+    /// <summary>"Claude Code · Opus 5.5 · Extra high"; a running turn names its model once the CLI does.</summary>
+    public string Who
+    {
+        get => _who;
+        set => Set(ref _who, value, nameof(Who));
+    }
 
     public Brush RoleBrush { get; } = roleBrush;
 

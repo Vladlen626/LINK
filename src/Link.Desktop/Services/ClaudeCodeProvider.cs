@@ -349,7 +349,7 @@ public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null)
                 if (Text(root, "model") is { Length: > 0 } model) Model = model;
                 var (started, servers) = Describe(root);
                 // The model is in the run's header: a start shows as a step only with the MCP servers it found.
-                events.Add(new AgentEvent(AgentEventKind.Status, started, servers ? null : AgentEvent.SessionStart));
+                events.Add(new AgentEvent(AgentEventKind.Status, started, servers ? null : AgentEvent.SessionStart) { Model = Model });
                 break;
             // Claude Code compacted the session by itself, near the budget or at the model's window.
             case "system" when Text(root, "subtype") == "compact_boundary":
