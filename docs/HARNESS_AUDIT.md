@@ -8,6 +8,9 @@ hx). Nothing was built or run. The cost estimates below are arithmetic on the pr
 Goal: LINK should give great results at low cost whatever model runs behind it (Opus, Sonnet, Haiku, Codex, a custom
 model). The harness should carry the quality, not one model.
 
+Since 2026-10-21 Training (study, exam, lessons gated by exams) is removed: agents learn while doing tasks. The
+findings about it below stay as a record.
+
 ## Summary
 
 **Verdict.** The skeleton is model-agnostic and sound. The task state is built by code, Link runs its own check after

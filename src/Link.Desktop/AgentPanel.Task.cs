@@ -32,8 +32,6 @@ public partial class AgentPanel
         DecisionCard.Visibility = Visibility.Collapsed;
         RestartCard.Visibility = Visibility.Collapsed;
         LimitCard.Visibility = Visibility.Collapsed;
-        RatingCard.Visibility = Visibility.Collapsed;
-        _replyHint = null;
         UpdateReplyHint();
     }
 
@@ -79,10 +77,9 @@ public partial class AgentPanel
     /// <paramref name="roles"/>, and why that worker under its words. Its worker chip opens <paramref name="stepMenu"/>
     /// for the step, made when it is clicked.
     /// </summary>
-    public void ShowPlan(IReadOnlyList<AgentPlanItem> plan, IReadOnlyList<AgentRole>? roles = null, string title = "Plan",
+    public void ShowPlan(IReadOnlyList<AgentPlanItem> plan, IReadOnlyList<AgentRole>? roles = null,
         Func<int, IReadOnlyList<IReadOnlyList<PanelAction>>>? stepMenu = null)
     {
-        _planTitle = title;
         _stepMenu = stepMenu;
         var done = (Brush)FindResource("SuccessBrush");
         var muted = (Brush)FindResource("MutedBrush");
@@ -115,14 +112,7 @@ public partial class AgentPanel
         ShowPlanLabel();
     }
 
-    private void ShowPlanLabel() => PlanLabel.Text = $"{_planTitle} · {_planDone} of {_planCount} {(_planOpen ? "▾" : "▸")}";
-
-    /// <summary>A training's exam waits for the user's rating, 1-5, with what it means; null hides the card.</summary>
-    public void ShowRating(string? text)
-    {
-        RatingText.Text = text ?? string.Empty;
-        RatingCard.Visibility = text is null ? Visibility.Collapsed : Visibility.Visible;
-    }
+    private void ShowPlanLabel() => PlanLabel.Text = $"Plan · {_planDone} of {_planCount} {(_planOpen ? "▾" : "▸")}";
 
     /// <summary>What the task changed, beside its standing: "+181 −12" or "5 files", the files as its hint; empty hides it.</summary>
     public void ShowChanges(string text, string files)
@@ -320,13 +310,6 @@ public partial class AgentPanel
     private void Decision_OnClick(object sender, RoutedEventArgs e) => DecisionTaken?.Invoke(AlwaysBox.IsChecked == true);
 
     private void Deny_OnClick(object sender, RoutedEventArgs e) => DecisionRefused?.Invoke();
-
-    private void Rating_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is not Button { Tag: string tag } || !int.TryParse(tag, out var rating)) return;
-        RatingCard.Visibility = Visibility.Collapsed;
-        RatingChosen?.Invoke(rating);
-    }
     private void Restart_OnClick(object sender, RoutedEventArgs e) => RestartRequested?.Invoke();
     private void Escalate_OnClick(object sender, RoutedEventArgs e) => EscalateRequested?.Invoke();
     private void RestartNotNow_OnClick(object sender, RoutedEventArgs e) => ShowRestart(false);

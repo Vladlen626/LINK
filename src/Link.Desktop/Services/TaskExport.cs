@@ -30,7 +30,6 @@ public static class TaskExport
         for (var index = 0; index < task.Handovers.Count; index++) Fenced(text, $"Hand-over {index + 1}", task.Handovers[index]);
         Team(text, task, roleName);
         Plan(text, task);
-        Training(text, task, agentName);
         Thread(text, task, agentName, roleName);
         // One line break everywhere, whatever the system's and the words' own.
         return text.ToString().Replace("\r\n", "\n", StringComparison.Ordinal).TrimEnd() + "\n";
@@ -126,28 +125,6 @@ public static class TaskExport
         if (task.Team.Count > 0 || task.Plan.Count == 0) return;
         text.AppendLine("## The agent's plan");
         foreach (var item in task.Plan) text.Append(item.Done ? "- [x] " : "- [ ] ").AppendLine(OneLine(item.Text));
-        text.AppendLine();
-    }
-
-    private static void Training(StringBuilder text, AgentTaskRecord task, Func<AgentProviderKind, string> agentName)
-    {
-        if (task.Training is not { } course) return;
-        text.AppendLine("## Training");
-        text.Append("- Topic: ").Append(OneLine(course.Topic)).Append(" · stage: ").Append(course.Stage).Append(" · sources: ").AppendLine(course.Sources.Count.ToString(CultureInfo.InvariantCulture));
-        foreach (var lesson in course.Lessons)
-        {
-            text.Append("- Lesson (").Append(lesson.Status).Append(", passed ").Append(lesson.Passed).Append(" of ").Append(lesson.Exams).Append(" exams, skill ")
-                .Append(lesson.Skill).Append("): ").AppendLine(OneLine(lesson.Text));
-        }
-
-        foreach (var exam in course.Exams)
-        {
-            text.Append("- Exam ").Append(Stamp(exam.At)).Append(", ").Append(agentName(exam.Provider)).Append(exam.Model is { } model ? $" {model}" : string.Empty)
-                .Append(": ").Append(exam.Result).Append(exam.Rating is { } rating ? $", the user's rating {rating}" : string.Empty)
-                .AppendLine(exam.CriticScore is { } score ? $", the art critic's score {score}" : string.Empty);
-            Detail(text, "The art critic's notes", exam.CriticNotes);
-        }
-
         text.AppendLine();
     }
 

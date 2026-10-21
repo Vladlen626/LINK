@@ -52,7 +52,7 @@ The same harness Link gives its agents, for work on this repo.
   `CliAgentProvider` → `ClaudeCodeProvider` / `CodexProvider` over `AgentProcess`; `AgentChanges` finds and undoes
   changes; `AgentRules`, `ProjectMap`, `ProjectSkills`,
   `ProjectRoles` are the harness; `AutoEffort`, `TaskState` (Compact), `HarnessView` (the inspector); `TeamRunner` (team
-  steps) and `Training` (study → exam → proven lessons into skills), their flows in `MainWindow.Team/Training`. The agent's rules,
+  steps), its flow in `MainWindow.Team`. The agent's rules,
   tasks and roles are `docs/harness/**/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel`
   (the sidebar; partials Card, Roles, Task with its cards, Composer) in `StudioWindow`, beside `HarnessInspector`.
 - `MainWindow.*.cs` partials by concern: shell/projects/context, Chat (Send, one attempt), AskAgain, Route (where Send

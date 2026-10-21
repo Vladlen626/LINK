@@ -111,9 +111,6 @@ public sealed class AgentTaskRecord
     /// <summary>The lead's session that has given a review's verdict: the next review in it is told the step alone.</summary>
     public string? ReviewSession { get; set; }
 
-    /// <summary>The training, when the task is one (<see cref="TaskMode.Training"/>); null otherwise.</summary>
-    public TrainingCourse? Training { get; set; }
-
     /// <summary>The images the task began with (the user's references, a screenshot), by path: a team's art steps and the art critic see them too.</summary>
     public List<string> Images { get; set; } = [];
 

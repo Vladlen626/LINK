@@ -6,8 +6,7 @@ namespace Link.Desktop.Services;
 
 /// <summary>
 /// The art critic, without the UI: whether a run's work is art it judges, from which frames, who judges it and what it
-/// is told, and whether its score agreed with the user's rating of an exam, which the choice of critics learns from.
-/// The critic judges blind to the artist's account of the work, so that the artist's words do not stand in for the
+/// is told. The critic judges blind to the artist's account of the work, so that the artist's words do not stand in for the
 /// look. The request is markdown beside Link.exe, edited without a rebuild.
 /// </summary>
 public static partial class ArtCritic
@@ -185,21 +184,6 @@ public static partial class ArtCritic
     /// <summary>The user's words to the artist after the critic left the step to them, with what the critic said in its own session.</summary>
     public static string Heard(string notes, string words) =>
         $"The art critic judged your frames and said this, worst first:\n{notes.Trim()}\n\nThe user has seen it and says:\n{words.Trim()}";
-
-    /// <summary>Whether the critic's score agreed with the user's rating of the same work: both pass (<see cref="Training.PassRating"/> and up) or both fail.</summary>
-    public static bool Agrees(int score, int rating) => score >= Training.PassRating == rating >= Training.PassRating;
-
-    /// <summary>
-    /// Counts the critic of a rated exam by whether its score agreed with the user's rating, and returns whether it did;
-    /// null, and nothing counted, for an exam no critic scored or one that proves nothing (unverified).
-    /// </summary>
-    public static bool? Calibrate(TrainingExam exam, WorkerEvidence evidence)
-    {
-        if (exam is not { CriticScore: { } score, CriticProvider: { } provider, Rating: { } rating } || exam.Result == ExamResult.Unverified) return null;
-        var agreed = Agrees(score, rating);
-        evidence.Record(StepKind.Critique, new Worker(provider, AgentLevel.Deep, exam.CriticModel), agreed);
-        return agreed;
-    }
 
     // An image's path in backticks, which may hold spaces, or bare up to a space, a quote or a bracket.
     [GeneratedRegex(@"`([^`\r\n]+?\.(?:png|jpe?g))`|([^\s`'""<>|*?()\[\]]+\.(?:png|jpe?g))(?!\w)", RegexOptions.IgnoreCase)]

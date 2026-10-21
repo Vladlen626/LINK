@@ -45,12 +45,10 @@ public partial class MainWindow
             // A task that waits for its agent's limit to reset keeps the card, with the box that ends the wait.
             if (work.Limit is null && record.ContinueAt is { } continueAt && record.LastRun is { } stopped) ShowLimitReached(work, stopped.Provider, continueAt.AddMinutes(-1));
             panel.ShowRestart(work.Restart.Show, work.Restart.Escalate);
-            ShowTrainingOf(work, live: false);
         }
         else
         {
             panel.ShowQuestion(null);
-            ShowTrainingOf(work, live: true);
         }
 
         // A decision of a running task is a tool its agent asks for and waits on.
@@ -147,8 +145,8 @@ public partial class MainWindow
     /// </summary>
     private static (string Said, IReadOnlyList<LocalPages.Page> Pages, AgentNext? Next) RunSaid(AgentTaskRecord record, AgentRunRecord run)
     {
-        // A team's answers were kept with the lead's plan before Link took it out, a training's with its lessons.
-        var words = record.Mode is TaskMode.Team or TaskMode.Training ? TeamPlan.WithoutBlocks(run.Words) : run.Words;
+        // A team's answers were kept with the lead's plan before Link took it out.
+        var words = record.Mode == TaskMode.Team ? TeamPlan.WithoutBlocks(run.Words) : run.Words;
         var (said, next) = AgentNext.Split(AgentQuestion.Split(words).Text);
         var (unpaged, pages) = LocalPages.Split(said);
         return (AgentChanges.SplitChangelistLine(unpaged).Text, pages, next);
@@ -346,16 +344,14 @@ public partial class MainWindow
     private static Lazy<IReadOnlyList<AgentRole>> WorkspaceRoles(string workspace) => new(() => ProjectRoles.In(workspace));
 
     /// <summary>The roles that colour a plan's jellyfish: read only when a step of the plan names its specialist.</summary>
-    /// <summary>The task's plan card: a team's steps with their workers, a training's lessons, else the agent's own plan.</summary>
+    /// <summary>The task's plan card: a team's steps with their workers, else the agent's own plan.</summary>
     private void ShowPlanOf(AgentTaskRecord record)
     {
         var plan = PlanOf(record);
-        if (record.Training is not null) _agentPanel?.ShowPlan(plan, title: "Lessons");
-        else _agentPanel?.ShowPlan(plan, PlanRoles(plan, record.Workspace), stepMenu: record.Team.Count > 0 ? index => TeamStepMenu(record, index) : null);
+        _agentPanel?.ShowPlan(plan, PlanRoles(plan, record.Workspace), stepMenu: record.Team.Count > 0 ? index => TeamStepMenu(record, index) : null);
     }
 
-    private IReadOnlyList<AgentPlanItem> PlanOf(AgentTaskRecord record) =>
-        record.Training is { } course ? Training.PlanItems(course) : record.Team.Count > 0 ? TeamPlanItems(record) : record.Plan;
+    private IReadOnlyList<AgentPlanItem> PlanOf(AgentTaskRecord record) => record.Team.Count > 0 ? TeamPlanItems(record) : record.Plan;
 
     private static IReadOnlyList<AgentRole>? PlanRoles(IReadOnlyList<AgentPlanItem> plan, string workspace) =>
         plan.Any(item => !string.IsNullOrEmpty(item.Role)) ? ProjectRoles.In(workspace) : null;

@@ -34,9 +34,6 @@ public sealed record AgentPlan(
     /// <summary>A team does the task: the lead plans it first and Link gives each step to its worker.</summary>
     public bool Team { get; init; }
 
-    /// <summary>A training of the card's specialist: it studies the goal's sources, then proves its lessons in exams.</summary>
-    public bool Train { get; init; }
-
     /// <summary>What the user pasted or dropped on the card: images and files, by path.</summary>
     public IReadOnlyList<string> Attached { get; init; } = [];
 

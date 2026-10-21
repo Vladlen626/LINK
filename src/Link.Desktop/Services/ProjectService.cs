@@ -106,10 +106,20 @@ public sealed class ProjectService
                 .Where(session => session.SessionId.Length > 0 && Enum.IsDefined(session.Provider))
                 .Select(AgentTaskRecord.FromSession)
                 .ToList();
-        // A record a newer Link or a hand wrote, with something this Link does not know, is skipped; so is one that ran
-        // or routed a step to the removed custom model.
-        return tasks.Where(task => Enum.IsDefined(task.Status) && task.Runs.All(run => Enum.IsDefined(run.Provider)) &&
+        return Readable(tasks);
+    }
+
+    /// <summary>
+    /// The tasks this Link can open. A record a newer Link or a hand wrote, with something this Link does not know, is
+    /// skipped; so is one that ran or routed a step to the removed custom model. A training (a mode since removed) is an
+    /// ordinary task now; its course is not read.
+    /// </summary>
+    public static IReadOnlyList<AgentTaskRecord> Readable(IEnumerable<AgentTaskRecord> tasks)
+    {
+        var known = tasks.Where(task => Enum.IsDefined(task.Status) && task.Runs.All(run => Enum.IsDefined(run.Provider)) &&
             task.Team.All(step => Known(step.Provider) && Known(step.Agent))).ToList();
+        foreach (var task in known.Where(task => !Enum.IsDefined(task.Mode))) task.Mode = TaskMode.Solo;
+        return known;
 
         static bool Known(AgentProviderKind? provider) => provider is not { } kind || Enum.IsDefined(kind);
     }

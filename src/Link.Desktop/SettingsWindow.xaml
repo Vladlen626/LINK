@@ -267,7 +267,7 @@
                                         <CheckBox x:Name="LeadReviewBox" Margin="0,4" Content="Team lead reviews each step"
                                                   ToolTip="In a team, the lead reads the diff of each step Codex or Haiku did and accepts it, sends it back with notes (twice at most) or gives it to a stronger worker. A short turn of the lead's own session, which changes nothing." />
                                         <CheckBox x:Name="ArtReviewBox" Margin="0,4" Content="Art critic"
-                                                  ToolTip="An art critic, another agent than the artist's where one can, judges the frames of each art step of a team and of each art exam before you do: a ledger, the worst defects, a score 1-5. It changes nothing and is blind to the artist's account; it sends a step back twice at most. Your rating of an exam tells Link which critic agrees with you." />
+                                                  ToolTip="An art critic, another agent than the artist's where one can, judges the frames of each art step of a team before you do: a ledger, the worst defects, a score 1-5. It changes nothing and is blind to the artist's account; it sends a step back twice at most." />
                                         <CheckBox x:Name="AlternateBox" Margin="0,4" Content="Measure team vs solo"
                                                   ToolTip="A task that would go to the team goes, by turns for each kind of work, to the team or to the strong agent alone. The Harness inspector's Stats then compare their tokens per task." />
                                         <CheckBox x:Name="AutoLowerBox" Margin="0,4" Content="Cheaper proven worker"

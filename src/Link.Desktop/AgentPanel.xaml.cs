@@ -55,10 +55,7 @@ public partial class AgentPanel : UserControl
     private Func<int, IReadOnlyList<IReadOnlyList<PanelAction>>>? _stepMenu;
     private int _planDone;
     private int _planCount;
-    private string _planTitle = "Plan";
     private string _replyTarget = "the agent";
-    // What the next words do when it is not the usual reply, such as a training's exam; null: the usual.
-    private string? _replyHint;
     private IReadOnlyList<PanelAction> _handOff = [];
     private IReadOnlyList<PanelAction> _more = [];
     private IReadOnlyList<IReadOnlyList<PanelAction>> _setup = [];
@@ -85,9 +82,6 @@ public partial class AgentPanel : UserControl
 
     /// <summary>The decision card's Deny.</summary>
     public event Action? DecisionRefused;
-
-    /// <summary>A rating of a training's exam, 1-5.</summary>
-    public event Action<int>? RatingChosen;
 
     /// <summary>Start over in a clean session with the agent's note on what did not work.</summary>
     public event Action? RestartRequested;

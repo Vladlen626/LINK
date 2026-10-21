@@ -1,5 +1,5 @@
-<!-- What the art critic is asked about an asset an artist made: in a team after an asset or instance step, in a
-training after an exam, before the user's OK or rating. A new session of another agent than the artist's where one
+<!-- What the art critic is asked about an asset an artist made: in a team after an asset or instance step, before
+the user's OK. A new session of another agent than the artist's where one
 can, changing nothing; after a redo the same session is told only the new frames and saved files. Link adds the task, what
 the artist handed over and saved, the user's references and the frames below (the sheets as images where there are
 any, else the first frames), never the artist's own account, and strips HTML comments before the agent sees it. -->

@@ -92,8 +92,6 @@ public partial class AgentPanel
         _teamChosen = false;
         TeamBox.Visibility = card.TeamOffered && !card.FixedProvider ? Visibility.Visible : Visibility.Collapsed;
         TeamBox.IsChecked = TeamBox.Visibility == Visibility.Visible && TeamRunner.Suggests(card.Goal, card.Roles);
-        TrainBox.Visibility = card.Roles.Count > 0 && !card.FixedProvider ? Visibility.Visible : Visibility.Collapsed;
-        TrainBox.IsChecked = false;
         GoalBox.Text = card.Goal;
         ProjectText.Text = card.ProjectName;
         ShowWorkspace(card);
@@ -138,7 +136,6 @@ public partial class AgentPanel
                 WorkspaceSkills = fresh.WorkspaceSkills
             };
             ShowWorkspace(card);
-            TrainBox.Visibility = card.Roles.Count > 0 && !card.FixedProvider ? Visibility.Visible : Visibility.Collapsed;
             ShowRoles(card);
         }
 
@@ -312,7 +309,7 @@ public partial class AgentPanel
         var role = SelectedRoleId;
         if (!_roleChosen && card.Roles.Count > 0) SelectRole(ProjectRoles.Suggest(GoalBox.Text, card.Roles)?.Id);
         // Team follows the goal until the user ticks or clears it.
-        if (!_teamChosen && !Train && TeamBox.Visibility == Visibility.Visible) TeamBox.IsChecked = TeamRunner.Suggests(GoalBox.Text, card.Roles);
+        if (!_teamChosen && TeamBox.Visibility == Visibility.Visible) TeamBox.IsChecked = TeamRunner.Suggests(GoalBox.Text, card.Roles);
         // The chips stay as they are unless the pick changed: a click on one lost the focus of the goal, and a chip
         // drawn anew under the mouse would take that click.
         var skills = PickedSkills();
@@ -342,29 +339,16 @@ public partial class AgentPanel
                          $"While it fails, the agent gets its output, {AgentCoordinator.CheckRetries} times at most.";
         CheckText.Visibility = card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
         PlanFirstBox.ToolTip = "A plan, then you run it: the agent proposes a plan before the work, on Settings' Strong model; you run it, on the model chosen here, in the same session";
-        // A team always plans first, on the lead; a training studies first.
-        PlanFirstBox.IsEnabled = !Team && !Train;
+        // A team always plans first, on the lead.
+        PlanFirstBox.IsEnabled = !Team;
         RunButton.IsEnabled = card.Workspace is not null;
         RunButton.ToolTip = card.Workspace is null ? "Choose the workspace folder first: Choose folder… below" : null;
-        RunButton.Content = card.RunLabel ?? (Team ? "Plan the team" : Train ? "Start training" : PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
+        RunButton.Content = card.RunLabel ?? (Team ? "Plan the team" : PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
     }
 
     private bool Team => TeamBox.Visibility == Visibility.Visible && TeamBox.IsChecked == true;
 
-    private bool Train => TrainBox.Visibility == Visibility.Visible && TrainBox.IsChecked == true;
-
-    private void TeamBox_OnClick(object sender, RoutedEventArgs e)
-    {
-        _teamChosen = true;
-        if (TeamBox.IsChecked == true) TrainBox.IsChecked = false;
-    }
-
-    private void TrainBox_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (TrainBox.IsChecked != true) return;
-        _teamChosen = true;
-        TeamBox.IsChecked = false;
-    }
+    private void TeamBox_OnClick(object sender, RoutedEventArgs e) => _teamChosen = true;
 
     private void Run_OnClick(object sender, RoutedEventArgs e)
     {
@@ -372,12 +356,6 @@ public partial class AgentPanel
         if (string.IsNullOrWhiteSpace(GoalBox.Text))
         {
             ShowCardWarning("Write what the agent should do.");
-            return;
-        }
-
-        if (Train && SelectedRoleId is null)
-        {
-            ShowCardWarning("Pick the specialist to train: General has no role to learn for.");
             return;
         }
 
@@ -391,11 +369,10 @@ public partial class AgentPanel
         var plan = new AgentPlan(
             agent.Kind,
             workspace,
-            Team || (!Train && PlanFirstBox.Visibility == Visibility.Visible && PlanFirstBox.IsChecked == true),
+            Team || (PlanFirstBox.Visibility == Visibility.Visible && PlanFirstBox.IsChecked == true),
             GoalBox.Text.Trim())
         {
             Team = Team,
-            Train = Train,
             Model = SelectedModel,
             Effort = SelectedEffort,
             // A model with no effort levels leaves Auto as the card had it, for the agents the task may reach.

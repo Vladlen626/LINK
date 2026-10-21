@@ -507,9 +507,6 @@
                     <CheckBox x:Name="TeamBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Click="TeamBox_OnClick"
                               Content="Team" Visibility="Collapsed"
                               ToolTip="The lead plans the steps, Link gives each to its worker; pays off from about 4 steps. Strong plans first; you see each step with its worker and why, then run the team. Steps run one after another. With fewer steps the plan, briefs and reviews cost more than the cheaper workers save: one agent does it for less" />
-                    <CheckBox x:Name="TrainBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Click="TrainBox_OnClick"
-                              Content="Train the specialist" Visibility="Collapsed"
-                              ToolTip="It studies your sources, then proves its lessons in an exam. Links in the goal and attached PDFs are the sources; the study only reads. Its lessons reach a skill only after an exam you rate 4 or 5" />
                 </WrapPanel>
                 <ItemsControl x:Name="CardLimitsList" Margin="0,4,0,0" ItemTemplate="{StaticResource LimitRowTemplate}" />
 
@@ -686,20 +683,6 @@
                                         Content="Deny" Visibility="Collapsed" Click="Deny_OnClick"
                                         ToolTip="The agent goes on without it" />
                             </StackPanel>
-                        </StackPanel>
-                    </Border>
-
-                    <!-- A training's exam waits for the user's rating: the verdict is theirs, the agent's own scores are a hint. -->
-                    <Border x:Name="RatingCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
-                        <StackPanel>
-                            <TextBlock x:Name="RatingText" Style="{StaticResource RowTextStyle}" />
-                            <WrapPanel Margin="0,4,0,0">
-                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Margin="0,6,6,0" Click="Rating_OnClick" Tag="1" Content="1" ToolTip="Bad: the lessons stay candidates" />
-                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Margin="0,6,6,0" Click="Rating_OnClick" Tag="2" Content="2" />
-                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Margin="0,6,6,0" Click="Rating_OnClick" Tag="3" Content="3" ToolTip="So-so: still a fail" />
-                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Margin="0,6,6,0" Click="Rating_OnClick" Tag="4" Content="4" ToolTip="Good: a pass, the lessons it applied are proven" />
-                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Margin="0,6,6,0" Click="Rating_OnClick" Tag="5" Content="5" />
-                            </WrapPanel>
                         </StackPanel>
                     </Border>
 

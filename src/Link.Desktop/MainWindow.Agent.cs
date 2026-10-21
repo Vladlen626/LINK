@@ -169,7 +169,6 @@ public partial class MainWindow
             UserSpoke(work);
             RefuseDecision(work, decision);
         };
-        panel.RatingChosen += RateExam;
         panel.RestartRequested += RequestRestart;
         panel.EscalateRequested += Escalate;
         panel.ContinueRequested += (words, attached) => ContinueWithAttached(words, attached, queue: false);
@@ -350,8 +349,6 @@ public partial class MainWindow
         // A team is planned by its lead, the Strong worker on its Deep level (OfferTeam routes the plan).
         var lead = plan.Team ? WorkerRouting.Workers(agent, WorkerStateOf)[WorkerTier.Strong] : null;
         if (lead is not null) plan = plan with { Provider = lead.Provider, PlanFirst = true, RoleId = null, Skills = [] };
-        // A training studies straight away, with the card's access, as its exams do.
-        else if (plan.Train) plan = plan with { PlanFirst = false };
         // A plan is made on the strongest model and carried out with the card's, in the same session.
         var planSetup = (plan.Model, plan.Effort);
         var (model, effort) = lead is not null ? agent.Level(lead.Provider, lead.Level)
@@ -368,9 +365,6 @@ public partial class MainWindow
             origin = origin with { Prompt = TeamPlan.Prompt(brief, request, evidence, ProjectRoles.In(plan.Workspace)) };
         }
 
-        // A training studies first: its lessons wait for an exam (see MainWindow.Training).
-        TrainingCourse? course = null;
-        if (plan.Train && lead is null) (origin, course) = await TrainingStartAsync(origin, plan, project, attachedFiles);
         var record = new AgentTaskRecord
         {
             Goal = Shorten(written.Split('\n')[0].Trim(), 200),
@@ -381,12 +375,10 @@ public partial class MainWindow
             RoleId = plan.RoleId,
             Skills = [.. plan.Skills],
             Measured = measured,
-            Mode = lead is not null ? TaskMode.Team : course is not null ? TaskMode.Training : TaskMode.Solo,
-            Training = course,
+            Mode = lead is not null ? TaskMode.Team : TaskMode.Solo,
             Images = [.. origin.Images]
         };
         var how = lead is not null ? $"\n(team: {WorkerLabel(lead)} plans the steps)"
-            : course is not null ? "\n(training: study first, then an exam)"
             : plan.PlanFirst ? "\n(plan first)" : string.Empty;
         if (measured && lead is null) how += "\n(team vs solo: alone this time, to compare)";
         if (!ReferenceEquals(written, plan.Goal)) how += "\n(translated into English by ChatGPT)";
@@ -431,13 +423,6 @@ public partial class MainWindow
         {
             work.Replanning = false;
             _ = StartReplanAsync(work, text, images);
-            return;
-        }
-
-        // A training ready for its exam: the words set it, in a new session.
-        if (work.Record.Training is { Stage: TrainingStage.AwaitsExam } course)
-        {
-            _ = StartExamAsync(work, course, text, images);
             return;
         }
 
@@ -579,11 +564,6 @@ public partial class MainWindow
         ShowTaskInPanel();
         // A team left mid-way goes on from the step it is on; a question it ended on is answered first.
         if (record.Team.Count > 0 && work.Question is null) OfferTeamGoOn(work);
-        // A study that drew its lessons, or a training between exams, still offers the exam.
-        if (record.Training is { Stage: TrainingStage.Learning or TrainingStage.BetweenExams, Lessons.Count: > 0 } course && work.Question is null)
-        {
-            OfferExam(work, course);
-        }
         _ = ShowChangesAsync(record);
         UpdateRouteButton();
         AgentStatus(work.EarlierSession is null
@@ -598,8 +578,9 @@ public partial class MainWindow
     private TaskWork TakeUpTask(AgentTaskRecord record, LinkProject project)
     {
         var work = new TaskWork(record, project) { AfterRun = [ConsoleAction()] };
-        // In a team or a training the art critic only judged: words go on with the work it judged.
-        var last = (record.Team.Count > 0 || record.Training is not null ? record.Runs.LastOrDefault(run => !ArtCritic.Judged(run)) : null) ?? record.LastRun;
+        // The art critic only judged (a team's step, or an older Link's exam): words go on with
+        // the work it judged.
+        var last = record.Runs.LastOrDefault(run => !ArtCritic.Judged(run)) ?? record.LastRun;
         // A question the task ended on is still a question.
         work.Question = record.Status == AgentTaskStatus.NeedsYou && last is not null ? AgentQuestion.Split(last.Words).Question : null;
         work.EarlierSession = last?.SessionId is { } session
@@ -824,7 +805,7 @@ public partial class MainWindow
         // A team's step is a new session of its own worker: its effort follows the step's kind and its own failures.
         var (effort, reason) = TeamRunner.Current(record) is { Status: TeamStepStatus.Running } step
             ? AutoEffort.ForStep(step.Kind, efforts, step.Failures)
-            : AutoEffort.Choose(phase, record.Training is { Stage: TrainingStage.Exam, Exams: [.., var exam] } ? exam.Brief : BriefOf(record),
+            : AutoEffort.Choose(phase, BriefOf(record),
                 efforts, last?.Effort, AutoEffort.Failures(record.Runs),
                 last is null ? null : AgentNext.Split(last.Words).Next, role);
         return task with { Effort = effort, EffortReason = reason };
@@ -899,7 +880,7 @@ public partial class MainWindow
             : checkFailed ? $"Check failed after {elapsed}"
             : $"Done in {elapsed}";
         // The lead's plan is the plan card and its verdict a line of the thread: the answer is shown and kept without them.
-        var answer = record.Mode is TaskMode.Team or TaskMode.Training ? TeamPlan.WithoutBlocks(result.Summary) : result.Summary;
+        var answer = record.Mode == TaskMode.Team ? TeamPlan.WithoutBlocks(result.Summary) : result.Summary;
         var (answerText, question) = AgentQuestion.Split(answer);
         // The changelist's line is for P4V, the next step for Link's Auto effort and the pages for their buttons; the thread
         // shows the answer without them.
@@ -942,10 +923,7 @@ public partial class MainWindow
         if (work == _open) _ = ShowChangesAsync(record);
         ShowTask(work);
         if (record.Team.Count > 0) AfterTeamStep(work, run, needsYou: work.Question is not null || decision || limitReached);
-        if (record.Training is not null) AfterTrainingRun(work, run, needsYou: work.Question is not null || decision || limitReached);
-        // A training shares the skills its exam's lessons went into once they are written, not on the way.
-        if (!needsYou && work.Decision is null && record.LastRun is { } done && WorkerEvidence.Verdict(done) == true && TeamRunner.Current(record) is null &&
-            record.Training is null or { Stage: TrainingStage.AwaitsExam or TrainingStage.BetweenExams })
+        if (!needsYou && work.Decision is null && record.LastRun is { } done && WorkerEvidence.Verdict(done) == true && TeamRunner.Current(record) is null)
         {
             OfferShare(work);
         }
@@ -1407,10 +1385,9 @@ public partial class MainWindow
         var record = work.Record;
         ClearChoice(work);
         if (result.Stopped || result.SessionId is not { } session) return false;
-        // The team lead's review and the art critic only read: their verdict decides (AfterTeamStep, AfterTrainingRun), not a card of
-        // this. A plan asked for meanwhile (a re-plan) is offered.
-        if (!task.PlanOnly && TeamRunner.Current(record) is { Status: TeamStepStatus.Reviewing or TeamStepStatus.Critique } ||
-            record.Training is not null && ArtCritic.Judges(task))
+        // The team lead's review and the art critic only read: their verdict decides (AfterTeamStep), not a card of this. A
+        // plan asked for meanwhile (a re-plan) is offered.
+        if (!task.PlanOnly && TeamRunner.Current(record) is { Status: TeamStepStatus.Reviewing or TeamStepStatus.Critique })
         {
             return false;
         }

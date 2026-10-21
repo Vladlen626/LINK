@@ -32,8 +32,9 @@ public enum StepKind
     Instance = 8,
 
     /// <summary>
-    /// Never a step of a plan: the art critic's judgement, counted for the critic by whether the user's rating of an
-    /// exam agreed with it (see <see cref="Services.ArtCritic"/>).
+    /// Never a step of a plan: the art critic's judgement, counted for the critic by whether the user's rating agreed
+    /// with it. Nothing counts it now (the rated exams are gone); what was counted still steers the choice of critic
+    /// (see <see cref="Services.ArtCritic"/>).
     /// </summary>
     Critique = 9
 }
@@ -71,7 +72,7 @@ public sealed class TeamSettings
 
     /// <summary>
     /// An art critic, another agent than the artist's where one can, judges the frames of each art step of a team (an
-    /// asset or an instance) and of each art exam before the user does (see <see cref="Services.ArtCritic"/>).
+    /// asset or an instance) before the user does (see <see cref="Services.ArtCritic"/>).
     /// </summary>
     public bool ArtReview { get; set; } = true;
 
@@ -101,15 +102,12 @@ public sealed class TeamSettings
         choice is not null && Enum.IsDefined(choice.Provider) && Enum.IsDefined(choice.Level) ? choice : null;
 }
 
-/// <summary>Who did a task: one agent the user chose or the strong agent alone, a team plan, or one worker that Auto routed the whole task to; or a training.</summary>
+/// <summary>Who did a task: one agent the user chose or the strong agent alone, a team plan, or one worker that Auto routed the whole task to.</summary>
 public enum TaskMode
 {
     Solo = 0,
     Team = 1,
-    Worker = 2,
-
-    /// <summary>A specialist studies sources and proves what it learned in exams (see <see cref="TrainingCourse"/>).</summary>
-    Training = 3
+    Worker = 2
 }
 
 public enum TeamStepStatus

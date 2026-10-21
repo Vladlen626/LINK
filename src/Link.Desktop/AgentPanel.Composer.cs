@@ -79,13 +79,6 @@ public partial class AgentPanel
         if (replanning) ReplyBox.Focus();
     }
 
-    /// <summary>What the next words do when it is not the usual reply, in the box's placeholder; null: the usual.</summary>
-    public void ShowReplyHint(string? hint)
-    {
-        _replyHint = hint;
-        UpdateReplyHint();
-    }
-
     /// <summary>Who the words in the box go to, and what happens to them.</summary>
     public void SetReplyTarget(string agentName)
     {
@@ -104,7 +97,7 @@ public partial class AgentPanel
                 ? "Tell the team's lead what to change: the steps done stay, it plans the rest anew"
                 : _planning
                     ? $"Reply to {_replyTarget}: the session stays in plan mode, reading and planning only"
-                    : _replyHint ?? $"Reply to {_replyTarget}: the same session goes on with your words";
+                    : $"Reply to {_replyTarget}: the same session goes on with your words";
         // The send button is a round icon: its tooltip carries the label, and so does its name for UI Automation.
         var label = _running ? "Steer now" : answering ? "Answer" : "Send";
         AutomationProperties.SetName(ContinueButton, label);

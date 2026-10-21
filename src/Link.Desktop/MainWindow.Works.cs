@@ -165,7 +165,7 @@ public partial class MainWindow
     /// <summary>Link closes: every agent stops, and so does Link's own step.</summary>
     /// <summary>
     /// Link closes while agents work: each run goes into its task's record now, with the session it got, since Link
-    /// will not see it end. Without this a task taken up later went on in an older session (the study, not its exam).
+    /// will not see it end. Without this a task taken up later went on in an older session.
     /// </summary>
     private void KeepRunsCutShort()
     {
