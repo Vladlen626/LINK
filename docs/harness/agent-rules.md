@@ -3,7 +3,8 @@
      whatever the workspace holds. Only what the model does not know by itself: how a run from Link works, the
      environment and what was seen in runs. What both CLIs do on their own (look around, plan, check themselves) is not
      written here; each line comes from a behaviour it corrects. Hard limits live in Link's code (access, backup, Stop,
-     undo), not here. -->
+     undo), not here. What a script can check moves into Link's code too: HarnessLint checks a run's files (the map's
+     and skills' length, front matter, English, a check's leftovers) and tells the agent with the user's next words. -->
 
 # Agent rules
 

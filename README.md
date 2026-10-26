@@ -236,6 +236,9 @@ screen, the microphone, the chat or Settings. Each device pairs once with a 6-di
 this computer and the phone (one account), `tailscale serve --bg 8787` once, open the HTTPS address on the phone,
 Add to Home screen; 🔔 there sends a notification when a task needs you while you are away from the computer.
 
+A task whose run opened a page here (a model's review window) shows its button: Link passes the page through, so you
+mark and comment the model from the other computer, then Apply marks sends them to the agent. The list's Claude picker
+switches the account new runs use (one at its limit, say).
 **Telegram bot.** No tunnel and no second VPN on the phone: Link asks Telegram for news itself. In Telegram,
 @BotFather → `/newbot` gives a token; Settings → Remote control → paste it, Pair Telegram, send the code to the bot.
 Each task Link writes about gets one card that changes silently as the task goes (status, last words, one picture of its
@@ -243,7 +246,7 @@ run: the one its answer names, or the newest); when the task needs you while you
 buttons: the agent's options, Allow, Always, Deny, Stop, No-stop, Changes (a `.patch` file). Turn on topics for the
 bot in @BotFather (Bot Settings) and each task gets a topic of its own. Words or a photo answer the task of the topic,
 of the message you reply to, or of the last card; `/new`, `/plan` and `/auto` (No-stop) ask the project and the agent
-with buttons; `/tasks` and `/spent` do the rest. Voice notes are not understood yet: type or dictate. Only the paired chat is heard; the words go through Telegram.
+with buttons; `/tasks`, `/spent` and `/account` (the Claude account new runs use) do the rest. Voice notes are not understood yet: type or dictate. Only the paired chat is heard; the words go through Telegram.
 
 **What was spent.** Under the usage bars: today and this month at API prices, read by
 [ccusage](https://ccusage.com) from every Claude Code and Codex session's logs (Link's or not); hover for the week,

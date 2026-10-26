@@ -94,9 +94,9 @@ function pairView() {
 
 async function listView() {
   title.textContent = 'Link';
-  const [tasks, usage] = await Promise.all([api('/api/tasks'), api('/api/usage')]);
+  const [tasks, usage, accounts] = await Promise.all([api('/api/tasks'), api('/api/usage'), api('/api/accounts')]);
   const spent = usage.line ? el('p', { className: 'meta', title: usage.hint, text: usage.line }) : null;
-  const top = el('div', {}, notifyButton(), spent);
+  const top = el('div', {}, notifyButton(), spent, accountPicker(accounts));
   if (tasks.length === 0) return el('div', {}, top, el('p', { className: 'empty', text: 'No tasks yet: + New starts one.' }));
   return el('div', {}, top, tasks.map(task => el('div', {
     className: 'card task' + (task.waits ? ' waits' : ''),
@@ -186,6 +186,11 @@ async function taskView(id) {
 
   if (task.lastWords) parts.push(el('div', { className: 'card words', text: task.lastWords }));
 
+  // A page the run opened on the computer (a model's review window): Link passes it through to this device.
+  data.pages.forEach((page, index) => parts.push(el('div', { className: 'row' },
+    el('button', { text: page.label, onclick: () => openPage(id, index, error) }),
+    page.replyLabel && data.takesWords ? el('button', { className: 'plain', text: page.replyLabel, onclick: () => act('reply', { words: page.replyText }) }) : null)));
+
   if (data.takesWords) {
     const words = el('textarea', { placeholder: task.working ? 'Correct it now: it stops the step and goes on with your words' : 'Reply' });
     parts.push(el('div', {}, words, el('div', { className: 'row' },
@@ -203,6 +208,35 @@ async function taskView(id) {
       el('div', { className: 'kind', text: `${when(entry.at)} · ${entry.kind}` }),
       el('div', { className: 'words', text: entry.text })))));
   return el('div', {}, parts);
+}
+
+// The tab opens at the tap, before Link answers: a tab opened later is a blocked pop-up.
+async function openPage(id, index, error) {
+  const tab = window.open('', '_blank');
+  try {
+    const data = await api(`/api/tasks/${id}/page`, { page: index });
+    if (tab) tab.location = data.url;
+    else location.href = data.url;
+  } catch (failure) {
+    if (tab) tab.close();
+    error.textContent = failure.message;
+  }
+}
+
+// Which Claude account new runs use: another one when this one is at its limit.
+function accountPicker(accounts) {
+  if (accounts.names.length < 2) return null;
+  const select = el('select', {}, accounts.names.map(name =>
+    el('option', { value: name ?? '', selected: name === accounts.active, text: 'Claude: ' + (name ?? 'Main') })));
+  select.addEventListener('change', async () => {
+    try {
+      await api('/api/accounts', { name: select.value || null });
+    } catch (failure) {
+      alert(failure.message);
+    }
+    draw();
+  });
+  return select;
 }
 
 async function newView() {

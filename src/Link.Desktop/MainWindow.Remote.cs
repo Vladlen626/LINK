@@ -49,7 +49,38 @@ public partial class MainWindow : IRemoteHost
             work is null ? record.LastRun?.SessionId is not null : work.Waiting is null && (work.Busy || TakesWords(work)),
             work?.Run is { } live ? RemoteNow(live, plan) : null,
             plan,
-            RemoteBefore(record, live: work?.Run is not null));
+            RemoteBefore(record, live: work?.Run is not null),
+            [.. LastPages(record).Select(page => new RemoteTaskPage(page.Label, page.Reply?.Label, page.Reply?.Text))]);
+    });
+
+    /// <summary>The pages the task's last run opened (a model's review window), as its turn shows them.</summary>
+    private static IReadOnlyList<LocalPages.Page> LastPages(AgentTaskRecord record) => record.LastRun is { } run ? RunSaid(record, run).Pages : [];
+
+    /// <summary>A page served again as its turn's button does, without opening a browser here: the remote page shows it.</summary>
+    public async Task<Uri?> OpenPageAsync(Guid id, int page)
+    {
+        var (found, workspace) = await OnWindow<(LocalPages.Page?, string?)>(() => (WorkOf(id)?.Record ?? ActiveRecord(id)) is { } record
+            ? (LastPages(record).ElementAtOrDefault(page), record.Workspace)
+            : (null, null));
+        if (found is null) return null;
+        return await LocalPages.ReopenAsync(found, workspace) ?? (await LocalPages.IsUpAsync(found.Address) ? found.Address : null);
+    }
+
+    public Task<RemoteAccounts> AccountsAsync() => OnWindow(() => new RemoteAccounts([null, .. ClaudeAccounts.Names()], _settings.Current.Agent.ClaudeAccount));
+
+    /// <summary>Another Claude account for new runs (one at its limit, say); a run under way keeps its own.</summary>
+    public Task<string?> SetAccountAsync(string? account, string device) => OnWindow(() =>
+    {
+        var name = ClaudeAccounts.Names().FirstOrDefault(each => string.Equals(each, account, StringComparison.OrdinalIgnoreCase));
+        if (account is not null && name is null) return $"No Claude account «{account}»";
+        var agent = _settings.Current.Agent;
+        if (agent.ClaudeAccount == name) return null;
+        agent.ClaudeAccount = name;
+        _settings.Save();
+        // Another account has limits of its own.
+        RefreshLimits(AgentProviderKind.ClaudeCode);
+        DiagnosticsReported?.Invoke($"[Remote] {device}: Claude account {name ?? "Main"}");
+        return (string?)null;
     });
 
     /// <summary>The step under way: the plan's step and what the agent is at in it ("Fixing the jump — Edit Player.cs").</summary>

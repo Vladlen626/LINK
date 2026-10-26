@@ -206,6 +206,10 @@ internal static class RemoteTests
                 Program.Equal("Telegram: a voice note is answered, not sent", (Count("sendMessage", "voice notes"), host.Done.Count), (1, 6));
                 await bot.HandleAsync(Update(Press(42, $"f:{FakeHost.Task:N}")), default);
                 Program.Equal("Telegram: Changes sends the run's changes as a .patch file", Count("sendDocument", ".patch"), 1);
+                await bot.HandleAsync(Update(Text(42, "/account")), default);
+                await bot.HandleAsync(Update(Press(42, "ac:1", Last("sendMessage"))), default);
+                Program.Equal("Telegram: /account offers Claude's accounts, and the one pressed runs next",
+                    (Count("sendMessage", "\"ac:1\""), host.Done.Last(), Count("editMessageText", "Account 2")), (1, "account Account 2 by Telegram", 1));
 
                 var made = Path.Combine(folder, "made.png");
                 await File.WriteAllBytesAsync(made, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
@@ -289,6 +293,25 @@ internal static class RemoteTests
         await client.PostAsJsonAsync("/api/push", new { endpoint = "https://push.example/1", keys = new { p256dh = "k", auth = "a" } });
         Program.Equal("Remote: a device's push subscription is kept, over HTTPS only", (plain.StatusCode, subscribed), (HttpStatusCode.BadRequest, new RemotePushSubscription("https://push.example/1", "k", "a")));
 
+        await client.PostAsJsonAsync("/api/accounts", new { name = "Account 2" });
+        Program.Equal("Remote: the Claude accounts, and another one for new runs",
+            ((await client.GetFromJsonAsync<JsonElement>("/api/accounts")).GetProperty("active").GetString(), host.Done.Last()), ("Account 2", "account Account 2 by Phone"));
+
+        // Another Link server stands for a review window on this computer.
+        using var window = new RemoteServer(new FakeHost(), new RemotePairing([], _ => { }), _ => { });
+        window.Start(0);
+        Program.Equal("Remote: a page that does not open says so",
+            (await client.PostAsJsonAsync($"/api/tasks/{FakeHost.Task}/page", new { page = 0 })).StatusCode, HttpStatusCode.Conflict);
+        host.Page = new Uri($"http://127.0.0.1:{window.Port}/");
+        var opened = (await (await client.PostAsJsonAsync($"/api/tasks/{FakeHost.Task}/page", new { page = 0 })).Content.ReadFromJsonAsync<JsonElement>()).GetProperty("url").GetString()!;
+        using var stranger = new HttpClient { BaseAddress = client.BaseAddress };
+        var passed = await stranger.GetAsync(opened);
+        Program.Equal("Remote: the page passes through by its ticket, with its own requests, and no other",
+            (opened.StartsWith("/view/"), passed.StatusCode, (await passed.Content.ReadAsStringAsync()).Contains("app.js"),
+                (await stranger.GetAsync(opened + "api/tasks")).StatusCode, (await stranger.GetAsync("/view/0123/")).StatusCode,
+                (await stranger.GetAsync(opened + "//example.com/")).StatusCode),
+            (true, HttpStatusCode.OK, true, HttpStatusCode.Unauthorized, HttpStatusCode.NotFound, HttpStatusCode.NotFound));
+
         var version = (await client.GetFromJsonAsync<JsonElement>("/api/events?since=-1")).GetProperty("version").GetInt64();
         var waiting = client.GetFromJsonAsync<JsonElement>($"/api/events?since={version}");
         await Task.Delay(50);
@@ -325,8 +348,23 @@ internal static class RemoteTests
             ? new RemoteTaskView(Row, [], new RemoteQuestion("Which jump?", [new AgentOption("Keep the double jump", "")], false),
                 new RemoteDecision("Run the tests?", "Allow", true, true), null, null, ["Jump.cs"], "", true,
                 "Fixing the jump - Edit Player.cs", [new AgentPlanItem("Find the jump", true, false), new AgentPlanItem("Fix the jump", false, true)],
-                ["You: Make the jump higher", "Claude Code: done in 2:00 - " + Words])
+                ["You: Make the jump higher", "Claude Code: done in 2:00 - " + Words],
+                [new RemoteTaskPage("Mark changes on the model", "Apply marks", "Apply my open marks")])
             : null);
+
+        /// <summary>The address the review window's page is at; null: it does not open.</summary>
+        public Uri? Page { get; set; }
+        public string? Account { get; private set; }
+
+        public Task<Uri?> OpenPageAsync(Guid id, int page) => System.Threading.Tasks.Task.FromResult(id == Task && page == 0 ? Page : null);
+
+        public Task<RemoteAccounts> AccountsAsync() => System.Threading.Tasks.Task.FromResult(new RemoteAccounts([null, "Account 2"], Account));
+
+        public Task<string?> SetAccountAsync(string? account, string device)
+        {
+            Account = account;
+            return Did($"account {account ?? "Main"} by {device}");
+        }
 
         public Task<string?> StartAsync(RemoteNewTask task, string device) =>
             Did($"start {task.Goal} {task.PlanFirst} {task.NoStop} {task.Provider?.ToString() ?? "-"} {task.Level?.ToString() ?? "-"} {task.Attached?.Count ?? 0} by {device}");

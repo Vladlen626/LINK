@@ -1,4 +1,5 @@
 using System.Net;
+using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
 using System.Text.Json;
@@ -9,12 +10,19 @@ namespace Link.Desktop.Services;
 /// The remote page and its API, on 127.0.0.1 only: plain HTTP/1.1, one request per connection. Another device comes
 /// through a tunnel of the user's (<c>tailscale serve</c> gives it HTTPS), so no port is opened to the network and no
 /// URL reservation or admin right is needed. Every API call but pairing needs a paired device's token
-/// (<c>Authorization: Bearer</c>); the page itself holds no data. Changes reach the page by long polling.
+/// (<c>Authorization: Bearer</c>); the page itself holds no data. Changes reach the page by long polling. A page a run
+/// opened on this computer (a model's review window) is passed through under <c>/view/</c> by a ticket the API gives.
 /// </summary>
 public sealed class RemoteServer : IDisposable
 {
     private const int MaxHeader = 16 * 1024;
     private const int MaxBody = 256 * 1024;
+    // A review window takes a reference picture or model the user drops on it.
+    private const int MaxViewBody = 32 << 20;
+    private const string ViewPrefix = "/view/";
+    private static readonly TimeSpan ViewIdle = TimeSpan.FromHours(2);
+    // The pages are on this computer: never through the system's proxy (a VPN client's).
+    private static readonly HttpClient Pages = new(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(60) };
     private static readonly TimeSpan PollWait = TimeSpan.FromSeconds(25);
     private static readonly TimeSpan ReadWait = TimeSpan.FromSeconds(20);
     private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
@@ -27,6 +35,8 @@ public sealed class RemoteServer : IDisposable
     private CancellationTokenSource? _stop;
     private long _version;
     private TaskCompletionSource _change = new(TaskCreationOptions.RunContinuationsAsynchronously);
+    // The pages a paired device opened, by a random ticket in their path: a page's own requests carry no token.
+    private readonly Dictionary<string, (Uri Address, DateTimeOffset Used)> _views = [];
 
     /// <param name="pushKey">Link's public key for notifications (<see cref="RemotePush.PublicKey"/>); null offers none.</param>
     public RemoteServer(IRemoteHost host, RemotePairing pairing, Action<string> log, Func<string>? pushKey = null)
@@ -163,7 +173,8 @@ public sealed class RemoteServer : IDisposable
         received.Write(buffer, end + 4, length - end - 4);
         var chunked = headers.TryGetValue("Transfer-Encoding", out var encoding) && encoding.Contains("chunked", StringComparison.OrdinalIgnoreCase);
         var size = headers.TryGetValue("Content-Length", out var value) && int.TryParse(value, out var parsed) ? parsed : 0;
-        if (size is < 0 or > MaxBody) return null;
+        var limit = start[1].StartsWith(ViewPrefix, StringComparison.Ordinal) ? MaxViewBody : MaxBody;
+        if (size < 0 || size > limit) return null;
         byte[]? Whole() => chunked ? Unchunked(received.GetBuffer().AsSpan(0, (int)received.Length))
             : received.Length >= size ? received.ToArray()[..size]
             : null;
@@ -171,7 +182,7 @@ public sealed class RemoteServer : IDisposable
         byte[]? body;
         while ((body = Whole()) is null)
         {
-            if (received.Length > MaxBody) return null;
+            if (received.Length > limit) return null;
             var read = await stream.ReadAsync(buffer, token);
             if (read == 0) return null;
             received.Write(buffer, 0, read);
@@ -215,6 +226,7 @@ public sealed class RemoteServer : IDisposable
         200 => "OK",
         400 => "Bad Request",
         401 => "Unauthorized",
+        403 => "Forbidden",
         404 => "Not Found",
         405 => "Method Not Allowed",
         409 => "Conflict",
@@ -224,6 +236,7 @@ public sealed class RemoteServer : IDisposable
     /// <summary>What a request gets: the page's files for anyone, the API for a paired device.</summary>
     internal async Task<Response> HandleAsync(Request request, CancellationToken token)
     {
+        if (request.Path.StartsWith(ViewPrefix, StringComparison.Ordinal)) return await ViewAsync(request, token);
         if (!request.Path.StartsWith("/api/", StringComparison.Ordinal))
         {
             return request.Method == "GET" && RemotePage.File(request.Path) is var (type, bytes) ? new Response(200, type, bytes) : Error(404, "Not found");
@@ -259,6 +272,10 @@ public sealed class RemoteServer : IDisposable
                 return Ok(await _host.TasksAsync());
             case ("GET", 2, _) when parts[1] == "usage":
                 return Ok(await _host.UsageAsync() ?? new RemoteUsage(string.Empty, string.Empty));
+            case ("GET", 2, _) when parts[1] == "accounts":
+                return Ok(await _host.AccountsAsync());
+            case ("POST", 2, _) when parts[1] == "accounts":
+                return Body<AccountRequest>(request) is { } account ? Done(await _host.SetAccountAsync(account.Name, device)) : Error(400, "Name the account");
             case ("GET", 2, _) when parts[1] == "events":
                 return Ok(new { version = await WaitForChangeAsync(request.Query, token) });
             case ("GET", 3, true):
@@ -276,10 +293,64 @@ public sealed class RemoteServer : IDisposable
                     "refuse" => Done(await _host.RefuseAsync(id, device)),
                     "stop" => Done(await _host.StopAsync(id, device)),
                     "nostop" => Body<SwitchRequest>(request) is { } change ? Done(await _host.SetNoStopAsync(id, change.On, device)) : Error(400, "Say on or off"),
+                    "page" => await OpenPageAsync(id, Body<PageRequest>(request)?.Page ?? 0),
                     _ => Error(404, "Not found")
                 };
             default:
                 return Error(404, "Not found");
+        }
+    }
+
+    /// <summary>
+    /// A page of the task's last run for the device: Link serves it again if it stopped and gives a path of its own
+    /// under <see cref="ViewPrefix"/>, so the page reaches the device the way this server does.
+    /// </summary>
+    private async Task<Response> OpenPageAsync(Guid id, int page)
+    {
+        if (await _host.OpenPageAsync(id, page) is not { IsLoopback: true } address) return Error(409, "The page does not open any more: ask the agent to open it again");
+        var root = new Uri(address.GetLeftPart(UriPartial.Authority) + "/");
+        lock (_views)
+        {
+            var now = DateTimeOffset.Now;
+            foreach (var old in _views.Where(view => now - view.Value.Used > ViewIdle).Select(view => view.Key).ToArray()) _views.Remove(old);
+            var ticket = _views.FirstOrDefault(view => view.Value.Address == root).Key ?? System.Security.Cryptography.RandomNumberGenerator.GetHexString(32, lowercase: true);
+            _views[ticket] = (root, now);
+            return Ok(new { url = ViewPrefix + ticket + address.PathAndQuery });
+        }
+    }
+
+    /// <summary>A request of an opened page, passed to its server on this computer as from the page's own address.</summary>
+    private async Task<Response> ViewAsync(Request request, CancellationToken token)
+    {
+        var rest = request.Path[ViewPrefix.Length..];
+        var slash = rest.IndexOf('/');
+        Uri root;
+        lock (_views)
+        {
+            if (slash < 0 || !_views.TryGetValue(rest[..slash], out var view) || DateTimeOffset.Now - view.Used > ViewIdle) return Error(404, "This page is closed: open it again from its task");
+            _views[rest[..slash]] = (view.Address, DateTimeOffset.Now);
+            root = view.Address;
+        }
+
+        var target = new Uri(root, rest[(slash + 1)..] + (request.Query.Length > 0 ? "?" + request.Query : string.Empty));
+        // "//host/..." would lead off the page's server.
+        if (target.GetLeftPart(UriPartial.Authority) != root.GetLeftPart(UriPartial.Authority)) return Error(404, "Not found");
+        using var message = new HttpRequestMessage(new HttpMethod(request.Method), target);
+        if (request.Method != "GET")
+        {
+            message.Content = new ByteArrayContent(request.Body);
+            if (request.Headers.TryGetValue("Content-Type", out var type)) message.Content.Headers.TryAddWithoutValidation("Content-Type", type);
+        }
+
+        try
+        {
+            using var answer = await Pages.SendAsync(message, token);
+            return new Response((int)answer.StatusCode, answer.Content.Headers.ContentType?.ToString() ?? "application/octet-stream",
+                await answer.Content.ReadAsByteArrayAsync(token));
+        }
+        catch (HttpRequestException)
+        {
+            return Error(502, "The page's server stopped: open the page again from its task");
         }
     }
 
@@ -333,6 +404,10 @@ public sealed class RemoteServer : IDisposable
     private sealed record DecideRequest(bool Always);
 
     private sealed record SwitchRequest(bool On);
+
+    private sealed record PageRequest(int Page);
+
+    private sealed record AccountRequest(string? Name);
 
     private sealed record SubscriptionRequest(string? Endpoint, SubscriptionKeys? Keys);
 

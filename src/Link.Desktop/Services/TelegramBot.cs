@@ -224,6 +224,7 @@ public sealed class TelegramBot : IDisposable
         ("plan", "A new task that plans first"),
         ("auto", "A new task in No-stop"),
         ("spent", "What the agents spent"),
+        ("account", "Which Claude account new runs use"),
         ("help", "How the bot works")
     ];
 
@@ -308,6 +309,11 @@ public sealed class TelegramBot : IDisposable
             case "/new" or "/plan" or "/auto":
                 await DraftAsync(chat, topic, command, rest, pictures, token);
                 return;
+            case "/account":
+                var accounts = await _host.AccountsAsync();
+                await SendAsync(chat, topic, accounts.Names.Count < 2 ? "One Claude account: add another in Link's Settings." : "Which Claude account should new runs use?",
+                    [.. accounts.Names.Select((name, index) => new[] { Button((name ?? "Main") + (name == accounts.Active ? " ✓" : string.Empty), $"ac:{index}") })], token);
+                return;
             case "":
                 // Words in a task's topic or in reply to a message about it go to that task; others to the task of the last card.
                 if ((TaskIn(message, topic) ?? _focus) is not { } id)
@@ -340,7 +346,8 @@ public sealed class TelegramBot : IDisposable
         "Each task Link writes about has a card here that changes as the task goes; when the task needs you, a new card comes. " +
         "Turn on topics for this bot in @BotFather, and each task gets a topic of its own. Words or a picture answer the task " +
         "of the topic, of the message you reply to, or of the last card. /tasks — the tasks · /new <task> — a new task: pick " +
-        "the project and the agent · /plan <task> — plan first · /auto <task> — No-stop · /spent — what the agents spent.";
+        "the project and the agent · /plan <task> — plan first · /auto <task> — No-stop · /spent — what the agents spent · " +
+        "/account — which Claude account new runs use.";
 
     private bool Pairs(string text)
     {
@@ -466,6 +473,13 @@ public sealed class TelegramBot : IDisposable
         if (parts[0] is "np" or "na")
         {
             error = await PickedAsync(chat, pressedOn, parts, token);
+        }
+        else if (parts[0] == "ac")
+        {
+            var accounts = await _host.AccountsAsync();
+            var index = parts.Length > 1 && int.TryParse(parts[1], out var picked) && picked >= 0 && picked < accounts.Names.Count ? picked : -1;
+            error = index < 0 ? "The accounts have changed: write /account again" : await _host.SetAccountAsync(accounts.Names[index], "Telegram");
+            if (error is null) await _api("editMessageText", new { chat_id = chat, message_id = pressedOn, text = $"New runs use Claude: {accounts.Names[index] ?? "Main"}." }, token);
         }
         else if (parts.Length < 2 || !Guid.TryParseExact(parts[1], "N", out var id))
         {

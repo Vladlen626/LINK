@@ -238,6 +238,9 @@ public partial class MainWindow
         // A task taken up from the list: the next words take up its last session again.
         public AgentTask? EarlierSession { get; set; }
 
+        // What the last run's files break of the harness rules (HarnessLint): told once, with the user's next words.
+        public IReadOnlyList<string>? HarnessNotes { get; set; }
+
         // The model and effort a plan is carried out on, after Plan first ran on the strongest.
         public (string? Model, string? Effort) PlanSetup { get; set; }
 

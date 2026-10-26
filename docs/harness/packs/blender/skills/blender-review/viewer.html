@@ -750,7 +750,7 @@ async function saveDraft() {
       delta: r4(sub(toB(d.b), toB(d.a))), target: target > 0 ? target / 1000 : undefined, object: d.object });
   }
   if (!text && !(d.kind === 'measure' && body.target)) return $('#text').focus();
-  const res = await post('/api/note', body);
+  const res = await post('api/note', body);
   closeEditor();
   applyNotes(res.notes);
   select(res.id, false);
@@ -941,7 +941,7 @@ async function loadLayer(name, file, version) {
   layers[name] = null;
   if (!version) return;
   try {
-    const r = await fetch('/m/' + file + '?v=' + version);
+    const r = await fetch('m/' + file + '?v=' + version);
     if (!r.ok) return;
     const objects = parseGlb(await r.arrayBuffer());
     objects.forEach((ob, i) => { ob.color = PALETTE[i % PALETTE.length]; upload(ob); });
@@ -958,7 +958,7 @@ async function ensurePrev() {
 async function refresh() {
   let st;
   try {
-    st = await (await fetch('/api/state?page=1', { cache: 'no-store' })).json();
+    st = await (await fetch('api/state?page=1', { cache: 'no-store' })).json();
   } catch (e) {
     say('The server is not running: open the review again from Link.');
     return;
@@ -986,9 +986,9 @@ async function refresh() {
   if (f['model.prev.glb'] !== old['model.prev.glb'] && (opt('prev') || S.showPrev)) await ensurePrev();
   if (f['ref.glb'] !== old['ref.glb']) await loadLayer('ref', 'ref.glb', f['ref.glb']);
   if (f['report.json'] !== old['report.json'])
-    S.report = f['report.json'] ? await (await fetch('/m/report.json?v=' + f['report.json'])).json() : null;
+    S.report = f['report.json'] ? await (await fetch('m/report.json?v=' + f['report.json'])).json() : null;
   const img = ['ref.png', 'ref.jpg', 'ref.jpeg', 'ref.webp'].find(n => f[n]);
-  const imgSrc = img ? '/m/' + img + '?v=' + f[img] : '';
+  const imgSrc = img ? 'm/' + img + '?v=' + f[img] : '';
   if (imgSrc !== (S.image && S.image.src || '')) setImage(imgSrc);
   const key = JSON.stringify(st.notes);
   if (key !== S.notesKey) applyNotes(st.notes);
@@ -1037,7 +1037,7 @@ async function sendSliders(values) {
     values = {};
     for (const input of $('#sliders').querySelectorAll('input[type=range]')) values[input.dataset.name] = +input.value;
   }
-  renderSliders(await post('/api/sliders', { values }));
+  renderSliders(await post('api/sliders', { values }));
 }
 $('#slidersReset').onclick = () =>
   sendSliders(Object.fromEntries(S.sliders.params.map(p => [p.name, p.default])));
@@ -1073,7 +1073,7 @@ document.addEventListener('drop', async e => {
   if (!file) return;
   const ext = (file.name.match(/\.(glb|png|jpe?g|webp)$/i) || [])[1];
   if (!ext) return banner('Drop a .glb, .png, .jpg or .webp', true);
-  await post('/api/ref?name=ref.' + ext.toLowerCase(), await file.arrayBuffer(), 'application/octet-stream');
+  await post('api/ref?name=ref.' + ext.toLowerCase(), await file.arrayBuffer(), 'application/octet-stream');
   banner('Reference set: ' + file.name);
   refresh();
 });
@@ -1165,7 +1165,7 @@ function noteItem(n) {
   }
   const acts = el('div', 'acts');
   const act = (label, fn) => { const b = el('button', '', label); b.onclick = e => { e.stopPropagation(); fn(); }; acts.append(b); };
-  const send = body => post('/api/note', Object.assign({ id: n.id }, body)).then(r => applyNotes(r.notes));
+  const send = body => post('api/note', Object.assign({ id: n.id }, body)).then(r => applyNotes(r.notes));
   const answer = (label, status, hint) => act(label, () => {
     const ta = el('textarea');
     ta.placeholder = hint;

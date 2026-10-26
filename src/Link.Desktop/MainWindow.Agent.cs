@@ -437,6 +437,12 @@ public partial class MainWindow
         }
 
         work.Record.Add(AgentEntryKind.You, text + ImagesNote(images));
+        if (work.HarnessNotes is { } notes)
+        {
+            work.HarnessNotes = null;
+            text = HarnessLint.Heard(notes, text);
+        }
+
         if (work.EarlierSession is { } earlier)
         {
             work.Origin = earlier with { ResumeSessionId = null };
@@ -919,6 +925,12 @@ public partial class MainWindow
 
         var needsYou = decision || work.Question is not null;
         RecordRun(work, live, run, ending, text, checkFailed ? text : answer, needsYou, stopped || serviceError, checkFailed, spent);
+        work.HarnessNotes = HarnessLint.Check(record.Workspace, run.Changes) is { Count: > 0 } broken ? broken : null;
+        if (work.HarnessNotes is { } notes)
+        {
+            record.Add(AgentEntryKind.Check, "Harness: " + string.Join(" ", notes));
+            SaveTask(work);
+        }
         // The header counts the lines of one task, the open one: another's are counted when it is opened.
         if (work == _open) _ = ShowChangesAsync(record);
         ShowTask(work);

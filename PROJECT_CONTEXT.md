@@ -371,7 +371,12 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   the user looks, saves or goes on in the chat (the user's choice over a viewer of Link's own); Codex's image_gen
   pictures come from its rollout into the run's thread. The Telegram bot stays a chat bot (no Mini App yet): one
   silently edited card per task, a topic per task when topics are on, Deny, photos both ways (one picture per run, the
-  one its answer names, else the newest: the user wants no stack of check frames), a picker for /new; no /ask to ChatGPT from the phone. Voice notes wait for a decision on an
+  one its answer names, else the newest: the user wants no stack of check frames), a picker for /new; no /ask to ChatGPT from the phone.
+  Remote review and accounts (2026-10-26, the user's request): a run's link-page (the model's review window) opens on the
+  remote page through Link's server (`/view/<ticket>/`, a ticket per page for a paired device; the viewer uses relative
+  paths); the page's list and the bot's `/account` switch the Claude account new runs use. Rules a script can hold go
+  into code: `HarnessLint` checks a run's map and skills (length, front matter, English) and leftovers, and the notes go
+  with the user's next words, with no run of their own. Voice notes wait for a decision on an
   OGG/Opus decoder (Windows cannot read them).
 - UI and flow closer to Claude's app (2026-10-20, accepted by the user): one theme, the overlay's colours, for every
   window (opaque, title bars painted by DWM); Settings in pages that save each change; the task card as a composer;
