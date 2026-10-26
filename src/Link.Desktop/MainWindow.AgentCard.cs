@@ -29,6 +29,7 @@ public partial class MainWindow
         _cardRun = RunAgentAsync;
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
+        RefreshStudio();
         AgentStatus("Check the card and press Run: nothing runs before that");
     }
 
@@ -177,6 +178,7 @@ public partial class MainWindow
         if (_ownShown) ShowOwnRun();
         else if (_shown is { } work) ShowTask(work);
         else ShowTaskList();
+        RefreshStudio();
     }
 
     /// <summary>

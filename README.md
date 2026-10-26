@@ -143,7 +143,8 @@ Studio коротко:
    редактора, и `unity-editor`, мост к живому редактору через Unity CLI; у Blender — `blender-live`, `blender-model`,
    `blender-anim`), общие для всех игр; Link берёт пакеты, чьи файлы есть в папке (`*.uproject`, `*.blend`…;
    Unity-проект — и в её подпапке, рядом с Art),
-   Blender и Cascadeur — в любой папке Unreal, Unity или Godot (`with:` в `pack.md`). Как skills учатся и
+   Blender — в любой папке Unreal, Unity или Godot (`with:` в `pack.md`), Cascadeur — только где есть `.casc`;
+   `rules.md` движка не идут ролям рядом с движком (`pack-rules: no`: 3D Artist, Art Critic). Как skills учатся и
    передаются — раздел 4, «Skills: общие и проектные».
    **Team** (галка сама, когда бриф называет двух специалистов и больше или перечисляет четыре дела списком: команда
    окупается примерно от 4 шагов, меньше — один агент дешевле, это и написано у галки): ведущий

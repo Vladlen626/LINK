@@ -1260,8 +1260,9 @@ public partial class MainWindow
     /// </summary>
     internal HarnessView CurrentHarness()
     {
-        var record = _open?.Record;
-        var project = _open?.Project ?? _projects.ActiveProject;
+        var shown = StudioTask;
+        var record = shown?.Record;
+        var project = shown?.Project ?? _projects.ActiveProject;
         var settings = _settings.Current.Agent;
         var workspace = StudioWorkspace();
 
@@ -1269,7 +1270,7 @@ public partial class MainWindow
         AgentProviderKind provider;
         string? model, effort, reason;
         bool planOnly, autoApprove;
-        if (_open?.Run?.Task is { } running)
+        if (shown?.Run?.Task is { } running)
         {
             (provider, model, effort, reason, planOnly, autoApprove) = (running.Provider, running.Model, running.Effort, running.EffortReason, running.PlanOnly, running.AutoApprove);
         }

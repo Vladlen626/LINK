@@ -18,7 +18,14 @@ public sealed record AgentRole(
     string? Effort,
     string Body,
     string FilePath,
-    string? Color = null);
+    string? Color = null)
+{
+    /// <summary>
+    /// Whether the packs' own rules (<c>rules.md</c>: an engine's assets, code and editor) go with the role; off
+    /// (<c>pack-rules: no</c>) for one that works in a tool beside the engine, which would pay for them in every request.
+    /// </summary>
+    public bool PackRules { get; init; } = true;
+}
 
 /// <summary>
 /// The specialists: nine ship beside Link.exe and are edited without a rebuild; a workspace adds its own or replaces a
@@ -277,7 +284,10 @@ public static partial class ProjectRoles
             fields.GetValueOrDefault("effort"),
             body,
             file,
-            Hex(fields.GetValueOrDefault("color")));
+            Hex(fields.GetValueOrDefault("color")))
+        {
+            PackRules = !string.Equals(fields.GetValueOrDefault("pack-rules"), "no", StringComparison.OrdinalIgnoreCase)
+        };
     }
 
     /// <summary>A colour as "#RRGGBB" in capitals; null when the text is not one.</summary>

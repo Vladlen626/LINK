@@ -4353,19 +4353,23 @@ See shots/flat.png. Not crate.blend or a.pngx.")),
             Directory.CreateDirectory(copy);
             File.WriteAllText(Path.Combine(copy, "SKILL.md"), "---\nname: ue-own\ndescription: Build the Unreal project\n---\nRun the build with -NoHotReload.");
             Program.Equal("tool packs: a .uproject at the top and a .blend two levels down show their packs, with the tools every game brings",
-                ToolPacks.Names(workspace), "Blender + Cascadeur + Unreal");
+                ToolPacks.Names(workspace), "Blender + Unreal");
             var unity = TempFolder();
             Directory.CreateDirectory(Path.Combine(unity, "ProjectSettings"));
             File.WriteAllText(Path.Combine(unity, "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.0.1f1");
             Program.Equal("tool packs: a Unity project with no .blend yet still has Blender, which comes with the engine",
-                ToolPacks.Names(unity), "Blender + Cascadeur + Unity");
+                ToolPacks.Names(unity), "Blender + Unity");
+            Program.Equal("tool packs: the engine's rules go with a developer, not with an artist who works beside the engine",
+                (AgentRules.Before("Fix it", unity, false, ProjectRoles.Find("gameplay-developer", unity)).Contains("## In Unity"),
+                    AgentRules.Before("Model it", unity, false, ProjectRoles.Find("3d-artist", unity)).Contains("## In Unity")),
+                (true, false));
             DeleteFolder(unity);
             var repository = TempFolder();
             Directory.CreateDirectory(Path.Combine(repository, "Art"));
             Directory.CreateDirectory(Path.Combine(repository, "Game", "ProjectSettings"));
             File.WriteAllText(Path.Combine(repository, "Game", "ProjectSettings", "ProjectVersion.txt"), "m_EditorVersion: 6000.0.1f1");
             Program.Equal("tool packs: a Unity project in a folder of the repository shows its pack",
-                ToolPacks.Names(repository), "Blender + Cascadeur + Unity");
+                ToolPacks.Names(repository), "Blender + Unity");
             DeleteFolder(repository);
 
             var skills = ProjectSkills.In(workspace);

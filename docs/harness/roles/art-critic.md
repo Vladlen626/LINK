@@ -4,6 +4,7 @@ name: Art Critic
 description: Judges game art from its frames against the project's art profile, references and approved assets: a ledger, the worst defects with concrete fixes, a score.
 keywords: art critic, art critique, art review, style review, visual review, критик, арт-ревью, ревью арт, оценк стил
 effort: high
+pack-rules: no
 color: #E2E8F0
 ---
 ## Duties

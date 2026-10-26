@@ -73,18 +73,24 @@ public partial class MainWindow
     private void RefreshStudio(bool live = false)
     {
         if (_studio is not { } studio) return;
-        var context = _open is { } work ? ContextLine(work.Record) ?? "Context not told yet" : null;
-        studio.ShowHeader(_projects.ActiveProject.Name, context, _open is { Busy: false, Waiting: null } open && ResumableTask(open) is not null);
+        var context = StudioTask is { } work ? ContextLine(work.Record) ?? "Context not told yet" : null;
+        studio.ShowHeader(_projects.ActiveProject.Name, context, StudioTask is { Busy: false, Waiting: null } open && ResumableTask(open) is not null);
         if (!studio.InspectorOpen || live && Environment.TickCount64 - _inspectorBuiltAt < LiveInspectorEvery.TotalMilliseconds) return;
         _inspectorBuiltAt = Environment.TickCount64;
         studio.ShowHarness(CurrentHarness());
     }
 
-    /// <summary>The folder the Studio's harness is of: the open task's, else the project's workspace; null when there is none.</summary>
+    /// <summary>
+    /// The task the Studio's header and inspector are of: the open one, but none while the new-task card is up, so that
+    /// they say what a new task gets, not what the task left open behind the card holds.
+    /// </summary>
+    private TaskWork? StudioTask => Equals(_cardRun, (Func<AgentPlan, Task>)RunAgentAsync) ? null : _open;
+
+    /// <summary>The folder the Studio's harness is of: the shown task's, else the project's workspace; null when there is none.</summary>
     private string? StudioWorkspace()
     {
-        var project = _open?.Project ?? _projects.ActiveProject;
-        return _open?.Record.Workspace ?? (project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null);
+        var project = StudioTask?.Project ?? _projects.ActiveProject;
+        return StudioTask?.Record.Workspace ?? (project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null);
     }
 
     /// <summary>Export team pack…: the workspace's roles and skills to a .linkpack file the user names.</summary>
