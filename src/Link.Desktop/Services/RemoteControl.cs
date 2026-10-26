@@ -46,7 +46,7 @@ public sealed class RemoteControl : IDisposable
                 _settings.Current.Remote.TelegramChat = chat;
                 _settings.Save();
                 Paired?.Invoke();
-            }), log, pictures, telegramCards, LinkAsync);
+            }), log, pictures, telegramCards, LinkAsync, PageLinkAsync);
         _tunnel = new RemoteTunnel(log);
         _pairing = new RemotePairing(settings.Current.Remote.Devices, device => onWindow(() =>
             {
@@ -144,6 +144,18 @@ public sealed class RemoteControl : IDisposable
         return address is null ? problem!
             : $"The remote page: {address}\nPairing code for a new browser: {_pairing.NewCode()} (good for {RemotePairing.CodeLife.TotalMinutes:0} minutes, one device).\n" +
               "The address changes when Link restarts: /link again. /link off takes the page off the internet.";
+    }
+
+    /// <summary>
+    /// A page of the task's last run (the model's review window) on the internet for the bot: its own ticket needs no
+    /// pairing, so the link opens in any browser.
+    /// </summary>
+    private async Task<(string? Url, string? Problem)> PageLinkAsync(Guid task, int page)
+    {
+        if (_server?.Port is not { } port) return (null, "Remote control is off in Link's Settings: the page cannot leave this computer.");
+        if (await _server.ViewPathAsync(task, page) is not { } path) return (null, "The page does not open any more: ask the agent to open it again.");
+        var (address, problem) = await _tunnel.StartAsync(port);
+        return address is null ? (null, problem) : (address + path, null);
     }
 
     /// <summary>A code for the next device, good for <see cref="RemotePairing.CodeLife"/>.</summary>

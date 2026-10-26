@@ -54,6 +54,7 @@ public sealed class TelegramBot : IDisposable
     private readonly string _pictures;
     private readonly string _cardsFile;
     private readonly Func<bool, Task<string>>? _link;
+    private readonly Func<Guid, int, Task<(string? Url, string? Problem)>>? _pageLink;
     private readonly Lock _lock = new();
     // One thing at a time with Telegram: an update, an alert, or the cards following their tasks.
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -79,10 +80,12 @@ public sealed class TelegramBot : IDisposable
     /// <param name="pictures">Where the pictures the user sends are kept.</param>
     /// <param name="cardsFile">Where the cards are kept across restarts.</param>
     /// <param name="link">/link: the remote page on the internet (true) or off it, and what to tell the user; null: no such command.</param>
+    /// <param name="pageLink">A page of a task's last run (a model's review window) as a link that opens anywhere, else why not; null: none.</param>
     public TelegramBot(Api api, Download download, IRemoteHost host, Func<long?> chat, Action<long> paired, Action<string> log,
-        string pictures, string cardsFile, Func<bool, Task<string>>? link = null)
+        string pictures, string cardsFile, Func<bool, Task<string>>? link = null, Func<Guid, int, Task<(string? Url, string? Problem)>>? pageLink = null)
     {
         _link = link;
+        _pageLink = pageLink;
         _api = api;
         _download = download;
         _host = host;
@@ -161,12 +164,33 @@ public sealed class TelegramBot : IDisposable
         }
     }
 
-    /// <summary>A task needs the user or is through: a new card about it that notifies, with the buttons it waits for.</summary>
+    /// <summary>
+    /// A task needs the user or is through: a new card about it that notifies, with the buttons it waits for. A run that
+    /// opened a review window sends its link too: reviewing is what the task waits for.
+    /// </summary>
     public void Alert(Guid task, string title, string text)
     {
         if (_stop is not { } stop || _chat() is not { } chat) return;
         var token = stop.Token;
-        _ = Task.Run(() => GatedAsync(() => ShowAsync(chat, task, $"{title}\n\n{text}", fresh: true, token), token));
+        _ = Task.Run(() => GatedAsync(async () =>
+        {
+            await ShowAsync(chat, task, $"{title}\n\n{text}", fresh: true, token);
+            if (_pageLink is not null && await _host.TaskAsync(task) is { Pages.Count: > 0, Task.Working: false }) await SendPageAsync(chat, task, 0, token);
+        }, token));
+    }
+
+    /// <summary>A review window's link with a button to open it, and the button that sends the user's marks to the task.</summary>
+    private async Task<string?> SendPageAsync(long chat, Guid id, int index, CancellationToken token)
+    {
+        if (_pageLink is null || await _host.TaskAsync(id) is not { } view || view.Pages.ElementAtOrDefault(index) is not { } page) return "The page is gone: open the task again";
+        var (url, problem) = await _pageLink(id, index);
+        if (url is null) return problem;
+        var row = new List<object> { new { text = "🔗 " + page.Label, url } };
+        if (page.ReplyLabel is { } reply && view.TakesWords) row.Add(Button(reply, $"pa:{id:N}:{index}"));
+        var sent = await SendAsync(chat, _cards.Cards.TryGetValue(id, out var card) && card.Topic > 0 ? card.Topic : null,
+            $"{page.Label}: {url}\nOpens in any browser while Link runs; mark the model there, then {page.ReplyLabel ?? "write to the task"}.", [[.. row]], token);
+        if (sent is { } posted) Remember(posted, id);
+        return null;
     }
 
     private async Task PollAsync(CancellationToken token)
@@ -504,6 +528,10 @@ public sealed class TelegramBot : IDisposable
                 "s" => await _host.StopAsync(id, "Telegram"),
                 "n" => await _host.SetNoStopAsync(id, number == 1, "Telegram"),
                 "f" => await SendDiffAsync(chat, id, token),
+                "pg" => await SendPageAsync(chat, id, number, token),
+                "pa" => (await _host.TaskAsync(id))?.Pages.ElementAtOrDefault(number)?.ReplyText is { } marks
+                    ? await _host.ReplyAsync(id, marks, "Telegram")
+                    : "The page is gone: open the task again",
                 "v" => null,
                 _ => "Unknown button"
             };
@@ -512,7 +540,7 @@ public sealed class TelegramBot : IDisposable
             {
                 await ShowAsync(chat, id, null, fresh: !onCard, token);
             }
-            else if (error is null && parts[0] != "f")
+            else if (error is null && parts[0] is not ("f" or "pg"))
             {
                 if (!onCard) await TakeButtonsAsync(chat, pressedOn, token);
                 if (card is not null) await ShowAsync(chat, id, null, fresh: false, token);
@@ -703,6 +731,7 @@ public sealed class TelegramBot : IDisposable
         if (view.Limit is { } limit) lines.Add("⏸ " + limit);
         if (view.NoStopPending is { } pending) lines.Add($"No-stop takes «{pending}» in a few seconds.");
         if (view.TakesWords) lines.Add("Write to answer it: words or a picture.");
+        if (!task.Working) rows.AddRange(view.Pages.Select((page, index) => new[] { Button("🔗 " + Short(page.Label, 50), $"pg:{id:N}:{index}") }));
         var foot = new List<object> { Button(task.NoStop ? "No-stop: on ✓" : "No-stop: off", $"n:{id:N}:{(task.NoStop ? 0 : 1)}") };
         if (task.Working) foot.Insert(0, Button("⏹ Stop", $"s:{id:N}"));
         rows.Add([.. foot]);

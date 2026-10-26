@@ -305,9 +305,13 @@ public sealed class RemoteServer : IDisposable
     /// A page of the task's last run for the device: Link serves it again if it stopped and gives a path of its own
     /// under <see cref="ViewPrefix"/>, so the page reaches the device the way this server does.
     /// </summary>
-    private async Task<Response> OpenPageAsync(Guid id, int page)
+    private async Task<Response> OpenPageAsync(Guid id, int page) =>
+        await ViewPathAsync(id, page) is { } path ? Ok(new { url = path }) : Error(409, "The page does not open any more: ask the agent to open it again");
+
+    /// <summary>The path a page of the task's last run is passed through at (the Telegram bot's link too); null when it does not open.</summary>
+    public async Task<string?> ViewPathAsync(Guid id, int page)
     {
-        if (await _host.OpenPageAsync(id, page) is not { IsLoopback: true } address) return Error(409, "The page does not open any more: ask the agent to open it again");
+        if (await _host.OpenPageAsync(id, page) is not { IsLoopback: true } address) return null;
         var root = new Uri(address.GetLeftPart(UriPartial.Authority) + "/");
         lock (_views)
         {
@@ -315,7 +319,7 @@ public sealed class RemoteServer : IDisposable
             foreach (var old in _views.Where(view => now - view.Value.Used > ViewIdle).Select(view => view.Key).ToArray()) _views.Remove(old);
             var ticket = _views.FirstOrDefault(view => view.Value.Address == root).Key ?? System.Security.Cryptography.RandomNumberGenerator.GetHexString(32, lowercase: true);
             _views[ticket] = (root, now);
-            return Ok(new { url = ViewPrefix + ticket + address.PathAndQuery });
+            return ViewPrefix + ticket + address.PathAndQuery;
         }
     }
 

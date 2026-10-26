@@ -245,7 +245,9 @@ switches the account new runs use (one at its limit, say).
 Each task Link writes about gets one card that changes silently as the task goes (status, last words, one picture of its
 run: the one its answer names, or the newest); when the task needs you while you are away, a new card notifies, with
 buttons: the agent's options, Allow, Always, Deny, Stop, No-stop, Changes (a `.patch` file). Turn on topics for the
-bot in @BotFather (Bot Settings) and each task gets a topic of its own. Words or a photo answer the task of the topic,
+bot in @BotFather (Bot Settings) and each task gets a topic of its own. A run that opened a model's review window
+sends its link with the alert (the tunnel starts by itself): it opens in any browser; mark the model there, and the Apply marks button sends the
+marks to the task. Words or a photo answer the task of the topic,
 of the message you reply to, or of the last card; `/new`, `/plan` and `/auto` (No-stop) ask the project and the agent
 with buttons; `/tasks`, `/spent` and `/account` (the Claude account new runs use) and `/link` (the remote page in any browser) do the rest. Voice notes are not understood yet: type or dictate. Only the paired chat is heard; the words go through Telegram.
 

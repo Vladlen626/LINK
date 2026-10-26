@@ -142,7 +142,8 @@ internal static class RemoteTests
         TelegramBot.Download download = (_, _) => Task.FromResult<byte[]?>([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2]);
         var folder = Path.Combine(Path.GetTempPath(), "link-telegram-" + Guid.NewGuid().ToString("N")[..8]);
         var cards = Path.Combine(folder, "cards.json");
-        TelegramBot Bot() => new(api, download, host, () => chat, paired => chat = paired, _ => { }, folder, cards, on => Task.FromResult(on ? "The remote page: https://a.trycloudflare.com" : "Off"));
+        TelegramBot Bot() => new(api, download, host, () => chat, paired => chat = paired, _ => { }, folder, cards, on => Task.FromResult(on ? "The remote page: https://a.trycloudflare.com" : "Off"),
+            (_, page) => Task.FromResult<(string?, string?)>(("https://a.trycloudflare.com/view/t/", null)));
         long Last(string method)
         {
             lock (calls) return calls.Last(call => call.Method == method).Id;
@@ -214,6 +215,11 @@ internal static class RemoteTests
                 await bot.HandleAsync(Update(Text(42, "/link off")), default);
                 Program.Equal("Telegram: /link puts the page on the internet and says where; /link off ends it",
                     (Count("sendMessage", "a.trycloudflare.com"), Count("sendMessage", "\"Off\"")), (1, 1));
+                await bot.HandleAsync(Update(Press(42, $"pg:{FakeHost.Task:N}:0")), default);
+                await bot.HandleAsync(Update(Press(42, $"pa:{FakeHost.Task:N}:0")), default);
+                Program.Equal("Telegram: the review window's link opens in a browser, and Apply marks sends the marks to the task",
+                    (Count("sendMessage", "\"url\":\"https://a.trycloudflare.com/view/t/\""), Count("sendMessage", $"pa:{FakeHost.Task:N}:0"), host.Done.Last()),
+                    (1, 1, "reply Apply my open marks by Telegram"));
 
                 var made = Path.Combine(folder, "made.png");
                 await File.WriteAllBytesAsync(made, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
