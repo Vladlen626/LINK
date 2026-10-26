@@ -694,12 +694,15 @@ public sealed class AgentSettings
     /// <summary>Link picks each run's effort for the tasks that start on Auto; the model and the agent stay the user's.</summary>
     public bool AutoEffort { get; set; } = true;
 
-    /// <summary>Auto: each CLI compacts by its own window for the model, which it tunes for cost and quality.</summary>
-    public const int DefaultContextBudget = 0;
+    /// <summary>
+    /// 250k: on Auto, sessions ran to the model's 1M window and half the tokens were re-sent past 100k; the cap still keeps
+    /// a long step whole.
+    /// </summary>
+    public const int DefaultContextBudget = 250_000;
 
     /// <summary>
     /// The tokens near which an agent's CLI compacts its session by itself, so that a long task does not grow without
-    /// end; the CLI caps it at the model's own window. 0 is Auto (<see cref="DefaultContextBudget"/>).
+    /// end; the CLI caps it at the model's own window. 0 is Auto, the CLI's own window.
     /// </summary>
     public int ContextBudget { get; set; } = DefaultContextBudget;
 

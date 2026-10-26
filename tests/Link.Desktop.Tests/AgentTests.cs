@@ -881,15 +881,15 @@ internal static class AgentTests
     private static void ContextBudget()
     {
         var settings = new AgentSettings();
-        Program.Equal("budget: Auto (0) by default, in older settings too", (settings.ContextBudget, JsonSerializer.Deserialize<AgentSettings>("{}")!.ContextBudget), (0, 0));
+        Program.Equal("budget: 250k by default, in older settings too", (settings.ContextBudget, JsonSerializer.Deserialize<AgentSettings>("{}")!.ContextBudget), (250_000, 250_000));
         var normalized = new[] { 0, -1, 49_999, 2_000_001, 50_000, 550_000, 2_000_000 }.Select(budget =>
         {
             var each = new AgentSettings { ContextBudget = budget };
             each.Normalize();
             return each.ContextBudget;
         });
-        Program.Equal("budget: Auto and 50k to 2M are kept, anything else is Auto",
-            string.Join(", ", normalized), "0, 0, 0, 0, 50000, 550000, 2000000");
+        Program.Equal("budget: Auto and 50k to 2M are kept, anything else is the default",
+            string.Join(", ", normalized), "0, 250000, 250000, 250000, 50000, 550000, 2000000");
         Program.Equal("budget: on Auto the limit is the model's window, a set budget is capped by it",
             (AgentContext.Limit(0, 1_000_000), AgentContext.Limit(0, null), AgentContext.Limit(400_000, 200_000), AgentContext.Line(150_000, null, 0)),
             ((long?)1_000_000, (long?)null, (long?)200_000, "Context 150k"));
@@ -2896,13 +2896,14 @@ internal static class AgentTests
             return settings;
         }
 
-        Program.Equal("budget: Auto is the default in new and older settings",
-            (AgentSettings.DefaultContextBudget, new AppSettings().SchemaVersion, Load("""{"SchemaVersion":7}""").Agent.ContextBudget), (0, 10, 0));
-        Program.Equal("budget: the old defaults 550k and 450k become Auto, a chosen budget stays; the schema is 10 now",
+        Program.Equal("budget: 250k is the default in new and older settings",
+            (AgentSettings.DefaultContextBudget, new AppSettings().SchemaVersion, Load("""{"SchemaVersion":7}""").Agent.ContextBudget), (250_000, 11, 250_000));
+        Program.Equal("budget: the old defaults 550k, 450k and Auto become 250k, a chosen budget stays; the schema is 11 now",
             (Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":550000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":9,"Agent":{"ContextBudget":450000}}""").Agent.ContextBudget,
-                Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":800000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":8,"Agent":{"ContextBudget":550000}}""").Agent.ContextBudget,
-                Load("""{"SchemaVersion":10,"Agent":{"ContextBudget":450000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":550000}}""").SchemaVersion),
-            (0, 0, 800_000, 550_000, 450_000, 10));
+                Load("""{"SchemaVersion":10,"Agent":{"ContextBudget":0}}""").Agent.ContextBudget, Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":800000}}""").Agent.ContextBudget,
+                Load("""{"SchemaVersion":8,"Agent":{"ContextBudget":550000}}""").Agent.ContextBudget, Load("""{"SchemaVersion":11,"Agent":{"ContextBudget":0}}""").Agent.ContextBudget,
+                Load("""{"SchemaVersion":7,"Agent":{"ContextBudget":550000}}""").SchemaVersion),
+            (250_000, 250_000, 250_000, 800_000, 550_000, 0, 11));
 
         static string Light(AppSettings settings) =>
             $"{settings.Agent.ClaudeLight.Model} {settings.Agent.ClaudeLight.Effort} | {settings.Agent.CodexLight.Model ?? "-"} {settings.Agent.CodexLight.Effort}";

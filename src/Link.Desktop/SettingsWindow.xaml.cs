@@ -36,7 +36,7 @@ public partial class SettingsWindow : Window
     // What each model or effort list shows after its default, to read the choice back when saving.
     private readonly Dictionary<ComboBox, List<AgentChoice>> _choices = [];
     // The context budgets Settings offers; a saved one the list lacks, such as one set by hand, joins it.
-    private static readonly int[] ContextBudgets = [AgentSettings.DefaultContextBudget, 200_000, 300_000, 400_000, 450_000, 600_000, 800_000, 1_000_000];
+    private static readonly int[] ContextBudgets = [0, 200_000, AgentSettings.DefaultContextBudget, 300_000, 400_000, 450_000, 600_000, 800_000, 1_000_000];
     // What the context budget box lists, to read the choice back when saving.
     private readonly List<int> _budgets;
     private readonly CancellationTokenSource _agentChecks = new();
@@ -121,7 +121,7 @@ public partial class SettingsWindow : Window
         DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_agents, agent => agent.Kind == current.Agent.DefaultProvider));
         DefaultAccessCombo.SelectedIndex = current.Agent.DefaultAccess == AgentAccessChoice.Auto ? 1 : 0;
         _budgets = [.. ContextBudgets.Append(current.Agent.ContextBudget).Distinct().Order()];
-        ContextBudgetCombo.ItemsSource = _budgets.Select(budget => budget > 0 ? AgentContext.Tokens(budget) : "Auto — the CLI's own (best)").ToArray();
+        ContextBudgetCombo.ItemsSource = _budgets.Select(budget => budget > 0 ? AgentContext.Tokens(budget) : "Auto — the CLI's own window").ToArray();
         ContextBudgetCombo.SelectedIndex = _budgets.IndexOf(current.Agent.ContextBudget);
         AutoEffortBox.IsChecked = current.Agent.AutoEffort;
         LeadReviewBox.IsChecked = current.Agent.Team.LeadReview;

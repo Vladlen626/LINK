@@ -8,7 +8,7 @@ public sealed class AppSettings
     // Described as warm: the easiest to listen to all day. Any prebuilt voice speaks Russian.
     private const string DefaultGeminiVoice = "Sulafat";
 
-    public int SchemaVersion { get; set; } = 10;
+    public int SchemaVersion { get; set; } = 11;
     public double Opacity { get; set; } = DefaultGlassTint;
     public AppTheme Theme { get; set; } = AppTheme.System;
     public bool BlurBackground { get; set; } = true;
@@ -92,8 +92,10 @@ public sealed class AppSettings
         // 9: the Light levels' defaults became the team's cheap workers (Haiku 5.5, Codex's Luna); the old defaults move.
         if (SchemaVersion < 9) Agent.MoveOldLightDefaults();
         // 10: the Context budget's default became Auto, the CLI's own window; a saved 450k is the old default, not a choice.
-        if (SchemaVersion < 10 && Agent.ContextBudget == 450_000) Agent.ContextBudget = AgentSettings.DefaultContextBudget;
-        SchemaVersion = 10;
+        if (SchemaVersion < 10 && Agent.ContextBudget == 450_000) Agent.ContextBudget = 0;
+        // 11: the default became 250k; a saved Auto is the old default, not a choice.
+        if (SchemaVersion < 11 && Agent.ContextBudget == 0) Agent.ContextBudget = AgentSettings.DefaultContextBudget;
+        SchemaVersion = 11;
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.2, 1.0) : DefaultGlassTint;
         if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);

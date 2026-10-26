@@ -166,7 +166,7 @@ Studio коротко:
    сессия критика, на medium.
    Вердикт с оценкой 1–5: принять, вернуть художнику с дефектами (не больше двух раз) или оставить вам с замечаниями;
    ваши слова после вердикта (и во время его работы — они его останавливают) идут художнику вместе с ними. Галка **Art critic** в Settings → Agents. Под настройками —
-   строка `Context budget Auto · 5 skills · MCP: unreal` и **Harness**.
+   строка `Context budget 250k · 5 skills · MCP: unreal` и **Harness**.
    The worker chip of a team step opens its menu: another worker (Link's pick, or Claude / Codex at
    a level), run it again, skip it (it names the later steps that use its files), back to a done step, or **Re-plan
    the steps left…** (your next words go to the lead; done steps stay). A plan step may name its agent
@@ -193,7 +193,7 @@ Studio коротко:
    роль). Выбор ничего не запускает и остаётся для следующих прогонов; Steer и Stop не поднимают Auto effort.
 10. **Hand off ▾** — другой агент в новой сессии (сначала карточка с брифом из истории задачи — его можно поправить);
     **Back to …** — первый агент в своей сессии. **Finish** — задача закрыта и остаётся в списке.
-11. **Контекст и Compact.** Бюджет контекста — один на всех агентов (Settings → Agents; Auto by default: each CLI uses its own window tuned for the model): beyond it
+11. **Контекст и Compact.** Бюджет контекста — один на всех агентов (Settings → Agents; 250k by default, Auto leaves it to each CLI): beyond it
     агент сжимает сессию сам. **Compact** (⋯ или заголовок Studio) — новая сессия того же агента из состояния задачи:
     цель, ваши решения, план, файлы, проверка, проблемы, следующий шаг. Его собирает Link из записи задачи, без
     модели; перед запуском его видно на карточке и можно поправить. Пока `AutoCompact` в settings.json включён (по
