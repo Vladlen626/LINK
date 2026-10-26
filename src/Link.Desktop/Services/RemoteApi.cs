@@ -46,6 +46,9 @@ public interface IRemoteHost
     /// </summary>
     Task<Uri?> OpenPageAsync(Guid id, int page);
 
+    /// <summary>The page's reply (Apply marks) for the task, with the marks Link fetched for it; null when sent, else why not.</summary>
+    Task<string?> ApplyPageAsync(Guid id, int page, string device);
+
     /// <summary>Claude Code's accounts and the one new runs use.</summary>
     Task<RemoteAccounts> AccountsAsync();
 

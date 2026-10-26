@@ -515,9 +515,7 @@ public sealed class TelegramBot : IDisposable
                 "n" => await _host.SetNoStopAsync(id, number == 1, "Telegram"),
                 "f" => await SendDiffAsync(chat, id, token),
                 "pg" => await SendPageAsync(chat, id, number, token),
-                "pa" => (await _host.TaskAsync(id))?.Pages.ElementAtOrDefault(number)?.ReplyText is { } marks
-                    ? await _host.ReplyAsync(id, marks, "Telegram")
-                    : "The page is gone: open the task again",
+                "pa" => await _host.ApplyPageAsync(id, number, "Telegram"),
                 "v" => null,
                 _ => "Unknown button"
             };

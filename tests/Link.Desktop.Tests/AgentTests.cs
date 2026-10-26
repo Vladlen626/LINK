@@ -955,13 +955,13 @@ internal static class AgentTests
         var json = JsonSerializer.Serialize(script);
         var answer = "The wheel is built: mark the spokes.\n\n```link-page\n{\"label\": \"Mark changes on the model\", \"url\": \"http://127.0.0.1:7331/\", " +
             $"\"reopen\": [\"C:/Python312/python.exe\", {json}, \"open\", \"C:/t/wheel\", \"--no-browser\"], " +
-            "\"reply\": {\"label\": \"Apply marks\", \"text\": \"Apply my open marks.\"}}\n```\n" +
+            $"\"reply\": {{\"label\": \"Apply marks\", \"text\": \"Apply my open marks.\", \"attach\": [\"python\", {json}, \"notes\"]}}}}\n```\n" +
             "```link-page\n{\"label\": \"Elsewhere\", \"url\": \"https://example.com/\"}\n```\n```link-page\nnot json\n```";
         var (text, pages) = LocalPages.Split(answer);
         Program.Equal("pages: a link-page block becomes a button with its words and goes from the text; another site's page and a block that does not read do not",
-            (text, string.Join(" | ", pages.Select(page => $"{page.Label} {page.Address.AbsoluteUri} {page.Reopen.Count} {page.Reply}"))),
+            (text, string.Join(" | ", pages.Select(page => $"{page.Label} {page.Address.AbsoluteUri} {page.Reopen.Count} {page.Reply?.Label}: {page.Reply?.Text} +{page.Reply?.Attach?.Count}"))),
             ("The wheel is built: mark the spokes.\n\n```link-page\nnot json\n```",
-                "Mark changes on the model http://127.0.0.1:7331/ 5 PageReply { Label = Apply marks, Text = Apply my open marks. }"));
+                "Mark changes on the model http://127.0.0.1:7331/ 5 Apply marks: Apply my open marks. +3"));
         Program.Equal("pages: an answer without a block stays as it is, a bare address is no button",
             LocalPages.Split("Open at http://127.0.0.1:7331/\n").Pages.Count, 0);
         Program.Equal("pages: a reply without its words is no second button",
@@ -972,12 +972,14 @@ internal static class AgentTests
         ToolPacks.Folder = packs;
         try
         {
-            Program.Equal("pages: Link runs Python on a skill's script only, never another program or a script elsewhere",
-                (LocalPages.CanReopen(page, null),
-                    LocalPages.CanReopen(page with { Reopen = ["cmd.exe", script, "open"] }, null),
-                    LocalPages.CanReopen(page with { Reopen = ["python", Path.Combine(packs, "..", "evil.py")] }, null),
-                    LocalPages.CanReopen(page with { Reopen = [] }, null)),
-                (true, false, false, false));
+            Program.Equal("pages: Link runs Python (or uv run) on a skill's script only, never another program or a script elsewhere",
+                (LocalPages.ScriptOf(page.Reopen, null) is not null,
+                    LocalPages.ScriptOf(["uv", "run", "--no-project", "python", script, "notes"], null) is not null,
+                    LocalPages.ScriptOf(["cmd.exe", script, "open"], null),
+                    LocalPages.ScriptOf(["uv", "run", "--with", "evil", "python", script], null),
+                    LocalPages.ScriptOf(["python", Path.Combine(packs, "..", "evil.py")], null),
+                    LocalPages.ScriptOf([], null)),
+                (true, true, (string?)null, (string?)null, (string?)null, (string?)null));
         }
         finally
         {

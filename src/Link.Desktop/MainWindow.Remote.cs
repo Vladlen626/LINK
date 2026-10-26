@@ -50,20 +50,27 @@ public partial class MainWindow : IRemoteHost
             work?.Run is { } live ? RemoteNow(live, plan) : null,
             plan,
             RemoteBefore(record, live: work?.Run is not null),
-            [.. LastPages(record).Select(page => new RemoteTaskPage(page.Label, page.Reply?.Label, page.Reply?.Text))]);
+            [.. LatestPages(record).Select(page => new RemoteTaskPage(page.Label, page.Reply?.Label, page.Reply?.Text))]);
     });
 
-    /// <summary>The pages the task's last run opened (a model's review window), as its turn shows them.</summary>
-    private static IReadOnlyList<LocalPages.Page> LastPages(AgentTaskRecord record) => record.LastRun is { } run ? RunSaid(record, run).Pages : [];
 
     /// <summary>A page served again as its turn's button does, without opening a browser here: the bot's link shows it.</summary>
     public async Task<Uri?> OpenPageAsync(Guid id, int page)
     {
         var (found, workspace) = await OnWindow<(LocalPages.Page?, string?)>(() => (WorkOf(id)?.Record ?? ActiveRecord(id)) is { } record
-            ? (LastPages(record).ElementAtOrDefault(page), record.Workspace)
+            ? (LatestPages(record).ElementAtOrDefault(page), record.Workspace)
             : (null, null));
         if (found is null) return null;
         return await LocalPages.ReopenAsync(found, workspace) ?? (await LocalPages.IsUpAsync(found.Address) ? found.Address : null);
+    }
+
+    public async Task<string?> ApplyPageAsync(Guid id, int page, string device)
+    {
+        var (found, workspace) = await OnWindow<(LocalPages.Page?, string?)>(() => (WorkOf(id)?.Record ?? ActiveRecord(id)) is { } record
+            ? (LatestPages(record).ElementAtOrDefault(page), record.Workspace)
+            : (null, null));
+        if (found?.Reply is not { } reply) return "The page is gone: open the task again";
+        return await ReplyAsync(id, await LocalPages.ReplyTextAsync(reply, workspace), device);
     }
 
     public Task<RemoteAccounts> AccountsAsync() => OnWindow(() => new RemoteAccounts([null, .. ClaudeAccounts.Names()], _settings.Current.Agent.ClaudeAccount));

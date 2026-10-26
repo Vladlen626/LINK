@@ -129,7 +129,7 @@ public partial class MainWindow
         turn.AddSteps(run.Steps.Select(step => StepRow(StepGroups.Tidy(step, record.Workspace))));
         var (said, pages, next) = RunSaid(record, run);
         turn.Said = said;
-        turn.Pages = pages;
+        turn.Pages = pages.Count == 0 && ReferenceEquals(run, record.LastRun) ? LatestPages(record) : pages;
         if (showNext && next is not null) turn.Next = next.Line;
         turn.Files = run.Files.Select(file => new AgentChangeRow(file, Path.Combine(record.Workspace, file))).ToArray();
         turn.Images = [.. run.Images.Where(File.Exists).Select(path => new ThreadImage(path))];
@@ -138,6 +138,20 @@ public partial class MainWindow
             : string.Empty;
         turn.Stats = $"{(int)run.Duration.TotalMinutes}:{run.Duration.Seconds:00}{tokens}{SpentLine(run.Provider, run.Spent)}";
         return turn;
+    }
+
+    /// <summary>
+    /// The pages of the task's newest run that opened any (a model's review window): the last turn keeps their buttons
+    /// when its own answer named none, so reopening the window is Link's click, not words to the agent.
+    /// </summary>
+    private static IReadOnlyList<LocalPages.Page> LatestPages(AgentTaskRecord record)
+    {
+        for (var index = record.Runs.Count - 1; index >= 0; index--)
+        {
+            if (RunSaid(record, record.Runs[index]).Pages is { Count: > 0 } pages) return pages;
+        }
+
+        return [];
     }
 
     /// <summary>

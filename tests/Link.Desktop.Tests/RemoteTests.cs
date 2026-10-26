@@ -157,7 +157,7 @@ internal static class RemoteTests
                 await bot.HandleAsync(Update(Press(42, $"pa:{FakeHost.Task:N}:0")), default);
                 Program.Equal("Telegram: the review window's link opens in a browser, and Apply marks sends the marks to the task",
                     (Count("sendMessage", "\"url\":\"https://a.trycloudflare.com/view/t/\""), Count("sendMessage", $"pa:{FakeHost.Task:N}:0"), host.Done.Last()),
-                    (1, 1, "reply Apply my open marks by Telegram"));
+                    (1, 1, "apply page 0 by Telegram"));
 
                 var made = Path.Combine(folder, "made.png");
                 await File.WriteAllBytesAsync(made, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
@@ -277,6 +277,8 @@ internal static class RemoteTests
         public string? Account { get; private set; }
 
         public Task<Uri?> OpenPageAsync(Guid id, int page) => System.Threading.Tasks.Task.FromResult(id == Task && page == 0 ? Page : null);
+
+        public Task<string?> ApplyPageAsync(Guid id, int page, string device) => Did($"apply page {page} by {device}");
 
         public Task<RemoteAccounts> AccountsAsync() => System.Threading.Tasks.Task.FromResult(new RemoteAccounts([null, "Account 2"], Account));
 

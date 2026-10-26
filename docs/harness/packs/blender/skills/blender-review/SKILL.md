@@ -35,14 +35,16 @@ metres, and the numbers catch a scripted model's commonest defects before anyone
    7330-7339) and the browser. The window reloads itself on every publish; the server stops after 20 minutes nobody
    looks, and `open` again brings it back on the same folder. Tell the user in one line what to look at in this
    revision, and close every answer that shows a revision with a `link-page` block, then a link-next one. Link makes
-   them buttons: the first runs `reopen` itself, with no agent run; the second sends `reply.text` as the user's
-   answer. Full paths, the address `open` printed:
+   them buttons: the first runs `reopen` itself, with no agent run; the second runs `reply.attach` and sends
+   `reply.text` with its output as the user's answer. Link keeps both buttons on the task's last turn, so the user never
+   asks you to raise the server. Full paths, the address `open` printed:
 
    ````
    ```link-page
    {"label": "Mark changes on the model", "url": "http://127.0.0.1:7331/",
     "reopen": ["<python.exe>", "<here>/review.py", "open", "<dir>", "--no-browser"],
-    "reply": {"label": "Apply marks", "text": "Apply my open marks: review.py notes <dir>"}}
+    "reply": {"label": "Apply marks", "text": "Apply my open marks.",
+              "attach": ["<python.exe>", "<here>/review.py", "notes", "<dir>"]}}
    ```
    ```link-next
    {"next": "apply the user's marks", "effort": "medium", "why": "marks are exact points and sizes: edits to the build script"}
@@ -60,8 +62,9 @@ metres, and the numbers catch a scripted model's commonest defects before anyone
    defaults before the next change.
 4. The user marks the model: Point (P) - click; Area (A) - paint with the brush, `[` `]` size it; Measure (M) - two
    clicks, then the size it should be; Enter saves a mark. B holds the previous revision, R the ghost, I the picture.
-5. When the user says so (the Apply marks button), or at the next step boundary: `review.py notes <dir>` - each open
-   mark in one line with its thread, and the slider values the user built; `--all` adds the closed ones. Read nothing
+5. The Apply marks button brings `review.py notes <dir>`'s output with the user's words: work from it, do not run it
+   again. At a step boundary without it, run it yourself - each open mark in one line with its thread, and the slider
+   values the user built; `--all` adds the closed ones. Read nothing
    else of the folder; `notes.json` only for an area's stroke points.
 6. Each mark: change the build script, publish, then `review.py reply <dir> <id> done "what changed, with numbers"`.
    Not doing it: `question`, `later` or `declined` with the reason. Only the user accepts or reopens; a reopened mark

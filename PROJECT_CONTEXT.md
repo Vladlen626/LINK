@@ -382,7 +382,10 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   with the user's next words, with no run of their own; `Link.Guard.exe`, Claude Code's PreToolUse hook from
   `--settings`, refuses a big file read whole, a leftover written into the project, a wait of a minute or more and a
   PowerShell write without -Encoding, with what to do instead (~90 ms a call). Those rules left agent-rules.md for
-  `guarded-rules.md`, which only Codex (no hook) gets. Voice notes wait for a decision on an
+  `guarded-rules.md`, which only Codex (no hook) gets. Measured: the start text is small (rules ~2k tokens); a tool
+  call deep in a long session costs most (it re-sends ~200k context), so Link does the review's chores itself: the last
+  turn keeps the review window's buttons from the newest run that had them (no "raise the server" turn), and Apply
+  marks runs the link-page's `reply.attach` (`review.py notes`) and sends its output with the words. Voice notes wait for a decision on an
   OGG/Opus decoder (Windows cannot read them).
 - UI and flow closer to Claude's app (2026-10-20, accepted by the user): one theme, the overlay's colours, for every
   window (opaque, title bars painted by DWM); Settings in pages that save each change; the task card as a composer;

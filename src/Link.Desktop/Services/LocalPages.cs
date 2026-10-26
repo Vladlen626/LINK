@@ -20,8 +20,11 @@ public static partial class LocalPages
     /// </summary>
     public sealed record Page(string Label, Uri Address, IReadOnlyList<string> Reopen, PageReply? Reply = null);
 
-    /// <summary>The second button: what it says ("Apply marks") and the reply it sends.</summary>
-    public sealed record PageReply(string Label, string Text);
+    /// <summary>
+    /// The second button: what it says ("Apply marks"), the reply it sends, and the skill's command whose output goes with
+    /// the reply (the open marks as text; empty: none), so the agent spends no turn of its own fetching them.
+    /// </summary>
+    public sealed record PageReply(string Label, string Text, IReadOnlyList<string>? Attach = null);
 
     // A list of a server's pages would bury the answer under buttons.
     private const int Kept = 3;
@@ -49,14 +52,11 @@ public static partial class LocalPages
                 || AgentQuestion.Text(root, "label")?.Trim() is not { Length: > 0 } label
                 || AgentQuestion.Text(root, "url")?.Trim() is not { } url
                 || !Uri.TryCreate(url, UriKind.Absolute, out var address)) return null;
-            var reopen = root.TryGetProperty("reopen", out var command) && command.ValueKind == JsonValueKind.Array
-                && command.EnumerateArray().All(part => part.ValueKind == JsonValueKind.String)
-                ? command.EnumerateArray().Select(part => part.GetString()!).ToArray()
-                : [];
+            var reopen = Command(root, "reopen");
             var reply = root.TryGetProperty("reply", out var said) && said.ValueKind == JsonValueKind.Object
                 && AgentQuestion.Text(said, "label")?.Trim() is { Length: > 0 } replyLabel
                 && AgentQuestion.Text(said, "text")?.Trim() is { Length: > 0 } replyText
-                ? new PageReply(replyLabel, replyText)
+                ? new PageReply(replyLabel, replyText, Command(said, "attach"))
                 : null;
             return new Page(label, address, reopen, reply);
         }
@@ -66,32 +66,55 @@ public static partial class LocalPages
         }
     }
 
+    private static string[] Command(JsonElement element, string name) =>
+        element.TryGetProperty(name, out var command) && command.ValueKind == JsonValueKind.Array
+        && command.EnumerateArray().All(part => part.ValueKind == JsonValueKind.String)
+            ? command.EnumerateArray().Select(part => part.GetString()!).ToArray()
+            : [];
+
     // Only this machine's pages: a button with the agent's words on it never leads elsewhere.
     private static bool IsLocal(Uri address) =>
         address.Scheme is "http" or "https" && (address.IsLoopback || address.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase));
 
+    // What its text goes with, at most: the open marks of a review, not a log.
+    private const int AttachedChars = 12_000;
+
     /// <summary>
-    /// Whether Link may run the page's command: Python on a script of a skill (the tool packs' or the workspace's own),
-    /// never any command a model wrote.
+    /// The script of a command Link may run: Python (directly or through <c>uv run</c>) on a script of a skill (the tool
+    /// packs' or the workspace's own), never any command a model wrote; null for any other.
     /// </summary>
-    public static bool CanReopen(Page page, string? workspace)
+    public static string? ScriptOf(IReadOnlyList<string> command, string? workspace)
     {
-        if (page.Reopen.Count < 2 || !Python().IsMatch(Path.GetFileName(page.Reopen[0]))) return false;
-        if (!Path.IsPathFullyQualified(page.Reopen[1]) || !page.Reopen[1].EndsWith(".py", StringComparison.OrdinalIgnoreCase)) return false;
-        var script = Path.GetFullPath(page.Reopen[1]);
+        var at = command.ToList().FindIndex(part => part.EndsWith(".py", StringComparison.OrdinalIgnoreCase));
+        if (at < 1 || !command.Take(at).All(part => Python().IsMatch(Path.GetFileName(part)) || part is "run" or "--no-project")) return null;
+        if (!Path.IsPathFullyQualified(command[at])) return null;
+        var script = Path.GetFullPath(command[at]);
         string?[] roots = [ToolPacks.Folder, workspace is null ? null : ProjectSkills.FolderIn(workspace)];
         return File.Exists(script) && roots.OfType<string>().Any(root =>
-            script.StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase));
+            script.StartsWith(Path.TrimEndingDirectorySeparator(Path.GetFullPath(root)) + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase))
+            ? script
+            : null;
     }
 
     /// <summary>
     /// Serves the page again by its command, hidden and with no agent: the last address of this machine the command
     /// prints, else null (no command Link may run, it failed or it took too long).
     /// </summary>
-    public static async Task<Uri?> ReopenAsync(Page page, string? workspace)
+    public static async Task<Uri?> ReopenAsync(Page page, string? workspace) =>
+        await RunAsync(page.Reopen, workspace) is { } printed && Address().Matches(printed).LastOrDefault() is { } found
+        && Uri.TryCreate(found.Value.TrimEnd('.', ',', ';'), UriKind.Absolute, out var address) ? address : null;
+
+    /// <summary>The reply's words with what its command prints (the open marks), so the agent need not fetch them.</summary>
+    public static async Task<string> ReplyTextAsync(PageReply reply, string? workspace) =>
+        reply.Attach is { Count: > 0 } attach && await RunAsync(attach, workspace) is { Length: > 0 } printed
+            ? $"{reply.Text}\n\nLink ran it for you:\n{printed.Trim()[..Math.Min(printed.Trim().Length, AttachedChars)]}"
+            : reply.Text;
+
+    /// <summary>A skill's command, hidden: what it printed, else null (no command Link may run, it failed or took too long).</summary>
+    private static async Task<string?> RunAsync(IReadOnlyList<string> command, string? workspace)
     {
-        if (!CanReopen(page, workspace)) return null;
-        var start = new ProcessStartInfo(page.Reopen[0])
+        if (ScriptOf(command, workspace) is not { } script) return null;
+        var start = new ProcessStartInfo(command[0])
         {
             UseShellExecute = false,
             CreateNoWindow = true,
@@ -99,9 +122,9 @@ public static partial class LocalPages
             RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
-            WorkingDirectory = Path.GetDirectoryName(Path.GetFullPath(page.Reopen[1]))!
+            WorkingDirectory = Path.GetDirectoryName(script)!
         };
-        foreach (var argument in page.Reopen.Skip(1)) start.ArgumentList.Add(argument);
+        foreach (var argument in command.Skip(1)) start.ArgumentList.Add(argument);
         start.Environment["PYTHONIOENCODING"] = "utf-8";
         using var timeout = new CancellationTokenSource(TimeSpan.FromSeconds(15));
         Process? process = null;
@@ -115,8 +138,7 @@ public static partial class LocalPages
             await process.WaitForExitAsync(timeout.Token);
             var printed = await output;
             await errors;
-            return process.ExitCode == 0 && Address().Matches(printed).LastOrDefault() is { } found
-                && Uri.TryCreate(found.Value.TrimEnd('.', ',', ';'), UriKind.Absolute, out var address) ? address : null;
+            return process.ExitCode == 0 ? printed : null;
         }
         catch (Exception exception) when (exception is Win32Exception or InvalidOperationException or OperationCanceledException)
         {
@@ -149,7 +171,7 @@ public static partial class LocalPages
     [GeneratedRegex(@"```link-page[^\n]*\n(.*?)```[ \t]*(?:\r?\n)?", RegexOptions.Singleline | RegexOptions.IgnoreCase)]
     private static partial Regex Block();
 
-    [GeneratedRegex(@"^(python3?|pythonw|py)(\.exe)?$", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"^(python3?|pythonw|py|uv)(\.exe)?$", RegexOptions.IgnoreCase)]
     private static partial Regex Python();
 
     [GeneratedRegex(@"https?://(?:127\.0\.0\.1|localhost):\d{2,5}(?:/[^\s)""'`]*)?", RegexOptions.IgnoreCase)]

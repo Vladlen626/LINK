@@ -339,11 +339,15 @@ public partial class AgentPanel
     }
 
     // The page's reply ("Apply marks"): the user's work there goes to the agent without typing it; mid-run it waits its turn.
-    private void PageReply_OnClick(object sender, RoutedEventArgs e)
+    private async void PageReply_OnClick(object sender, RoutedEventArgs e)
     {
-        if (sender is not Button { DataContext: LocalPages.Page { Reply: { } reply } }) return;
-        if (_running) QueueRequested?.Invoke(reply.Text, []);
-        else if (_replyShown) ContinueRequested?.Invoke(reply.Text, []);
+        if (sender is not Button { DataContext: LocalPages.Page { Reply: { } reply } } button) return;
+        button.IsEnabled = false;
+        // The open marks go with the words: the agent spends no turn of its own on fetching them.
+        var text = await LocalPages.ReplyTextAsync(reply, _card?.Workspace);
+        button.IsEnabled = true;
+        if (_running) QueueRequested?.Invoke(text, []);
+        else if (_replyShown) ContinueRequested?.Invoke(text, []);
     }
 
     private void OpenFile_OnClick(object sender, RoutedEventArgs e)

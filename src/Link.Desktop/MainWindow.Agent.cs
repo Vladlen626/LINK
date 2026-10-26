@@ -911,7 +911,7 @@ public partial class MainWindow
         turn.Outcome = ending;
         turn.OutcomeBrush = OutcomeBrush(ending);
         turn.Said = text;
-        turn.Pages = pages;
+        turn.Pages = pages.Count > 0 ? pages : LatestPages(record);
         turn.Files = run.Changes.Select(change => ToChangeRow(change, record.Workspace)).ToArray();
         turn.Stats = StatsLine(result.Stats) + SpentLine(task.Provider, spent);
         turn.StepsOpen = false;
