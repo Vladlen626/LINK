@@ -18,6 +18,7 @@ public sealed class RemoteControl : IDisposable
     private readonly Func<TimeSpan> _idle;
     private readonly ApiKeyStore _telegramToken;
     private readonly TelegramBot _telegram;
+    private readonly RemoteTunnel _tunnel;
     private RemoteServer? _server;
 
     /// <summary>How long the user has been away from this computer before a task's alert goes to the devices.</summary>
@@ -45,7 +46,8 @@ public sealed class RemoteControl : IDisposable
                 _settings.Current.Remote.TelegramChat = chat;
                 _settings.Save();
                 Paired?.Invoke();
-            }), log, pictures, telegramCards);
+            }), log, pictures, telegramCards, LinkAsync);
+        _tunnel = new RemoteTunnel(log);
         _pairing = new RemotePairing(settings.Current.Remote.Devices, device => onWindow(() =>
             {
                 _settings.Current.Remote.Devices.Add(device);
@@ -111,15 +113,37 @@ public sealed class RemoteControl : IDisposable
         else _telegram.Stop();
         if (!remote.Enabled)
         {
+            _tunnel.Stop();
             _server?.Dispose();
             _server = null;
             return;
         }
 
         if (_server?.Port == remote.Port) return;
+        // The tunnel leads to the old port: /link starts it again.
+        _tunnel.Stop();
         _server ??= new RemoteServer(_host, _pairing, _log, () => _push.PublicKey);
         Problem = _server.Start(remote.Port);
         if (Problem is not null) _log($"[Remote] {Problem}");
+    }
+
+    /// <summary>
+    /// The paired chat's /link: the page on the internet with a code to pair the browser it is opened in (the chat is
+    /// the user's already), or off it again.
+    /// </summary>
+    private async Task<string> LinkAsync(bool on)
+    {
+        if (!on)
+        {
+            _tunnel.Stop();
+            return "The remote page is off the internet.";
+        }
+
+        if (_server?.Port is not { } port) return "Remote control is off in Link's Settings: there is no page to open.";
+        var (address, problem) = await _tunnel.StartAsync(port);
+        return address is null ? problem!
+            : $"The remote page: {address}\nPairing code for a new browser: {_pairing.NewCode()} (good for {RemotePairing.CodeLife.TotalMinutes:0} minutes, one device).\n" +
+              "The address changes when Link restarts: /link again. /link off takes the page off the internet.";
     }
 
     /// <summary>A code for the next device, good for <see cref="RemotePairing.CodeLife"/>.</summary>
@@ -163,6 +187,7 @@ public sealed class RemoteControl : IDisposable
     {
         _host.RemoteAlert -= Alert;
         _telegram.Dispose();
+        _tunnel.Dispose();
         _server?.Dispose();
         _server = null;
     }

@@ -53,6 +53,7 @@ public sealed class TelegramBot : IDisposable
     private readonly Action<string> _log;
     private readonly string _pictures;
     private readonly string _cardsFile;
+    private readonly Func<bool, Task<string>>? _link;
     private readonly Lock _lock = new();
     // One thing at a time with Telegram: an update, an alert, or the cards following their tasks.
     private readonly SemaphoreSlim _gate = new(1, 1);
@@ -77,9 +78,11 @@ public sealed class TelegramBot : IDisposable
     /// <param name="paired">A chat sent the right code: it is the user's from now on.</param>
     /// <param name="pictures">Where the pictures the user sends are kept.</param>
     /// <param name="cardsFile">Where the cards are kept across restarts.</param>
+    /// <param name="link">/link: the remote page on the internet (true) or off it, and what to tell the user; null: no such command.</param>
     public TelegramBot(Api api, Download download, IRemoteHost host, Func<long?> chat, Action<long> paired, Action<string> log,
-        string pictures, string cardsFile)
+        string pictures, string cardsFile, Func<bool, Task<string>>? link = null)
     {
+        _link = link;
         _api = api;
         _download = download;
         _host = host;
@@ -225,6 +228,7 @@ public sealed class TelegramBot : IDisposable
         ("auto", "A new task in No-stop"),
         ("spent", "What the agents spent"),
         ("account", "Which Claude account new runs use"),
+        ("link", "The remote page on the internet; /link off ends it"),
         ("help", "How the bot works")
     ];
 
@@ -309,6 +313,9 @@ public sealed class TelegramBot : IDisposable
             case "/new" or "/plan" or "/auto":
                 await DraftAsync(chat, topic, command, rest, pictures, token);
                 return;
+            case "/link":
+                await SendAsync(chat, topic, _link is null ? "Link offers no remote page here." : await _link(!rest.Equals("off", StringComparison.OrdinalIgnoreCase)), null, token);
+                return;
             case "/account":
                 var accounts = await _host.AccountsAsync();
                 await SendAsync(chat, topic, accounts.Names.Count < 2 ? "One Claude account: add another in Link's Settings." : "Which Claude account should new runs use?",
@@ -347,7 +354,7 @@ public sealed class TelegramBot : IDisposable
         "Turn on topics for this bot in @BotFather, and each task gets a topic of its own. Words or a picture answer the task " +
         "of the topic, of the message you reply to, or of the last card. /tasks — the tasks · /new <task> — a new task: pick " +
         "the project and the agent · /plan <task> — plan first · /auto <task> — No-stop · /spent — what the agents spent · " +
-        "/account — which Claude account new runs use.";
+        "/account — which Claude account new runs use · /link — the remote page (a model's review) in any browser, /link off ends it.";
 
     private bool Pairs(string text)
     {

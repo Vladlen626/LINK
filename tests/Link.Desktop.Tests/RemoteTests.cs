@@ -142,7 +142,7 @@ internal static class RemoteTests
         TelegramBot.Download download = (_, _) => Task.FromResult<byte[]?>([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 1, 2]);
         var folder = Path.Combine(Path.GetTempPath(), "link-telegram-" + Guid.NewGuid().ToString("N")[..8]);
         var cards = Path.Combine(folder, "cards.json");
-        TelegramBot Bot() => new(api, download, host, () => chat, paired => chat = paired, _ => { }, folder, cards);
+        TelegramBot Bot() => new(api, download, host, () => chat, paired => chat = paired, _ => { }, folder, cards, on => Task.FromResult(on ? "The remote page: https://a.trycloudflare.com" : "Off"));
         long Last(string method)
         {
             lock (calls) return calls.Last(call => call.Method == method).Id;
@@ -210,6 +210,10 @@ internal static class RemoteTests
                 await bot.HandleAsync(Update(Press(42, "ac:1", Last("sendMessage"))), default);
                 Program.Equal("Telegram: /account offers Claude's accounts, and the one pressed runs next",
                     (Count("sendMessage", "\"ac:1\""), host.Done.Last(), Count("editMessageText", "Account 2")), (1, "account Account 2 by Telegram", 1));
+                await bot.HandleAsync(Update(Text(42, "/link")), default);
+                await bot.HandleAsync(Update(Text(42, "/link off")), default);
+                Program.Equal("Telegram: /link puts the page on the internet and says where; /link off ends it",
+                    (Count("sendMessage", "a.trycloudflare.com"), Count("sendMessage", "\"Off\"")), (1, 1));
 
                 var made = Path.Combine(folder, "made.png");
                 await File.WriteAllBytesAsync(made, [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);

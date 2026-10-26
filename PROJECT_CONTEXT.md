@@ -376,7 +376,9 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   remote page through Link's server (`/view/<ticket>/`, a ticket per page for a paired device; the viewer uses relative
   paths); the page's list and the bot's `/account` switch the Claude account new runs use. Rules a script can hold go
   into code: `HarnessLint` checks a run's map and skills (length, front matter, English) and leftovers, and the notes go
-  with the user's next words, with no run of their own. Voice notes wait for a decision on an
+  with the user's next words, with no run of their own. Tailscale proved inconvenient: the bot's `/link` starts a
+  Cloudflare quick tunnel (`cloudflared` in `%LocalAppData%\Link\Tools`, pinned 2026.10.0 by its SHA256) and answers
+  with the address and a pairing code; only the paired chat starts it, `/link off` or Link's exit ends it. Voice notes wait for a decision on an
   OGG/Opus decoder (Windows cannot read them).
 - UI and flow closer to Claude's app (2026-10-20, accepted by the user): one theme, the overlay's colours, for every
   window (opaque, title bars painted by DWM); Settings in pages that save each change; the task card as a composer;
