@@ -34,6 +34,11 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The guard Claude Code asks before each tool of a run: built beside Link.exe. -->
+    <ProjectReference Include="..\Link.Guard\Link.Guard.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
     <!-- The browser bridge is checked over real loopback HTTP, on a free port. -->
     <InternalsVisibleTo Include="Link.Desktop.Tests" />
   </ItemGroup>
@@ -47,6 +52,7 @@
   <ItemGroup>
     <!-- The agent's rules, tasks and specialists lie beside Link.exe: they can be changed without a new build. -->
     <Content Include="..\..\docs\harness\agent-rules.md" Link="harness\agent-rules.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\docs\harness\guarded-rules.md" Link="harness\guarded-rules.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\perforce.md" Link="harness\perforce.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\map-task.md" Link="harness\map-task.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\team-task.md" Link="harness\team-task.md" CopyToOutputDirectory="PreserveNewest" />

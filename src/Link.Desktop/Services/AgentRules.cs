@@ -14,9 +14,9 @@ public static partial class AgentRules
     /// <summary>
     /// A new session's input: the rules, the skills of the workspace's tool packs and its own skills when the agent does
     /// not find them itself (<paramref name="listOwnSkills"/>), the specialist's role and the skills picked for the task,
-    /// then the task.
+    /// then the task. The rules Link's guard holds go as words only when it does not watch the agent (<paramref name="guarded"/>).
     /// </summary>
-    public static string Before(string task, string workspace, bool listOwnSkills, AgentRole? role = null, IReadOnlyList<string>? picked = null)
+    public static string Before(string task, string workspace, bool listOwnSkills, AgentRole? role = null, IReadOnlyList<string>? picked = null, bool guarded = false)
     {
         string rules;
         try
@@ -29,6 +29,8 @@ public static partial class AgentRules
         }
 
         var input = new StringBuilder(rules);
+        // What Link's guard refuses by code goes as words only to an agent the guard does not watch.
+        if (!guarded && ReadHarness(GuardedFile) is { Length: > 0 } held) input.Append("\n\n").Append(held);
         // A Perforce workspace's files are read-only until opened: the agent is told how to open them.
         if (AgentChanges.IsPerforce(workspace) && ReadHarness(PerforceFile) is { Length: > 0 } perforce) input.Append("\n\n").Append(perforce);
         // The engine's or tool's own rules, for every task in a project of it, but a role's that works beside the engine.
@@ -53,6 +55,8 @@ public static partial class AgentRules
         if (ProjectRoles.SessionText(role, picked ?? [], workspace) is { Length: > 0 } specialist) input.Append("\n\n").Append(specialist);
         return input.Append("\n\n# Task\n\n").Append(task).ToString();
     }
+
+    public static string GuardedFile => Path.Combine(AppContext.BaseDirectory, "harness", "guarded-rules.md");
 
     public static string PerforceFile => Path.Combine(AppContext.BaseDirectory, "harness", "perforce.md");
 

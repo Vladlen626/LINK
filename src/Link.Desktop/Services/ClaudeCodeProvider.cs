@@ -55,6 +55,8 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
             // account of Link's has none of it, so every run gets the same harness. The workspace's own still loads.
             "--setting-sources", "project,local"
         };
+        // The rules a script holds: Claude Code asks Link's guard before each tool, and the guard refuses what breaks one.
+        if (GuardSettings() is { } guard) arguments.AddRange(["--settings", guard]);
         if (task.MaxTurns is { } turns) arguments.AddRange(["--max-turns", turns.ToString(System.Globalization.CultureInfo.InvariantCulture)]);
         if (task.Model is { } model) arguments.AddRange(["--model", model]);
         if (task.Effort is { } effort) arguments.AddRange(["--effort", effort]);
@@ -86,6 +88,41 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         // Last: the option takes every argument after it.
         if (task.AllowedTools.Count > 0) arguments.AddRange(task.AllowedTools.Prepend("--allowedTools"));
         return arguments;
+    }
+
+    protected override bool Guarded => File.Exists(GuardExecutable);
+
+    /// <summary>The guard beside Link.exe (<c>Link.Guard.exe</c>), which holds the rules <see cref="AgentRules"/> leaves out for Claude.</summary>
+    public static string GuardExecutable => Path.Combine(AppContext.BaseDirectory, "Link.Guard.exe");
+
+    /// <summary>
+    /// A settings file with the guard as the PreToolUse hook of the tools it checks; null without the guard. A file, not
+    /// JSON on the command line: claude.cmd would split its quotes.
+    /// </summary>
+    private static string? GuardSettings()
+    {
+        if (!File.Exists(GuardExecutable)) return null;
+        var hook = new JsonObject
+        {
+            ["hooks"] = new JsonObject
+            {
+                ["PreToolUse"] = new JsonArray(new JsonObject
+                {
+                    ["matcher"] = "Read|Write|Bash|PowerShell",
+                    ["hooks"] = new JsonArray(new JsonObject { ["type"] = "command", ["command"] = $"\"{GuardExecutable.Replace('\\', '/')}\"" })
+                })
+            }
+        }.ToJsonString();
+        var file = Path.Combine(Path.GetTempPath(), "link-guard-settings.json");
+        try
+        {
+            if (!File.Exists(file) || File.ReadAllText(file) != hook) File.WriteAllText(file, hook);
+            return file;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
     }
 
     public override string Input(AgentTask task) =>

@@ -3,8 +3,10 @@
      whatever the workspace holds. Only what the model does not know by itself: how a run from Link works, the
      environment and what was seen in runs. What both CLIs do on their own (look around, plan, check themselves) is not
      written here; each line comes from a behaviour it corrects. Hard limits live in Link's code (access, backup, Stop,
-     undo), not here. What a script can check moves into Link's code too: HarnessLint checks a run's files (the map's
-     and skills' length, front matter, English, a check's leftovers) and tells the agent with the user's next words. -->
+     undo), not here. What a script can check moves into Link's code too: Link.Guard refuses a Claude Code tool call
+     that breaks a rule (guarded-rules.md, which only Codex gets as text), and HarnessLint checks a run's files (the
+     map's and skills' length, front matter, English, a check's leftovers) and tells the agent with the user's next
+     words. -->
 
 # Agent rules
 
@@ -25,15 +27,12 @@ dialog: a question or a request for permission ends it, and the user's answer co
   before working around it. A workaround that slows every run (waits, slow motion, retries) costs more than the fix;
   the cause and the fix go into the skill.
 - A tool the work needs is down or busy (an editor closed or in Play, a server stopped): do what you can without it,
-  then ask the user with a link-ask block. Do not wait on it longer than ~2 minutes: an agent once polled an editor
-  in Play for 30 minutes.
+  then ask the user with a link-ask block; an agent once polled an editor in Play for 30 minutes.
 - A check that failed before your change too (a frame budget the whole scene misses): measure it with and without
   your work once, report the difference, and write the known failure into `docs/map.md` so no later step chases it.
-- Temporary files of checks (frames, logs, browser profiles) go to the system's temp folder, not the project.
-- Every request of a run re-sends the whole session, so what enters it stays there: read the part of a file you need
-  (a range, a grep), not a whole big file; a script longer than a screen is written once to a file and changed by edits,
-  never re-sent whole; open an image once, at the size its question needs (a sheet, not its frames one by one; an image
-  given with the task is not opened again).
+- Every request of a run re-sends the whole session, so what enters it stays there: a script longer than a screen is
+  written once to a file and changed by edits, never re-sent whole; open an image once, at the size its question needs
+  (a sheet, not its frames one by one; an image given with the task is not opened again).
 - An asset the user made by hand (an animation, a model, a texture, a level) is not overwritten under its name: make
   yours beside it and switch to it, so theirs stays to go back to.
 
@@ -66,8 +65,6 @@ dialog: a question or a request for permission ends it, and the user's answer co
   and the user decides whether all projects get it. What holds only here (this project's scripts, assets, numbers)
   goes into the project's own add-on `.agents/skills/<pack>-project/` (`blender-project`): it builds on the pack's
   skills, says so in its description, and never repeats them.
-- Windows PowerShell 5.1 reads and writes files without a BOM as ANSI: text goes with `-Encoding UTF8`
-  (`Get-Content`, `Set-Content`), or non-Latin text turns to garbage.
 
 ## Get stronger with each task
 - Keep what the next agent would need and could not see at once, as soon as this task proves it: a run can be cut

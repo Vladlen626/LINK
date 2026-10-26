@@ -379,7 +379,10 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   starts on the first link and ends with Link; Apply marks is the bot's button. `/account` switches the Claude account
   new runs use. The bot sets no reactions: they stayed unread marks in every topic. Rules a script can hold go into
   code: `HarnessLint` checks a run's map and skills (length, front matter, English) and leftovers, and the notes go
-  with the user's next words, with no run of their own. Voice notes wait for a decision on an
+  with the user's next words, with no run of their own; `Link.Guard.exe`, Claude Code's PreToolUse hook from
+  `--settings`, refuses a big file read whole, a leftover written into the project, a wait of a minute or more and a
+  PowerShell write without -Encoding, with what to do instead (~90 ms a call). Those rules left agent-rules.md for
+  `guarded-rules.md`, which only Codex (no hook) gets. Voice notes wait for a decision on an
   OGG/Opus decoder (Windows cannot read them).
 - UI and flow closer to Claude's app (2026-10-20, accepted by the user): one theme, the overlay's colours, for every
   window (opaque, title bars painted by DWM); Settings in pages that save each change; the task card as a composer;

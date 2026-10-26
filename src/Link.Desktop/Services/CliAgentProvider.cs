@@ -192,6 +192,9 @@ public abstract class CliAgentProvider : IAgentProvider
     /// </summary>
     protected virtual bool FindsSkills => false;
 
+    /// <summary>Whether Link's guard checks the CLI's tool calls, so the rules it holds need no words.</summary>
+    protected virtual bool Guarded => false;
+
     /// <summary>
     /// The workspace's <c>.mcp.json</c>, the one source of MCP servers for both agents in Link's runs; null when the
     /// workspace has none.
@@ -230,7 +233,7 @@ public abstract class CliAgentProvider : IAgentProvider
     {
         var input = task.PlanOnly ? PlanRequest + Input(task) : Input(task);
         return task.ResumeSessionId is null
-            ? AgentRules.Before(input, task.Workspace, !FindsSkills, ProjectRoles.Find(task.RoleId, task.Workspace), task.Skills)
+            ? AgentRules.Before(input, task.Workspace, !FindsSkills, ProjectRoles.Find(task.RoleId, task.Workspace), task.Skills, Guarded)
             : input;
     }
 

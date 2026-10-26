@@ -50,7 +50,8 @@ The same harness Link gives its agents, for work on this repo.
 - Agents: `AgentCoordinator` runs a task (check after Do, an answer file such as the map, Start over);
   `CliAgentProvider` → `ClaudeCodeProvider` / `CodexProvider` over `AgentProcess`; `AgentChanges` finds and undoes
   changes; `AgentRules`, `ProjectMap`, `ProjectSkills`,
-  `ProjectRoles` are the harness; `AutoEffort`, `TaskState` (Compact), `HarnessView` (the inspector); `TeamRunner` (team
+  `ProjectRoles` are the harness; rules a script can hold are code: `src/Link.Guard` (Claude Code's PreToolUse hook,
+  `docs/harness/guarded-rules.md` is their text for Codex) and `HarnessLint` (a run's map and skills); `AutoEffort`, `TaskState` (Compact), `HarnessView` (the inspector); `TeamRunner` (team
   steps), its flow in `MainWindow.Team`. The agent's rules,
   tasks and roles are `docs/harness/**/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel`
   (the sidebar; partials Card, Roles, Task with its cards, Composer) in `StudioWindow`, beside `HarnessInspector`.
