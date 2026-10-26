@@ -7,6 +7,7 @@ using System.Windows.Data;
 using System.Windows.Documents;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 
 namespace Link.Desktop;
 
@@ -304,13 +305,19 @@ public sealed class MarkdownRenderer(FrameworkElement resources, Action<Uri> ope
         {
             var end = text.IndexOf('`', index + 1);
             if (end < 0) return false;
+            next = end + 1;
+            if (LocalFile(text[(index + 1)..end]) is { } file)
+            {
+                inline = FileLink(text[(index + 1)..end], file);
+                return true;
+            }
+
             inline = new Run(text[(index + 1)..end])
             {
                 Background = Brush("ResponseCodeBrush"),
                 FontFamily = Mono,
                 FontSize = 12.5
             };
-            next = end + 1;
             return true;
         }
 
@@ -355,6 +362,76 @@ public sealed class MarkdownRenderer(FrameworkElement resources, Action<Uri> ope
         }
 
         return false;
+    }
+
+    private static readonly string[] Pictures = [".png", ".jpg", ".jpeg", ".bmp", ".gif", ".webp"];
+
+    /// <summary>An existing file an inline code span names by its full path (%TEMP% and the like expanded); null otherwise.</summary>
+    internal static string? LocalFile(string code)
+    {
+        var path = Environment.ExpandEnvironmentVariables(code.Trim());
+        try
+        {
+            return Path.IsPathFullyQualified(path) && File.Exists(path) ? Path.GetFullPath(path) : null;
+        }
+        catch (ArgumentException)
+        {
+            return null;
+        }
+    }
+
+    internal static bool IsPicture(string path) => Pictures.Contains(Path.GetExtension(path), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>A file the answer names opens with its app on a click; a picture shows below its path, so the agent's frame is seen without opening it.</summary>
+    private Inline FileLink(string text, string file)
+    {
+        var uri = new Uri(file);
+        var link = new Hyperlink(new Run(text) { FontFamily = Mono, FontSize = 12.5 })
+        {
+            NavigateUri = uri,
+            Foreground = Brush("LinkTextBrush"),
+            ToolTip = "Open " + file
+        };
+        link.RequestNavigate += (_, e) =>
+        {
+            e.Handled = true;
+            openLink(e.Uri);
+        };
+        if (!IsPicture(file) || Thumbnail(file) is not { } picture) return link;
+
+        picture.Cursor = Cursors.Hand;
+        picture.ToolTip = link.ToolTip;
+        picture.MouseLeftButtonUp += (_, e) =>
+        {
+            e.Handled = true;
+            openLink(uri);
+        };
+        var span = new Span(link);
+        span.Inlines.Add(new LineBreak());
+        span.Inlines.Add(new InlineUIContainer(picture) { BaselineAlignment = BaselineAlignment.Bottom });
+        span.Inlines.Add(new LineBreak());
+        return span;
+    }
+
+    /// <summary>The picture decoded small and read at once, so the agent can write the file again; null when it cannot be read.</summary>
+    private static Image? Thumbnail(string file)
+    {
+        try
+        {
+            var bitmap = new BitmapImage();
+            bitmap.BeginInit();
+            bitmap.UriSource = new Uri(file);
+            bitmap.DecodePixelHeight = 360;
+            bitmap.CacheOption = BitmapCacheOption.OnLoad;
+            bitmap.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
+            bitmap.EndInit();
+            bitmap.Freeze();
+            return new Image { Source = bitmap, MaxHeight = 180, MaxWidth = 360, Stretch = Stretch.Uniform, Margin = new Thickness(0, 4, 0, 4) };
+        }
+        catch (Exception exception) when (exception is IOException or NotSupportedException or UnauthorizedAccessException or InvalidOperationException)
+        {
+            return null;
+        }
     }
 }
 
@@ -404,7 +481,7 @@ public static class MarkdownText
     {
         try
         {
-            Process.Start(new ProcessStartInfo(uri.AbsoluteUri) { UseShellExecute = true });
+            Process.Start(new ProcessStartInfo(uri.IsFile ? uri.LocalPath : uri.AbsoluteUri) { UseShellExecute = true });
         }
         catch (System.ComponentModel.Win32Exception)
         {

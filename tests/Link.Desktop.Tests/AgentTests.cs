@@ -967,6 +967,21 @@ internal static class AgentTests
         Program.Equal("pages: a reply without its words is no second button",
             LocalPages.Split("```link-page\n{\"label\": \"A\", \"url\": \"http://127.0.0.1:7331/\", \"reply\": {\"label\": \"Apply marks\"}}\n```").Pages[0].Reply, null);
 
+        var frame = Path.Combine(Path.GetTempPath(), "link-frame-" + Guid.NewGuid().ToString("N")[..8] + ".png");
+        File.WriteAllBytes(frame, []);
+        try
+        {
+            Program.Equal("answers: an existing file named by its full path (or %TEMP%) is a link, a picture shows; anything else stays code",
+                (MarkdownRenderer.LocalFile(frame), MarkdownRenderer.LocalFile("%TEMP%\\" + Path.GetFileName(frame)) is not null,
+                    MarkdownRenderer.IsPicture(frame), MarkdownRenderer.LocalFile(Path.GetFileName(frame)), MarkdownRenderer.LocalFile(frame + ".gone"),
+                    MarkdownRenderer.LocalFile("dotnet build")),
+                (frame, true, true, (string?)null, (string?)null, (string?)null));
+        }
+        finally
+        {
+            File.Delete(frame);
+        }
+
         var page = pages[0];
         var previous = ToolPacks.Folder;
         ToolPacks.Folder = packs;
