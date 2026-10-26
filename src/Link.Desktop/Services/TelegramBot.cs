@@ -30,6 +30,9 @@ public sealed class TelegramBot : IDisposable
     /// <summary>A call's fields, with a file to upload under <paramref name="Field"/>.</summary>
     public sealed record FileBody(IReadOnlyDictionary<string, string> Fields, string Field, string Name, byte[] Bytes);
 
+    /// <summary>How long Settings' pairing code is good.</summary>
+    public static readonly TimeSpan CodeLife = TimeSpan.FromMinutes(10);
+
     private const int MaxText = 3500;
     private const int MessagesKept = 200;
     private const int PlanShown = 15;
@@ -53,7 +56,6 @@ public sealed class TelegramBot : IDisposable
     private readonly Action<string> _log;
     private readonly string _pictures;
     private readonly string _cardsFile;
-    private readonly Func<bool, Task<string>>? _link;
     private readonly Func<Guid, int, Task<(string? Url, string? Problem)>>? _pageLink;
     private readonly Lock _lock = new();
     // One thing at a time with Telegram: an update, an alert, or the cards following their tasks.
@@ -79,12 +81,10 @@ public sealed class TelegramBot : IDisposable
     /// <param name="paired">A chat sent the right code: it is the user's from now on.</param>
     /// <param name="pictures">Where the pictures the user sends are kept.</param>
     /// <param name="cardsFile">Where the cards are kept across restarts.</param>
-    /// <param name="link">/link: the remote page on the internet (true) or off it, and what to tell the user; null: no such command.</param>
     /// <param name="pageLink">A page of a task's last run (a model's review window) as a link that opens anywhere, else why not; null: none.</param>
     public TelegramBot(Api api, Download download, IRemoteHost host, Func<long?> chat, Action<long> paired, Action<string> log,
-        string pictures, string cardsFile, Func<bool, Task<string>>? link = null, Func<Guid, int, Task<(string? Url, string? Problem)>>? pageLink = null)
+        string pictures, string cardsFile, Func<Guid, int, Task<(string? Url, string? Problem)>>? pageLink = null)
     {
-        _link = link;
         _pageLink = pageLink;
         _api = api;
         _download = download;
@@ -159,7 +159,7 @@ public sealed class TelegramBot : IDisposable
         lock (_lock)
         {
             _code = System.Security.Cryptography.RandomNumberGenerator.GetInt32(0, 1_000_000).ToString("D6", CultureInfo.InvariantCulture);
-            _codeUntil = DateTimeOffset.Now + RemotePairing.CodeLife;
+            _codeUntil = DateTimeOffset.Now + CodeLife;
             return _code;
         }
     }
@@ -252,7 +252,6 @@ public sealed class TelegramBot : IDisposable
         ("auto", "A new task in No-stop"),
         ("spent", "What the agents spent"),
         ("account", "Which Claude account new runs use"),
-        ("link", "The remote page on the internet; /link off ends it"),
         ("help", "How the bot works")
     ];
 
@@ -337,9 +336,6 @@ public sealed class TelegramBot : IDisposable
             case "/new" or "/plan" or "/auto":
                 await DraftAsync(chat, topic, command, rest, pictures, token);
                 return;
-            case "/link":
-                await SendAsync(chat, topic, _link is null ? "Link offers no remote page here." : await _link(!rest.Equals("off", StringComparison.OrdinalIgnoreCase)), null, token);
-                return;
             case "/account":
                 var accounts = await _host.AccountsAsync();
                 await SendAsync(chat, topic, accounts.Names.Count < 2 ? "One Claude account: add another in Link's Settings." : "Which Claude account should new runs use?",
@@ -354,18 +350,8 @@ public sealed class TelegramBot : IDisposable
                 }
 
                 var error = await _host.ReplyAsync(id, rest.Length > 0 ? rest : "Look at this picture.", "Telegram", pictures.Count > 0 ? pictures : null);
+                // The card changing as the task takes the words says they went: a reaction stayed an unread mark in every topic.
                 if (error is not null) await SendAsync(chat, topic, error, null, token);
-                // A reaction says the words went, without another message.
-                else if (await _api("setMessageReaction", new
-                         {
-                             chat_id = chat,
-                             message_id = message.GetProperty("message_id").GetInt64(),
-                             reaction = new[] { new { type = "emoji", emoji = "👍" } }
-                         }, token) is null)
-                {
-                    await SendAsync(chat, topic, "Sent.", null, token);
-                }
-
                 return;
             default:
                 await SendAsync(chat, topic, Help, null, token);
@@ -378,7 +364,7 @@ public sealed class TelegramBot : IDisposable
         "Turn on topics for this bot in @BotFather, and each task gets a topic of its own. Words or a picture answer the task " +
         "of the topic, of the message you reply to, or of the last card. /tasks — the tasks · /new <task> — a new task: pick " +
         "the project and the agent · /plan <task> — plan first · /auto <task> — No-stop · /spent — what the agents spent · " +
-        "/account — which Claude account new runs use · /link — the remote page (a model's review) in any browser, /link off ends it.";
+        "/account — which Claude account new runs use.";
 
     private bool Pairs(string text)
     {

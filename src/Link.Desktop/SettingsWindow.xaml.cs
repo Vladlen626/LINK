@@ -139,13 +139,12 @@ public partial class SettingsWindow : Window
         ShowLevel(CodexLightModelCombo, CodexLightEffortCombo, codex, current.Agent.CodexLight, "Codex's config");
         ShowLevel(CodexDeepModelCombo, CodexDeepEffortCombo, codex, current.Agent.CodexDeep, "Codex's config");
         ShowClaudeAccounts();
-        RemoteBox.IsChecked = current.Remote.Enabled;
-        RemotePortBox.Text = current.Remote.Port.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        ShowRemote();
+        ShowTelegram();
         if (_remote is not null)
         {
-            _remote.Paired += ShowRemote;
-            Closed += (_, _) => _remote.Paired -= ShowRemote;
+            Action paired = () => ShowTelegram();
+            _remote.Paired += paired;
+            Closed += (_, _) => _remote.Paired -= paired;
         }
         Closing += (_, _) => _agentChecks.Cancel();
         Loaded += (_, _) => _ = CheckAgentsAsync();
@@ -643,39 +642,12 @@ public partial class SettingsWindow : Window
         _hotkeyBeforeCapture = null;
     }
 
-    /// <summary>Remote control as it stands: where the page is, and the paired devices, each with Remove.</summary>
-    private void ShowRemote()
-    {
-        RemoteStatusText.Text = _remote is null ? "Remote control is not available."
-            : _remote.Problem is { } problem ? problem
-            : _remote.Address is { } address ? $"On: the page is at {address} on this computer."
-            : "Off: tick the box to start it.";
-        ShowTelegram();
-        RemoteDevicesPanel.Children.Clear();
-        foreach (var device in _remote?.Devices.ToArray() ?? [])
-        {
-            var row = new Grid { Margin = new Thickness(0, 4, 0, 0) };
-            row.ColumnDefinitions.Add(new ColumnDefinition());
-            row.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-            row.Children.Add(new TextBlock { Text = $"{device.Name} · paired {device.AddedAt:d MMM yyyy}", VerticalAlignment = VerticalAlignment.Center });
-            var remove = new Button { Style = (Style)FindResource("ChipButtonStyle"), Content = "Remove", ToolTip = "The device can no longer control Link" };
-            remove.Click += (_, _) =>
-            {
-                _remote!.Remove(device);
-                ShowRemote();
-            };
-            Grid.SetColumn(remove, 1);
-            row.Children.Add(remove);
-            RemoteDevicesPanel.Children.Add(row);
-        }
-    }
-
     /// <summary>The Telegram bot as it stands: off, waiting for its code, or paired with a chat.</summary>
     private void ShowTelegram(string? code = null)
     {
         var (running, paired) = _remote?.Telegram ?? (false, false);
         TelegramUnlinkButton.Visibility = running || paired ? Visibility.Visible : Visibility.Collapsed;
-        TelegramStatusText.Text = code is not null ? $"Send {code} to your bot in Telegram within {RemotePairing.CodeLife.TotalMinutes:0} minutes."
+        TelegramStatusText.Text = code is not null ? $"Send {code} to your bot in Telegram within {TelegramBot.CodeLife.TotalMinutes:0} minutes."
             : paired && running ? "On: your chat gets a message when a task needs you while you are away; /help in the bot lists the rest."
             : running ? "The bot runs, no chat is paired: press Pair Telegram for a code."
             : "Off. In Telegram, @BotFather → /newbot gives a token: paste it here and press Pair Telegram.";
@@ -699,13 +671,6 @@ public partial class SettingsWindow : Window
     {
         _remote?.UnlinkTelegram();
         ShowTelegram();
-    }
-
-    private void RemotePair_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (_remote is null) return;
-        RemoteCodeText.Text = _remote.NewCode();
-        RemoteCodeText.ToolTip = $"Enter it on the page within {RemotePairing.CodeLife.TotalMinutes:0} minutes; it is good for one device";
     }
 
     /// <summary>The hotkeys as recorded here, or why they cannot be used.</summary>
@@ -748,8 +713,6 @@ public partial class SettingsWindow : Window
         var current = _settings.Current;
         if (int.TryParse(HistorySizeBox.Text, out var historySize) && historySize is >= 1 and <= 20) current.ScreenshotHistorySize = historySize;
         else problems.Add("Screenshot history must be between 1 and 20.");
-        if (int.TryParse(RemotePortBox.Text, out var remotePort) && remotePort is >= 1024 and <= 65535) current.Remote.Port = remotePort;
-        else problems.Add("The remote port must be between 1024 and 65535.");
         if (HotkeyProblem() is { } hotkeyProblem) problems.Add(hotkeyProblem);
         else
         {
@@ -763,7 +726,6 @@ public partial class SettingsWindow : Window
             current.Hotkeys.AskAboutScreen = GetHotkey(AskAboutScreenHotkey);
         }
 
-        current.Remote.Enabled = RemoteBox.IsChecked == true;
         current.Theme = (AppTheme)(ThemeCombo.SelectedItem ?? AppTheme.System);
         current.Opacity = OpacitySlider.Value;
         current.BlurBackground = BlurBackgroundBox.IsChecked == true;
@@ -813,8 +775,6 @@ public partial class SettingsWindow : Window
         {
             _settings.Save();
             Saved?.Invoke();
-            // Remote control may have started, stopped or moved to another port.
-            ShowRemote();
         }
         catch (Exception exception)
         {

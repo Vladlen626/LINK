@@ -2,75 +2,43 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using System.Text;
-using System.Text.Json;
 
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// The remote page and its API, on 127.0.0.1 only: plain HTTP/1.1, one request per connection. Another device comes
-/// through a tunnel of the user's (<c>tailscale serve</c> gives it HTTPS), so no port is opened to the network and no
-/// URL reservation or admin right is needed. Every API call but pairing needs a paired device's token
-/// (<c>Authorization: Bearer</c>); the page itself holds no data. Changes reach the page by long polling. A page a run
-/// opened on this computer (a model's review window) is passed through under <c>/view/</c> by a ticket the API gives.
+/// The pages a run opened on this computer (a model's review window) for another computer: plain HTTP/1.1 on 127.0.0.1,
+/// one request per connection, reached through the tunnel (<see cref="RemoteTunnel"/>), so no port is opened to the
+/// network. Each page is passed through under <c>/view/&lt;ticket&gt;/</c>: a long random ticket the Telegram bot's link
+/// carries, since a page's own requests carry no token. Nothing else is served.
 /// </summary>
-public sealed class RemoteServer : IDisposable
+public sealed class RemoteServer(IRemoteHost host, Action<string> log) : IDisposable
 {
     private const int MaxHeader = 16 * 1024;
-    private const int MaxBody = 256 * 1024;
     // A review window takes a reference picture or model the user drops on it.
-    private const int MaxViewBody = 32 << 20;
+    private const int MaxBody = 32 << 20;
     private const string ViewPrefix = "/view/";
     private static readonly TimeSpan ViewIdle = TimeSpan.FromHours(2);
+    private static readonly TimeSpan ReadWait = TimeSpan.FromSeconds(20);
     // The pages are on this computer: never through the system's proxy (a VPN client's).
     private static readonly HttpClient Pages = new(new SocketsHttpHandler { UseProxy = false }) { Timeout = TimeSpan.FromSeconds(60) };
-    private static readonly TimeSpan PollWait = TimeSpan.FromSeconds(25);
-    private static readonly TimeSpan ReadWait = TimeSpan.FromSeconds(20);
-    private static readonly JsonSerializerOptions Json = new(JsonSerializerDefaults.Web);
 
-    private readonly IRemoteHost _host;
-    private readonly RemotePairing _pairing;
-    private readonly Action<string> _log;
-    private readonly Func<string>? _pushKey;
+    private readonly Dictionary<string, (Uri Address, DateTimeOffset Used)> _views = [];
     private TcpListener? _listener;
     private CancellationTokenSource? _stop;
-    private long _version;
-    private TaskCompletionSource _change = new(TaskCreationOptions.RunContinuationsAsynchronously);
-    // The pages a paired device opened, by a random ticket in their path: a page's own requests carry no token.
-    private readonly Dictionary<string, (Uri Address, DateTimeOffset Used)> _views = [];
-
-    /// <param name="pushKey">Link's public key for notifications (<see cref="RemotePush.PublicKey"/>); null offers none.</param>
-    public RemoteServer(IRemoteHost host, RemotePairing pairing, Action<string> log, Func<string>? pushKey = null)
-    {
-        _host = host;
-        _pairing = pairing;
-        _log = log;
-        _pushKey = pushKey;
-        _host.RemoteChanged += Changed;
-    }
 
     /// <summary>The port it listens on; null while it is off.</summary>
     public int? Port { get; private set; }
 
-    /// <summary>Listens on the port, or tells why it cannot (another program has it).</summary>
-    public string? Start(int port)
+    /// <summary>Listens on a free port of this computer.</summary>
+    public void Start()
     {
         Stop();
-        var listener = new TcpListener(IPAddress.Loopback, port);
-        try
-        {
-            listener.Start();
-        }
-        catch (SocketException exception)
-        {
-            return $"Port {port} is taken: {exception.Message}";
-        }
-
+        var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
         _listener = listener;
         _stop = new CancellationTokenSource();
         Port = ((IPEndPoint)listener.LocalEndpoint).Port;
         _ = AcceptAsync(listener, _stop.Token);
-        _log($"[Remote] Listening on http://127.0.0.1:{Port}/");
-        return null;
     }
 
     public void Stop()
@@ -82,20 +50,26 @@ public sealed class RemoteServer : IDisposable
         _stop?.Dispose();
         _stop = null;
         Port = null;
-        _log("[Remote] Stopped");
     }
 
-    public void Dispose()
-    {
-        _host.RemoteChanged -= Changed;
-        Stop();
-    }
+    public void Dispose() => Stop();
 
-    /// <summary>A task changed: the pages waiting on <c>/api/events</c> are answered.</summary>
-    private void Changed()
+    /// <summary>
+    /// The path a page of the task's last run is passed through at: Link serves the page again if it stopped. Null when
+    /// it does not open.
+    /// </summary>
+    public async Task<string?> ViewPathAsync(Guid id, int page)
     {
-        Interlocked.Increment(ref _version);
-        Interlocked.Exchange(ref _change, new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously)).TrySetResult();
+        if (await host.OpenPageAsync(id, page) is not { IsLoopback: true } address) return null;
+        var root = new Uri(address.GetLeftPart(UriPartial.Authority) + "/");
+        lock (_views)
+        {
+            var now = DateTimeOffset.Now;
+            foreach (var old in _views.Where(view => now - view.Value.Used > ViewIdle).Select(view => view.Key).ToArray()) _views.Remove(old);
+            var ticket = _views.FirstOrDefault(view => view.Value.Address == root).Key ?? System.Security.Cryptography.RandomNumberGenerator.GetHexString(32, lowercase: true);
+            _views[ticket] = (root, now);
+            return ViewPrefix + ticket + address.PathAndQuery;
+        }
     }
 
     private async Task AcceptAsync(TcpListener listener, CancellationToken token)
@@ -134,7 +108,7 @@ public sealed class RemoteServer : IDisposable
             }
             catch (Exception exception)
             {
-                _log($"[Remote] {exception.GetType().Name}: {exception.Message}");
+                log($"[Remote] {exception.GetType().Name}: {exception.Message}");
             }
         }
     }
@@ -173,8 +147,7 @@ public sealed class RemoteServer : IDisposable
         received.Write(buffer, end + 4, length - end - 4);
         var chunked = headers.TryGetValue("Transfer-Encoding", out var encoding) && encoding.Contains("chunked", StringComparison.OrdinalIgnoreCase);
         var size = headers.TryGetValue("Content-Length", out var value) && int.TryParse(value, out var parsed) ? parsed : 0;
-        var limit = start[1].StartsWith(ViewPrefix, StringComparison.Ordinal) ? MaxViewBody : MaxBody;
-        if (size < 0 || size > limit) return null;
+        if (size is < 0 or > MaxBody) return null;
         byte[]? Whole() => chunked ? Unchunked(received.GetBuffer().AsSpan(0, (int)received.Length))
             : received.Length >= size ? received.ToArray()[..size]
             : null;
@@ -182,7 +155,7 @@ public sealed class RemoteServer : IDisposable
         byte[]? body;
         while ((body = Whole()) is null)
         {
-            if (received.Length > limit) return null;
+            if (received.Length > MaxBody) return null;
             var read = await stream.ReadAsync(buffer, token);
             if (read == 0) return null;
             received.Write(buffer, 0, read);
@@ -225,108 +198,15 @@ public sealed class RemoteServer : IDisposable
     {
         200 => "OK",
         400 => "Bad Request",
-        401 => "Unauthorized",
         403 => "Forbidden",
         404 => "Not Found",
-        405 => "Method Not Allowed",
-        409 => "Conflict",
         _ => "Error"
     };
 
-    /// <summary>What a request gets: the page's files for anyone, the API for a paired device.</summary>
+    /// <summary>A request of an opened page, passed to its server on this computer as from the page's own address.</summary>
     internal async Task<Response> HandleAsync(Request request, CancellationToken token)
     {
-        if (request.Path.StartsWith(ViewPrefix, StringComparison.Ordinal)) return await ViewAsync(request, token);
-        if (!request.Path.StartsWith("/api/", StringComparison.Ordinal))
-        {
-            return request.Method == "GET" && RemotePage.File(request.Path) is var (type, bytes) ? new Response(200, type, bytes) : Error(404, "Not found");
-        }
-
-        if (request.Path == "/api/pair")
-        {
-            if (request.Method != "POST" || Body<PairRequest>(request) is not { } pair) return Error(400, "Send the code");
-            if (_pairing.Pair(pair.Code ?? string.Empty, pair.Name ?? string.Empty) is not { } issued)
-            {
-                _log("[Remote] A wrong or old pairing code");
-                return Error(401, "Wrong or old code: make a new one in Link's Settings");
-            }
-
-            _log($"[Remote] Paired: {pair.Name}");
-            return Ok(new { token = issued });
-        }
-
-        var auth = request.Headers.GetValueOrDefault("Authorization");
-        var bearer = auth?.StartsWith("Bearer ", StringComparison.Ordinal) == true ? auth[7..].Trim() : null;
-        var device = _pairing.DeviceOf(bearer);
-        if (device is null) return Error(401, "Pair this device first");
-        if (request.Path == "/api/push") return Push(request, bearer);
-
-        var parts = request.Path.Split('/', StringSplitOptions.RemoveEmptyEntries);
-        Guid id = default;
-        var hasId = parts.Length >= 3 && parts[1] == "tasks" && Guid.TryParse(parts[2], out id);
-        switch (request.Method, parts.Length, hasId)
-        {
-            case ("GET", 2, _) when parts[1] == "projects":
-                return Ok(await _host.ProjectsAsync());
-            case ("GET", 2, _) when parts[1] == "tasks":
-                return Ok(await _host.TasksAsync());
-            case ("GET", 2, _) when parts[1] == "usage":
-                return Ok(await _host.UsageAsync() ?? new RemoteUsage(string.Empty, string.Empty));
-            case ("GET", 2, _) when parts[1] == "accounts":
-                return Ok(await _host.AccountsAsync());
-            case ("POST", 2, _) when parts[1] == "accounts":
-                return Body<AccountRequest>(request) is { } account ? Done(await _host.SetAccountAsync(account.Name, device)) : Error(400, "Name the account");
-            case ("GET", 2, _) when parts[1] == "events":
-                return Ok(new { version = await WaitForChangeAsync(request.Query, token) });
-            case ("GET", 3, true):
-                return await _host.TaskAsync(id) is { } view ? Ok(view) : Error(404, "No such task");
-            case ("POST", 2, _) when parts[1] == "tasks":
-                return Body<RemoteNewTask>(request) is { Goal.Length: > 0 } task
-                    // The page names no files on this computer.
-                    ? Done(await _host.StartAsync(task with { Goal = task.Goal.Trim(), Attached = null }, device))
-                    : Error(400, "Write the task");
-            case ("POST", 4, true):
-                return parts[3] switch
-                {
-                    "reply" => Body<WordsRequest>(request) is { Words.Length: > 0 } reply ? Done(await _host.ReplyAsync(id, reply.Words, device)) : Error(400, "Write something"),
-                    "decide" => Done(await _host.DecideAsync(id, Body<DecideRequest>(request)?.Always == true, device)),
-                    "refuse" => Done(await _host.RefuseAsync(id, device)),
-                    "stop" => Done(await _host.StopAsync(id, device)),
-                    "nostop" => Body<SwitchRequest>(request) is { } change ? Done(await _host.SetNoStopAsync(id, change.On, device)) : Error(400, "Say on or off"),
-                    "page" => await OpenPageAsync(id, Body<PageRequest>(request)?.Page ?? 0),
-                    _ => Error(404, "Not found")
-                };
-            default:
-                return Error(404, "Not found");
-        }
-    }
-
-    /// <summary>
-    /// A page of the task's last run for the device: Link serves it again if it stopped and gives a path of its own
-    /// under <see cref="ViewPrefix"/>, so the page reaches the device the way this server does.
-    /// </summary>
-    private async Task<Response> OpenPageAsync(Guid id, int page) =>
-        await ViewPathAsync(id, page) is { } path ? Ok(new { url = path }) : Error(409, "The page does not open any more: ask the agent to open it again");
-
-    /// <summary>The path a page of the task's last run is passed through at (the Telegram bot's link too); null when it does not open.</summary>
-    public async Task<string?> ViewPathAsync(Guid id, int page)
-    {
-        if (await _host.OpenPageAsync(id, page) is not { IsLoopback: true } address) return null;
-        var root = new Uri(address.GetLeftPart(UriPartial.Authority) + "/");
-        lock (_views)
-        {
-            var now = DateTimeOffset.Now;
-            foreach (var old in _views.Where(view => now - view.Value.Used > ViewIdle).Select(view => view.Key).ToArray()) _views.Remove(old);
-            var ticket = _views.FirstOrDefault(view => view.Value.Address == root).Key ?? System.Security.Cryptography.RandomNumberGenerator.GetHexString(32, lowercase: true);
-            _views[ticket] = (root, now);
-            return ViewPrefix + ticket + address.PathAndQuery;
-        }
-    }
-
-    /// <summary>A request of an opened page, passed to its server on this computer as from the page's own address.</summary>
-    private async Task<Response> ViewAsync(Request request, CancellationToken token)
-    {
-        var rest = request.Path[ViewPrefix.Length..];
+        var rest = request.Path.StartsWith(ViewPrefix, StringComparison.Ordinal) ? request.Path[ViewPrefix.Length..] : string.Empty;
         var slash = rest.IndexOf('/');
         Uri root;
         lock (_views)
@@ -358,62 +238,5 @@ public sealed class RemoteServer : IDisposable
         }
     }
 
-    /// <summary>Notifications: the key the browser subscribes with, and its subscription for the device.</summary>
-    private Response Push(Request request, string? bearer)
-    {
-        if (_pushKey is null) return Error(404, "Link sends no notifications");
-        if (request.Method == "GET") return Ok(new { publicKey = _pushKey() });
-        if (Body<SubscriptionRequest>(request) is not { Endpoint: { } endpoint, Keys: { P256dh: { } p256dh, Auth: { } secret } } ||
-            !Uri.TryCreate(endpoint, UriKind.Absolute, out var address) || address.Scheme != Uri.UriSchemeHttps)
-        {
-            return Error(400, "Not a push subscription");
-        }
-
-        return _pairing.Subscribe(bearer, new Models.RemotePushSubscription(endpoint, p256dh, secret)) ? Ok(new { ok = true }) : Error(401, "Pair this device first");
-    }
-
-    /// <summary>The version of Link's tasks once it differs from the page's, or after the wait: the page then asks again.</summary>
-    private async Task<long> WaitForChangeAsync(string query, CancellationToken token)
-    {
-        var since = query.Split('&').Select(pair => pair.Split('=')).FirstOrDefault(pair => pair is ["since", _]) is { } found &&
-                    long.TryParse(found[1], out var parsed) ? parsed : -1;
-        var change = Volatile.Read(ref _change);
-        if (Interlocked.Read(ref _version) == since) await Task.WhenAny(change.Task, Task.Delay(PollWait, token));
-        return Interlocked.Read(ref _version);
-    }
-
-    private static T? Body<T>(Request request) where T : class
-    {
-        try
-        {
-            return request.Body.Length == 0 ? null : JsonSerializer.Deserialize<T>(request.Body, Json);
-        }
-        catch (JsonException)
-        {
-            return null;
-        }
-    }
-
-    private static Response Ok(object value) => new(200, "application/json; charset=utf-8", JsonSerializer.SerializeToUtf8Bytes(value, Json));
-
-    private static Response Done(string? error) => error is null ? Ok(new { ok = true }) : Error(409, error);
-
-    private static Response Error(int status, string message) =>
-        new(status, "application/json; charset=utf-8", JsonSerializer.SerializeToUtf8Bytes(new { error = message }, Json));
-
-    private sealed record PairRequest(string? Code, string? Name);
-
-    private sealed record WordsRequest(string Words);
-
-    private sealed record DecideRequest(bool Always);
-
-    private sealed record SwitchRequest(bool On);
-
-    private sealed record PageRequest(int Page);
-
-    private sealed record AccountRequest(string? Name);
-
-    private sealed record SubscriptionRequest(string? Endpoint, SubscriptionKeys? Keys);
-
-    private sealed record SubscriptionKeys(string? P256dh, string? Auth);
+    private static Response Error(int status, string message) => new(status, "text/plain; charset=utf-8", Encoding.UTF8.GetBytes(message));
 }

@@ -43,9 +43,6 @@ public sealed class StoragePaths
     /// <summary>The Gemini API key for voice replies, encrypted for this Windows user.</summary>
     public string GeminiKeyFile => Path.Combine(Root, "gemini-key.bin");
 
-    /// <summary>Link's key that signs its notifications to paired devices (Web Push), encrypted for this Windows user.</summary>
-    public string RemotePushKeyFile => Path.Combine(Root, "remote-push.key");
-
     /// <summary>The token of the user's Telegram bot for remote control, encrypted for this Windows user.</summary>
     public string TelegramTokenFile => Path.Combine(Root, "telegram-bot.key");
 

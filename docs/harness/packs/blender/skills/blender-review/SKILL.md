@@ -49,7 +49,7 @@ metres, and the numbers catch a scripted model's commonest defects before anyone
    ```
    ````
    `medium` (`low` when the open marks are only sizes) unless a mark asks for a new form: the marks carry the design,
-   the run carries them out. The block also puts the window on Link's remote page, so the user marks from another
+   the run carries them out. The block also makes Link's Telegram bot send the window's link, so the user marks from another
    computer: keep `--no-browser` in `reopen`, and `viewer.html`'s requests relative (`api/...`, `m/...`).
 3. Sliders, so the user tunes sizes without an agent run: the build script has
    `PARAMS = {"name": (default, min, max, "unit", "what it changes")}` (an int default makes an int parameter) and

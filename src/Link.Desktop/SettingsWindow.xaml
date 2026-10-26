@@ -348,30 +348,11 @@
                             </Border>
                         </StackPanel>
 
-                        <!-- Remote control: the tasks from a phone or another computer, through a page Link serves on this computer only. -->
+                        <!-- Remote control: the user's own Telegram bot, messages with buttons and a review window's link. -->
                         <StackPanel x:Name="RemotePage">
                             <TextBlock Style="{StaticResource PageTitleStyle}" Text="Remote control" />
-                            <TextBlock Style="{StaticResource PageNoteStyle}" Text="Link's tasks from a phone or a browser; never the screen, the microphone, the chat or Settings." />
-                            <Border Style="{StaticResource GlassCardStyle}" Padding="16,10">
-                                <StackPanel>
-                                    <Grid>
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                        <CheckBox x:Name="RemoteBox" VerticalAlignment="Center" Content="Control Link's tasks from a phone or a browser"
-                                                  ToolTip="New tasks, replies, the agent's choices, Allow, Stop and No-stop; never the screen, the microphone, the chat or Settings" />
-                                        <TextBlock Grid.Column="1" Margin="12,0,8,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Port" />
-                                        <TextBox x:Name="RemotePortBox" Grid.Column="2" Width="72" VerticalAlignment="Center" />
-                                    </Grid>
-                                    <TextBlock x:Name="RemoteStatusText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
-                                    <StackPanel Margin="0,8,0,0" Orientation="Horizontal">
-                                        <Button Style="{StaticResource ChipButtonStyle}" Click="RemotePair_OnClick" Content="Pair a device"
-                                                ToolTip="A code for the page on the phone or the browser, good for ten minutes and one device" />
-                                        <TextBlock x:Name="RemoteCodeText" Margin="12,0,0,0" VerticalAlignment="Center" FontSize="18" FontWeight="SemiBold" />
-                                    </StackPanel>
-                                    <StackPanel x:Name="RemoteDevicesPanel" Margin="0,6,0,0" />
-                                </StackPanel>
-                            </Border>
-                            <!-- The user's own Telegram bot: messages with buttons, no tunnel and no second VPN on the phone. -->
-                            <TextBlock Margin="2,18,0,6" Style="{StaticResource SectionLabelStyle}" Text="TELEGRAM" />
+                            <TextBlock Style="{StaticResource PageNoteStyle}" Text="Link's tasks in your Telegram bot; never the screen, the microphone, the chat or Settings." />
+                            <TextBlock Margin="2,6,0,6" Style="{StaticResource SectionLabelStyle}" Text="TELEGRAM" />
                             <Border Style="{StaticResource GlassCardStyle}" Padding="16,10">
                                 <StackPanel>
                                     <Grid>
@@ -388,7 +369,7 @@
                                 </StackPanel>
                             </Border>
                             <TextBlock Margin="2,12,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                                       Text="Link listens on this computer only. To reach it from work, install Tailscale on this computer and the phone with one account and run once in a terminal: tailscale serve --bg &lt;port&gt;. Then open the https address Tailscale prints on the phone, enter the code and choose Add to Home screen." />
+                                       Text="A run that opens a model's review window sends its link: it opens in any browser while Link runs, through a Cloudflare quick tunnel (cloudflared.exe in %LocalAppData%\Link\Tools)." />
                         </StackPanel>
 
                         <StackPanel x:Name="HotkeysPage">

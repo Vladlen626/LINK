@@ -42,9 +42,6 @@
     <!-- The embedded ChatGPT page runs the companion's files, built in so that they always match this LINK. -->
     <EmbeddedResource Include="..\..\companion\content.js" LogicalName="ChatPage.content.js" />
     <EmbeddedResource Include="..\..\companion\embedded-host.js" LogicalName="ChatPage.embedded-host.js" />
-    <!-- The remote page for a phone or another computer's browser (Settings > Remote), and Link's icon for it. -->
-    <EmbeddedResource Include="..\..\remote\*" LogicalName="Remote.%(Filename)%(Extension)" />
-    <EmbeddedResource Include="Assets\Link.ico" LogicalName="Remote.Link.ico" />
   </ItemGroup>
 
   <ItemGroup>

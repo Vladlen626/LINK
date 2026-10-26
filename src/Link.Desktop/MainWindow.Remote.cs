@@ -3,7 +3,7 @@ using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
-// Remote control: what a paired phone or browser sees and does of the tasks (see RemoteServer). Every call runs on the
+// Remote control: what the Telegram bot sees and does of the tasks (see TelegramBot). Every call runs on the
 // window's thread and goes the way the Studio's own buttons go; each action is written into the task as from its device.
 public partial class MainWindow : IRemoteHost
 {
@@ -56,7 +56,7 @@ public partial class MainWindow : IRemoteHost
     /// <summary>The pages the task's last run opened (a model's review window), as its turn shows them.</summary>
     private static IReadOnlyList<LocalPages.Page> LastPages(AgentTaskRecord record) => record.LastRun is { } run ? RunSaid(record, run).Pages : [];
 
-    /// <summary>A page served again as its turn's button does, without opening a browser here: the remote page shows it.</summary>
+    /// <summary>A page served again as its turn's button does, without opening a browser here: the bot's link shows it.</summary>
     public async Task<Uri?> OpenPageAsync(Guid id, int page)
     {
         var (found, workspace) = await OnWindow<(LocalPages.Page?, string?)>(() => (WorkOf(id)?.Record ?? ActiveRecord(id)) is { } record

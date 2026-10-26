@@ -5,9 +5,9 @@ using System.Text.RegularExpressions;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// The remote page on the internet, while the user asks for it: a Cloudflare quick tunnel (<c>cloudflared</c>, no
-/// account, no port opened on the router) gives an HTTPS address that changes with each start. Only the user's word in
-/// the paired Telegram chat starts it; the page still wants a paired device for everything.
+/// A run's review window on the internet, once the Telegram bot sends its link: a Cloudflare quick tunnel
+/// (<c>cloudflared</c>, no account, no port opened on the router) gives an HTTPS address that changes with each start.
+/// The window is reached only by its ticket in the bot's link.
 /// </summary>
 public sealed partial class RemoteTunnel(Action<string> log) : IDisposable
 {

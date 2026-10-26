@@ -134,8 +134,8 @@ public partial class App : System.Windows.Application
         _mainWindow.DiagnosticsReported += Log;
         _textToSpeech.Notice += message => Dispatcher.BeginInvoke(() => _mainWindow?.ShowVoiceNotice(message));
         _mainWindow.Show();
-        // Remote control listens only while Settings turn it on, on this computer only.
-        _remote = new RemoteControl(_settings, _mainWindow, new RemotePush(new ApiKeyStore(paths.RemotePushKeyFile, "Link remote push"), Log),
+        // Remote control is the Telegram bot, while Settings turn it on.
+        _remote = new RemoteControl(_settings, _mainWindow,
             new ApiKeyStore(paths.TelegramTokenFile, "Link Telegram bot"), action => Dispatcher.BeginInvoke(action), UserIdle.Time, Log,
             paths.Images, paths.TelegramCardsFile);
         _remote.Apply();

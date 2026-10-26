@@ -117,7 +117,6 @@ public sealed class AppSettings
         Studio.Normalize();
         Hotkeys.Normalize();
         Agent.Normalize();
-        Remote.Normalize();
     }
 }
 

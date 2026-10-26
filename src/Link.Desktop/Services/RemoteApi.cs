@@ -3,7 +3,7 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// What the remote page and the Telegram bot may see and do of Link: its projects and tasks, a new task, words, a
+/// What the Telegram bot may see and do of Link: its projects and tasks, a new task, words, a
 /// decision, Stop and No-stop, a run's review window, which Claude account runs; the bot also a run's pictures and
 /// changes. Never the screen, the microphone, the ChatGPT chat or other settings. The window answers on its own thread; an action returns null when done, else why not.
 /// </summary>

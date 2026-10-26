@@ -230,15 +230,10 @@ fix of a red check) after a 10 s countdown, and its runs ask for nothing (Claude
 `gh pr merge`, `gh release`. It waits for you after 20 choices in a row, the same choice twice, or 3 runs without a
 changed file; a usage limit goes on after its reset. Untick the box to step in.
 
-**From the phone or another computer.** Settings → Remote control serves a small app on this computer only
-(`127.0.0.1`): the tasks, a new task, replies, the agent's choices, Allow, Stop, No-stop and what was spent; never the
-screen, the microphone, the chat or Settings. Each device pairs once with a 6-digit code from Settings. From work:
-`/link` to the Telegram bot puts the page on the internet through a Cloudflare quick tunnel (`cloudflared.exe` in
-`%LocalAppData%\Link\Tools`, no account) and answers with its HTTPS address and a pairing code; the address changes
-when Link restarts, `/link off` ends it. Or Tailscale: `tailscale serve --bg 8787` once. On the phone, Add to Home screen; 🔔 there sends a notification when a task needs you while you are away from the computer.
-A task whose run opened a page here (a model's review window) shows its button: Link passes the page through, so you
-mark and comment the model from the other computer, then Apply marks sends them to the agent. The list's Claude picker
-switches the account new runs use (one at its limit, say).
+**From another computer.** Remote control is the Telegram bot below: no app to install, no pairing of devices. A run
+that opened a model's review window sends its link with the alert: Link passes the window through a Cloudflare quick
+tunnel (`cloudflared.exe` in `%LocalAppData%\Link\Tools`, no account), so it opens in any browser while Link runs; mark
+and comment the model there, then the bot's Apply marks sends the marks to the agent.
 
 **Telegram bot.** No tunnel and no second VPN on the phone: Link asks Telegram for news itself. In Telegram,
 @BotFather → `/newbot` gives a token; Settings → Remote control → paste it, Pair Telegram, send the code to the bot.
@@ -249,7 +244,7 @@ bot in @BotFather (Bot Settings) and each task gets a topic of its own. A run th
 sends its link with the alert (the tunnel starts by itself): it opens in any browser; mark the model there, and the Apply marks button sends the
 marks to the task. Words or a photo answer the task of the topic,
 of the message you reply to, or of the last card; `/new`, `/plan` and `/auto` (No-stop) ask the project and the agent
-with buttons; `/tasks`, `/spent` and `/account` (the Claude account new runs use) and `/link` (the remote page in any browser) do the rest. Voice notes are not understood yet: type or dictate. Only the paired chat is heard; the words go through Telegram.
+with buttons; `/tasks`, `/spent` and `/account` (the Claude account new runs use) do the rest. Voice notes are not understood yet: type or dictate. Only the paired chat is heard; the words go through Telegram.
 
 **What was spent.** Under the usage bars: today and this month at API prices, read by
 [ccusage](https://ccusage.com) from every Claude Code and Codex session's logs (Link's or not); hover for the week,
