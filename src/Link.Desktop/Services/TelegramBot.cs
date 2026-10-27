@@ -34,6 +34,8 @@ public sealed class TelegramBot : IDisposable
     public static readonly TimeSpan CodeLife = TimeSpan.FromMinutes(10);
 
     private const int MaxText = 3500;
+    // An alert's words up to this go on its card, leaving the card room for the task's state and question.
+    private const int AlertOnCard = 2500;
     private const int MessagesKept = 200;
     private const int PlanShown = 15;
     private const int CardsKept = 100;
@@ -174,7 +176,18 @@ public sealed class TelegramBot : IDisposable
         var token = stop.Token;
         _ = Task.Run(() => GatedAsync(async () =>
         {
-            await ShowAsync(chat, task, $"<b>{TelegramHtml.Escape(title)}</b>\n\n{TelegramHtml.FromMarkdown(text)}", fresh: true, token);
+            var head = $"<b>{TelegramHtml.Escape(title)}</b>";
+            var words = TelegramHtml.FromMarkdown(text);
+            if (words.Length <= AlertOnCard) await ShowAsync(chat, task, $"{head}\n\n{words}", fresh: true, token);
+            else
+            {
+                // A long answer goes whole, in messages of its own above the card, which a card would cut off.
+                var card = CardOf(task);
+                if (await _host.TaskAsync(task) is { } view) card.Topic ??= await TopicAsync(chat, view.Task.Goal, token);
+                foreach (var part in TelegramHtml.Parts(text, MaxText)) await SendAsync(chat, card.Topic, part, null, token, html: true);
+                await ShowAsync(chat, task, head, fresh: true, token);
+            }
+
             if (_pageLink is not null && await _host.TaskAsync(task) is { Pages.Count: > 0, Task.Working: false }) await SendPageAsync(chat, task, 0, token);
         }, token));
     }

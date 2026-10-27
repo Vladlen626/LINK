@@ -46,6 +46,34 @@ public static partial class TelegramHtml
     }
 
     /// <summary>
+    /// Markdown too long for one message as several, each at most <paramref name="max"/> characters of HTML: cut between
+    /// lines, and a code block cut in two is closed and opened again so each part stands on its own.
+    /// </summary>
+    public static List<string> Parts(string markdown, int max)
+    {
+        var parts = new List<string>();
+        var part = new StringBuilder();
+        string? fence = null;
+        foreach (var line in markdown.Replace("\r\n", "\n", StringComparison.Ordinal).Split('\n'))
+        {
+            // HTML runs longer than its Markdown: a part's Markdown keeps room for the tags and entities.
+            if (part.Length > 0 && part.Length + line.Length > max * 3 / 4)
+            {
+                if (fence is not null) part.Append("```");
+                parts.Add(Fit(FromMarkdown(part.ToString()), max));
+                part.Clear();
+                if (fence is not null) part.Append(fence).Append('\n');
+            }
+
+            part.Append(line).Append('\n');
+            if (line.TrimStart().StartsWith("```", StringComparison.Ordinal)) fence = fence is null ? line.TrimStart() : null;
+        }
+
+        if (part.ToString().Trim().Length > 0) parts.Add(Fit(FromMarkdown(part.ToString()), max));
+        return parts;
+    }
+
+    /// <summary>
     /// The message cut to <paramref name="max"/> characters, with no tag or entity cut in two and every open tag closed:
     /// Telegram refuses the whole message otherwise.
     /// </summary>

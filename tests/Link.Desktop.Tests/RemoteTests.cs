@@ -36,6 +36,13 @@ internal static class RemoteTests
         Program.Equal("Telegram HTML: a cut closes its open tags and splits no tag or entity",
             (TelegramHtml.Fit("<b>bold <code>x</code> words</b>", 14), TelegramHtml.Fit("a &amp; b", 5), TelegramHtml.Fit("ab<code>x", 6), TelegramHtml.Fit("short", 10)),
             ("<b>bold …</b>", "a …", "ab…", "short"));
+        var parts = TelegramHtml.Parts("## Long\n" + string.Join('\n', Enumerable.Range(0, 30).Select(i => $"- line {i} & more")) + "\n```\n"
+            + string.Join('\n', Enumerable.Range(0, 30).Select(i => $"code {i} < x")) + "\n```\nend", 400);
+        Program.Equal("Telegram HTML: a long answer comes whole in parts that fit, a code block cut in two closed and opened again",
+            (parts.Count > 2, parts.All(part => part.Length <= 400 && !part.EndsWith('…')), parts[0].StartsWith("<b>Long</b>\n• line 0 &amp; more", StringComparison.Ordinal),
+                parts.Count(part => part.Contains("<pre>", StringComparison.Ordinal)) == parts.Count(part => part.Contains("</pre>", StringComparison.Ordinal)),
+                string.Concat(parts).Contains("code 29 &lt; x", StringComparison.Ordinal), parts[^1].EndsWith("end", StringComparison.Ordinal)),
+            (true, true, true, true, true, true));
         Program.Equal("Telegram HTML: plain again when Telegram refuses it", TelegramHtml.Plain("<b>a &lt; b</b> <a href=\"x\">c</a>"), "a < b c");
     }
 
