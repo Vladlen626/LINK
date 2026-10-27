@@ -146,6 +146,12 @@ internal static class RemoteTests
                 await bot.HandleAsync(Update(Press(42, "na:Codex:Deep", roll)), default);
                 Program.Equal("Telegram: an older picker starts nothing; the agent picked starts the task and the picker says so",
                     (Count("answerCallbackQuery", "This one is over"), Count("editMessageText", "Starting")), (1, 1));
+                await bot.HandleAsync(Update(Text(42, "/new Build the station")), default);
+                var station = Last("sendMessage");
+                await bot.HandleAsync(Update(Press(42, "nt", station)), default);
+                Program.Equal("Telegram: the picker's Team button hands the task to the team, which has no agent to pick",
+                    (Count("editMessageText", "Plan the team"), Count("editMessageText", "na:ClaudeCode:Light")), (1, 0));
+                await bot.HandleAsync(Update(Press(42, "na", station)), default);
                 await bot.HandleAsync(Update(Text(42, "Words before any task")), default);
                 await bot.HandleAsync(Update(Press(42, $"q:{FakeHost.Task:N}:0")), default);
                 await bot.HandleAsync(Update(Text(42, "Only one jump")), default);
@@ -154,12 +160,12 @@ internal static class RemoteTests
                 await bot.HandleAsync(Update(Press(13, $"s:{FakeHost.Task:N}")), default);
                 Program.Equal("Telegram: the picked agent, the option's button, words, the decision and Deny reach the task; another chat's button does not",
                     string.Join(" | ", host.Done),
-                    "start Add a roll False True Codex Deep 0 by Telegram | reply Keep the double jump by Telegram | " +
+                    "start Add a roll False True Codex Deep 0 by Telegram | start Build the station False False - - 0 team by Telegram | reply Keep the double jump by Telegram | " +
                     "reply Only one jump by Telegram | decide True by Telegram | refuse by Telegram");
                 Program.Equal("Telegram: words without a task ask which one; words that went get no reaction or message",
                     (Count("sendMessage", "Which task?"), Count("setMessageReaction"), Count("sendMessage", "Sent.")), (1, 0, 0));
                 Program.Equal("Telegram: a pressed button answers and leaves a message that is no card without buttons",
-                    (Count("answerCallbackQuery"), Count("editMessageReplyMarkup")), (5, 3));
+                    (Count("answerCallbackQuery"), Count("editMessageReplyMarkup")), (7, 3));
 
                 await bot.HandleAsync(Update("""
                     { "update_id": 3, "message": { "message_id": 8, "chat": { "id": 42 }, "caption": "Like this",
@@ -168,7 +174,7 @@ internal static class RemoteTests
                 Program.Equal("Telegram: a photo's biggest size is kept with Link's pictures and goes to the task with its caption",
                     (Count("getFile", "big"), Directory.GetFiles(folder, "*-telegram-*.png").Length, host.Done.Last()), (1, 1, "reply Like this +1 picture by Telegram"));
                 await bot.HandleAsync(Update("""{ "update_id": 4, "message": { "message_id": 10, "chat": { "id": 42 }, "voice": { "file_id": "v" } } }"""), default);
-                Program.Equal("Telegram: a voice note is answered, not sent", (Count("sendMessage", "voice notes"), host.Done.Count), (1, 6));
+                Program.Equal("Telegram: a voice note is answered, not sent", (Count("sendMessage", "voice notes"), host.Done.Count), (1, 7));
                 await bot.HandleAsync(Update(Press(42, $"f:{FakeHost.Task:N}")), default);
                 Program.Equal("Telegram: Changes sends the run's changes as a .patch file", Count("sendDocument", ".patch"), 1);
                 await bot.HandleAsync(Update(Text(42, "/account")), default);
@@ -313,7 +319,7 @@ internal static class RemoteTests
         }
 
         public Task<string?> StartAsync(RemoteNewTask task, string device) =>
-            Did($"start {task.Goal} {task.PlanFirst} {task.NoStop} {task.Provider?.ToString() ?? "-"} {task.Level?.ToString() ?? "-"} {task.Attached?.Count ?? 0} by {device}");
+            Did($"start {task.Goal} {task.PlanFirst} {task.NoStop} {task.Provider?.ToString() ?? "-"} {task.Level?.ToString() ?? "-"} {task.Attached?.Count ?? 0}{(task.Team ? " team" : string.Empty)} by {device}");
 
         public Task<string?> ReplyAsync(Guid id, string words, string device, IReadOnlyList<string>? images = null) =>
             Did($"reply {words}{(images is { Count: > 0 } ? $" +{images.Count} picture" : "")} by {device}");

@@ -97,6 +97,10 @@ details summary { cursor: pointer; color: var(--dim); }
 details ul { margin: 4px 0 0; padding: 0; list-style: none; max-height: 160px; overflow: auto; }
 details li { padding: 2px 0; cursor: pointer; }
 details li:hover { color: #fff; }
+#assets { display: flex; flex-direction: column; gap: 3px; max-height: 240px; overflow: auto; }
+#assets button { display: flex; align-items: center; gap: 6px; text-align: left; }
+#assets button > :first-child { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+#assets button.on .dim { color: #dfe8ff; }
 footer { padding: 7px 12px; color: var(--dim); font-size: 12px; border-top: 1px solid var(--line); }
 @media (max-width: 760px) {
   body { flex-direction: column; }
@@ -122,6 +126,10 @@ footer { padding: 7px 12px; color: var(--dim); font-size: 12px; border-top: 1px 
   </div>
 </div>
 <aside>
+  <section id="assetsBox" style="display: none">
+    <h2>Assets <span class="dim" title="Alt+Up and Alt+Down go through the list">· Alt+↑ ↓</span></h2>
+    <div id="assets"></div>
+  </section>
   <section>
     <h1 id="name">Model review</h1>
     <div id="info" class="facts"><span class="all">Waiting for the model…</span></div>
@@ -431,7 +439,9 @@ function release(layer) {
 const PALETTE = [[0.78, 0.79, 0.81], [0.70, 0.73, 0.78], [0.80, 0.77, 0.72], [0.72, 0.77, 0.73], [0.77, 0.73, 0.75],
   [0.74, 0.73, 0.79], [0.70, 0.76, 0.77], [0.79, 0.77, 0.70]];
 const S = {
-  folder: '', files: {}, state: {}, notes: [], notesKey: '', report: null, tool: 'orbit', filter: 'active',
+  // asset: the one shown of a set (a folder of asset folders, the server lists them); '' for a single asset's folder.
+  folder: '', asset: decodeURIComponent(location.hash.slice(1)), assets: null, fresh: false,
+  files: {}, state: {}, notes: [], notesKey: '', report: null, tool: 'orbit', filter: 'active',
   selected: null, draft: null, hidden: new Set(), showPrev: false, hover: null, image: null,
 };
 const layers = { model: null, prev: null, ref: null };
@@ -920,9 +930,13 @@ function focusOn(p) {
 }
 
 // ---- Server
+// A set's requests name the asset shown.
+function at(path) {
+  return S.asset ? path + (path.includes('?') ? '&' : '?') + 'a=' + encodeURIComponent(S.asset) : path;
+}
 async function post(path, body, type) {
   if (S.lost) throw new Error('another review');
-  const r = await fetch(path, { method: 'POST', headers: { 'Content-Type': type || 'application/json' },
+  const r = await fetch(at(path), { method: 'POST', headers: { 'Content-Type': type || 'application/json' },
     body: type ? body : JSON.stringify(body) });
   const data = await r.json().catch(() => ({}));
   if (!r.ok) { banner(data.error || 'request failed', true); throw new Error(data.error); }
@@ -941,7 +955,7 @@ async function loadLayer(name, file, version) {
   layers[name] = null;
   if (!version) return;
   try {
-    const r = await fetch('m/' + file + '?v=' + version);
+    const r = await fetch(at('m/' + file + '?v=' + version));
     if (!r.ok) return;
     const objects = parseGlb(await r.arrayBuffer());
     objects.forEach((ob, i) => { ob.color = PALETTE[i % PALETTE.length]; upload(ob); });
@@ -957,12 +971,15 @@ async function ensurePrev() {
 }
 async function refresh() {
   let st;
+  const asked = S.asset;
   try {
-    st = await (await fetch('api/state?page=1', { cache: 'no-store' })).json();
+    st = await (await fetch(at('api/state?page=1'), { cache: 'no-store' })).json();
   } catch (e) {
     say('The server is not running: open the review again from Link.');
     return;
   }
+  // The user picked another asset meanwhile: this answer is about the old one.
+  if (S.asset !== asked) return;
   // The server stops itself when nobody looks, and another asset's server may take its port: never show or mark that one
   if (S.folder && st.folder !== S.folder) {
     S.lost = true;
@@ -971,8 +988,11 @@ async function refresh() {
     banner(text, true);
     return;
   }
-  const old = S.files, f = st.files, first = !S.folder;
+  const old = S.files, f = st.files, first = !S.folder || S.fresh;
+  S.fresh = false;
   S.folder = st.folder;
+  if (st.assets) S.asset = st.name;
+  renderAssets(st.assets);
   S.files = f;
   S.state = st.state || {};
   document.title = 'Review · ' + st.name;
@@ -986,9 +1006,9 @@ async function refresh() {
   if (f['model.prev.glb'] !== old['model.prev.glb'] && (opt('prev') || S.showPrev)) await ensurePrev();
   if (f['ref.glb'] !== old['ref.glb']) await loadLayer('ref', 'ref.glb', f['ref.glb']);
   if (f['report.json'] !== old['report.json'])
-    S.report = f['report.json'] ? await (await fetch('m/report.json?v=' + f['report.json'])).json() : null;
+    S.report = f['report.json'] ? await (await fetch(at('m/report.json?v=' + f['report.json']))).json() : null;
   const img = ['ref.png', 'ref.jpg', 'ref.jpeg', 'ref.webp'].find(n => f[n]);
-  const imgSrc = img ? 'm/' + img + '?v=' + f[img] : '';
+  const imgSrc = img ? at('m/' + img + '?v=' + f[img]) : '';
   if (imgSrc !== (S.image && S.image.src || '')) setImage(imgSrc);
   const key = JSON.stringify(st.notes);
   if (key !== S.notesKey) applyNotes(st.notes);
@@ -997,6 +1017,43 @@ async function refresh() {
   renderCompare();
   renderChecks();
   redraw();
+}
+
+// ---- A set's assets: the user goes through them, marking each
+function renderAssets(list) {
+  S.assets = list;
+  $('#assetsBox').style.display = list ? '' : 'none';
+  const key = JSON.stringify(list) + S.asset;
+  if (!list || key === renderAssets.key) return;
+  renderAssets.key = key;
+  $('#assets').replaceChildren(...list.map(a => {
+    const b = el('button', a.name === S.asset ? 'on' : '');
+    b.title = a.name;
+    b.append(el('span', '', a.name), el('span', 'dim', 'rev ' + a.rev));
+    if (a.open) b.append(el('span', 'chip s-open', a.open + ' open'));
+    if (a.done) b.append(el('span', 'chip s-done', a.done + ' to check'));
+    b.onclick = () => pickAsset(a.name);
+    return b;
+  }));
+}
+function pickAsset(name) {
+  if (!name || name === S.asset) return;
+  closeEditor();
+  S.asset = name;
+  history.replaceState(null, '', '#' + encodeURIComponent(name));
+  S.files = {};
+  S.notesKey = '';
+  S.report = null;
+  S.selected = null;
+  S.hidden.clear();
+  for (const k in layers) { release(layers[k]); layers[k] = null; }
+  S.fresh = true;
+  renderAssets(S.assets);
+  refresh();
+}
+function stepAsset(step) {
+  const names = (S.assets || []).map(a => a.name), i = names.indexOf(S.asset);
+  if (names.length) pickAsset(names[(i + step + names.length) % names.length]);
 }
 
 // ---- Sliders: the build script's parameters; a change builds the model again in Blender, with no agent run
@@ -1053,7 +1110,7 @@ function setImage(src) {
   const img = $('#img');
   if (!src) { S.image = null; img.style.display = 'none'; return; }
   let saved = null;
-  try { saved = JSON.parse(localStorage.getItem('img:' + S.folder)); } catch (e) { /* private mode */ }
+  try { saved = JSON.parse(localStorage.getItem('img:' + S.folder + S.asset)); } catch (e) { /* private mode */ }
   S.image = Object.assign({ x: 0, y: 0, scale: 1 }, saved, { src });
   img.src = src;
   placeImage();
@@ -1064,7 +1121,7 @@ function placeImage() {
   img.style.display = opt('imgOn') ? 'block' : 'none';
   img.style.opacity = $('#imgAlpha').value;
   img.style.transform = `translate(-50%, -50%) translate(${im.x}px, ${im.y}px) scale(${im.scale})`;
-  try { localStorage.setItem('img:' + S.folder, JSON.stringify({ x: im.x, y: im.y, scale: im.scale })); } catch (e) { /* private mode */ }
+  try { localStorage.setItem('img:' + S.folder + S.asset, JSON.stringify({ x: im.x, y: im.y, scale: im.scale })); } catch (e) { /* private mode */ }
 }
 document.addEventListener('dragover', e => e.preventDefault());
 document.addEventListener('drop', async e => {
@@ -1212,6 +1269,7 @@ document.addEventListener('keydown', e => {
     return;
   }
   if (typing || e.ctrlKey && !/^(Digit|Numpad)[137]$/.test(e.code)) return;
+  if (e.altKey && (e.code === 'ArrowUp' || e.code === 'ArrowDown')) { e.preventDefault(); stepAsset(e.code === 'ArrowUp' ? -1 : 1); return; }
   const k = e.code.replace(/^(Digit|Numpad)/, 'N');
   const keys = { KeyQ: () => setTool('orbit'), KeyP: () => setTool('point'), KeyA: () => setTool('area'),
     KeyM: () => setTool('measure'), N1: () => setView('front', e.ctrlKey), N3: () => setView('right', e.ctrlKey),

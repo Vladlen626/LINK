@@ -1,6 +1,6 @@
 ---
 name: blender-review
-description: Review a Blender model without screenshots - publish the asset after every build step (check.py's numbers - size against the brief, the triangle budget, floating parts, holes, inverted normals), one review window where the user marks points, painted areas and measurements on the 3D model itself, and the agent reads the marks as text lines and answers each; sliders for the build script's PARAMS that rebuild with no agent run; a generated model (Tripo and the like) or a blockout as a ghost at real size. Use with blender-model for every asset the user looks at.
+description: Review a Blender model, or a kit of them listed in one window, without screenshots - publish the asset after every build step (check.py's numbers - size against the brief, the triangle budget, floating parts, holes, inverted normals), one review window where the user marks points, painted areas and measurements on the 3D model itself, and the agent reads the marks as text lines and answers each; sliders for the build script's PARAMS that rebuild with no agent run; a generated model (Tripo and the like) or a blockout as a ghost at real size. Use with blender-model for every asset the user looks at.
 ---
 
 # Review by marks, not screenshots
@@ -19,6 +19,11 @@ metres, and the numbers catch a scripted model's commonest defects before anyone
   `size=1.9,4.4,?;tris=30000`.
 - The review folder: `%TEMP%\blender_review\<asset>`, unless `docs/map.md` names another. It is working state, never
   committed.
+- Several assets at once (a kit's props, modules): one set folder, `%TEMP%\blender_review\<kit>`, with an asset folder
+  in it per asset, `<kit>\<asset>`. Publish, `reply`, `pin` and `sliders` take the asset's folder; `open` and `notes`
+  take the set: the window lists the assets with their open marks and the user goes through them (click, Alt+↑ ↓),
+  `notes` gives each asset's marks under a `== <asset> (<its folder>)` line. One window and one Apply marks button for
+  the whole kit.
 - Copy the picture there as `ref.png`: the user lays it over the view (I) to compare.
 - Optional: a generated model the user brings (Tripo and the like; nothing here calls such a service) or an old
   blockout becomes the ghost (R): `publish.py <dir> <file.glb> "size=1.9,4.4,?" --ref` scales the file whole to the sizes given, stands it on the ground at the origin and leaves the

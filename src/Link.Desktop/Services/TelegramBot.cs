@@ -46,6 +46,7 @@ public sealed class TelegramBot : IDisposable
     private const int MaxPhoto = 10 << 20;
     private const int MaxFile = 50 << 20;
     private static readonly TimeSpan Retry = TimeSpan.FromSeconds(10);
+    private static readonly TimeSpan QuickAnswer = TimeSpan.FromMilliseconds(400);
     // Changes come in bursts: the cards are edited once they settle, and every half minute while a task works.
     private static readonly TimeSpan Settle = TimeSpan.FromSeconds(3);
     private static readonly TimeSpan WhileWorking = TimeSpan.FromSeconds(30);
@@ -262,6 +263,7 @@ public sealed class TelegramBot : IDisposable
         ("tasks", "The tasks, newest first"),
         ("new", "A new task: /new and what to do"),
         ("plan", "A new task that plans first"),
+        ("team", "A new task the team plans and works"),
         ("auto", "A new task in No-stop"),
         ("spent", "What the agents spent"),
         ("account", "Which Claude account new runs use"),
@@ -271,12 +273,14 @@ public sealed class TelegramBot : IDisposable
     /// <summary>One update: the user's words, picture or command, or a button pressed; anyone else's is ignored.</summary>
     internal async Task HandleAsync(JsonElement update, CancellationToken token)
     {
+        var pressed = update.TryGetProperty("callback_query", out var press) ? new Press(Words(press, "id") ?? string.Empty) : null;
+        if (pressed is not null) _ = AnswerSoonAsync(pressed, token);
         await _gate.WaitAsync(token);
         try
         {
-            if (update.TryGetProperty("callback_query", out var press))
+            if (pressed is not null)
             {
-                if (press.GetProperty("message").GetProperty("chat").GetProperty("id").GetInt64() == _chat()) await PressedAsync(press, token);
+                if (press.GetProperty("message").GetProperty("chat").GetProperty("id").GetInt64() == _chat()) await PressedAsync(press, pressed, token);
             }
             else if (update.TryGetProperty("message", out var message))
             {
@@ -346,7 +350,7 @@ public sealed class TelegramBot : IDisposable
                 var spent = await _host.UsageAsync();
                 await SendAsync(chat, topic, spent is null ? "Link has not counted yet: open the Studio on the computer." : $"{spent.Line}\n\n{spent.Hint}", null, token);
                 return;
-            case "/new" or "/plan" or "/auto":
+            case "/new" or "/plan" or "/auto" or "/team":
                 await DraftAsync(chat, topic, command, rest, pictures, token);
                 return;
             case "/account":
@@ -376,7 +380,7 @@ public sealed class TelegramBot : IDisposable
         "Each task Link writes about has a card here that changes as the task goes; when the task needs you, a new card comes. " +
         "Turn on topics for this bot in @BotFather, and each task gets a topic of its own. Words or a picture answer the task " +
         "of the topic, of the message you reply to, or of the last card. /tasks — the tasks · /new <task> — a new task: pick " +
-        "the project and the agent · /plan <task> — plan first · /auto <task> — No-stop · /spent — what the agents spent · " +
+        "the project and the agent · /plan <task> — plan first · /team <task> — the team plans it · /auto <task> — No-stop · /spent — what the agents spent · " +
         "/account — which Claude account new runs use.";
 
     private bool Pairs(string text)
@@ -422,7 +426,7 @@ public sealed class TelegramBot : IDisposable
         }
     }
 
-    /// <summary>/new, /plan or /auto: the project to start in when there is a choice, then the agent.</summary>
+    /// <summary>/new, /plan, /team or /auto: the project to start in when there is a choice, then the agent.</summary>
     private async Task DraftAsync(long chat, long? topic, string command, string goal, IReadOnlyList<string> pictures, CancellationToken token)
     {
         if (goal.Length == 0)
@@ -438,7 +442,7 @@ public sealed class TelegramBot : IDisposable
             return;
         }
 
-        var draft = new Draft(goal, command == "/plan", command == "/auto", pictures, projects) { Project = projects.Length == 1 ? projects[0] : null };
+        var draft = new Draft(goal, command == "/plan", command == "/auto", pictures, projects) { Project = projects.Length == 1 ? projects[0] : null, Team = command == "/team" };
         var (text, rows) = Picker(draft);
         draft.Message = await SendAsync(chat, topic, text, rows, token) ?? 0;
         _draft = draft;
@@ -454,20 +458,24 @@ public sealed class TelegramBot : IDisposable
                 [.. draft.Projects.Select((each, index) => new[] { Button(each.Active ? each.Name + " ✓" : each.Name, $"np:{index}") })]);
         }
 
+        // A team's lead and workers are Settings' own, so a team has no agent to pick.
+        if (draft.Team) return ($"{goal} in {project.Name}\n\nThe team plans it: its lead writes the plan, you run it.", [[Button("👥 Team ✓", "nt")], [Button("Plan the team", "na")]]);
         var rows = new List<object[]> { new[] { Button("As Settings say", "na") } };
         rows.AddRange(Enum.GetValues<AgentLevel>().Select(level => Enum.GetValues<AgentProviderKind>()
             .Select(agent => Button($"{(agent == AgentProviderKind.ClaudeCode ? "Claude" : "Codex")} · {level}", $"na:{agent}:{level}")).ToArray()));
-        return ($"{goal} in {project.Name}\n\nWhich agent, and how strong?", rows);
+        rows.Add([Button("👥 Team", "nt")]);
+        return ($"{goal} in {project.Name}\n\nWhich agent, and how strong? Or the team.", rows);
     }
 
     /// <summary>A picker's button: the project is taken, or the agent, and then the task starts.</summary>
     private async Task<string?> PickedAsync(long chat, long message, string[] parts, CancellationToken token)
     {
         if (_draft is not { } draft || draft.Message != message) return "This one is over: write /new again";
-        if (parts[0] == "np")
+        if (parts[0] is "np" or "nt")
         {
-            if (!int.TryParse(parts.ElementAtOrDefault(1), out var index) || draft.Projects.ElementAtOrDefault(index) is not { } project) return "Unknown button";
-            draft.Project = project;
+            if (parts[0] == "nt") draft.Team = !draft.Team;
+            else if (int.TryParse(parts.ElementAtOrDefault(1), out var index) && draft.Projects.ElementAtOrDefault(index) is { } project) draft.Project = project;
+            else return "Unknown button";
             var (text, rows) = Picker(draft);
             await _api("editMessageText", new { chat_id = chat, message_id = message, text, reply_markup = Keyboard(rows) }, token);
             return null;
@@ -477,7 +485,7 @@ public sealed class TelegramBot : IDisposable
         AgentProviderKind? agent = parts.Length == 3 && Enum.TryParse<AgentProviderKind>(parts[1], out var named) ? named : null;
         AgentLevel? level = parts.Length == 3 && Enum.TryParse<AgentLevel>(parts[2], out var strength) ? strength : null;
         var at = DateTimeOffset.Now;
-        var error = await _host.StartAsync(new RemoteNewTask(draft.Project?.Id, draft.Goal, draft.PlanFirst, draft.NoStop, agent, level, draft.Pictures), "Telegram");
+        var error = await _host.StartAsync(new RemoteNewTask(draft.Project?.Id, draft.Goal, draft.PlanFirst, draft.NoStop, agent, level, draft.Pictures, draft.Team), "Telegram");
         if (error is null) _starting = (draft.Goal.Split('\n')[0].Trim(), at);
         await _api("editMessageText", new
         {
@@ -493,14 +501,14 @@ public sealed class TelegramBot : IDisposable
     /// A button: it acts on its task and says how it went. On the task's card the card then shows what changed; another
     /// message about the task is left without buttons.
     /// </summary>
-    private async Task PressedAsync(JsonElement press, CancellationToken token)
+    private async Task PressedAsync(JsonElement press, Press pressed, CancellationToken token)
     {
         var parts = (Words(press, "data") ?? string.Empty).Split(':');
         var message = press.GetProperty("message");
         var chat = message.GetProperty("chat").GetProperty("id").GetInt64();
         var pressedOn = message.GetProperty("message_id").GetInt64();
         string? error;
-        if (parts[0] is "np" or "na")
+        if (parts[0] is "np" or "nt" or "na")
         {
             error = await PickedAsync(chat, pressedOn, parts, token);
         }
@@ -544,7 +552,47 @@ public sealed class TelegramBot : IDisposable
             }
         }
 
-        await _api("answerCallbackQuery", new { callback_query_id = press.GetProperty("id").GetString(), text = error ?? "Done" }, token);
+        // Answered already, so the button stopped spinning: what went wrong comes as a message.
+        if (!await AnswerAsync(pressed, error ?? "Done", token) && error is not null)
+        {
+            await SendAsync(chat, message.TryGetProperty("message_thread_id", out var thread) ? thread.GetInt64() : null, error, null, token);
+        }
+    }
+
+    /// <summary>A pressed button, which Telegram answers once.</summary>
+    private sealed class Press(string id)
+    {
+        public string Id { get; } = id;
+
+        public int Answered;
+    }
+
+    /// <summary>
+    /// Telegram spins a pressed button until it hears back: an action that takes longer (a card to post, others before it)
+    /// is answered at once without words.
+    /// </summary>
+    private async Task AnswerSoonAsync(Press pressed, CancellationToken token)
+    {
+        try
+        {
+            await Task.Delay(QuickAnswer, token);
+            await AnswerAsync(pressed, null, token);
+        }
+        catch (OperationCanceledException)
+        {
+        }
+        catch (Exception exception) when (exception is HttpRequestException or JsonException or InvalidOperationException)
+        {
+            _log($"[Telegram] {exception.GetType().Name}: {exception.Message}");
+        }
+    }
+
+    /// <summary>Answers the press unless it was answered; whether this did.</summary>
+    private async Task<bool> AnswerAsync(Press pressed, string? text, CancellationToken token)
+    {
+        if (Interlocked.Exchange(ref pressed.Answered, 1) != 0) return false;
+        await _api("answerCallbackQuery", new { callback_query_id = pressed.Id, text }, token);
+        return true;
     }
 
     /// <summary>The option the button stood for, if the task still asks the same.</summary>
@@ -851,6 +899,8 @@ public sealed class TelegramBot : IDisposable
     private sealed record Draft(string Goal, bool PlanFirst, bool NoStop, IReadOnlyList<string> Pictures, IReadOnlyList<RemoteProject> Projects)
     {
         public RemoteProject? Project { get; set; }
+
+        public bool Team { get; set; }
 
         // The picker's message: a press on an older one starts nothing.
         public long Message { get; set; }

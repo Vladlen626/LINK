@@ -137,10 +137,13 @@ public partial class MainWindow : IRemoteHost
         if (project is null) return "No such project";
         if (project.WorkspaceRoot is not { } workspace || !Directory.Exists(workspace)) return $"{project.Name} has no workspace folder";
         var settings = _settings.Current.Agent;
+        if (task.Team && !settings.Team.Enabled) return "Teams are off: turn them on in Link's Settings";
         var provider = task.Provider ?? StartProvider;
         var (model, effort) = settings.Level(provider, task.Level ?? AgentLevel.Standard);
-        var plan = new AgentPlan(provider, workspace, task.PlanFirst, task.Goal)
+        // A team always plans first, on its lead.
+        var plan = new AgentPlan(provider, workspace, task.PlanFirst || task.Team, task.Goal)
         {
+            Team = task.Team,
             Model = model,
             Effort = effort,
             AutoEffort = settings.AutoEffort,

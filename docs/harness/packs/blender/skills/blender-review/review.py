@@ -1,7 +1,8 @@
 """The model review window: the user marks the model in 3D, the agent reads the marks as text.
 
-python review.py open <dir> [--no-browser]           show the window for an asset (starts its server in the background)
-python review.py notes <dir> [--all]                  the marks to act on (open), or all of them with their threads
+python review.py open <dir> [--no-browser]           show the window for an asset or a set (starts its server in the background)
+python review.py notes <dir> [--all]                  the marks to act on (open), or all of them with their threads; of a set,
+                                                      each asset's under its folder
 python review.py reply <dir> <id> <status|-> <text>   answer a mark: done | question | later | declined | open
 python review.py pin <dir> <x,y,z> <text> [object]    the agent's own mark: a question to the user at a point
 python review.py sliders <dir> <build.py> [objects] [check] [args...]
@@ -11,6 +12,8 @@ python review.py serve <dir> [port]                   the server itself, in the 
 
 <dir> is the asset's review folder: publish.py fills it (model.glb, report.json, state.json); the window adds
 notes.json and the user's reference (ref.png / ref.jpg / ref.webp, ref.glb). Points are Blender's world axes in metres.
+A set is a folder of such asset folders (a kit's props, say): its window lists them, the user picks one and marks it,
+then the next; publish, reply, pin and sliders take the asset's own folder, <set>/<asset>.
 A build script with sliders has PARAMS = {"name": (default, min, max, "unit", "what it changes")} (an int default
 makes an int parameter) and takes the values as its first argument, "name=value,..." over the defaults; [args...]
 follow it. The window runs: blender_mcp.py py <build.py> <values> [args...], then publish.py <dir> <objects> <check>.
@@ -37,6 +40,7 @@ PUBLISH = os.path.join(HERE, "publish.py")
 PORTS = range(7330, 7340)
 IDLE = 20 * 60  # an open page polls every 1.5 s: this long without a request means nobody looks, the server stops
 FILES = re.compile(r"^(model(\.prev)?\.glb|report(\.prev)?\.json|ref\.(glb|png|jpg|jpeg|webp))$")
+ASSET = re.compile(r"^[\w .()-]+$")
 REF = re.compile(r"^ref\.(glb|png|jpg|jpeg|webp)$")
 STATUSES = ("open", "done", "question", "later", "declined", "accepted")
 TYPES = {".glb": "model/gltf-binary", ".json": "application/json", ".png": "image/png", ".jpg": "image/jpeg",
@@ -45,7 +49,7 @@ TYPES = {".glb": "model/gltf-binary", ".json": "application/json", ".png": "imag
 SIDES = {(0, 1): "+X (Right view)", (0, -1): "-X (Left view)", (1, 1): "+Y (Back view)", (1, -1): "-Y (Front view)",
          (2, 1): "+Z (Top view)", (2, -1): "-Z (Bottom view)"}
 lock = threading.Lock()
-building = [False]  # this server's rebuild: a crashed one's "running" left in sliders.json does not hold the next
+building = set()  # the folders this server rebuilds: a crashed one's "running" left in sliders.json does not hold the next
 
 
 def read_json(path, default):
@@ -103,10 +107,33 @@ def edit(folder, body, by):
         return data, note
 
 
-def page_state(folder, seen):
+def assets(folder):
+    """A set's assets: its folders publish.py has filled, by name; none for an asset's own folder."""
+    return [n for n in sorted(os.listdir(folder), key=str.lower)
+            if ASSET.match(n) and os.path.isfile(os.path.join(folder, n, "state.json"))]
+
+
+def asset_folder(root, query):
+    """The folder a request is about: the asset of a set it names (the first by default), else the one served."""
+    names = assets(root)
+    name = urllib.parse.parse_qs(query).get("a", [""])[0]
+    return os.path.join(root, name if name in names else names[0]) if names else root
+
+
+def page_state(root, folder, seen):
     files = {n: int(os.path.getmtime(os.path.join(folder, n)) * 1000) for n in sorted(os.listdir(folder))
              if FILES.match(n)}
-    return {"folder": folder, "name": os.path.basename(folder), "state": read_json(os.path.join(folder, "state.json"), {}),
+    listed = None
+    if folder != root:
+        # The set's list: how many marks wait in each asset, so the user sees where to look next.
+        listed = []
+        for name in assets(root):
+            notes = load(os.path.join(root, name))["notes"]
+            listed.append({"name": name, "rev": revision(os.path.join(root, name)),
+                           "open": sum(n["status"] in ("open", "question") for n in notes),
+                           "done": sum(n["status"] == "done" for n in notes)})
+    return {"folder": root, "name": os.path.basename(folder), "assets": listed,
+            "state": read_json(os.path.join(folder, "state.json"), {}),
             "notes": load(folder)["notes"], "files": files, "page_ago": round(time.time() - seen, 1),
             "sliders": read_json(os.path.join(folder, "sliders.json"), None)}
 
@@ -165,7 +192,7 @@ def build_loop(folder):
         with lock:
             s = read_json(path, None)
             if s is None:
-                building[0] = False
+                building.discard(folder)
                 return
             values, started = s["values"], time.time()
             s["run"] = {"state": "running", "message": "", "time": now()}
@@ -180,7 +207,7 @@ def build_loop(folder):
                         "seconds": round(time.time() - started, 1)}
             write_json(path, s)
             if error or s["values"] == values:
-                building[0] = False
+                building.discard(folder)
                 return
 
 
@@ -192,16 +219,16 @@ def rebuild(folder, body):
             raise KeyError("no sliders: the agent registers them with review.py sliders")
         s["values"] = clamp(s["params"], body.get("values") or {})
         write_json(path, s)
-        if building[0]:
+        if folder in building:
             return s
-        building[0] = True
+        building.add(folder)
         s["run"] = {"state": "running", "message": "", "time": now()}
         write_json(path, s)
     threading.Thread(target=build_loop, args=(folder,), daemon=True).start()
     return s
 
 
-def serve(folder, port):
+def serve(root, port):
     last, seen = [time.time()], [0.0]
 
     class Handler(BaseHTTPRequestHandler):
@@ -232,8 +259,9 @@ def serve(folder, port):
             if url.path in ("/", "/index.html"):
                 with open(os.path.join(HERE, "viewer.html"), "rb") as f:
                     return self.send(200, f.read(), TYPES[".html"])
+            folder = asset_folder(root, url.query)
             if url.path == "/api/state":
-                state = page_state(folder, seen[0])
+                state = page_state(root, folder, seen[0])
                 if "page" in urllib.parse.parse_qs(url.query):
                     seen[0] = time.time()
                 return self.send(200, state)
@@ -249,6 +277,7 @@ def serve(folder, port):
             if not self.local():
                 return self.send(403, {"error": "forbidden"})
             body = self.rfile.read(int(self.headers.get("Content-Length") or 0))
+            folder = asset_folder(root, url.query)
             try:
                 if url.path == "/api/note":
                     data, note = edit(folder, json.loads(body), "user")
@@ -265,7 +294,7 @@ def serve(folder, port):
                         with open(os.path.join(folder, name + ".tmp"), "wb") as f:
                             f.write(body)
                         os.replace(os.path.join(folder, name + ".tmp"), os.path.join(folder, name))
-                    return self.send(200, page_state(folder, seen[0]))
+                    return self.send(200, page_state(root, folder, seen[0]))
             except (KeyError, ValueError) as e:
                 return self.send(400, {"error": str(e)})
             self.send(404, {"error": "not found"})
@@ -282,7 +311,7 @@ def serve(folder, port):
         httpd.shutdown()
 
     threading.Thread(target=idle, daemon=True).start()
-    print("serving %s at http://127.0.0.1:%d/" % (folder, port), flush=True)
+    print("serving %s at http://127.0.0.1:%d/" % (root, port), flush=True)
     httpd.serve_forever()
 
 
@@ -367,6 +396,22 @@ def describe(n):
     return [line] + ["   %s rev %s: %s" % (r["by"], r.get("rev", "?"), r["text"]) for r in n.get("replies", [])]
 
 
+def print_notes(folder, everything):
+    notes = load(folder)["notes"]
+    counts = {}
+    for n in notes:
+        counts[n["status"]] = counts.get(n["status"], 0) + 1
+    print("rev %s: %d marks (%s)" % (revision(folder), len(notes),
+                                     ", ".join("%d %s" % (c, s) for s, c in sorted(counts.items())) or "none"))
+    for n in notes:
+        if everything or n["status"] == "open":
+            print("\n".join(describe(n)))
+    s = read_json(os.path.join(folder, "sliders.json"), None)
+    if s and any(s["built"][p["name"]] != p["default"] for p in s["params"]):
+        print("sliders moved by the user (built, rev %s): %s - make them the PARAMS defaults of %s"
+              % (revision(folder), spec(s["built"]), s["script"]))
+
+
 def main(argv):
     if len(argv) < 3 or argv[1] not in ("open", "notes", "reply", "pin", "sliders", "serve"):
         print(__doc__)
@@ -378,19 +423,12 @@ def main(argv):
     elif cmd == "open":
         open_window(folder, "--no-browser" not in argv)
     elif cmd == "notes":
-        notes = load(folder)["notes"]
-        todo = [n for n in notes if "--all" in argv or n["status"] == "open"]
-        counts = {}
-        for n in notes:
-            counts[n["status"]] = counts.get(n["status"], 0) + 1
-        print("rev %s: %d marks (%s)" % (revision(folder), len(notes),
-                                         ", ".join("%d %s" % (c, s) for s, c in sorted(counts.items())) or "none"))
-        for n in todo:
-            print("\n".join(describe(n)))
-        s = read_json(os.path.join(folder, "sliders.json"), None)
-        if s and any(s["built"][p["name"]] != p["default"] for p in s["params"]):
-            print("sliders moved by the user (built, rev %s): %s - make them the PARAMS defaults of %s"
-                  % (revision(folder), spec(s["built"]), s["script"]))
+        names = assets(folder)
+        for name in names:
+            print("== %s (%s)" % (name, os.path.join(folder, name)))
+            print_notes(os.path.join(folder, name), "--all" in argv)
+        if not names:
+            print_notes(folder, "--all" in argv)
     elif cmd == "sliders" and len(argv) > 3:
         script = os.path.abspath(argv[3])
         params = read_params(script)
