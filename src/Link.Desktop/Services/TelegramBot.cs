@@ -174,7 +174,7 @@ public sealed class TelegramBot : IDisposable
         var token = stop.Token;
         _ = Task.Run(() => GatedAsync(async () =>
         {
-            await ShowAsync(chat, task, $"{title}\n\n{text}", fresh: true, token);
+            await ShowAsync(chat, task, $"<b>{TelegramHtml.Escape(title)}</b>\n\n{TelegramHtml.FromMarkdown(text)}", fresh: true, token);
             if (_pageLink is not null && await _host.TaskAsync(task) is { Pages.Count: > 0, Task.Working: false }) await SendPageAsync(chat, task, 0, token);
         }, token));
     }
@@ -641,7 +641,7 @@ public sealed class TelegramBot : IDisposable
     {
         if (await _host.TaskAsync(id) is not { } view)
         {
-            if (fresh) await SendAsync(chat, null, header ?? "The task is not in Link's list any more.", null, token);
+            if (fresh) await SendAsync(chat, null, header is null ? "The task is not in Link's list any more." : TelegramHtml.Plain(header), null, token);
             return;
         }
 
@@ -686,7 +686,7 @@ public sealed class TelegramBot : IDisposable
         var task = view.Task;
         var id = task.Id;
         // HTML: the agent's words (its last ones and the course) are Markdown made Telegram's tags; the rest is escaped.
-        var lines = new List<string> { TelegramHtml.Escape(header ?? $"«{task.Goal}»"), TelegramHtml.Escape($"{task.Project} · {task.Agent ?? "no agent yet"} · {task.Status}") };
+        var lines = new List<string> { header ?? TelegramHtml.Escape($"«{task.Goal}»"), TelegramHtml.Escape($"{task.Project} · {task.Agent ?? "no agent yet"} · {task.Status}") };
         if (view.Plan.Count > 0)
         {
             lines.Add($"Plan, {view.Plan.Count(item => item.Done)} of {view.Plan.Count} done:\n" + string.Join('\n', view.Plan.Take(PlanShown)

@@ -181,10 +181,12 @@ internal static class RemoteTests
                 host.Pictures = [made, checkFrame];
                 bot.Start();
                 await Program.EventuallyAsync("Telegram: started, it sets its commands", () => Count("setMyCommands") > 0, true);
-                bot.Alert(FakeHost.Task, "Claude Code needs you · Make the jump", "Which jump?");
+                bot.Alert(FakeHost.Task, "Claude Code needs you · Make the jump", "## Which jump?\n- **high**\n- long");
                 await Program.EventuallyAsync("Telegram: an alert posts the task's card in a topic of its own, with its buttons and one picture of the run", () =>
                     (Count("createForumTopic"), Count("sendMessage", "\"message_thread_id\":77"), Count("sendMessage", $"q:{FakeHost.Task:N}:0"),
                         Count("sendMessage", $"r:{FakeHost.Task:N}"), Count("sendPhoto")), (1, 1, 1, 1, 1));
+                Program.Equal("Telegram: the alert's words keep their lines, as HTML",
+                    (Count("sendMessage", "\"parse_mode\":\"HTML\""), Count("sendMessage", "\\u003Cb\\u003EWhich jump?\\u003C/b\\u003E\\n\\u2022 \\u003Cb\\u003Ehigh\\u003C/b\\u003E\\n\\u2022 long")), (1, 1));
                 var card = Last("sendMessage");
 
                 host.Words = "Done the jump";

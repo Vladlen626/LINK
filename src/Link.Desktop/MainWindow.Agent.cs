@@ -956,7 +956,7 @@ public partial class MainWindow
             : result.Succeeded && !checkFailed ? $"{provider.Name} finished"
             : checkFailed ? "The check fails"
             : $"{provider.Name} stopped: {ending.ToLowerInvariant()}";
-        if (alert is not null) RemoteAlert?.Invoke(record.Id, $"{alert} · {Shorten(record.Goal, 60)}", ToPreviewText(summary));
+        if (alert is not null) RemoteAlert?.Invoke(record.Id, $"{alert} · {Shorten(record.Goal, 60)}", Shorten(summary, 1500));
 
         if (work.Question is { } asked)
         {
