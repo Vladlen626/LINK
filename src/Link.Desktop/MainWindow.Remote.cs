@@ -121,7 +121,7 @@ public partial class MainWindow : IRemoteHost
             var said = RunSaid(record, run).Said.Trim();
             var last = !live && ReferenceEquals(run, record.LastRun);
             var head = $"{AgentName(run.Provider)}: {run.Outcome.ToLowerInvariant()}";
-            lines.Add(said.Length == 0 ? head : last ? $"{head}\n{Shorten(ToPreviewText(said), 1500)}" : $"{head} — {Shorten(TaskExport.OneLine(ToPreviewText(said)), 200)}");
+            lines.Add(said.Length == 0 ? head : last ? $"{head}\n{Shorten(said, 1500)}" : $"{head} — {Shorten(TaskExport.OneLine(ToPreviewText(said)), 200)}");
         }
 
         return lines.TakeLast(RemoteBeforeLines).ToList();
@@ -220,7 +220,7 @@ public partial class MainWindow : IRemoteHost
             : null;
         var provider = work?.Run?.Task.Provider ?? record.LastRun?.Provider;
         return new RemoteTask(record.Id, project.Name, record.Goal, work?.Run is not null ? "Working" : StatusWords(record.Status),
-            provider is { } agent ? AgentName(agent) : null, work?.Busy == true, waits, record.NoStop, record.UpdatedAt, ToPreviewText(record.LastWords));
+            provider is { } agent ? AgentName(agent) : null, work?.Busy == true, waits, record.NoStop, record.UpdatedAt, record.LastWords);
     }
 
     /// <summary>A task of the active project that Link does not hold now.</summary>

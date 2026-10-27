@@ -652,7 +652,7 @@ public sealed class TelegramBot : IDisposable
         if (!fresh && card.Message is { } message)
         {
             if (shown == card.Shown) return;
-            if (await _api("editMessageText", new { chat_id = chat, message_id = message, text, reply_markup = Keyboard(rows) }, token) is not null)
+            if (await _api("editMessageText", new { chat_id = chat, message_id = message, text, parse_mode = "HTML", reply_markup = Keyboard(rows) }, token) is not null)
             {
                 card.Shown = shown;
                 await PicturesAsync(chat, id, card, token);
@@ -664,12 +664,12 @@ public sealed class TelegramBot : IDisposable
         if (card.Message is { } old) await TakeButtonsAsync(chat, old, token);
         card.Topic ??= await TopicAsync(chat, view.Task.Goal, token);
         if (header is not null) text = Card(view, header).Text;
-        var sent = await SendAsync(chat, card.Topic, text, rows, token, loud: header is not null);
+        var sent = await SendAsync(chat, card.Topic, text, rows, token, loud: header is not null, html: true);
         if (sent is null && card.Topic > 0)
         {
             // The topic is gone: the task's cards come to the chat itself from now on.
             card.Topic = 0;
-            sent = await SendAsync(chat, null, text, rows, token, loud: header is not null);
+            sent = await SendAsync(chat, null, text, rows, token, loud: header is not null, html: true);
         }
 
         card.Message = sent;
@@ -685,35 +685,36 @@ public sealed class TelegramBot : IDisposable
     {
         var task = view.Task;
         var id = task.Id;
-        var lines = new List<string> { header ?? $"«{task.Goal}»", $"{task.Project} · {task.Agent ?? "no agent yet"} · {task.Status}" };
+        // HTML: the agent's words (its last ones and the course) are Markdown made Telegram's tags; the rest is escaped.
+        var lines = new List<string> { TelegramHtml.Escape(header ?? $"«{task.Goal}»"), TelegramHtml.Escape($"{task.Project} · {task.Agent ?? "no agent yet"} · {task.Status}") };
         if (view.Plan.Count > 0)
         {
             lines.Add($"Plan, {view.Plan.Count(item => item.Done)} of {view.Plan.Count} done:\n" + string.Join('\n', view.Plan.Take(PlanShown)
-                .Select(item => $"{(item.Done ? "✓" : item.Active ? "▶" : "·")} {Short(item.Text, 80)}")) + (view.Plan.Count > PlanShown ? "\n…" : string.Empty));
+                .Select(item => $"{(item.Done ? "✓" : item.Active ? "▶" : "·")} {TelegramHtml.Escape(Short(item.Text, 80))}")) + (view.Plan.Count > PlanShown ? "\n…" : string.Empty));
         }
 
-        if (view.Now is { } now) lines.Add("▶ Now: " + Short(now, 200));
+        if (view.Now is { } now) lines.Add("▶ Now: " + TelegramHtml.Escape(Short(now, 200)));
         // The course goes where the user opened the task; an alert is about what it waits for.
         var course = lines.Count;
-        if (header is null && view.Before.Count == 0 && task.LastWords.Length > 0) lines.Add(Short(task.LastWords, 1500));
+        if (header is null && view.Before.Count == 0 && task.LastWords.Length > 0) lines.Add(TelegramHtml.FromMarkdown(Short(task.LastWords, 1500)));
         var rows = new List<object[]>();
         if (view.Question is { } question)
         {
-            lines.Add("❓ " + question.Text);
+            lines.Add("❓ " + TelegramHtml.Escape(question.Text));
             rows.AddRange(question.Options.Select((option, index) => new[] { Button($"{index + 1}. {Short(option.Label, 60)}", $"q:{id:N}:{index}") }));
         }
 
         if (view.Decision is { } decision)
         {
-            lines.Add("❗ " + decision.Text);
+            lines.Add("❗ " + TelegramHtml.Escape(decision.Text));
             var buttons = new List<object> { Button(decision.Button, $"d:{id:N}:0") };
             if (decision.CanRemember) buttons.Add(Button(decision.Button + " · always", $"d:{id:N}:1"));
             if (decision.CanRefuse) buttons.Add(Button("Deny", $"r:{id:N}"));
             rows.Add([.. buttons]);
         }
 
-        if (view.Limit is { } limit) lines.Add("⏸ " + limit);
-        if (view.NoStopPending is { } pending) lines.Add($"No-stop takes «{pending}» in a few seconds.");
+        if (view.Limit is { } limit) lines.Add("⏸ " + TelegramHtml.Escape(limit));
+        if (view.NoStopPending is { } pending) lines.Add(TelegramHtml.Escape($"No-stop takes «{pending}» in a few seconds."));
         if (view.TakesWords) lines.Add("Write to answer it: words or a picture.");
         if (!task.Working) rows.AddRange(view.Pages.Select((page, index) => new[] { Button("🔗 " + Short(page.Label, 50), $"pg:{id:N}:{index}") }));
         var foot = new List<object> { Button(task.NoStop ? "No-stop: on ✓" : "No-stop: off", $"n:{id:N}:{(task.NoStop ? 0 : 1)}") };
@@ -724,11 +725,11 @@ public sealed class TelegramBot : IDisposable
         {
             // The newest lines that fit beside the rest: the question and its buttons are never cut off.
             var room = MaxText - string.Join("\n\n", lines).Length - 20;
-            var before = view.Before.Reverse().TakeWhile(line => (room -= line.Length + 3) > 0).Reverse().ToArray();
-            if (before.Length > 0) lines.Insert(course, "Before:\n" + string.Join('\n', before.Select(line => "• " + line)));
+            var before = view.Before.Reverse().Select(TelegramHtml.FromMarkdown).TakeWhile(line => (room -= line.Length + 3) > 0).Reverse().ToArray();
+            if (before.Length > 0) lines.Insert(course, "<b>Before:</b>\n" + string.Join('\n', before.Select(line => "• " + line)));
         }
 
-        return (Short(string.Join("\n\n", lines), MaxText), rows);
+        return (TelegramHtml.Fit(string.Join("\n\n", lines), MaxText), rows);
     }
 
     private TelegramCard CardOf(Guid id)
@@ -772,18 +773,21 @@ public sealed class TelegramBot : IDisposable
 
     /// <summary>
     /// Sends a message, in a topic and with buttons in rows when given, silently unless loud; the message's id, or null when
-    /// it did not go.
+    /// it did not go. <paramref name="html"/>: the text is Telegram's HTML, already fit (a card).
     /// </summary>
-    private async Task<long?> SendAsync(long chat, long? topic, string text, IEnumerable<object[]>? rows, CancellationToken token, bool loud = false)
+    private async Task<long?> SendAsync(long chat, long? topic, string text, IEnumerable<object[]>? rows, CancellationToken token, bool loud = false, bool html = false)
     {
         var sent = await _api("sendMessage", new
         {
             chat_id = chat,
             message_thread_id = topic > 0 ? topic : null,
-            text = Short(text, MaxText),
+            text = html ? text : Short(text, MaxText),
+            parse_mode = html ? "HTML" : null,
             reply_markup = rows is null ? null : Keyboard(rows),
             disable_notification = loud ? (bool?)null : true
         }, token);
+        // Telegram refuses HTML it cannot parse: the card still goes, as plain text.
+        if (sent is null && html) return await SendAsync(chat, topic, TelegramHtml.Plain(text), rows, token, loud);
         return sent is { } message && message.TryGetProperty("message_id", out var id) ? id.GetInt64() : null;
     }
 

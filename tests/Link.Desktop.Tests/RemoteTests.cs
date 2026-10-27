@@ -20,8 +20,23 @@ internal static class RemoteTests
     public static async Task RunAsync()
     {
         Spent();
+        Html();
         await ServerAsync();
         await TelegramAsync();
+    }
+
+    /// <summary>An agent's Markdown as Telegram's HTML: its lines kept, its tags closed, cut without breaking one.</summary>
+    private static void Html()
+    {
+        Program.Equal("Telegram HTML: headings and bold are <b>, lists and lines stay, code is <code> or <pre>, the rest escaped",
+            TelegramHtml.FromMarkdown("## Wind\n\nNow **s × (1 ± x)** in `WindSettings.cs`:\n- gusts <3 s\n  - calm & sway\n\n\n---\n```\nif (a < b) go();\n```\n[docs](https://a.b/c?d=1&e=2)"),
+            "<b>Wind</b>\n\nNow <b>s × (1 ± x)</b> in <code>WindSettings.cs</code>:\n• gusts &lt;3 s\n  • calm &amp; sway\n\n<pre>if (a &lt; b) go();</pre>\n<a href=\"https://a.b/c?d=1&amp;e=2\">docs</a>");
+        Program.Equal("Telegram HTML: an unclosed fence or mark still makes closed tags",
+            (TelegramHtml.FromMarkdown("```\ncode"), TelegramHtml.FromMarkdown("a **b and `c")), ("<pre>code</pre>", "a **b and `c"));
+        Program.Equal("Telegram HTML: a cut closes its open tags and splits no tag or entity",
+            (TelegramHtml.Fit("<b>bold <code>x</code> words</b>", 14), TelegramHtml.Fit("a &amp; b", 5), TelegramHtml.Fit("ab<code>x", 6), TelegramHtml.Fit("short", 10)),
+            ("<b>bold …</b>", "a …", "ab…", "short"));
+        Program.Equal("Telegram HTML: plain again when Telegram refuses it", TelegramHtml.Plain("<b>a &lt; b</b> <a href=\"x\">c</a>"), "a < b c");
     }
 
     /// <summary>ccusage 20's JSON, as its sections report and its active block give it.</summary>
