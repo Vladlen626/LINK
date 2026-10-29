@@ -48,8 +48,12 @@ public sealed record WorkerChoice(AgentProviderKind Provider, AgentLevel Level);
 /// </summary>
 public sealed class TeamSettings
 {
-    /// <summary>The task card offers "Auto — team", which hands the steps of a plan to workers.</summary>
-    public bool Enabled { get; set; } = true;
+    /// <summary>
+    /// The task card offers "Auto — team", which hands the steps of a plan to workers. Off by default since one session
+    /// that plans, works and delegates by itself replaced it (docs/LOOP_PLAN.md); on, it is there to compare. A new key:
+    /// the old <c>Enabled</c>, true in every settings file, is not read.
+    /// </summary>
+    public bool Offered { get; set; }
 
     public WorkerChoice? Light { get; set; }
     public WorkerChoice? Standard { get; set; }
@@ -94,7 +98,7 @@ public sealed class TeamSettings
 
     public TeamSettings Clone() => new()
     {
-        Enabled = Enabled, Light = Light, Standard = Standard, Strong = Strong, Alternate = Alternate, AutoLower = AutoLower, LeadReview = LeadReview,
+        Offered = Offered, Light = Light, Standard = Standard, Strong = Strong, Alternate = Alternate, AutoLower = AutoLower, LeadReview = LeadReview,
         ArtReview = ArtReview
     };
 

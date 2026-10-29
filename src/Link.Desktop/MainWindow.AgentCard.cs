@@ -71,7 +71,7 @@ public partial class MainWindow
             settings.DefaultAccess)
         {
             AutoEffort = settings.AutoEffort,
-            TeamOffered = settings.Team.Enabled,
+            TeamOffered = settings.Team.Offered,
             Roles = roles,
             RoleId = ProjectRoles.Suggest(goal, roles)?.Id,
             WorkspaceSkills = skills,

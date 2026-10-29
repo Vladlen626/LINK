@@ -12,6 +12,7 @@ public static class CompactRule
     private const long NearEnd = 80;
     private const long ColdFloor = 100_000;
     private const long ColdShare = 25;
+    private const long PhaseShare = 50;
 
     /// <summary>
     /// How long a provider keeps a session's prompt cache after its last request: an hour for Claude Code on a
@@ -50,13 +51,28 @@ public static class CompactRule
     /// for a usage limit's reset, which is a wait by itself; a user's reply counts only after an idle as long as the cache
     /// of the run's agent lasts (<see cref="CacheLasts"/>), so that a reply to a run just ended is never taken away from its session.
     /// </summary>
-    public static string? Why(AgentRunRecord? last, bool autoCompact, int budget, DateTimeOffset now, bool afterLimit)
+    public static string? Why(AgentRunRecord? last, bool autoCompact, int budget, DateTimeOffset now, bool afterLimit, IReadOnlyList<AgentPlanItem>? plan = null)
     {
         if (!autoCompact || last is null) return null;
         var idle = now - (last.StartedAt + last.Duration);
         var lasts = CacheLasts(last.Provider);
-        if (!afterLimit && idle < lasts) return null;
-        return Why(last.ContextTokens, budget, idle, last.ContextWindow is { } window ? (int)Math.Min(window, int.MaxValue) : null, lasts);
+        var window = last.ContextWindow is { } told ? (int)Math.Min(told, int.MaxValue) : (int?)null;
+        if (!afterLimit && idle < lasts) return PhaseEnd(last.ContextTokens, budget, window, plan);
+        return Why(last.ContextTokens, budget, idle, window, lasts);
+    }
+
+    /// <summary>
+    /// The reason to start the next part of a plan fresh: the run ended with a part of its plan done and more to come
+    /// (none under way), and the session holds half its limit or more. The task's state carries the plan and what was
+    /// done; the files and skills the done part read stay behind, which every step of the next part would re-send.
+    /// </summary>
+    public static string? PhaseEnd(long? contextTokens, int budget, int? window, IReadOnlyList<AgentPlanItem>? plan)
+    {
+        // A team's plan has its own sessions per step.
+        if (contextTokens is not { } held || plan is null || plan.Any(item => item.Worker is not null) || AgentContext.Limit(budget, window) is not { } limit) return null;
+        var done = plan.Count(item => item.Done);
+        if (done == 0 || done == plan.Count || plan.Any(item => item.Active) || held * 100 < limit * PhaseShare) return null;
+        return $"{done} of {plan.Count} steps of the plan are done and the session holds {AgentContext.Tokens(held)} of {AgentContext.Tokens(limit)}: the next part starts from the task's state";
     }
 
     /// <summary>

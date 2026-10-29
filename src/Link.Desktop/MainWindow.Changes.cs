@@ -53,6 +53,76 @@ public partial class MainWindow
         ContinueAgent(work, review);
     }
 
+    /// <summary>A judge's run that handed the task back to the run it read (the final check): words go on with that one.</summary>
+    private static bool JudgedOther(TaskWork work, AgentRun? ended) => ended is { Task.Judge: true } && work.LastRun is { } last && last != ended;
+
+    /// <summary>The plan is done: a fresh session on the strong level may check the whole change before the user does.</summary>
+    private void OfferFinalCheck(TaskWork work)
+    {
+        var provider = work.LastRun?.Task.Provider ?? StartProvider;
+        var (model, effort) = _settings.Current.Agent.Level(provider, AgentLevel.Deep);
+        OfferChoice(work,
+            $"The plan is done. A fresh session ({SetupWords(provider, model, effort)}) can check the whole change against it first; it changes nothing.",
+            "Check the work",
+            canRemember: false,
+            () => _ = StartFinalCheckAsync(work));
+    }
+
+    /// <summary>The final check: a new judge session reads the last run's diff with the task's plan; the record keeps whose change it read.</summary>
+    private async Task StartFinalCheckAsync(TaskWork work)
+    {
+        if (work.Busy || work.LastRun is not { } done) return;
+        var record = work.Record;
+        var workspace = done.Before.Workspace;
+        var diff = await _agents.Changes.DiffAsync(done.Before, done.Changes, stat: false, YourReviewDiff, CancellationToken.None);
+        var request = File.Exists(FinalCheck.RequestFile) ? await File.ReadAllTextAsync(FinalCheck.RequestFile) : string.Empty;
+        if (work.Busy || !_works.Contains(work)) return;
+        var check = done.Check is { } result ? (result.Passed ? "passed" : result.ToString()) : null;
+        var provider = done.Task.Provider;
+        var (model, effort) = _settings.Current.Agent.Level(provider, AgentLevel.Deep);
+        work.Checked = done;
+        record.Add(AgentEntryKind.You, "Check the work");
+        await StartAgentAsync(work, new AgentTask
+        {
+            Provider = provider,
+            Workspace = record.Workspace,
+            Prompt = FinalCheck.Prompt(request, record.Goal, record.Plan, check, [.. done.Changes.Select(change => Relative(change.Path, workspace))], diff),
+            Judge = true,
+            AllowedTools = AgentCoordinator.Tools(work.Project, record.Workspace),
+            AutoApprove = done.Task.AutoApprove,
+            Model = model,
+            Effort = effort
+        }, null);
+    }
+
+    /// <summary>
+    /// The final check ended: the task goes on in the session of the run it read. Its findings are offered to that
+    /// session; a clean verdict is a line of the history. A question of the check's waits for the user in its session.
+    /// </summary>
+    private void AfterFinalCheck(TaskWork work, AgentRun run, bool needsYou)
+    {
+        var checkedRun = work.Checked;
+        work.Checked = null;
+        if (work.Question is not null) return;
+        if (checkedRun is not null) work.LastRun = checkedRun;
+        if (needsYou || !run.Result.Succeeded) return;
+        var record = work.Record;
+        if (FinalCheck.NeedsFix(run.Result.Summary) is not true)
+        {
+            record.Add(AgentEntryKind.Check, "Final check: nothing to fix");
+            SaveTask(work);
+            return;
+        }
+
+        OfferChoice(work, "The check found things to fix (above). Give them to the task's session?", "Fix them",
+            canRemember: false,
+            () =>
+            {
+                UserSpoke(work);
+                ContinueAgent(work, FinalCheck.Fix(run.Result.Summary));
+            });
+    }
+
     /// <summary>A new file as the review shows it: all its lines added, or a note when it is large or not text.</summary>
     private static DiffFile NewFileOf(string fullPath, string path)
     {

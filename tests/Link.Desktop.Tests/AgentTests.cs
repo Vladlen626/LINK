@@ -27,6 +27,8 @@ internal static class AgentTests
         Stats();
         ContextMeter();
         SpendSplit();
+        OneLoop();
+        OneLoopHelpers();
         SpendReportOf();
         ReviewDiff();
         UsageHistoryDays();
@@ -914,6 +916,66 @@ internal static class AgentTests
             today.AddDays(-3), today);
         Program.Equal("Spend report: every day of the range is there, an empty one too, and a day without a split counts as base",
             (days.Count, days[0].Runs, days[1].Parts.Files, days[3].Parts.Base, days[3].Runs), (4, 0, 100L, 1000L, 2));
+    }
+
+    /// <summary>A Claude Code work run gets Link's helper subagent; a plan first, a judge and Link's own answers do not.</summary>
+    private static void OneLoopHelpers()
+    {
+        // Codex as a tool is looked for in the install places Windows names; its server's words are checked in OneLoop.
+        var settings = new AgentSettings { CodexHelper = false };
+        var claude = new ClaudeCodeProvider(() => settings, _ => { });
+        var work = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = TempFolder(), Prompt = "Rename the props" };
+        string? Agents(AgentTask task) => claude.Arguments(task).ToList() is var arguments && arguments.IndexOf("--agents") is var at and >= 0 ? arguments[at + 1] : null;
+        var file = Agents(work);
+        Program.Equal("one loop: a work run gets the mechanic on the Light model, from a file",
+            (file is not null && File.ReadAllText(file).Contains("\"mechanic\"") && File.ReadAllText(file).Contains("\"model\":\"claude-haiku-5-5\"")), true);
+        Program.Equal("one loop: a plan first, a judge, Link's own answer and the setting off get no helper",
+            (Agents(work with { PlanOnly = true }), Agents(work with { Judge = true }), Agents(work with { WithoutMcp = true }), Agents(work with { MaxTurns = 3 })),
+            ((string?)null, (string?)null, (string?)null, (string?)null));
+        settings.Helpers = false;
+        Program.Equal("one loop: Helpers off, no subagents", Agents(work), (string?)null);
+        DeleteFolder(work.Workspace);
+    }
+
+    /// <summary>One session that plans and delegates: Codex as its tool, what a helper's events show, and the final check.</summary>
+    private static void OneLoop()
+    {
+        var claude = new ClaudeCodeProvider(() => new AgentSettings(), _ => { });
+        var work = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = TempFolder(), Prompt = "Rename the props" };
+        Program.Equal("one loop: Codex as a tool runs in its sandbox, asks nothing, without the desktop's add-ons",
+            string.Join(" ", ClaudeCodeProvider.CodexServerArguments(work)),
+            "mcp-server -c sandbox_mode=workspace-write -c approval_policy=never " + string.Join(" ", CodexProvider.FeaturesOff.Select(feature => $"-c features.{feature}=false")));
+
+        var parser = claude.CreateParser(work);
+        var events = new[]
+            {
+                """{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Agent","input":{"subagent_type":"mechanic","description":"Rename the props","prompt":"Rename SM_* files"}}]}}""",
+                """{"type":"assistant","parent_tool_use_id":"t1","message":{"id":"s1","content":[{"type":"text","text":"Renaming."},{"type":"tool_use","id":"s2","name":"TodoWrite","input":{"todos":[{"content":"Rename","status":"in_progress"}]}},{"type":"tool_use","id":"s3","name":"Bash","input":{"command":"git mv a b"}}]}}"""
+            }
+            .SelectMany(parser.Read)
+            .ToArray();
+        Program.Equal("one loop: a hand-over names the helper and its part; the helper's steps show, its words and its own list do not",
+            string.Join(" | ", events.Select(each => $"{each.Kind}:{each.Text}")), "Tool:Agent: mechanic · Rename the props | Tool:Bash: git mv a b");
+
+        AgentPlanItem[] plan = [new("Model", true, false), new("Rig", true, false), new("Import", true, false)];
+        AgentTaskRecord Record(IEnumerable<AgentPlanItem> steps) => new() { Goal = "A dash prop", Workspace = work.Workspace, Plan = [.. steps] };
+        var record = Record(plan);
+        var done = new AgentRun(work, new WorkspaceBefore(work.Workspace, true, new Dictionary<string, string>(), DateTime.UtcNow),
+            new AgentResult { Succeeded = true, SessionId = "s" }, [new AgentChange("a.cs", "M", true)]);
+        Program.Equal("final check: due when the task's own plan of three steps is done with changes; not before, not without changes, not for a team's plan or a judge",
+            (FinalCheck.Due(record, done), FinalCheck.Due(Record([plan[0], plan[1], plan[2] with { Done = false }]), done),
+                FinalCheck.Due(record, done with { Changes = [] }), FinalCheck.Due(Record([plan[0], plan[1]]), done),
+                FinalCheck.Due(Record(plan.Select(item => item with { Worker = "Codex" })), done),
+                FinalCheck.Due(record, done with { Task = work with { Judge = true } })),
+            (true, false, false, false, false, false));
+        Program.Equal("final check: the last verdict line decides; none is null; the findings go on without it",
+            (FinalCheck.NeedsFix("1. a.cs:4 null\nVerdict: fix"), FinalCheck.NeedsFix("All good.\nVerdict: clean"), FinalCheck.NeedsFix("Fine."),
+                FinalCheck.Fix("1. a.cs:4 null\nVerdict: fix").Contains("1. a.cs:4 null\n\nFix what is right."), FinalCheck.Fix("x\nVerdict: fix").Contains("Verdict")),
+            ((bool?)true, (bool?)false, (bool?)null, true, false));
+        var prompt = FinalCheck.Prompt("<!-- note -->Check it.", "A dash prop", plan, "passed", ["a.cs"], "+x");
+        Program.Equal("final check: the request without its notes, then the task, its plan, the check, the files and the diff",
+            prompt, "Check it.\n\n## The task\n\nA dash prop\n\n## Its plan\n\n- Model\n- Rig\n- Import\n\n## The project's check\n\npassed\n\n## Changed files\n\na.cs\n\n## Diff\n\n```diff\n+x\n```");
+        DeleteFolder(work.Workspace);
     }
 
     private static void SpendSplit()
@@ -2560,7 +2622,7 @@ internal static class AgentTests
             var bare = HarnessView.Build(Input());
             Program.Equal("harness: the sections, in order",
                 string.Join("|", bare.Sections.Select(section => section.Title)),
-                "Setup|Context|Rules|Role|Project memory|Task state|Skills|Injected context|Tools and MCP|Verification|Stats|Reflect");
+                "Setup|Context|Rules|Role|Project memory|Task state|Skills|Helpers|Injected context|Tools and MCP|Verification|Stats|Reflect");
             Program.Equal("harness setup: the role (General), the agent, the model and effort, the effort's reason, who sees the code",
                 (Section(bare, "Setup").Value, Section(bare, "Setup").Note),
                 ("General · Claude Code · Opus 5.5 · Medium", "Effort: Link picked it: a usual task\nSubscription · code goes to Anthropic"));
@@ -3110,23 +3172,23 @@ internal static class AgentTests
     private static void TeamSettingsKept()
     {
         var fresh = new AgentSettings();
-        Program.Equal("team settings: on, every tier left to the default, no A/B, Link compacts by itself, a task goes on after its limit resets",
-            (fresh.Team.Enabled, fresh.Team.Light, fresh.Team.Standard, fresh.Team.Strong, fresh.Team.Alternate, fresh.AutoCompact, fresh.ContinueAfterLimit),
-            (true, (WorkerChoice?)null, (WorkerChoice?)null, (WorkerChoice?)null, false, true, true));
+        Program.Equal("team settings: off, every tier left to the default, no A/B, Link compacts by itself, a task goes on after its limit resets",
+            (fresh.Team.Offered, fresh.Team.Light, fresh.Team.Standard, fresh.Team.Strong, fresh.Team.Alternate, fresh.AutoCompact, fresh.ContinueAfterLimit),
+            (false, (WorkerChoice?)null, (WorkerChoice?)null, (WorkerChoice?)null, false, true, true));
 
-        var older = JsonSerializer.Deserialize<AgentSettings>("""{"ContextBudget":300000,"PlanOnDeep":false}""")!;
+        var older = JsonSerializer.Deserialize<AgentSettings>("""{"ContextBudget":300000,"PlanOnDeep":false,"Team":{"Enabled":true}}""")!;
         older.Normalize();
-        Program.Equal("team settings: settings of an older Link load with the team on, Compact by Link on and going on after a limit",
-            (older.Team.Enabled, older.Team.Light, older.AutoCompact, older.ContextBudget, older.ContinueAfterLimit), (true, (WorkerChoice?)null, true, 300_000, true));
+        Program.Equal("team settings: settings of an older Link load with the team off (its Enabled is not read), Compact by Link on and going on after a limit",
+            (older.Team.Offered, older.Team.Light, older.AutoCompact, older.ContextBudget, older.ContinueAfterLimit), (false, (WorkerChoice?)null, true, 300_000, true));
         var nothing = JsonSerializer.Deserialize<AgentSettings>("""{"Team":null}""")!;
         nothing.Normalize();
-        Program.Equal("team settings: a null team is the default one", (nothing.Team.Enabled, nothing.Team.Light), (true, (WorkerChoice?)null));
+        Program.Equal("team settings: a null team is the default one", (nothing.Team.Offered, nothing.Team.Light), (false, (WorkerChoice?)null));
 
         var odd = JsonSerializer.Deserialize<AgentSettings>(
-            """{"Team":{"Enabled":false,"Light":{"Provider":1,"Level":0},"Standard":{"Provider":2,"Level":1},"Strong":{"Provider":0,"Level":7}}}""")!;
+            """{"Team":{"Offered":true,"Light":{"Provider":1,"Level":0},"Standard":{"Provider":2,"Level":1},"Strong":{"Provider":0,"Level":7}}}""")!;
         odd.Normalize();
         Program.Equal("team settings: a choice is kept, one of an agent or level this Link does not know (2 was the custom model) is the default",
-            (odd.Team.Enabled, odd.Team.Light, odd.Team.Standard, odd.Team.Strong), (false, new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Light), (WorkerChoice?)null, (WorkerChoice?)null));
+            (odd.Team.Offered, odd.Team.Light, odd.Team.Standard, odd.Team.Strong), (true, new WorkerChoice(AgentProviderKind.Codex, AgentLevel.Light), (WorkerChoice?)null, (WorkerChoice?)null));
 
         var copy = new AgentSettings
         {
@@ -3744,6 +3806,13 @@ internal static class AgentTests
         Program.Equal("compact after a wait: a reply to a run just ended is never taken from its session, big or not",
             (Why(Run(now, 400_000, minutes(5)), afterLimit: false), Why(Run(now, 150_000, minutes(59)), afterLimit: false)),
             ((string?)null, (string?)null));
+        AgentPlanItem[] plan = [new("Model", true, false), new("Rig", true, false), new("Animate", false, false)];
+        string? Phase(long held, IReadOnlyList<AgentPlanItem> steps) => CompactRule.Why(Run(now, held, minutes(5)), true, 450_000, now, afterLimit: false, steps);
+        Program.Equal("compact at a phase's end: a reply after a done part of the plan starts the next part afresh from half the budget, not below, not mid-step, not when all is done or for a team",
+            (Phase(225_000, plan)?.StartsWith("2 of 3 steps of the plan are done and the session holds 225k of 450k", StringComparison.Ordinal), Phase(224_000, plan),
+                Phase(300_000, [plan[0], plan[1], plan[2] with { Active = true }]), Phase(300_000, [plan[0], plan[1], plan[2] with { Done = true }]),
+                Phase(300_000, [plan[0] with { Worker = "Codex" }, plan[1], plan[2]]), Phase(300_000, [])),
+            ((bool?)true, (string?)null, (string?)null, (string?)null, (string?)null, (string?)null));
         Program.Equal("compact after a wait: a reply after an hour idle starts afresh where the session is big enough, the idle counted from the run's end",
             (Why(Run(now, 150_000, minutes(60)), afterLimit: false)?.StartsWith("the session's cache has expired (60 min idle)", StringComparison.Ordinal),
                 Why(Run(now, 50_000, TimeSpan.FromHours(5)), afterLimit: false)),

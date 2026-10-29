@@ -14,9 +14,11 @@ public static partial class AgentRules
     /// <summary>
     /// A new session's input: the rules, the skills of the workspace's tool packs and its own skills when the agent does
     /// not find them itself (<paramref name="listOwnSkills"/>), the specialist's role and the skills picked for the task,
-    /// then the task. The rules Link's guard holds go as words only when it does not watch the agent (<paramref name="guarded"/>).
+    /// then the task. The rules Link's guard holds go as words only when it does not watch the agent (<paramref name="guarded"/>);
+    /// <paramref name="helpers"/> says when to hand work to the run's helpers.
     /// </summary>
-    public static string Before(string task, string workspace, bool listOwnSkills, AgentRole? role = null, IReadOnlyList<string>? picked = null, bool guarded = false)
+    public static string Before(string task, string workspace, bool listOwnSkills, AgentRole? role = null, IReadOnlyList<string>? picked = null,
+        bool guarded = false, string? helpers = null)
     {
         string rules;
         try
@@ -38,6 +40,7 @@ public static partial class AgentRules
         {
             if (ReadHarness(Path.Combine(pack.Folder, "rules.md")) is { Length: > 0 } packRules) input.Append("\n\n").Append(packRules);
         }
+        if (helpers is { Length: > 0 }) input.Append("\n\n").Append(helpers);
         // A pack's skills lie outside the workspace, where no CLI looks for skills: every agent is told of them.
         var skills = ProjectSkills.In(workspace).Where(skill => listOwnSkills || skill.Pack is not null).ToArray();
         if (skills.Length > 0)
@@ -57,6 +60,10 @@ public static partial class AgentRules
     }
 
     public static string GuardedFile => Path.Combine(AppContext.BaseDirectory, "harness", "guarded-rules.md");
+
+    public static string HelpersFile => Path.Combine(AppContext.BaseDirectory, "harness", "helpers.md");
+
+    public static string CodexHelperFile => Path.Combine(AppContext.BaseDirectory, "harness", "codex-helper.md");
 
     public static string PerforceFile => Path.Combine(AppContext.BaseDirectory, "harness", "perforce.md");
 

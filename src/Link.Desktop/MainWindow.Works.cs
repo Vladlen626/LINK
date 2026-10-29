@@ -232,6 +232,12 @@ public partial class MainWindow
         // The artist's run the art critic judges: after the verdict the user's words go on in its session, not the critic's.
         public AgentRun? Critiqued { get; set; }
 
+        // The run whose whole change the final check reads: after it the user's words go on in its session (FinalCheck).
+        public AgentRun? Checked { get; set; }
+
+        // The plan the final check was offered for: once per plan, not again after the fixes it asked for.
+        public string? PlanChecked { get; set; }
+
         // The task as the card or a hand-over started it: what Start over starts again.
         public AgentTask? Origin { get; set; }
 

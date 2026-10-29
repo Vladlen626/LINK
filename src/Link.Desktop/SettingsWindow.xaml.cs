@@ -124,6 +124,9 @@ public partial class SettingsWindow : Window
         ContextBudgetCombo.ItemsSource = _budgets.Select(budget => budget > 0 ? AgentContext.Tokens(budget) : "Auto — the CLI's own window").ToArray();
         ContextBudgetCombo.SelectedIndex = _budgets.IndexOf(current.Agent.ContextBudget);
         AutoEffortBox.IsChecked = current.Agent.AutoEffort;
+        HelpersBox.IsChecked = current.Agent.Helpers;
+        CodexHelperBox.IsChecked = current.Agent.CodexHelper;
+        TeamOfferedBox.IsChecked = current.Agent.Team.Offered;
         LeadReviewBox.IsChecked = current.Agent.Team.LeadReview;
         ArtReviewBox.IsChecked = current.Agent.Team.ArtReview;
         AlternateBox.IsChecked = current.Agent.Team.Alternate;
@@ -757,6 +760,9 @@ public partial class SettingsWindow : Window
         current.Agent.DefaultAccess = DefaultAccessCombo.SelectedIndex == 0 ? AgentAccessChoice.Edit : AgentAccessChoice.Auto;
         current.Agent.ContextBudget = ContextBudgetCombo.SelectedIndex >= 0 ? _budgets[ContextBudgetCombo.SelectedIndex] : current.Agent.ContextBudget;
         current.Agent.AutoEffort = AutoEffortBox.IsChecked == true;
+        current.Agent.Helpers = HelpersBox.IsChecked == true;
+        current.Agent.CodexHelper = CodexHelperBox.IsChecked == true;
+        current.Agent.Team.Offered = TeamOfferedBox.IsChecked == true;
         current.Agent.Team.LeadReview = LeadReviewBox.IsChecked == true;
         current.Agent.Team.ArtReview = ArtReviewBox.IsChecked == true;
         current.Agent.Team.Alternate = AlternateBox.IsChecked == true;

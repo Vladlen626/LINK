@@ -12,7 +12,7 @@ public partial class MainWindow
     /// </summary>
     private string? WhyCompact(TaskWork work, bool afterLimit) =>
         ResumableTask(work) is not null
-            ? CompactRule.Why(work.Record.LastRun, _settings.Current.Agent.AutoCompact, _settings.Current.Agent.ContextBudget, DateTimeOffset.Now, afterLimit)
+            ? CompactRule.Why(work.Record.LastRun, _settings.Current.Agent.AutoCompact, _settings.Current.Agent.ContextBudget, DateTimeOffset.Now, afterLimit, work.Record.Plan)
             : null;
 
     /// <summary>

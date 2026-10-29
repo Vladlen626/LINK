@@ -782,7 +782,7 @@ public partial class MainWindow
             work.SteerImages = [];
             // Words while the art critic judged stop it and go on with the work it judged (AfterCritique), which was not interrupted.
             var critic = ended is not null && ArtCritic.Judges(ended.Task);
-            var after = critic ? work.LastRun : ended;
+            var after = critic || JudgedOther(work, ended) ? work.LastRun : ended;
             if (after is not null && WordsAfter(work, after,
                     critic ? WithCriticNotes(work, words, AgentCoordinator.SessionOf(after)) : AgentCoordinator.Interrupted(words)) is { } next)
             {
@@ -799,7 +799,7 @@ public partial class MainWindow
             IReadOnlyList<string> images = [.. work.QueuedImages];
             work.QueuedImages.Clear();
             // After the art critic's verdict the words go on with the work it judged (AfterCritique), after its question with it.
-            var after = ended is not null && ArtCritic.Judges(ended.Task) ? work.LastRun : ended;
+            var after = ended is not null && ArtCritic.Judges(ended.Task) || JudgedOther(work, ended) ? work.LastRun : ended;
             if (after is not null && WordsAfter(work, after, WithCriticNotes(work, later, AgentCoordinator.SessionOf(after))) is { } next)
             {
                 _ = StartAgentAsync(work, next with { Images = images }, after, phase: EffortPhase.Reply);
@@ -877,6 +877,7 @@ public partial class MainWindow
     /// </summary>
     private void ShowAgentRun(TaskWork work, LiveRun live, AgentRun run)
     {
+        var checking = work.Checked is not null && run.Task.Judge;
         work.LastRun = run;
         var record = work.Record;
         var (task, result) = (run.Task, run.Result);
@@ -951,6 +952,12 @@ public partial class MainWindow
         if (work == _open) _ = ShowChangesAsync(record);
         ShowTask(work);
         if (record.Team.Count > 0) AfterTeamStep(work, run, needsYou: work.Question is not null || decision || limitReached);
+        if (checking) AfterFinalCheck(work, run, needsYou || limitReached);
+        else if (!needsYou && work.Decision is null && FinalCheck.Due(record, run) && work.PlanChecked != FinalCheck.Key(record.Plan))
+        {
+            work.PlanChecked = FinalCheck.Key(record.Plan);
+            OfferFinalCheck(work);
+        }
         if (!needsYou && work.Decision is null && record.LastRun is { } done && WorkerEvidence.Verdict(done) == true && TeamRunner.Current(record) is null)
         {
             OfferShare(work);
@@ -1289,6 +1296,13 @@ public partial class MainWindow
     /// skills, brief, tools, check and the project's stats. Before a task is open it is what the next one would get.
     /// Light enough to build at every refresh: no git, no model, the stats read once.
     /// </summary>
+    /// <summary>The helpers a Claude Code run of a task gets by the settings, as the Harness names them.</summary>
+    private static IReadOnlyList<string> HelperNames(AgentSettings settings) =>
+    [
+        .. settings.Helpers ? new[] { $"mechanic · {settings.ClaudeLight.Model ?? "haiku"}", "Explore" } : [],
+        .. settings.CodexHelper && ClaudeCodeProvider.FindCodex(settings) is not null ? new[] { "Codex as a tool" } : []
+    ];
+
     internal HarnessView CurrentHarness()
     {
         var shown = StudioTask;
@@ -1340,7 +1354,8 @@ public partial class MainWindow
             Stats = ProjectStats(project, workspace),
             TeamVsSolo = _stats?.TeamVsSolo ?? [],
             Reflection = _stats?.Reflection ?? [],
-            AgentName = AgentName
+            AgentName = AgentName,
+            Helpers = provider != AgentProviderKind.ClaudeCode || planOnly ? [] : HelperNames(settings)
         });
     }
 

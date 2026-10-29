@@ -137,7 +137,7 @@ public partial class MainWindow : IRemoteHost
         if (project is null) return "No such project";
         if (project.WorkspaceRoot is not { } workspace || !Directory.Exists(workspace)) return $"{project.Name} has no workspace folder";
         var settings = _settings.Current.Agent;
-        if (task.Team && !settings.Team.Enabled) return "Teams are off: turn them on in Link's Settings";
+        if (task.Team && !settings.Team.Offered) return "Teams are off: turn them on in Link's Settings";
         var provider = task.Provider ?? StartProvider;
         var (model, effort) = settings.Level(provider, task.Level ?? AgentLevel.Standard);
         // A team always plans first, on its lead.

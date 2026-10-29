@@ -234,6 +234,9 @@ public abstract class CliAgentProvider : IAgentProvider
         }
     }
 
+    /// <summary>What a new session is told of the helpers the run has (Claude Code's subagents, Codex as a tool); null: none.</summary>
+    protected virtual string? HelpersText(AgentTask task) => null;
+
     /// <summary>What the provider learns after a run from outside its events, such as Codex's rate limits.</summary>
     protected virtual IReadOnlyList<AgentEvent> AfterRun(AgentResult result) => [];
 
@@ -245,7 +248,7 @@ public abstract class CliAgentProvider : IAgentProvider
     {
         var input = task.PlanOnly ? PlanRequest + Input(task) : Input(task);
         return task.ResumeSessionId is null
-            ? AgentRules.Before(input, task.Workspace, !FindsSkills, ProjectRoles.Find(task.RoleId, task.Workspace), task.Skills, Guarded)
+            ? AgentRules.Before(input, task.Workspace, !FindsSkills, ProjectRoles.Find(task.RoleId, task.Workspace), task.Skills, Guarded, HelpersText(task))
             : input;
     }
 

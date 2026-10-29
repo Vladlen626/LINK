@@ -54,6 +54,9 @@ public sealed record HarnessInput(
 
     /// <summary>Names an agent as Settings does; null: the default names.</summary>
     public Func<AgentProviderKind, string>? AgentName { get; init; }
+
+    /// <summary>Who the session can hand parts of the work to ("mechanic · Haiku", "Codex"); empty: it works alone.</summary>
+    public IReadOnlyList<string> Helpers { get; init; } = [];
 }
 
 /// <summary>
@@ -97,6 +100,7 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
             Memory(input.Workspace),
             State(input),
             Skills(input),
+            HelpersSection(input),
             Injected(input),
             Tools(input),
             Verification(input),
@@ -121,6 +125,13 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
     public static string CardLine(int contextBudget, int skills, IReadOnlyList<string> mcpServers) =>
         $"Context budget {AgentContext.Budget(contextBudget)} · {(skills == 0 ? "no skills" : Plural(skills, "skill"))} · " +
         (mcpServers.Count == 0 ? "no MCP servers" : "MCP: " + string.Join(", ", mcpServers));
+
+    private static HarnessSection HelpersSection(HarnessInput input) => input.Helpers.Count == 0
+        ? new HarnessSection("Helpers", "None — the session does all the work") { Note = "Claude Code gets them in Settings → Agents" }
+        : new HarnessSection("Helpers", string.Join(" · ", input.Helpers))
+        {
+            Note = "The session keeps the plan and hands them parts it can describe exactly; their steps show in the thread"
+        };
 
     private static HarnessSection Setup(HarnessInput input, AgentRole? role)
     {

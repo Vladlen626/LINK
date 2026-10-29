@@ -520,6 +520,17 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    - Review (`ReviewWindow`, `DiffReview`) puts line comments on a done task's diff; they go back to the same session.
    - Shared card styles live in `Controls.xaml`.
    - Worktrees are left out: Perforce folders and big game copies, and edits already queue per folder.
+15. **One loop instead of Team** (the user, 29.10: "Team does not parallelize; it is planning with a hand-over of the
+   session"; Anthropic's article on folding subagents into the main loop) — [docs/LOOP_PLAN.md](docs/LOOP_PLAN.md).
+   L.1–L.5 are built in the cloud and wait for the user's check at home:
+   - the plan is the agent's own task list, and a taste result ends with a link-ask;
+   - Team is off by default (`TeamSettings.Offered`, a new key);
+   - Claude gets the `mechanic` subagent (`--agents` file) and Codex as a tool (`codex mcp-server`);
+   - Compact at a phase's end;
+   - a final check of the whole diff by a fresh Strong session.
+
+   Not verified: the `--agents` file form on the user's Claude Code, `codex mcp-server`'s name and tools. L.6 is the
+   user's measurement: 10 golden tasks, each twice, one loop against Team; then Team is deleted or kept for one kind.
 
 ## Для AI-агентов
 

@@ -239,7 +239,7 @@
                                        Text="Claude Code and Codex on your own subscription: Link does not install them.">
                                 <TextBlock.ToolTip>
                                     <TextBlock MaxWidth="420" TextWrapping="Wrap"
-                                               Text="Each signs in once: Claude Code with Sign in below, Codex with 'codex login'. They spend your Claude or ChatGPT subscription. The task card offers each agent's own models and efforts and starts from Default. Plan first makes the plan on Strong and carries it out on the card's choice in the same session; Escalate goes on with Strong; Link's own answers (map, skill, note) run on Quick; Hand off ▾ offers all three for the same session. Default leaves the model or the effort to the agent's own settings. Agents run without subagents, so Codex's Ultra and Claude's ultracode, which work through them, are not offered." />
+                                               Text="Each signs in once: Claude Code with Sign in below, Codex with 'codex login'. They spend your Claude or ChatGPT subscription. The task card offers each agent's own models and efforts and starts from Default. Plan first makes the plan on Strong and carries it out on the card's choice in the same session; Escalate goes on with Strong; Link's own answers (map, skill, note) run on Quick; Hand off ▾ offers all three for the same session. Default leaves the model or the effort to the agent's own settings. Claude's own subagents are Link's two helpers (below); Codex's Ultra and Claude's ultracode, whole workflows of subagents, are not offered." />
                                 </TextBlock.ToolTip>
                             </TextBlock>
 
@@ -264,6 +264,12 @@
                                     <StackPanel Grid.Row="3" Grid.ColumnSpan="2" Margin="0,6,0,8">
                                         <CheckBox x:Name="AutoEffortBox" Margin="0,4" Content="Auto effort"
                                                   ToolTip="Link picks each run's effort: high to plan, medium to carry out a plan, the agent's own word for its next step, one step up after a failure. An effort you choose on the card stays for the task." />
+                                        <CheckBox x:Name="HelpersBox" Margin="0,4" Content="Helpers for Claude: mechanic and scout"
+                                                  ToolTip="Claude Code's session can hand a clear mechanical edit to 'mechanic' (Haiku) and a search to 'scout', which answer it in short: the main session keeps its context and its plan. Their steps show in the task's thread." />
+                                        <CheckBox x:Name="CodexHelperBox" Margin="0,4" Content="Codex as Claude's tool"
+                                                  ToolTip="Claude Code's session can give a clearly described piece of code to Codex (codex mcp-server), which spends your ChatGPT subscription instead of Claude's window, and checks what it got. Only where Codex is found." />
+                                        <CheckBox x:Name="TeamOfferedBox" Margin="0,4" Content="Offer the team (old way, to compare)"
+                                                  ToolTip="The card offers Team again: a lead plans, each step goes to a worker in a new session. One session that plans and delegates by itself does better on most tasks; turn this on to compare them (with Measure team vs solo)." />
                                         <CheckBox x:Name="LeadReviewBox" Margin="0,4" Content="Team lead reviews each step"
                                                   ToolTip="In a team, the lead reads the diff of each step Codex or Haiku did and accepts it, sends it back with notes (twice at most) or gives it to a stronger worker. A short turn of the lead's own session, which changes nothing." />
                                         <CheckBox x:Name="ArtReviewBox" Margin="0,4" Content="Art critic"

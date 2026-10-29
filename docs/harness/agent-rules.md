@@ -45,6 +45,13 @@ dialog: a question or a request for permission ends it, and the user's answer co
   Two to four options, the one you recommend first; `"multiSelect": true` when several fit together. The user may
   answer in their own words instead. Nothing after the block.
 
+## A big task
+- Several parts or long work: the plan is your task list (TaskCreate, or the todo list), written in the first turn
+  and kept current: Link shows it to the user. When the work shows a step wrong, change the plan and say why in a line.
+- Finish and check a part before the next one; the session keeps what you learned, so do not read it again.
+- A result only the user can judge (a model's look, an animation's feel, a level's flow): stop there with a link-ask
+  block that names what to look at, instead of going on.
+
 ## The next step
 - The task is not finished and you know the next step: end your answer with one block, and Link sets the effort of
   the next turn by it:

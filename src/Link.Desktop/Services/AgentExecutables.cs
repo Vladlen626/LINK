@@ -77,7 +77,8 @@ public static class AgentExecutables
                 .Select(package => package.InstalledPath)
                 .FirstOrDefault();
         }
-        catch (Exception exception) when (exception is COMException or UnauthorizedAccessException)
+        // A system without the Store's API (Windows Server Core, a check outside Windows) has no package.
+        catch (Exception exception) when (exception is COMException or UnauthorizedAccessException or DllNotFoundException or TypeLoadException)
         {
             return null;
         }

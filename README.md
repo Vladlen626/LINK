@@ -97,9 +97,13 @@ Studio коротко:
   токены и доля подписки; поправка на ходу (`Enter`), слова после шага (`Tab`), Stop, Hand off, Finish.
 - **Задачи рядом:** несколько задач работают одновременно, каждая со своим агентом; Studio показывает открытую, список
   — как стоят остальные: с поиском и группами **Needs you** / **Running** / **Recent**. Правки в одной папке идут по очереди, чтение и план — сразу.
-- **Агенты на выбор и вместе:** Claude Code или Codex; **Team** — ведущий (Opus) раскладывает большую задачу на
-  шаги, Link раздаёт их Opus / Codex / Haiku по виду работы, показывает кто и почему, а ведущий проверяет шаги
-  исполнителей подешевле.
+- **One loop:** Claude Code or Codex. A big task is one session: it plans in its first turn and keeps the plan current,
+  and it hands clear parts to helpers. `mechanic` on Haiku takes mechanical edits; Codex, as Claude's tool, takes
+  clear code on the ChatGPT subscription. Their steps show in the thread. When a part of the plan is done and the
+  session is half full, the next part starts compacted. When the plan is done, **Check the work** has a fresh Strong
+  session read the whole diff, and **Fix them** gives its findings back
+  ([docs/LOOP_PLAN.md](docs/LOOP_PLAN.md)). **Team** (a lead plans, each step goes to a worker in a new session) is off
+  by default: Settings → Agents → Offer the team, to compare.
 - **Специалисты** (3D Artist, Gameplay Developer, QA…) и **пакеты инструментов** (Unreal, Unity, Godot, Blender,
   Cascadeur, Perforce): общие умения для всех игр, проект добавляет к ним своё.
 - **Харнесс:** правила, карта проекта, skills, проверка после правок, Effort Auto, Compact из состояния задачи — и

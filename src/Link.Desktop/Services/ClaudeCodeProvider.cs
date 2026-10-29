@@ -18,8 +18,8 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     public override string Name => "Claude Code";
     public override AgentCapabilities Capabilities => new(true, true, true, "Anthropic");
 
-    // Claude Code's --effort levels; max is the highest. Ultracode is no effort but a setting that runs subagent
-    // workflows, and Link runs agents without subagents.
+    // Claude Code's --effort levels; max is the highest. Ultracode is no effort but a setting that runs whole subagent
+    // workflows; Link's runs have only its two helpers (Helpers).
     public override IReadOnlyList<AgentChoice> Efforts =>
         [new("low", "Low"), new("medium", "Medium"), new("high", "High"), new("xhigh", "Extra high"), new("max", "Max — the highest")];
 
@@ -69,7 +69,11 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         // MCP servers come only from the workspace's .mcp.json, as for Codex: otherwise the user's claude.ai
         // connectors ride along too, such as a docs app in a game task. Link's own answers get none.
         arguments.Add("--strict-mcp-config");
-        if (!task.WithoutMcp && McpConfigIn(task.Workspace) is { } servers) arguments.AddRange(["--mcp-config", servers]);
+        var codex = CodexTool(task);
+        string[] configs = [.. new[] { task.WithoutMcp ? null : McpConfigIn(task.Workspace), codex }.OfType<string>()];
+        if (configs.Length > 0) arguments.AddRange(["--mcp-config", .. configs]);
+        // Link's helper: the mechanic subagent for clear mechanical edits, never in a plan first, which changes nothing.
+        if (Helps(task) && !task.PlanOnly && Settings.Helpers && HelperAgents() is { } agents) arguments.AddRange(["--agents", agents]);
         if (task.ResumeSessionId is { } session) arguments.AddRange(["--resume", session]);
         // Images live in Link's data and attached files anywhere, outside the workspace: their folders are opened for reading.
         foreach (var folder in task.Images.Concat(task.Files).Select(Path.GetDirectoryName).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
@@ -85,9 +89,119 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
 
         if (ClaudeAccounts.MemoryFolder(task.Workspace) is { } memory) arguments.AddRange(["--add-dir", memory]);
 
-        // Last: the option takes every argument after it.
-        if (task.AllowedTools.Count > 0) arguments.AddRange(task.AllowedTools.Prepend("--allowedTools"));
+        // Last: the option takes every argument after it. Codex's tool needs no asking: its own sandbox keeps it in the workspace.
+        var allowed = codex is null ? task.AllowedTools : [.. task.AllowedTools, .. CodexTools];
+        if (allowed.Count > 0) arguments.AddRange(allowed.Prepend("--allowedTools"));
         return arguments;
+    }
+
+    /// <summary>The run is real work, the user's task: Link's own answers, judges and short asks get no helpers.</summary>
+    private static bool Helps(AgentTask task) => !task.Judge && !task.WithoutMcp && task.AnswerFile is null && task.MaxTurns is null;
+
+    /// <summary>Codex's two tools as Claude Code names them: a new Codex session, and its next turn.</summary>
+    internal static readonly string[] CodexTools = ["mcp__codex__codex", "mcp__codex__codex-reply"];
+
+    /// <summary>
+    /// The subagents Link gives a run, in a file (claude.cmd would split JSON's quotes): <c>mechanic</c>, on the Light
+    /// model, for a mechanical change the session can describe exactly. A search has Claude Code's own Explore.
+    /// </summary>
+    private string? HelperAgents()
+    {
+        var agents = new JsonObject
+        {
+            ["mechanic"] = new JsonObject
+            {
+                ["description"] = "Does one mechanical change described exactly: renames, moves, imports, a repeated edit across files, " +
+                                  "docs and comments. Give it the files, the change and the check; it answers in a few lines.",
+                ["prompt"] = MechanicPrompt,
+                ["tools"] = new JsonArray("Read", "Edit", "Write", "Glob", "Grep", "Bash", "PowerShell"),
+                ["model"] = Settings.ClaudeLight.Model ?? "haiku"
+            }
+        }.ToJsonString();
+        return TempFile("link-agents.json", agents);
+    }
+
+    internal const string MechanicPrompt =
+        "You make one mechanical change in the user's project for the agent that leads the task: exactly what it describes, " +
+        "in the files it names, nothing more. A change that needs a decision (design, naming the lead did not give, an unclear " +
+        "bug) is not yours: stop and say what is missing. Check with the check you were given, or the smallest that proves the " +
+        "change. Windows: PowerShell 5.1 reads UTF-8 without BOM as ANSI, so read and write text files with -Encoding UTF8. " +
+        "Answer in at most five lines: the files you changed, the check and its result, anything left undone.";
+
+    /// <summary>
+    /// Codex as a tool of the run (<c>codex mcp-server</c>) where the setting and a Codex CLI are there: in its own
+    /// sandbox, the workspace writable, asking nothing, without the desktop's add-ons. Null for a plan first, which
+    /// changes nothing, and for Link's own runs.
+    /// </summary>
+    private string? CodexTool(AgentTask task)
+    {
+        if (!Helps(task) || task.PlanOnly || !Settings.CodexHelper) return null;
+        if (FindCodex(Settings) is not { } codex) return null;
+        // An npm install is a .cmd, which only cmd starts.
+        var script = codex.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase);
+        var arguments = new JsonArray();
+        if (script) foreach (var word in new[] { "/c", codex }) arguments.Add(word);
+        foreach (var word in CodexServerArguments(task)) arguments.Add(word);
+        var server = new JsonObject
+        {
+            ["mcpServers"] = new JsonObject
+            {
+                ["codex"] = new JsonObject { ["command"] = script ? "cmd" : codex, ["args"] = arguments }
+            }
+        }.ToJsonString();
+        return TempFile("link-codex-mcp.json", server);
+    }
+
+    // A record, so that runs on other threads read a whole look or none.
+    private sealed record CodexLook(string? Chosen, string? Found, long At);
+
+    private static CodexLook? _codex;
+
+    /// <summary>
+    /// The Codex CLI that Claude's runs may use as a tool, looked for again after a minute: every run and the Harness
+    /// ask, and the look goes through Windows' package list.
+    /// </summary>
+    public static string? FindCodex(AgentSettings settings)
+    {
+        if (_codex is { } known && known.Chosen == settings.CodexPath && Environment.TickCount64 - known.At < 60_000) return known.Found;
+        var found = AgentExecutables.Find(AgentProviderKind.Codex, settings.CodexPath);
+        _codex = new CodexLook(settings.CodexPath, found, Environment.TickCount64);
+        return found;
+    }
+
+    /// <summary>What <c>codex mcp-server</c> is started with: Link's sandbox and add-ons, as for a Codex task of its own.</summary>
+    internal static IReadOnlyList<string> CodexServerArguments(AgentTask task)
+    {
+        var arguments = new List<string> { "mcp-server", "-c", "sandbox_mode=workspace-write", "-c", "approval_policy=never" };
+        if (AgentChanges.IsPerforce(task.Workspace) || task.NoStop) arguments.AddRange(["-c", "sandbox_workspace_write.network_access=true"]);
+        foreach (var feature in CodexProvider.FeaturesOff) arguments.AddRange(["-c", $"features.{feature}=false"]);
+        return arguments;
+    }
+
+    /// <summary>The words that go with the helpers into a new session: when to hand work to them.</summary>
+    protected override string? HelpersText(AgentTask task)
+    {
+        if (!Helps(task)) return null;
+        var text = new List<string>();
+        if (Settings.Helpers && AgentRules.ReadHarness(AgentRules.HelpersFile) is { Length: > 0 } helpers) text.Add(helpers);
+        // A plan first is told of them too: the plan is carried out in the same session, which then has them.
+        if (Settings.CodexHelper && FindCodex(Settings) is not null && AgentRules.ReadHarness(AgentRules.CodexHelperFile) is { Length: > 0 } codex) text.Add(codex);
+        return text.Count > 0 ? string.Join("\n\n", text) : null;
+    }
+
+    /// <summary>A file in the temp folder with this text, written only when it changed; null when it cannot be.</summary>
+    private static string? TempFile(string name, string text)
+    {
+        var file = Path.Combine(Path.GetTempPath(), name);
+        try
+        {
+            if (!File.Exists(file) || File.ReadAllText(file) != text) File.WriteAllText(file, text);
+            return file;
+        }
+        catch (IOException)
+        {
+            return null;
+        }
     }
 
     protected override bool Guarded => File.Exists(GuardExecutable);
@@ -406,7 +520,7 @@ public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null)
                 foreach (var block in Content(root))
                 {
                     if (main) Meter.Text(SpendPart.Writing, Written(block));
-                    ReadAssistant(block, events);
+                    ReadAssistant(block, events, main);
                 }
 
                 break;
@@ -551,10 +665,14 @@ public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null)
         return window;
     }
 
-    private void ReadAssistant(JsonElement block, List<AgentEvent> events)
+    private void ReadAssistant(JsonElement block, List<AgentEvent> events, bool main = true)
     {
         switch (Text(block, "type"))
         {
+            // A helper's words and its own list are its answer to the session, not the task's: only its steps show.
+            case "tool_use" when !main && Text(block, "name") is "TodoWrite" or "TaskCreate" or "TaskUpdate" or "TaskList" or "TaskGet":
+            case "text" when !main:
+                break;
             case "text" when Text(block, "text").Trim() is { Length: > 0 } text:
                 events.Add(new AgentEvent(AgentEventKind.Output, text));
                 break;
@@ -602,7 +720,10 @@ public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null)
                     : string.Empty;
                 // An MCP tool is named mcp__<server>__<tool>.
                 var mcp = name.StartsWith("mcp__", StringComparison.Ordinal) ? name[5..].Split("__", 2) : [];
-                var row = mcp.Length == 2 ? McpCall(mcp[0], mcp[1], input) : target.Length > 0 ? $"{name}: {target}" : name;
+                var row = mcp.Length == 2 ? McpCall(mcp[0], mcp[1], input)
+                    // A helper is handed a part of the work: which one and what.
+                    : name is "Agent" or "Task" && Text(input, "subagent_type") is { Length: > 0 } helper ? $"{name}: {helper} · {Text(input, "description")}"
+                    : target.Length > 0 ? $"{name}: {target}" : name;
                 var work = mcp.Length == 2 || (ShellTools.Contains(name) && RunsCode(command));
                 Called(name, row, arguments, search, events, work, image: name == "Read" && RunImages.IsImage(target) ? target : null);
                 var id = Text(block, "id");

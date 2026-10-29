@@ -774,6 +774,18 @@ public sealed class AgentSettings
     /// </summary>
     public int ContextBudget { get; set; } = DefaultContextBudget;
 
+    /// <summary>
+    /// A Claude Code run has Link's helpers as its subagents: <c>mechanic</c> on Haiku for clear mechanical edits and
+    /// <c>scout</c> for a search that returns a short answer, so the main session keeps its context for the work.
+    /// </summary>
+    public bool Helpers { get; set; } = true;
+
+    /// <summary>
+    /// A Claude Code run may hand a clearly described piece of code to Codex as a tool (<c>codex mcp-server</c>), which
+    /// spends the ChatGPT subscription instead of Claude's window. Only where Codex is found.
+    /// </summary>
+    public bool CodexHelper { get; set; } = true;
+
     /// <summary>Link starts a fresh session from the task's state where that is cheaper than going on in a big or cold one (see <see cref="Services.CompactRule"/>).</summary>
     public bool AutoCompact { get; set; } = true;
 
@@ -878,6 +890,8 @@ public sealed class AgentSettings
         AutoEffort = AutoEffort,
         ContextBudget = ContextBudget,
         AutoCompact = AutoCompact,
+        Helpers = Helpers,
+        CodexHelper = CodexHelper,
         ContinueAfterLimit = ContinueAfterLimit,
         NoStopTurns = NoStopTurns,
         NoStopDeny = [.. NoStopDeny],
