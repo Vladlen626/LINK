@@ -6,7 +6,7 @@
         <Style x:Key="ReadTextStyle" TargetType="TextBox" BasedOn="{StaticResource BareTextBoxStyle}">
             <Setter Property="IsReadOnly" Value="True" />
             <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="Padding" Value="0" />
         </Style>
 
@@ -22,7 +22,7 @@
                     </Button>
                     <TextBlock Margin="0,3,0,0" FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Carried}"
                                TextWrapping="Wrap" Visibility="{Binding CarriedVisibility}" />
-                    <TextBlock Margin="0,3,0,0" HorizontalAlignment="Right" FontSize="10.5" Foreground="{StaticResource MutedBrush}"
+                    <TextBlock Margin="0,3,0,0" HorizontalAlignment="Right" FontSize="11" Foreground="{StaticResource MutedBrush}"
                                Text="{Binding Time}" />
                 </StackPanel>
             </Border>
@@ -34,7 +34,7 @@
                     <TextBox Style="{StaticResource ReadTextStyle}" Text="{Binding Text, Mode=OneWay}" />
                     <Grid Margin="0,4,0,0">
                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBlock VerticalAlignment="Center" FontSize="10.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Time}" />
+                        <TextBlock VerticalAlignment="Center" FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Time}" />
                         <Button Grid.Column="1" Padding="6,1" Style="{StaticResource GhostButtonStyle}" Click="ShowAnswer_OnClick"
                                 ToolTip="Show the whole answer in Link's card, with Ask again and → Agent task">
                             <TextBlock FontSize="11" Foreground="{StaticResource AccentBrush}" Text="Show in Link" />
@@ -67,7 +67,7 @@
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <Ellipse x:Name="ConnectionDot" Width="7" Height="7" Margin="0,0,8,0" VerticalAlignment="Center" Fill="{StaticResource IdleOrbBrush}" />
-                    <TextBlock x:Name="ConnectionText" Grid.Column="1" VerticalAlignment="Center" FontSize="11.5"
+                    <TextBlock x:Name="ConnectionText" Grid.Column="1" VerticalAlignment="Center" FontSize="12"
                                Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
                 </Grid>
             </Button>
@@ -94,11 +94,11 @@
                                                 <TextBlock FontSize="12" FontWeight="{Binding Weight}" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
                                                 <Border Grid.Column="1" Margin="6,0,0,0" Padding="5,0" VerticalAlignment="Center" CornerRadius="6"
                                                         Background="{StaticResource ActiveContextBrush}" Visibility="{Binding CurrentVisibility}">
-                                                    <TextBlock FontSize="10" Foreground="{StaticResource TextBrush}" Text="here" />
+                                                    <TextBlock FontSize="11" Foreground="{StaticResource TextBrush}" Text="here" />
                                                 </Border>
                                                 <TextBlock Grid.Column="2" Margin="8,0,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11" Text="{Binding Time}" />
                                             </Grid>
-                                            <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="11.5" LineHeight="16" LineStackingStrategy="BlockLineHeight"
+                                            <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="12" LineHeight="16" LineStackingStrategy="BlockLineHeight"
                                                        Foreground="{StaticResource MutedBrush}" Text="{Binding Preview}" TextTrimming="CharacterEllipsis" TextWrapping="Wrap" />
                                         </StackPanel>
                                     </Grid>

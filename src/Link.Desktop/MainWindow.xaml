@@ -14,7 +14,7 @@
     <Window.Resources>
         <Style x:Key="InputTextBoxStyle" TargetType="TextBox" BasedOn="{StaticResource BareTextBoxStyle}">
             <Setter Property="Padding" Value="10,8,42,8" />
-            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="FontSize" Value="13" />
         </Style>
     </Window.Resources>
 
@@ -75,7 +75,7 @@
                         <StackPanel Orientation="Horizontal">
                             <Ellipse x:Name="AgentPillDot" Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center"
                                      Fill="{StaticResource BusyOrbBrush}" />
-                            <TextBlock x:Name="AgentPillText" VerticalAlignment="Center" FontSize="11.5" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="AgentPillText" VerticalAlignment="Center" FontSize="12" TextTrimming="CharacterEllipsis" />
                         </StackPanel>
                     </Button>
 
@@ -121,7 +121,7 @@
                                         <Path Data="{StaticResource FlagIconGeometry}" Fill="Transparent" Stroke="{StaticResource MutedBrush}"
                                               StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
                                     </Viewbox>
-                                    <TextBlock x:Name="NoteChipText" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="11.5"
+                                    <TextBlock x:Name="NoteChipText" Grid.Column="1" Margin="6,0,0,0" VerticalAlignment="Center" FontSize="12"
                                                Foreground="{StaticResource MutedBrush}" TextTrimming="CharacterEllipsis" />
                                 </Grid>
                             </Button>
@@ -141,7 +141,7 @@
                                              TextChanged="PromptBox_OnTextChanged" PreviewKeyDown="PromptBox_OnPreviewKeyDown"
                                              LostKeyboardFocus="PromptBox_OnLostKeyboardFocus" />
                                     <TextBlock x:Name="PromptPlaceholder" Margin="12,9,42,0" VerticalAlignment="Top"
-                                               Foreground="{StaticResource MutedBrush}" FontSize="13.5" IsHitTestVisible="False" Text="Ask Link…" />
+                                               Foreground="{StaticResource MutedBrush}" FontSize="13" IsHitTestVisible="False" Text="Ask Link…" />
                                     <Button x:Name="SendButton" Style="{StaticResource SendButtonStyle}" Margin="0,0,7,7"
                                             HorizontalAlignment="Right" VerticalAlignment="Bottom" Click="Send_OnClick" ToolTip="Send to linked chat">
                                         <Viewbox Width="14" Height="14">
@@ -174,7 +174,7 @@
                             <Button x:Name="RouteButton" Style="{StaticResource GhostButtonStyle}" Height="24" Padding="8,2,7,2"
                                     Click="Route_OnClick">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="RouteText" VerticalAlignment="Center" FontSize="11.5"
+                                    <TextBlock x:Name="RouteText" VerticalAlignment="Center" FontSize="12"
                                                Foreground="{StaticResource MutedBrush}" Text="Chat" />
                                     <Path Width="7" Margin="5,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
                                           Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
@@ -184,7 +184,7 @@
                             <Button x:Name="EffortButton" Style="{StaticResource GhostButtonStyle}" Height="24" Margin="2,0,0,0"
                                     Padding="8,2,7,2" Click="Effort_OnClick" ToolTip="Response effort">
                                 <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="EffortText" VerticalAlignment="Center" FontSize="11.5"
+                                    <TextBlock x:Name="EffortText" VerticalAlignment="Center" FontSize="12"
                                                Foreground="{StaticResource MutedBrush}" Text="Normal" />
                                     <Path Width="7" Margin="5,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
                                           Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
@@ -196,7 +196,7 @@
                                 <StackPanel Orientation="Horizontal">
                                     <Ellipse x:Name="ConversationDot" Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center"
                                              Fill="{StaticResource IdleOrbBrush}" />
-                                    <TextBlock x:Name="ConversationText" VerticalAlignment="Center" FontSize="11.5"
+                                    <TextBlock x:Name="ConversationText" VerticalAlignment="Center" FontSize="12"
                                                Foreground="{StaticResource MutedBrush}" Text="Conversation" />
                                 </StackPanel>
                             </Button>
@@ -205,7 +205,7 @@
                                 <StackPanel Orientation="Horizontal">
                                     <Ellipse x:Name="OnlyMyTextDot" Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center"
                                              Fill="{StaticResource IdleOrbBrush}" />
-                                    <TextBlock x:Name="OnlyMyTextText" VerticalAlignment="Center" FontSize="11.5"
+                                    <TextBlock x:Name="OnlyMyTextText" VerticalAlignment="Center" FontSize="12"
                                                Foreground="{StaticResource MutedBrush}" Text="Only my text" />
                                 </StackPanel>
                             </Button>
@@ -306,7 +306,7 @@
                                                     </Style>
                                                 </ContentControl.Style>
                                             </ContentControl>
-                                            <TextBlock Margin="5,0,0,0" MaxWidth="230" VerticalAlignment="Center" FontSize="11.5" FontWeight="SemiBold"
+                                            <TextBlock Margin="5,0,0,0" MaxWidth="230" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
                                                        Text="{Binding Label}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Label}" />
                                             <Button Style="{StaticResource TinyIconButtonStyle}" Width="20" Height="20" Margin="3,0,0,0"
                                                     Click="RemoveContext_OnClick" CommandParameter="{Binding Id}" ToolTip="Remove context">
@@ -326,7 +326,7 @@
                                    Text="Ready" TextTrimming="CharacterEllipsis" />
                         <StackPanel Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" Orientation="Horizontal" IsHitTestVisible="False">
                             <Border Style="{StaticResource KeyCapStyle}">
-                                <TextBlock FontSize="10" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Enter" />
+                                <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Enter" />
                             </Border>
                             <TextBlock x:Name="SendHintText" Margin="5,0,0,1" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}"
                                        FontSize="11" Text="sends to ChatGPT" />
@@ -387,7 +387,7 @@
                                                       VerticalScrollBarVisibility="Auto" IsSelectionEnabled="True"
                                                       SelectionBrush="{StaticResource SelectionBrush}">
                                 <FlowDocument x:Name="ResponseDocument" PagePadding="0,0,4,0" FontFamily="Segoe UI"
-                                              FontSize="13.5" LineHeight="20" Foreground="{StaticResource TextBrush}" />
+                                              FontSize="13" LineHeight="20" Foreground="{StaticResource TextBrush}" />
                             </FlowDocumentScrollViewer>
                             <!-- The same question again another way, or as a task: nothing is dictated or captured again. -->
                             <WrapPanel x:Name="RedirectPanel" Grid.Row="3" Margin="0,2,0,0" Visibility="Collapsed">

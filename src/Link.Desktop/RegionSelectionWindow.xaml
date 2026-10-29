@@ -19,7 +19,7 @@
             <StackPanel Orientation="Horizontal">
                 <TextBlock VerticalAlignment="Center" FontWeight="SemiBold" Text="Drag to select" />
                 <Border Margin="12,0,6,0" VerticalAlignment="Center" Style="{StaticResource KeyCapStyle}">
-                    <TextBlock FontSize="10.5" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Esc" />
+                    <TextBlock FontSize="11" FontWeight="SemiBold" Foreground="{StaticResource MutedBrush}" Text="Esc" />
                 </Border>
                 <TextBlock VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}" Text="to cancel" />
             </StackPanel>

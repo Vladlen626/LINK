@@ -52,7 +52,7 @@ public partial class AgentPanel
                 Children =
                 {
                     new Control { Width = 13, Height = 13, Margin = new Thickness(0, 0, 7, 0), Focusable = false, Foreground = color, Template = (ControlTemplate)FindResource("LinkGlyphTemplate") },
-                    new TextBlock { VerticalAlignment = VerticalAlignment.Center, FontSize = 12.5, Text = name }
+                    new TextBlock { VerticalAlignment = VerticalAlignment.Center, FontSize = 13, Text = name }
                 }
             }
         };

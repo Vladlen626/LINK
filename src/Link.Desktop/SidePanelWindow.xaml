@@ -31,11 +31,11 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                         <Button x:Name="ChatsTabButton" Style="{StaticResource GhostButtonStyle}" Height="28" Padding="9,2"
                                 Click="ChatsTab_OnClick" ToolTip="The project's chats with ChatGPT: open one to see it and go on in it; New chat starts one (Ctrl+K)">
-                            <TextBlock x:Name="ChatsTabText" FontSize="12.5" FontWeight="SemiBold" Text="Chats" />
+                            <TextBlock x:Name="ChatsTabText" FontSize="13" FontWeight="SemiBold" Text="Chats" />
                         </Button>
                         <Button x:Name="ProjectTabButton" Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Height="28" Margin="2,0,0,0" Padding="9,2"
                                 HorizontalAlignment="Left" Click="ProjectTab_OnClick">
-                            <TextBlock x:Name="ProjectTabText" MaxWidth="120" FontSize="12.5" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
+                            <TextBlock x:Name="ProjectTabText" MaxWidth="120" FontSize="13" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                         </Button>
                     </Grid>
                     <Button x:Name="StudioButton" Grid.Column="1" Style="{StaticResource GhostButtonStyle}" Height="28" Margin="6,0,2,0" Padding="9,2"
@@ -49,7 +49,7 @@
                                 <Ellipse x:Name="TaskTabDot" Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                                          Stroke="{StaticResource WindowSurfaceBrush}" StrokeThickness="1.5" Visibility="Collapsed" />
                             </Grid>
-                            <TextBlock VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" Text="Studio" />
+                            <TextBlock VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Text="Studio" />
                             <Viewbox Width="12" Height="12" Margin="7,0,0,0" VerticalAlignment="Center">
                                 <Path Data="{StaticResource OpenWindowIconGeometry}" Fill="Transparent" Stroke="{StaticResource MutedBrush}"
                                       StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />

@@ -53,7 +53,7 @@
 
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                             <StackPanel x:Name="ContextPanel" Orientation="Horizontal" Visibility="Collapsed">
-                                <TextBlock x:Name="ContextText" VerticalAlignment="Center" FontSize="12.5" Style="{StaticResource SecondaryTextStyle}" />
+                                <TextBlock x:Name="ContextText" VerticalAlignment="Center" FontSize="13" Style="{StaticResource SecondaryTextStyle}" />
                                 <!-- How full the session is against its limit, at a glance; the warning colour near it. -->
                                 <ProgressBar x:Name="ContextMeter" Width="56" Height="4" Margin="9,1,0,0" VerticalAlignment="Center"
                                              Style="{StaticResource UsageBarStyle}" Foreground="{StaticResource SuccessBrush}" Visibility="Collapsed" />
@@ -61,7 +61,7 @@
                                         Style="{StaticResource GhostButtonStyle}" shell:WindowChrome.IsHitTestVisibleInChrome="True"
                                         Click="Compact_OnClick"
                                         ToolTip="A fresh session of the same agent starts from the task's state instead of the session that has grown; you see and can change the state first">
-                                    <TextBlock FontSize="12.5" Text="Compact" />
+                                    <TextBlock FontSize="13" Text="Compact" />
                                 </Button>
                             </StackPanel>
                             <Button x:Name="SpendButton" Margin="8,0,0,0" Height="30" Padding="10,2" VerticalAlignment="Center"
@@ -73,7 +73,7 @@
                                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
                                               StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
                                     </Viewbox>
-                                    <TextBlock VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" Text="Spend" />
+                                    <TextBlock VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Text="Spend" />
                                 </StackPanel>
                             </Button>
                             <Button x:Name="HarnessButton" Margin="4,0,8,0" Height="30" Padding="10,2" VerticalAlignment="Center"
@@ -85,7 +85,7 @@
                                               Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
                                               StrokeThickness="1.8" StrokeLineJoin="Round" />
                                     </Viewbox>
-                                    <TextBlock VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" Text="Harness" />
+                                    <TextBlock VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Text="Harness" />
                                 </StackPanel>
                             </Button>
                         </StackPanel>

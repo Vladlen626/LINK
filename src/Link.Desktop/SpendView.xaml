@@ -58,7 +58,7 @@
                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Ellipse x:Name="CacheDot" Width="8" Height="8" Margin="0,5,9,0" VerticalAlignment="Top" />
                             <StackPanel Grid.Column="1">
-                                <TextBlock x:Name="CacheText" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+                                <TextBlock x:Name="CacheText" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
                                 <TextBlock x:Name="CacheNoteText" Style="{StaticResource CardNoteStyle}" />
                             </StackPanel>
                         </Grid>
@@ -78,7 +78,7 @@
                                 <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                 <Border Width="8" Height="8" Margin="0,5,9,0" VerticalAlignment="Top" CornerRadius="2" Background="{Binding Brush}" />
                                 <StackPanel Grid.Column="1">
-                                    <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Text}" TextWrapping="Wrap" />
+                                    <TextBlock FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Text}" TextWrapping="Wrap" />
                                     <TextBlock Margin="0,2,0,0" Style="{StaticResource CardNoteStyle}" Text="{Binding Why}" />
                                 </StackPanel>
                                 <Button Grid.Column="2" Style="{StaticResource FixButtonStyle}" Content="{Binding FixLabel}" ToolTip="{Binding FixHint}"
@@ -114,7 +114,7 @@
                             <StackPanel Margin="0,8,0,0">
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Name}" />
+                                    <TextBlock FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Name}" />
                                     <TextBlock Grid.Column="1" Margin="8,0,8,0" FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding Detail}"
                                                TextTrimming="CharacterEllipsis" ToolTip="{Binding Detail}" />
                                     <TextBlock Grid.Column="2" FontSize="12" Foreground="{StaticResource TextBrush}" Text="{Binding Amount}" />
@@ -135,9 +135,9 @@
                     <TextBlock Style="{StaticResource CardHeadingStyle}" Text="Usage windows" />
                     <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
                         <Border Width="8" Height="8" Margin="0,1,5,0" CornerRadius="2" Background="{StaticResource IdleOrbBrush}" />
-                        <TextBlock FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="used" />
+                        <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="used" />
                         <Border Width="8" Height="8" Margin="10,1,5,0" CornerRadius="2" Background="{StaticResource AccentBrush}" />
-                        <TextBlock FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="this task" />
+                        <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="this task" />
                     </StackPanel>
                 </Grid>
                 <ItemsControl x:Name="GaugesList" Margin="0,2,0,0">
@@ -146,11 +146,11 @@
                             <StackPanel Margin="0,9,0,0">
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <TextBlock FontSize="12.5" Foreground="{StaticResource TextBrush}" Text="{Binding Label}" />
-                                    <TextBlock Grid.Column="1" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Used}" />
+                                    <TextBlock FontSize="13" Foreground="{StaticResource TextBrush}" Text="{Binding Label}" />
+                                    <TextBlock Grid.Column="1" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Used}" />
                                 </Grid>
                                 <local:SpendGaugeBar Height="6" Margin="0,5,0,0" Gauge="{Binding Gauge}" />
-                                <TextBlock Margin="0,4,0,0" FontSize="11.5" Foreground="{Binding NoteBrush}" Text="{Binding Note}" TextWrapping="Wrap" />
+                                <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{Binding NoteBrush}" Text="{Binding Note}" TextWrapping="Wrap" />
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

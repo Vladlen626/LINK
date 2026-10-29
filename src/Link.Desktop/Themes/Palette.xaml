@@ -35,5 +35,5 @@
     <Thickness x:Key="PagePadding">20</Thickness>
     <sys:Double x:Key="HeaderFontSize">16</sys:Double>
     <sys:Double x:Key="BodyFontSize">13</sys:Double>
-    <sys:Double x:Key="SecondaryFontSize">11.5</sys:Double>
+    <sys:Double x:Key="SecondaryFontSize">12</sys:Double>
 </ResourceDictionary>

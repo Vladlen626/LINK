@@ -15,7 +15,7 @@
             </StackPanel>
 
             <Border Grid.Row="1" Padding="8,6" Style="{StaticResource GlassCardStyle}">
-                <TextBox x:Name="OutputBox" Style="{StaticResource BareTextBoxStyle}" FontFamily="Cascadia Mono, Consolas" FontSize="11.5"
+                <TextBox x:Name="OutputBox" Style="{StaticResource BareTextBoxStyle}" FontFamily="Cascadia Mono, Consolas" FontSize="12"
                          IsReadOnly="True" IsReadOnlyCaretVisible="True" TextWrapping="Wrap"
                          VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Auto" />
             </Border>

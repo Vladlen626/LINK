@@ -100,13 +100,17 @@ public sealed class ProjectService
     /// </summary>
     public IReadOnlyList<AgentTaskRecord> ReadAgentTasks(LinkProject project)
     {
+        // The task list, the bot and every save read the tasks: the file is parsed once, then Link's own saves keep it.
+        if (_tasks is { } known && known.Project == project.Id) return [.. known.Tasks];
         var tasks = File.Exists(AgentTasksFile(project)) || !File.Exists(AgentSessionsFile(project))
             ? AtomicJsonFile.Read<List<AgentTaskRecord>>(AgentTasksFile(project), _json) ?? []
             : (AtomicJsonFile.Read<List<AgentSessionRecord>>(AgentSessionsFile(project), _json) ?? [])
                 .Where(session => session.SessionId.Length > 0 && Enum.IsDefined(session.Provider))
                 .Select(AgentTaskRecord.FromSession)
                 .ToList();
-        return Readable(tasks);
+        var readable = Readable(tasks);
+        _tasks = (project.Id, readable);
+        return [.. readable];
     }
 
     /// <summary>
@@ -129,10 +133,14 @@ public sealed class ProjectService
     {
         var tasks = ReadAgentTasks(project).Where(old => old.Id != task.Id).Prepend(task).Take(TasksKept).ToList();
         AtomicJsonFile.Write(AgentTasksFile(project), tasks, _json);
+        _tasks = (project.Id, tasks);
         return tasks;
     }
 
     private const int TasksKept = 20;
+
+    // The tasks of the project read last: one project's, so the memory stays that of the list Link shows.
+    private (Guid Project, IReadOnlyList<AgentTaskRecord> Tasks)? _tasks;
 
     /// <summary>What the project has learned of its workers, in its data folder; recording into it saves.</summary>
     public WorkerEvidence ReadWorkerEvidence(LinkProject project) => WorkerEvidence.Load(Path.Combine(project.DataFolder, "workers.json"));

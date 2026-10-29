@@ -44,7 +44,7 @@
         <Style x:Key="NumberStyle" TargetType="TextBlock">
             <Setter Property="Margin" Value="0,0,8,0" />
             <Setter Property="FontFamily" Value="Cascadia Mono, Consolas" />
-            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="FontSize" Value="12" />
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
             <Setter Property="TextAlignment" Value="Right" />
             <Setter Property="Opacity" Value="0.7" />
@@ -76,7 +76,7 @@
                                 <StackPanel>
                                     <Grid>
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                        <TextBlock FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Name}"
+                                        <TextBlock FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Name}"
                                                    TextTrimming="CharacterEllipsis" ToolTip="{Binding Path}" />
                                         <Border Grid.Column="1" Margin="6,0,0,0" Padding="6,0" CornerRadius="8" Background="{StaticResource AccentActionBrush}"
                                                 Visibility="{Binding CommentsVisibility}">
@@ -84,9 +84,9 @@
                                         </Border>
                                     </Grid>
                                     <StackPanel Margin="0,2,0,0" Orientation="Horizontal">
-                                        <TextBlock FontSize="11.5" Foreground="{StaticResource SuccessBrush}" Text="{Binding AddedText}" />
-                                        <TextBlock Margin="6,0,0,0" FontSize="11.5" Foreground="{StaticResource ErrorBrush}" Text="{Binding RemovedText}" />
-                                        <TextBlock Margin="8,0,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Folder}"
+                                        <TextBlock FontSize="12" Foreground="{StaticResource SuccessBrush}" Text="{Binding AddedText}" />
+                                        <TextBlock Margin="6,0,0,0" FontSize="12" Foreground="{StaticResource ErrorBrush}" Text="{Binding RemovedText}" />
+                                        <TextBlock Margin="8,0,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding Folder}"
                                                    TextTrimming="CharacterEllipsis" />
                                     </StackPanel>
                                 </StackPanel>
@@ -110,13 +110,13 @@
                                             </Grid.ColumnDefinitions>
                                             <TextBlock Style="{StaticResource NumberStyle}" Text="{Binding OldNumber}" />
                                             <TextBlock Grid.Column="1" Style="{StaticResource NumberStyle}" Text="{Binding NewNumber}" />
-                                            <TextBlock x:Name="Sign" Grid.Column="2" FontFamily="Cascadia Mono, Consolas" FontSize="12.5" Text="{Binding Sign}" />
-                                            <TextBlock x:Name="Code" Grid.Column="3" Margin="0,0,10,0" FontFamily="Cascadia Mono, Consolas" FontSize="12.5"
+                                            <TextBlock x:Name="Sign" Grid.Column="2" FontFamily="Cascadia Mono, Consolas" FontSize="13" Text="{Binding Sign}" />
+                                            <TextBlock x:Name="Code" Grid.Column="3" Margin="0,0,10,0" FontFamily="Cascadia Mono, Consolas" FontSize="13"
                                                        Foreground="{StaticResource TextBrush}" Text="{Binding Text}" TextWrapping="Wrap" />
                                         </Grid>
                                         <Border Margin="110,4,12,5" Padding="10,6" CornerRadius="{StaticResource SurfaceRadius}" Background="{StaticResource PopupSurfaceBrush}"
                                                 BorderBrush="{StaticResource AccentBorderBrush}" BorderThickness="1" Visibility="{Binding CommentVisibility}">
-                                            <TextBlock FontSize="12.5" Foreground="{StaticResource TextBrush}" Text="{Binding Comment}" TextWrapping="Wrap" />
+                                            <TextBlock FontSize="13" Foreground="{StaticResource TextBrush}" Text="{Binding Comment}" TextWrapping="Wrap" />
                                         </Border>
                                     </StackPanel>
                                 </Border>

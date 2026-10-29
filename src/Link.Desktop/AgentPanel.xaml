@@ -47,7 +47,7 @@
             <Setter Property="MaxWidth" Value="240" />
             <Setter Property="Margin" Value="0,0,2,0" />
             <Setter Property="Padding" Value="8,4,26,4" />
-            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
@@ -57,12 +57,12 @@
             <Setter Property="Margin" Value="0,0,6,6" />
             <Setter Property="Padding" Value="8,0" />
             <Setter Property="FontFamily" Value="Consolas" />
-            <Setter Property="FontSize" Value="11.5" />
+            <Setter Property="FontSize" Value="12" />
         </Style>
         <Style x:Key="ReadTextStyle" TargetType="TextBox" BasedOn="{StaticResource BareTextBoxStyle}">
             <Setter Property="IsReadOnly" Value="True" />
             <Setter Property="TextWrapping" Value="Wrap" />
-            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="Padding" Value="0" />
             <Setter Property="TextBlock.LineHeight" Value="20" />
             <Setter Property="TextBlock.LineStackingStrategy" Value="BlockLineHeight" />
@@ -75,7 +75,7 @@
             <Setter Property="Background" Value="Transparent" />
             <Setter Property="BorderThickness" Value="0" />
             <Setter Property="Padding" Value="0" />
-            <Setter Property="FontSize" Value="13.5" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
             <Setter Property="SelectionBrush" Value="{StaticResource SelectionBrush}" />
             <Setter Property="Template">
@@ -147,9 +147,9 @@
                             <TextBox Style="{StaticResource ReadTextStyle}" Text="{Binding Text, Mode=OneWay}" />
                             <Button Margin="-6,4,0,0" Padding="6,1" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
                                     Click="UserWords_OnClick" Visibility="{Binding ToggleVisibility}">
-                                <TextBlock FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding ToggleLabel}" />
+                                <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding ToggleLabel}" />
                             </Button>
-                            <TextBlock Margin="0,4,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Carried}"
+                            <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding Carried}"
                                        TextWrapping="Wrap" Visibility="{Binding CarriedVisibility}" />
                         </StackPanel>
                     </Border>
@@ -162,7 +162,7 @@
             <Grid Margin="0,18,0,0">
                 <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                 <Border Height="1" Margin="0,0,8,0" VerticalAlignment="Center" Background="{StaticResource HairlineBrush}" />
-                <TextBlock Grid.Column="1" MaxWidth="380" FontSize="11.5" Foreground="{StaticResource MutedBrush}" TextAlignment="Center"
+                <TextBlock Grid.Column="1" MaxWidth="380" FontSize="12" Foreground="{StaticResource MutedBrush}" TextAlignment="Center"
                            TextWrapping="Wrap">
                     <Run Text="{Binding Text, Mode=OneWay}" /><Run Text=" · " /><Run Text="{Binding Time, Mode=OneWay}" />
                 </TextBlock>
@@ -187,7 +187,7 @@
                 <ItemsControl Margin="0,8,0,0" ItemsSource="{Binding Steps}" Visibility="{Binding StepsVisibility}">
                     <ItemsControl.Resources>
                         <DataTemplate DataType="{x:Type local:AgentStepRow}">
-                            <TextBlock Margin="0,3" FontSize="13.5" LineHeight="20" LineStackingStrategy="BlockLineHeight"
+                            <TextBlock Margin="0,3" FontSize="13" LineHeight="20" LineStackingStrategy="BlockLineHeight"
                                        Foreground="{Binding Brush}" Text="{Binding Text}" TextWrapping="Wrap" />
                         </DataTemplate>
                         <DataTemplate DataType="{x:Type local:StepGroup}">
@@ -204,7 +204,7 @@
                                         <ItemsControl Grid.Column="1" Margin="10,8" ItemsSource="{Binding Rows}">
                                             <ItemsControl.ItemTemplate>
                                                 <DataTemplate>
-                                                    <TextBlock Margin="0,1" FontFamily="Consolas" FontSize="11.5" Foreground="{Binding Brush}"
+                                                    <TextBlock Margin="0,1" FontFamily="Consolas" FontSize="12" Foreground="{Binding Brush}"
                                                                Text="{Binding Text}" TextWrapping="Wrap" />
                                                 </DataTemplate>
                                             </ItemsControl.ItemTemplate>
@@ -219,7 +219,7 @@
                 <Grid Margin="0,8,0,0" Visibility="{Binding CurrentVisibility}">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <Ellipse Width="6" Height="6" Margin="1,1,9,0" VerticalAlignment="Center" Fill="{StaticResource AccentBrush}" />
-                    <TextBlock Grid.Column="1" FontSize="12.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Current}"
+                    <TextBlock Grid.Column="1" FontSize="13" Foreground="{StaticResource MutedBrush}" Text="{Binding Current}"
                                TextTrimming="CharacterEllipsis" />
                 </Grid>
                 <RichTextBox Margin="0,8,0,0" Style="{StaticResource ReadRichTextStyle}" local:MarkdownText.Source="{Binding Said, Mode=OneWay}"
@@ -286,9 +286,9 @@
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>
                 </ItemsControl>
-                <TextBlock Margin="0,6,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Next}"
+                <TextBlock Margin="0,6,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding Next}"
                            TextWrapping="Wrap" Visibility="{Binding NextVisibility}" />
-                <TextBlock Margin="0,4,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Stats}"
+                <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding Stats}"
                            TextWrapping="Wrap" Visibility="{Binding StatsVisibility}" />
             </StackPanel>
         </DataTemplate>
@@ -333,9 +333,9 @@
                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                         <Path Width="12" Height="12" Margin="10,0,6,0" VerticalAlignment="Center" Stretch="Uniform" Data="{StaticResource SearchIconGeometry}"
                               Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
-                        <TextBox x:Name="SearchBox" Grid.Column="1" Padding="0,0,8,0" VerticalContentAlignment="Center" VerticalAlignment="Center" FontSize="12.5"
+                        <TextBox x:Name="SearchBox" Grid.Column="1" Padding="0,0,8,0" VerticalContentAlignment="Center" VerticalAlignment="Center" FontSize="13"
                                  Style="{StaticResource BareTextBoxStyle}" TextChanged="SearchBox_OnTextChanged" PreviewKeyDown="SearchBox_OnPreviewKeyDown" />
-                        <TextBlock x:Name="SearchPlaceholder" Grid.Column="1" VerticalAlignment="Center" FontSize="12.5" IsHitTestVisible="False"
+                        <TextBlock x:Name="SearchPlaceholder" Grid.Column="1" VerticalAlignment="Center" FontSize="13" IsHitTestVisible="False"
                                    Foreground="{StaticResource MutedBrush}" Text="Search tasks" />
                     </Grid>
                 </Border>
@@ -349,7 +349,7 @@
                         <ItemsControl x:Name="TaskList">
                             <ItemsControl.Resources>
                                 <DataTemplate DataType="{x:Type local:TaskGroupHeader}">
-                                    <TextBlock Margin="10,12,6,4" Style="{StaticResource SectionLabelStyle}" FontSize="11.5" Text="{Binding Title}" />
+                                    <TextBlock Margin="10,12,6,4" Style="{StaticResource SectionLabelStyle}" FontSize="12" Text="{Binding Title}" />
                                 </DataTemplate>
                                 <DataTemplate DataType="{x:Type local:TaskRow}">
                                     <Button Style="{StaticResource SidebarRowStyle}" Click="TaskRow_OnClick" ToolTip="Open the task: its thread; your words go on with it">
@@ -365,12 +365,12 @@
                                             <StackPanel Grid.Column="1">
                                                 <Grid>
                                                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                                    <TextBlock FontSize="12.5" FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
-                                                    <TextBlock Grid.Column="1" Margin="8,1,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Time}" />
+                                                    <TextBlock FontSize="13" FontWeight="SemiBold" Text="{Binding Title}" TextTrimming="CharacterEllipsis" />
+                                                    <TextBlock Grid.Column="1" Margin="8,1,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding Time}" />
                                                 </Grid>
-                                                <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Status}"
+                                                <TextBlock Margin="0,1,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding Status}"
                                                            TextTrimming="CharacterEllipsis" />
-                                                <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Preview}"
+                                                <TextBlock Margin="0,1,0,0" FontSize="12" Foreground="{StaticResource MutedBrush}" Text="{Binding Preview}"
                                                            TextTrimming="CharacterEllipsis" />
                                                 <!-- Where its tokens went, as long as its share of the costliest task's. -->
                                                 <local:SpendBar Height="3" Margin="0,6,0,1" Gap="1" Parts="{Binding Spend}" Scale="{Binding SpendScale}"
@@ -436,7 +436,7 @@
                             ToolTip="Close the card: nothing runs" />
                 </Grid>
                 <!-- Why the card starts on the other agent: the default one has reached its limit. -->
-                <TextBlock x:Name="CardNoticeText" Margin="0,8,0,0" FontSize="12.5" Foreground="{StaticResource AccentBrush}"
+                <TextBlock x:Name="CardNoticeText" Margin="0,8,0,0" FontSize="13" Foreground="{StaticResource AccentBrush}"
                            TextWrapping="Wrap" Visibility="Collapsed" />
 
                 <!-- The goal as in a chat's box: what goes along above the words, who works and how under them, Run at the end. -->
@@ -445,7 +445,7 @@
                         <!-- The images that go along: the screen and pictures from the chips; then what was pasted or dropped. -->
                         <WrapPanel x:Name="ImagesPanel" Margin="0,0,0,4" />
                         <WrapPanel x:Name="CardAttachedPanel" Margin="0,0,0,4" Visibility="Collapsed" />
-                        <TextBox x:Name="GoalBox" Style="{StaticResource BareTextBoxStyle}" Padding="0,2" FontSize="13.5" MinHeight="96"
+                        <TextBox x:Name="GoalBox" Style="{StaticResource BareTextBoxStyle}" Padding="0,2" FontSize="13" MinHeight="96"
                                  MaxHeight="300" AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                  LostFocus="Goal_OnLostFocus" PreviewKeyDown="Goal_OnPreviewKeyDown"
                                  ToolTip="What the agent is told, word for word: its first line names the task. Edit it before Run (Ctrl+Enter runs). Ctrl+V or drop adds pictures and files" />
@@ -468,13 +468,13 @@
                                 </ComboBox>
                             </WrapPanel>
                             <TextBlock Grid.Column="1" Margin="8,0,10,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}"
-                                       FontSize="11.5" Text="Ctrl+Enter" />
+                                       FontSize="12" Text="Ctrl+Enter" />
                             <Button x:Name="RunButton" Grid.Column="2" Height="30" Padding="16,0" VerticalAlignment="Bottom"
                                     Style="{StaticResource PrimaryButtonStyle}" Click="Run_OnClick" Content="Run" ToolTipService.ShowOnDisabled="True" />
                         </Grid>
                     </StackPanel>
                 </Border>
-                <TextBlock x:Name="CardWarningText" Margin="2,8,0,0" FontSize="12.5" Foreground="{StaticResource ErrorBrush}"
+                <TextBlock x:Name="CardWarningText" Margin="2,8,0,0" FontSize="13" Foreground="{StaticResource ErrorBrush}"
                            TextWrapping="Wrap" Visibility="Collapsed" />
                 <TextBlock x:Name="AttachmentsText" Margin="2,6,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
 
@@ -579,7 +579,7 @@
                     <StackPanel>
                         <Button x:Name="PlanToggle" Margin="-6,0,0,0" Padding="6,3" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
                                 Click="PlanToggle_OnClick">
-                            <TextBlock x:Name="PlanLabel" FontSize="12.5" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
+                            <TextBlock x:Name="PlanLabel" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" />
                         </Button>
                         <ScrollViewer MaxHeight="280" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
                             <ItemsControl x:Name="PlanList" Margin="0,2,4,0">
@@ -609,14 +609,14 @@
                                                         <StackPanel Orientation="Horizontal" Visibility="{Binding RoleVisibility}">
                                                             <Control Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center" Focusable="False"
                                                                      Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" />
-                                                            <TextBlock VerticalAlignment="Center" FontSize="11.5" Foreground="{Binding RoleBrush}" Text="{Binding RoleName}" />
+                                                            <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{Binding RoleBrush}" Text="{Binding RoleName}" />
                                                         </StackPanel>
                                                     </StackPanel>
                                                     <TextBlock Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11"
                                                                Foreground="{StaticResource MutedBrush}" Text="{Binding Chevron}" />
                                                 </Grid>
                                             </Button>
-                                            <TextBlock Margin="20,0,14,8" FontSize="12.5" LineHeight="18" LineStackingStrategy="BlockLineHeight"
+                                            <TextBlock Margin="20,0,14,8" FontSize="13" LineHeight="18" LineStackingStrategy="BlockLineHeight"
                                                        Foreground="{StaticResource MutedBrush}" Text="{Binding Detail}" TextWrapping="Wrap"
                                                        Visibility="{Binding DetailVisibility}" />
                                         </StackPanel>
@@ -649,7 +649,7 @@
                     <Border x:Name="LimitCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
                         <StackPanel>
                             <TextBlock x:Name="LimitText" Style="{StaticResource RowTextStyle}" />
-                            <CheckBox x:Name="LimitBox" Margin="0,8,0,0" FontSize="12.5" Visibility="Collapsed" Click="LimitBox_OnClick" />
+                            <CheckBox x:Name="LimitBox" Margin="0,8,0,0" FontSize="13" Visibility="Collapsed" Click="LimitBox_OnClick" />
                             <WrapPanel x:Name="LimitActions" Margin="0,2,0,0" />
                         </StackPanel>
                     </Border>
@@ -659,7 +659,7 @@
                     <Border x:Name="DecisionCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
                         <StackPanel>
                             <TextBlock x:Name="DecisionText" Style="{StaticResource RowTextStyle}" />
-                            <CheckBox x:Name="AlwaysBox" Margin="0,8,0,0" FontSize="12.5" Content="Always allow for this project" />
+                            <CheckBox x:Name="AlwaysBox" Margin="0,8,0,0" FontSize="13" Content="Always allow for this project" />
                             <StackPanel Orientation="Horizontal" Margin="0,10,0,0">
                                 <Button x:Name="DecisionButton" Style="{StaticResource PrimaryButtonStyle}" Height="30"
                                         Padding="14,0" Click="Decision_OnClick" />
@@ -673,7 +673,7 @@
                     <!-- After a failed run or a Stop on a loop: start over with a note, or the same session on Deep. -->
                     <Border x:Name="RestartCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
                         <StackPanel>
-                            <TextBlock Style="{StaticResource RowTextStyle}" FontSize="12.5" Foreground="{StaticResource MutedBrush}"
+                            <TextBlock Style="{StaticResource RowTextStyle}" FontSize="13" Foreground="{StaticResource MutedBrush}"
                                        Text="Start over: the agent writes in five lines what it tried and why it did not work, and a new session takes the task with that note. Escalate: the same session goes on with the strongest model of Settings." />
                             <WrapPanel Margin="0,2,0,0">
                                 <Button Style="{StaticResource PrimaryButtonStyle}" Height="28" Margin="0,6,6,0" Padding="14,0"
@@ -698,7 +698,7 @@
                     <!-- Pictures and files pasted (Ctrl+V) or dropped, to go with the words. -->
                     <WrapPanel x:Name="ReplyAttachedPanel" Margin="0,0,0,6" Visibility="Collapsed" />
                     <Grid x:Name="ReplyEditor" Grid.Row="1">
-                        <TextBox x:Name="ReplyBox" Style="{StaticResource BareTextBoxStyle}" Padding="0,2" FontSize="13.5" MinHeight="44" MaxHeight="180"
+                        <TextBox x:Name="ReplyBox" Style="{StaticResource BareTextBoxStyle}" Padding="0,2" FontSize="13" MinHeight="44" MaxHeight="180"
                                  AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
                                  TextChanged="ReplyBox_OnTextChanged" PreviewKeyDown="ReplyBox_OnPreviewKeyDown" />
                         <TextBlock x:Name="ReplyPlaceholder" Margin="2,2,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="13"

@@ -61,7 +61,7 @@
                         <Grid>
                             <Grid.ColumnDefinitions><ColumnDefinition Width="2" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                             <Border Margin="0,6" Background="{StaticResource HairlineBrush}" CornerRadius="1" />
-                            <TextBox Grid.Column="1" Margin="10,8" Padding="0" Style="{StaticResource BareTextBoxStyle}" FontFamily="Consolas" FontSize="11.5"
+                            <TextBox Grid.Column="1" Margin="10,8" Padding="0" Style="{StaticResource BareTextBoxStyle}" FontFamily="Consolas" FontSize="12"
                                      IsReadOnly="True" MaxHeight="220" Text="{Binding Detail, Mode=OneWay}" TextWrapping="Wrap"
                                      VerticalScrollBarVisibility="Auto" />
                         </Grid>

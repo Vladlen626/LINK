@@ -105,12 +105,12 @@ public partial class SpendView : UserControl
         if (task.ToolErrors > 0) work.Add(Plural(task.ToolErrors, "error"));
         if (task.WindowPoints is { } points) work.Add($"{points.ToString("0.#", CultureInfo.InvariantCulture)}% of the 5 h window");
         WorkText.Text = string.Join(" · ", work);
+        if (!Equals(TaskBar.Parts, task.Parts)) TaskBar.Highlight = null;
         TaskBar.Parts = task.Parts;
-        TaskBar.Highlight = null;
-        LegendList.ItemsSource = SpendParts.All.Where(part => task.Parts[part] > 0)
+        Fill(LegendList, SpendParts.All.Where(part => task.Parts[part] > 0)
             .Select(part => new SpendLegendRow(part, SpendReport.Name(part), $"{Math.Round(100.0 * task.Parts[part] / Math.Max(1, task.Parts.Total))}%",
                 SpendReport.Hint(part), SpendInk.Part(this, part)))
-            .ToArray();
+            .ToArray());
         UnsplitText.Text = task.Unsplit > 0
             ? task.Parts.Total > 0
                 ? $"~{AgentContext.Tokens((long)task.Unsplit)} of runs from before Link split the tokens are in the total, not in the bar."
@@ -123,7 +123,7 @@ public partial class SpendView : UserControl
     {
         var tips = task?.Tips ?? [];
         TipsCard.Visibility = tips.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        TipsList.ItemsSource = tips.Select(tip => new SpendTipRow(tip,
+        Fill(TipsList, tips.Select(tip => new SpendTipRow(tip,
             tip.Part is { } part ? SpendInk.Part(this, part) : SpendInk.Brush(this, "AccentBrush"),
             tip.Fix switch { SpendFix.Map => task!.HasMap ? "Update map" : "Write map", SpendFix.Compact => "Compact", _ => string.Empty },
             tip.Fix switch
@@ -131,7 +131,7 @@ public partial class SpendView : UserControl
                 SpendFix.Map => "Link's own run reads the project and writes docs/map.md: what is where, for every task after",
                 SpendFix.Compact => "A fresh session of the same agent from the task's state; you see and can change the state first",
                 _ => string.Empty
-            })).ToArray();
+            })).ToArray());
     }
 
     private void ShowCurve(SpendTask? task)
@@ -149,17 +149,27 @@ public partial class SpendView : UserControl
         var runs = task?.Runs ?? [];
         RunsCard.Visibility = runs.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         var most = Math.Max(1, runs.Count == 0 ? 1 : runs.Max(run => run.Parts.Total));
-        RunsList.ItemsSource = runs.Select(run => new SpendRunRow(run.Name, run.Detail,
+        Fill(RunsList, runs.Select(run => new SpendRunRow(run.Name, run.Detail,
             run.CostUsd is { } cost ? $"~{AgentContext.Tokens(run.Parts.Total)} · {Money(cost)}" : "~" + AgentContext.Tokens(run.Parts.Total),
-            run.Parts, Math.Max(0.02, (double)run.Parts.Total / most))).ToArray();
+            run.Parts, Math.Max(0.02, (double)run.Parts.Total / most))).ToArray());
     }
 
     private void ShowGauges(IReadOnlyList<SpendGauge> gauges)
     {
         GaugesCard.Visibility = gauges.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
-        GaugesList.ItemsSource = gauges.Select(gauge => new SpendGaugeRow(gauge.Label,
+        Fill(GaugesList, gauges.Select(gauge => new SpendGaugeRow(gauge.Label,
             $"{Math.Round(gauge.Used)}%{(gauge.Mine > 0 ? $" · this task {gauge.Mine.ToString("0.#", CultureInfo.InvariantCulture)}" : string.Empty)}",
-            gauge, gauge.Note, SpendInk.Brush(this, gauge.Warn ? "ErrorBrush" : "MutedBrush"))).ToArray();
+            gauge, gauge.Note, SpendInk.Brush(this, gauge.Warn ? "ErrorBrush" : "MutedBrush"))).ToArray());
+    }
+
+    /// <summary>
+    /// A list gets its rows only when they changed: the view is shown again each second while the agent works, and new
+    /// rows would rebuild every item and drop the pointer's hover.
+    /// </summary>
+    private static void Fill<T>(ItemsControl list, T[] rows)
+    {
+        if (list.ItemsSource is T[] shown && shown.SequenceEqual(rows)) return;
+        list.ItemsSource = rows;
     }
 
     /// <summary>

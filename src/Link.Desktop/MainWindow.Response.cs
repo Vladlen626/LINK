@@ -240,17 +240,17 @@ public partial class MainWindow
         section.Blocks.Add(new Paragraph(new Bold(new Run("Task for the agent")))
         {
             Margin = new Thickness(0, 0, 0, 4),
-            FontSize = 11.5,
+            FontSize = 12,
             Foreground = (Brush)FindResource("AccentBrush")
         });
-        section.Blocks.Add(new Paragraph(new Run(brief)) { Margin = new Thickness(0), FontSize = 12.5 });
+        section.Blocks.Add(new Paragraph(new Run(brief)) { Margin = new Thickness(0), FontSize = 13 });
         var give = new Button
         {
             Content = "Give to agent",
             Height = 24,
             Padding = new Thickness(10, 0, 10, 0),
             Margin = new Thickness(0, 6, 0, 0),
-            FontSize = 11.5,
+            FontSize = 12,
             HorizontalAlignment = HorizontalAlignment.Left,
             ToolTip = "A task card with this brief: you check it, nothing runs before Run"
         };
@@ -266,7 +266,7 @@ public partial class MainWindow
     private Block CreatePictureBlock(ResponsePicture picture)
     {
         var content = new StackPanel { Width = 240 };
-        picture.Label = new TextBlock { FontSize = 12.5 };
+        picture.Label = new TextBlock { FontSize = 13 };
         content.Children.Add(picture.Label);
         picture.Bar = null;
         if (!picture.Made)
@@ -285,7 +285,7 @@ public partial class MainWindow
         {
             Text = "Open in ChatGPT",
             Margin = new Thickness(0, 6, 0, 0),
-            FontSize = 11.5,
+            FontSize = 12,
             Foreground = (Brush)FindResource("AccentBrush")
         });
         UpdatePictureCard(picture, going: true);

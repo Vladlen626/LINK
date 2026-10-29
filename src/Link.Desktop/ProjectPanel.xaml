@@ -16,12 +16,12 @@
         </Style>
         <Style x:Key="FieldTextStyle" TargetType="TextBox" BasedOn="{StaticResource BareTextBoxStyle}">
             <Setter Property="Padding" Value="4,4" />
-            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="TextWrapping" Value="Wrap" />
         </Style>
         <Style x:Key="PlaceholderStyle" TargetType="TextBlock">
             <Setter Property="Margin" Value="9,6" />
-            <Setter Property="FontSize" Value="12.5" />
+            <Setter Property="FontSize" Value="13" />
             <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
             <Setter Property="TextWrapping" Value="Wrap" />
             <Setter Property="IsHitTestVisible" Value="False" />
@@ -80,7 +80,7 @@
                                     Click="Skill_OnClick" ToolTip="Show its SKILL.md in Explorer">
                                 <StackPanel>
                                     <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
-                                    <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="11.5" LineHeight="16" LineStackingStrategy="BlockLineHeight"
+                                    <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="12" LineHeight="16" LineStackingStrategy="BlockLineHeight"
                                                Foreground="{StaticResource MutedBrush}" Text="{Binding Description}" TextTrimming="CharacterEllipsis"
                                                TextWrapping="Wrap" />
                                 </StackPanel>
