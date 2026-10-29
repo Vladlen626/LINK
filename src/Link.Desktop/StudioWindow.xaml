@@ -23,7 +23,7 @@
                 <Grid.RowDefinitions><RowDefinition Height="46" /><RowDefinition Height="*" /></Grid.RowDefinitions>
 
                 <!-- The caption: the tasks' toggle, Link and the project; on the right the open task's context with Compact,
-                     the Harness toggle, and the window's own buttons. -->
+                     the Spend and Harness toggles of the right column, and the window's own buttons. -->
                 <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1">
                     <Grid>
                         <Grid.ColumnDefinitions>
@@ -54,6 +54,9 @@
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                             <StackPanel x:Name="ContextPanel" Orientation="Horizontal" Visibility="Collapsed">
                                 <TextBlock x:Name="ContextText" VerticalAlignment="Center" FontSize="12.5" Style="{StaticResource SecondaryTextStyle}" />
+                                <!-- How full the session is against its limit, at a glance; the warning colour near it. -->
+                                <ProgressBar x:Name="ContextMeter" Width="56" Height="4" Margin="9,1,0,0" VerticalAlignment="Center"
+                                             Style="{StaticResource UsageBarStyle}" Foreground="{StaticResource SuccessBrush}" Visibility="Collapsed" />
                                 <Button x:Name="CompactButton" Margin="8,0,0,0" Height="30" Padding="10,2" VerticalAlignment="Center"
                                         Style="{StaticResource GhostButtonStyle}" shell:WindowChrome.IsHitTestVisibleInChrome="True"
                                         Click="Compact_OnClick"
@@ -61,7 +64,19 @@
                                     <TextBlock FontSize="12.5" Text="Compact" />
                                 </Button>
                             </StackPanel>
-                            <Button x:Name="HarnessButton" Margin="8,0,8,0" Height="30" Padding="10,2" VerticalAlignment="Center"
+                            <Button x:Name="SpendButton" Margin="8,0,0,0" Height="30" Padding="10,2" VerticalAlignment="Center"
+                                    Style="{StaticResource GhostButtonStyle}" shell:WindowChrome.IsHitTestVisibleInChrome="True"
+                                    Click="Spend_OnClick">
+                                <StackPanel Orientation="Horizontal">
+                                    <Viewbox Width="14" Height="14" Margin="0,1,7,0">
+                                        <Path Data="{StaticResource SpendIconGeometry}" Fill="Transparent"
+                                              Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                              StrokeThickness="2" StrokeStartLineCap="Round" StrokeEndLineCap="Round" />
+                                    </Viewbox>
+                                    <TextBlock VerticalAlignment="Center" FontSize="12.5" FontWeight="SemiBold" Text="Spend" />
+                                </StackPanel>
+                            </Button>
+                            <Button x:Name="HarnessButton" Margin="4,0,8,0" Height="30" Padding="10,2" VerticalAlignment="Center"
                                     Style="{StaticResource GhostButtonStyle}" shell:WindowChrome.IsHitTestVisibleInChrome="True"
                                     Click="Harness_OnClick">
                                 <StackPanel Orientation="Horizontal">
@@ -97,8 +112,9 @@
                     </Grid>
                 </Border>
 
-                <!-- The tasks (the sidebar and the open task, AgentPanel) in the middle; what the agent really gets on the right,
-                     in a column that folds away. Clear of the resize band on the right, which would take the scroll bars' clicks. -->
+                <!-- The tasks (the sidebar and the open task, AgentPanel) in the middle; on the right, in a column that folds
+                     away, what the agent really gets (Harness) or where its tokens went (Spend). Clear of the resize band on the
+                     right, which would take the scroll bars' clicks. -->
                 <Grid Grid.Row="1" Margin="0,0,6,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
@@ -106,9 +122,14 @@
                     </Grid.ColumnDefinitions>
                     <Border x:Name="TasksHost" />
                     <Border x:Name="InspectorHost" Grid.Column="1" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1,0,0,0">
-                        <ScrollViewer x:Name="InspectorScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                            <local:HarnessInspector x:Name="Inspector" Margin="12,12,6,12" />
-                        </ScrollViewer>
+                        <Grid>
+                            <ScrollViewer x:Name="InspectorScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                <local:HarnessInspector x:Name="Inspector" Margin="12,12,6,12" />
+                            </ScrollViewer>
+                            <ScrollViewer x:Name="SpendScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
+                                <local:SpendView x:Name="Spend" Margin="12,12,6,12" />
+                            </ScrollViewer>
+                        </Grid>
                     </Border>
                 </Grid>
             </Grid>

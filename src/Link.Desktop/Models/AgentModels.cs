@@ -212,6 +212,39 @@ public sealed record AgentRunRecord
 
     public long? ContextWindow { get; init; }
 
+    /// <summary>The run's turns, tool calls, calls that only looked around and calls that failed.</summary>
+    public int Turns { get; init; }
+
+    public int ToolCalls { get; init; }
+    public int Searches { get; init; }
+    public int ToolErrors { get; init; }
+
+    /// <summary>The input written to the cache, of <see cref="InputTokens"/>, and the output that was thinking, of <see cref="OutputTokens"/>, where told.</summary>
+    public long? CacheWriteTokens { get; init; }
+
+    public long? ReasoningTokens { get; init; }
+
+    /// <summary>The time the model's requests took, of <see cref="Duration"/>.</summary>
+    public TimeSpan? ApiTime { get; init; }
+
+    /// <summary>Where the run's tokens went, ≈ tokens; null for a run of an older Link or one that told no tokens.</summary>
+    public SpendParts? Spend { get; init; }
+
+    /// <summary>Input read again at full price because the cache had lost it; null where it is not measured.</summary>
+    public long? ColdTokens { get; init; }
+
+    /// <summary>The context of each request, in thousands of tokens.</summary>
+    public List<int> ContextCurve { get; init; } = [];
+
+    /// <summary>How long the run's cache writes last, in minutes, where told: when the cache goes cold after it.</summary>
+    public int? CacheMinutes { get; init; }
+
+    /// <summary>Searches before the first changed file; null when nothing changed.</summary>
+    public int? SearchesBeforeChange { get; init; }
+
+    /// <summary>The files the run read more than once, relative to the workspace, the most costly first.</summary>
+    public List<FileReads> Rereads { get; init; } = [];
+
     /// <summary>The CLI's loop check named a kind of loop in the run.</summary>
     public bool Looped { get; init; }
 
@@ -546,6 +579,9 @@ public sealed record AgentEvent(AgentEventKind Kind, string Text, string? Detail
     public long ContextTokens { get; init; }
 
     public long? ContextWindow { get; init; }
+
+    /// <summary>For a context event read after the run: the context of each of its requests, in thousands of tokens.</summary>
+    public IReadOnlyList<int> Curve { get; init; } = [];
 }
 
 /// <summary>How a run ended. <see cref="Denials"/> are the tool rules the agent was refused, to allow and try again.</summary>
@@ -607,6 +643,30 @@ public sealed record AgentStats
 
     public TimeSpan Duration { get; init; }
 
+    /// <summary>The input written to the cache, a part of <see cref="InputTokens"/>; Claude Code tells it.</summary>
+    public long? CacheWriteTokens { get; init; }
+
+    /// <summary>The model's thinking, a part of <see cref="OutputTokens"/>, where the CLI tells it apart (Codex).</summary>
+    public long? ReasoningTokens { get; init; }
+
+    /// <summary>The time the model's requests took, of <see cref="Duration"/>; the rest went to tools and waiting.</summary>
+    public TimeSpan? ApiTime { get; init; }
+
+    /// <summary>The run's input split by what it went to, as its <see cref="Services.SpendMeter"/> measured it.</summary>
+    public SpendParts? SpendInput { get; init; }
+
+    /// <summary>Input read again at full price because the cache had lost it (see <see cref="Services.SpendMeter.ColdTokens"/>).</summary>
+    public long? ColdTokens { get; init; }
+
+    /// <summary>The context of each request, in thousands of tokens (<see cref="Services.SpendMeter.Curve"/>).</summary>
+    public IReadOnlyList<int> ContextCurve { get; init; } = [];
+
+    /// <summary>How long the run's cache writes last, 5 or 60 minutes, where the CLI tells it.</summary>
+    public int? CacheMinutes { get; init; }
+
+    /// <summary>The files the run read more than once, the most costly first (Claude Code's reads).</summary>
+    public IReadOnlyList<FileReads> Rereads { get; init; } = [];
+
     /// <summary>These numbers and those of the run that continued this one, as one task's.</summary>
     public AgentStats Add(AgentStats next)
     {
@@ -626,7 +686,15 @@ public sealed record AgentStats
             SessionTokens = SessionTokens || next.SessionTokens,
             ContextTokens = next.ContextTokens ?? ContextTokens,
             ContextWindow = next.ContextWindow ?? ContextWindow,
-            Duration = Duration + next.Duration
+            Duration = Duration + next.Duration,
+            CacheWriteTokens = tokens is not null ? tokens.CacheWriteTokens : Sum(CacheWriteTokens, next.CacheWriteTokens),
+            ReasoningTokens = tokens is not null ? tokens.ReasoningTokens : Sum(ReasoningTokens, next.ReasoningTokens),
+            ApiTime = ApiTime is null && next.ApiTime is null ? null : (ApiTime ?? TimeSpan.Zero) + (next.ApiTime ?? TimeSpan.Zero),
+            SpendInput = SpendInput is null ? next.SpendInput : next.SpendInput is null ? SpendInput : SpendInput + next.SpendInput,
+            ColdTokens = Sum(ColdTokens, next.ColdTokens),
+            ContextCurve = Services.SpendMeter.Thin([.. ContextCurve, .. next.ContextCurve]),
+            CacheMinutes = next.CacheMinutes ?? CacheMinutes,
+            Rereads = FileReads.Join([.. Rereads, .. next.Rereads])
         };
 
         static long? Sum(long? first, long? second) => first is null && second is null ? null : (first ?? 0) + (second ?? 0);

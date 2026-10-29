@@ -153,6 +153,7 @@ public partial class MainWindow
         panel.SetHeader(live is not null ? AgentHeader(live) : $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort)} · answer");
         panel.ShowPlan([]);
         panel.ShowChanges(string.Empty, string.Empty);
+        panel.ShowReview(false);
         panel.ShowThread([own.Turn]);
         panel.ShowUsage(string.Empty, string.Empty);
         panel.ResetCards();

@@ -370,6 +370,11 @@ public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null)
     private readonly Dictionary<string, string> _pendingTools = [];
     private readonly Dictionary<string, string> _pendingEdits = [];
 
+    // What each call's result will be to the spend meter, the file a read reads, and the message the last request answered with.
+    private readonly Dictionary<string, SpendPart> _pendingParts = [];
+    private readonly Dictionary<string, string> _pendingReads = [];
+    private string? _message;
+
     // The agent's tasks as TaskCreate and TaskUpdate keep them, by number. A plan without numbers (TodoWrite's) is numbered
     // in order, as Claude Code does.
     private readonly List<AgentPlanItem> _tasks = (plan ?? []).Select((item, index) => item with { Number = item.Number ?? index + 1 }).ToList();
@@ -390,16 +395,28 @@ public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null)
                 break;
             // Claude Code compacted the session by itself, near the budget or at the model's window.
             case "system" when Text(root, "subtype") == "compact_boundary":
+                Meter.Compacted();
                 var before = root.TryGetProperty("compact_metadata", out var compacted) ? Number(compacted, "pre_tokens") : 0;
                 events.Add(new AgentEvent(AgentEventKind.Status,
                     before > 0 ? $"Claude Code compacted the context (was {AgentContext.Tokens(before)})" : "Claude Code compacted the context"));
                 break;
             case "assistant":
-                ReadContext(root, events);
-                foreach (var block in Content(root)) ReadAssistant(block, events);
+                var main = !IsSubagent(root);
+                if (main) ReadContext(root, events);
+                foreach (var block in Content(root))
+                {
+                    if (main) Meter.Text(SpendPart.Writing, Written(block));
+                    ReadAssistant(block, events);
+                }
+
                 break;
             case "user":
-                foreach (var block in Content(root)) ReadToolResult(block, events);
+                foreach (var block in Content(root))
+                {
+                    if (!IsSubagent(root)) MeasureResult(block);
+                    ReadToolResult(block, events);
+                }
+
                 break;
             case "result":
                 ReadResult(root, events);
@@ -450,8 +467,70 @@ public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null)
             ? found
             : default;
         var tokens = Number(usage, "input_tokens") + Number(usage, "cache_read_input_tokens") + Number(usage, "cache_creation_input_tokens");
+        // Each message is one request of the model's, whatever number of blocks it comes in.
+        if (tokens > 0 && Text(message, "id") is { Length: > 0 } id && id != _message)
+        {
+            _message = id;
+            Meter.Request(tokens, Number(usage, "cache_read_input_tokens"));
+        }
+
         if (tokens > 0 && tokens != ContextTokens) Context(tokens, null, events);
     }
+
+    /// <summary>A subagent's message: its context is its own, not the session's.</summary>
+    private static bool IsSubagent(JsonElement root) => Text(root, "parent_tool_use_id").Length > 0;
+
+    /// <summary>What a block of the model's message adds to the context: its text, its thinking, a tool call's input.</summary>
+    private static int Written(JsonElement block) => Text(block, "type") switch
+    {
+        "text" => Text(block, "text").Length,
+        "thinking" => Text(block, "thinking").Length,
+        "tool_use" => block.TryGetProperty("input", out var input) ? input.GetRawText().Length : 0,
+        _ => 0
+    };
+
+    /// <summary>What a tool's result adds to the context: its text under the call's part, its pictures as pictures.</summary>
+    private void MeasureResult(JsonElement block)
+    {
+        if (Text(block, "type") != "tool_result") return;
+        var id = Text(block, "tool_use_id");
+        var part = _pendingParts.Remove(id, out var called) ? called : SpendPart.Commands;
+        if (!block.TryGetProperty("content", out var content)) return;
+        if (_pendingReads.Remove(id, out var file) && !(block.TryGetProperty("is_error", out var error) && error.ValueKind == JsonValueKind.True))
+        {
+            FileRead(file, ResultText(block).Length);
+        }
+
+        if (content.ValueKind == JsonValueKind.String)
+        {
+            Meter.Text(part, content.GetString()?.Length ?? 0);
+            return;
+        }
+
+        if (content.ValueKind != JsonValueKind.Array) return;
+        foreach (var item in content.EnumerateArray())
+        {
+            if (Text(item, "type") == "image")
+            {
+                var (width, height) = item.TryGetProperty("source", out var source) ? SpendMeter.ImageSize(Text(source, "data")) : (0, 0);
+                Meter.Tokens(SpendPart.Images, SpendMeter.ImageTokens(width, height));
+            }
+            else
+            {
+                Meter.Text(part, Text(item, "text").Length);
+            }
+        }
+    }
+
+    /// <summary>What a tool call's result goes to: reading a file, searching, the model's own edit, or a tool's work.</summary>
+    private static SpendPart PartOf(string tool, string command) => tool switch
+    {
+        "Read" or "NotebookRead" => SpendPart.Files,
+        "WebSearch" or "WebFetch" => SpendPart.Search,
+        _ when EditTools.Contains(tool) => SpendPart.Writing,
+        _ when SearchTools.Contains(tool) || (ShellTools.Contains(tool) && IsSearchCommand(command)) => SpendPart.Search,
+        _ => SpendPart.Commands
+    };
 
     /// <summary>
     /// The window of the main model: the result lists the models of a run, and the one that read the most is the
@@ -528,6 +607,8 @@ public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null)
                 Called(name, row, arguments, search, events, work, image: name == "Read" && RunImages.IsImage(target) ? target : null);
                 var id = Text(block, "id");
                 _pendingTools[id] = name;
+                _pendingParts[id] = PartOf(name, command);
+                if (name == "Read" && Text(input, "file_path") is { Length: > 0 } read && !RunImages.IsImage(read)) _pendingReads[id] = read;
                 if (EditTools.Contains(name) && Text(input, "file_path") is { Length: > 0 } edited) _pendingEdits[id] = edited;
                 break;
         }
@@ -614,8 +695,16 @@ public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null)
                 Number(usage, "input_tokens") + Number(usage, "cache_creation_input_tokens") + cached,
                 cached,
                 Number(usage, "output_tokens"),
-                root.TryGetProperty("total_cost_usd", out var cost) && cost.TryGetDecimal(out var usd) ? usd : null);
+                root.TryGetProperty("total_cost_usd", out var cost) && cost.TryGetDecimal(out var usd) ? usd : null,
+                cacheWrites: Number(usage, "cache_creation_input_tokens"));
+            // The cache keeps a write for 5 minutes or, where the account has it, an hour.
+            if (usage.TryGetProperty("cache_creation", out var written))
+            {
+                CacheMinutes = Number(written, "ephemeral_1h_input_tokens") > 0 ? 60 : Number(written, "ephemeral_5m_input_tokens") > 0 ? 5 : CacheMinutes;
+            }
         }
+
+        if (Number(root, "duration_api_ms") is > 0 and var api) ApiTime = TimeSpan.FromMilliseconds(api);
 
         // The window is told only here; the size it is told with is the last message's.
         if (ContextTokens is { } context && WindowOf(root) is { } window) Context(context, window, events);

@@ -145,6 +145,7 @@ public sealed class StudioSettings
     public const double MaxHeight = 4320;
     public const double DefaultWidth = 1100;
     public const double DefaultHeight = 720;
+    public const int DefaultSpendDays = 30;
     // No screen is wider than this: beyond it a place is nonsense.
     private const double FarthestPlace = 100_000;
 
@@ -156,6 +157,14 @@ public sealed class StudioSettings
     public bool Maximized { get; set; }
     public bool InspectorOpen { get; set; } = true;
     public bool SidebarOpen { get; set; } = true;
+
+    /// <summary>The right column shows the Spend view rather than the Harness.</summary>
+    public bool SpendShown { get; set; }
+
+    /// <summary>How many days back the Spend history shows, and whether of every project or the shown one.</summary>
+    public int SpendDays { get; set; } = DefaultSpendDays;
+
+    public bool SpendAllProjects { get; set; }
 
     /// <summary>Keeps where the window stands, its normal bounds when it is maximized.</summary>
     public void Remember(double left, double top, double width, double height, bool maximized)
@@ -170,6 +179,7 @@ public sealed class StudioSettings
         if (Left is not { } left || Top is not { } top || !IsPlace(left) || !IsPlace(top)) (Left, Top) = (null, null);
         Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, MinWidth, MaxWidth) : DefaultWidth;
         Height = double.IsFinite(Height) && Height > 0 ? Math.Clamp(Height, MinHeight, MaxHeight) : DefaultHeight;
+        SpendDays = SpendDays <= 0 ? DefaultSpendDays : Math.Clamp(SpendDays, 7, Services.UsageHistory.KeptDays);
     }
 
     private static bool IsPlace(double value) => double.IsFinite(value) && Math.Abs(value) <= FarthestPlace;

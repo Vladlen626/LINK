@@ -82,6 +82,29 @@
         <Setter Property="CornerRadius" Value="{StaticResource SurfaceRadius}" />
     </Style>
 
+    <!-- A card of the Studio's columns (Harness, Spend): a heading, its value or chart, and a quiet note. -->
+    <Style x:Key="CardStyle" TargetType="Border">
+        <Setter Property="Margin" Value="0,0,0,10" />
+        <Setter Property="Padding" Value="14,12" />
+        <Setter Property="Background" Value="{StaticResource CardBrush}" />
+        <Setter Property="BorderBrush" Value="{StaticResource GlassBorderSoftBrush}" />
+        <Setter Property="BorderThickness" Value="1" />
+        <Setter Property="CornerRadius" Value="{StaticResource CardRadius}" />
+    </Style>
+
+    <Style x:Key="CardHeadingStyle" TargetType="TextBlock">
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="FontWeight" Value="SemiBold" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+    </Style>
+
+    <Style x:Key="CardNoteStyle" TargetType="TextBlock" BasedOn="{StaticResource SecondaryTextStyle}">
+        <Setter Property="FontSize" Value="12" />
+        <Setter Property="LineHeight" Value="17" />
+        <Setter Property="LineStackingStrategy" Value="BlockLineHeight" />
+        <Setter Property="TextWrapping" Value="Wrap" />
+    </Style>
+
     <!-- A dialog's surface: the overlay's panel, solid. -->
     <Style x:Key="DialogSurfaceStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource PanelBrush}" />
@@ -261,6 +284,44 @@
         <Setter Property="Height" Value="28" />
         <Setter Property="Padding" Value="10,3" />
         <Setter Property="FontSize" Value="12" />
+    </Style>
+
+    <!-- A choice that is on or off, as a pill: lit while it is on. -->
+    <Style x:Key="ToggleChipStyle" TargetType="CheckBox">
+        <Setter Property="Height" Value="28" />
+        <Setter Property="Margin" Value="0,0,6,6" />
+        <Setter Property="Padding" Value="11,0" />
+        <Setter Property="FontSize" Value="12.5" />
+        <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
+        <Setter Property="Cursor" Value="Hand" />
+        <Setter Property="FocusVisualStyle" Value="{x:Null}" />
+        <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="CheckBox">
+                    <Border x:Name="Pill" Padding="{TemplateBinding Padding}" Background="Transparent" BorderBrush="{StaticResource GlassBorderBrush}"
+                            BorderThickness="1" CornerRadius="14">
+                        <StackPanel Orientation="Horizontal">
+                            <Path x:Name="Tick" Width="10" Height="10" Margin="0,0,6,0" VerticalAlignment="Center" Data="M2,5 L4.3,7.3 L8.5,2.5"
+                                  Stroke="{StaticResource AccentBrush}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
+                                  Visibility="Collapsed" />
+                            <ContentPresenter VerticalAlignment="Center" />
+                        </StackPanel>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Pill" Property="Background" Value="{StaticResource HoverBrush}" /></Trigger>
+                        <Trigger Property="IsChecked" Value="True">
+                            <Setter TargetName="Pill" Property="Background" Value="{StaticResource ActiveContextBrush}" />
+                            <Setter TargetName="Pill" Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" />
+                            <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
+                            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                        </Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Pill" Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" /></Trigger>
+                        <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Pill" Property="Opacity" Value="0.45" /></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
     </Style>
 
     <Style x:Key="ShortcutRecorderStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">

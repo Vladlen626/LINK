@@ -43,6 +43,9 @@ public partial class MainWindow
     private readonly AgentLimits _limits;
     // What the agents spent at API prices, as ccusage reads their logs: the line under the usage bars.
     private readonly UsageReport _usage;
+
+    // The days of work, for the Spend view; each recorded run adds to its day.
+    private readonly UsageHistory _spending;
     private AgentConsoleWindow? _agentConsoleWindow;
     private AgentPanel? _agentPanel;
     // What Run on the card does: start a task, or hand the open one over with the brief on the card.
@@ -169,6 +172,10 @@ public partial class MainWindow
             UserSpoke(work);
             RefuseDecision(work, decision);
         };
+        panel.ReviewRequested += () =>
+        {
+            if (_open is { } work) _ = ReviewChangesAsync(work);
+        };
         panel.RestartRequested += RequestRestart;
         panel.EscalateRequested += Escalate;
         panel.ContinueRequested += (words, attached) => ContinueWithAttached(words, attached, queue: false);
@@ -254,6 +261,9 @@ public partial class MainWindow
 
         // Each workspace's role files are read once per drawing, and only for a task that has a specialist.
         var roles = new Dictionary<string, Lazy<IReadOnlyList<AgentRole>>>(StringComparer.OrdinalIgnoreCase);
+        // The runs Link split; a task of older runs only has no bar.
+        static SpendParts Spent(AgentTaskRecord record) => record.Runs.Where(run => run.Spend is not null).Aggregate(new SpendParts(), (sum, run) => sum + run.Spend!);
+        var most = Math.Max(1, tasks.Select(record => Spent(record).Total).DefaultIfEmpty().Max());
         return tasks.Select(record =>
         {
             // The list is drawn now and then: a running row says so, the time is in the pill and the task.
@@ -262,8 +272,14 @@ public partial class MainWindow
             var provider = work?.Run?.Task.Provider ?? record.LastRun?.Provider;
             var who = provider is { } agent ? AgentName(agent) + " · " : string.Empty;
             if (!roles.TryGetValue(record.Workspace, out var inWorkspace)) roles[record.Workspace] = inWorkspace = WorkspaceRoles(record.Workspace);
+            var spent = Spent(record);
             return new TaskRow(record.Goal, ToPreviewText(record.LastWords), ShortTime(record.UpdatedAt), who + status, brush,
-                RoleBrushes.For(record.RoleId, inWorkspace), record) { Group = GroupOf(record, work) };
+                RoleBrushes.For(record.RoleId, inWorkspace), record)
+            {
+                Group = GroupOf(record, work),
+                Spend = spent,
+                SpendScale = Math.Max(0.04, (double)spent.Total / most)
+            };
         }).ToArray();
     }
 
@@ -1068,7 +1084,7 @@ public partial class MainWindow
         var files = run.Changes.Select(change => Relative(change.Path, record.Workspace)).ToList();
         // A worker's run on a team's step; the lead's review and the art critic's judgement run while the step waits on them.
         var step = TeamRunner.Current(record) is { Status: TeamStepStatus.Running } current ? current : null;
-        record.Runs.Add(new AgentRunRecord
+        var ran = new AgentRunRecord
         {
             Provider = task.Provider,
             Model = task.Model,
@@ -1093,6 +1109,18 @@ public partial class MainWindow
                 : stats.CostUsd,
             ContextTokens = stats.ContextTokens,
             ContextWindow = stats.ContextWindow,
+            Turns = stats.Turns,
+            ToolCalls = stats.ToolCalls,
+            Searches = stats.Searches,
+            ToolErrors = stats.ToolErrors,
+            SearchesBeforeChange = stats.SearchesBeforeChange,
+            Rereads = [.. stats.Rereads.Select(read => read with { Path = Relative(read.Path, record.Workspace) })],
+            CacheWriteTokens = Less(stats.CacheWriteTokens, earlier.Sum(previous => previous.CacheWriteTokens ?? 0)),
+            ReasoningTokens = Less(stats.ReasoningTokens, earlier.Sum(previous => previous.ReasoningTokens ?? 0)),
+            ApiTime = stats.ApiTime,
+            ColdTokens = stats.ColdTokens,
+            ContextCurve = [.. stats.ContextCurve],
+            CacheMinutes = stats.CacheMinutes,
             Looped = result.Loops.Count > 0,
             Spent = [.. spent],
             Steps = [.. live.Steps.TakeLast(StepsKeptPerRun)],
@@ -1100,7 +1128,10 @@ public partial class MainWindow
             Images = [.. RunImages.Of(ArtCritic.Named(answer), [.. live.Images, .. run.Changes.Select(change => change.Path)], record.Workspace,
                 live.StartedAt, RunImages.Written)],
             Words = Shorten(answer, 12_000)
-        });
+        };
+        // The split is the run's own tokens', taken off the session's where the CLI told those.
+        record.Runs.Add(ran.InputTokens is null ? ran : ran with { Spend = SpendMeter.Split(stats.SpendInput, TokenCount.Of(ran)) });
+        _spending.Add(work.Project.Id, record.Runs[^1]);
         record.Add(AgentEntryKind.Run,
             $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort, ranModel: record.Runs[^1].RanModel)}: " +
             $"{ending.ToLowerInvariant()}, {Plural(run.Changes.Count, "file")} changed");

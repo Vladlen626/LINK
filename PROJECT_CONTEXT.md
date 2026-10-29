@@ -61,7 +61,8 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
   правила агента в каждой новой сессии, цифры задачи, карта, skills, проверка после Do, метки петель.
 - **Agent Studio** — сделано, ждёт проверки (2026-10-08): окно Studio с колонкой Harness, бюджет контекста и Compact,
   Effort Auto, специалисты и skills, своя модель (убрана 2026-10-16), план агента со статусами,
-  статистика ролей и моделей, First Run, Team pack. Дальше — Remote.
+  статистика ролей и моделей, First Run, Team pack. Дальше — Remote. Spend column and Review with line comments —
+  built 2026-10-29, waiting for the user's check.
 
 ## Стек
 
@@ -508,6 +509,17 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    уровень шага.
 13. **Задачи рядом** (10.10, ждёт проверки пользователем): несколько задач работают одновременно, правки в папке — по
    одной; WPF и живые CLI здесь не запускались (сборка и проверки — на Linux).
+14. **Spend and Review** (the user asked for spending per session "beautifully, with sliders" and a stronger UI,
+   2026-10-29; built in the cloud and waiting for the user's check, since WPF did not run there):
+   - Runs keep their split of ≈ tokens: uncached + 0.1 cached + 5 output, by reading, searching, commands, editing,
+     images, base and answer (`SpendMeter`, `SpendParts`). They also keep the context of each request and cache writes.
+   - Days go to `usage-history.json` (90 days).
+   - The Spend column in Studio (`SpendView`, `SpendReport`, charts in `SpendCharts`) shows the task, its tips with Fix
+     (map, Compact), the context curve, its runs, the usage windows with a projection, and a history slider.
+   - The sidebar has mini bars; the header has a context meter.
+   - Review (`ReviewWindow`, `DiffReview`) puts line comments on a done task's diff; they go back to the same session.
+   - Shared card styles live in `Controls.xaml`.
+   - Worktrees are left out: Perforce folders and big game copies, and edits already queue per folder.
 
 ## Для AI-агентов
 

@@ -225,8 +225,8 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
     /// <summary>
     /// What Codex last wrote into its log of a session (<c>rollout-…-&lt;session&gt;.jsonl</c>) in a token count: the
     /// 5-hour and weekly windows (<c>rate_limits</c>) and the context now (<c>last_token_usage</c> with the model's
-    /// window); and the images its <c>image_gen</c> tool finished since <paramref name="imagesSince"/>. Only those lines
-    /// are looked at; nothing else of the session is read.
+    /// window, and the context of each request since <paramref name="imagesSince"/> as its curve); and the images its
+    /// <c>image_gen</c> tool finished since then. Only those lines are looked at; nothing else of the session is read.
     /// </summary>
     internal static (IReadOnlyList<AgentLimit> Limits, AgentEvent? Context, IReadOnlyList<CodexImage> Images) SessionReport(
         string sessionsFolder, string session, DateTimeOffset? imagesSince = null)
@@ -239,10 +239,16 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
             if (file is null) return ([], null, []);
             string? limits = null, count = null;
             var images = new List<CodexImage>();
+            var curve = new List<long>();
             foreach (var line in File.ReadLines(file))
             {
                 if (line.Contains("\"rate_limits\"") && line.Contains("\"codex\"")) limits = line;
-                if (line.Contains("\"token_count\"") && line.Contains("\"last_token_usage\"")) count = line;
+                if (line.Contains("\"token_count\"") && line.Contains("\"last_token_usage\""))
+                {
+                    count = line;
+                    if (RequestIn(line, imagesSince) is { } request) curve.Add(request);
+                }
+
                 if (imagesSince is { } since && line.Contains("\"image_gen.generation\"") && line.Contains("\"item_completed\"") &&
                     ImageIn(line, since) is { } image)
                 {
@@ -250,7 +256,8 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
                 }
             }
 
-            return (limits is null ? [] : LimitsIn(limits), count is null ? null : ContextIn(count), images);
+            var context = count is null ? null : ContextIn(count);
+            return (limits is null ? [] : LimitsIn(limits), context is null ? null : context with { Curve = SpendMeter.Thin(SpendMeter.Thousands(curve)) }, images);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or JsonException)
         {
@@ -302,6 +309,24 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
                 return new AgentLimit(AgentProviderKind.Codex, WindowOf(minutes), used, reset, used >= 100, now);
             })
             .ToArray();
+    }
+
+    /// <summary>
+    /// The input of a token count's last request, if the count was written since <paramref name="since"/> (a line with
+    /// no time counts); null for an earlier one.
+    /// </summary>
+    private static long? RequestIn(string line, DateTimeOffset? since)
+    {
+        using var document = JsonDocument.Parse(line);
+        if (since is { } start && Words(document.RootElement, "timestamp") is { } stamp &&
+            DateTimeOffset.TryParse(stamp, System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var at) &&
+            at < start)
+        {
+            return null;
+        }
+
+        var tokens = AgentEventParser.Number(Child(Child(Child(document.RootElement, "payload"), "info"), "last_token_usage"), "input_tokens");
+        return tokens > 0 ? tokens : null;
     }
 
     /// <summary>
@@ -514,8 +539,12 @@ public sealed partial class CodexEventParser : AgentEventParser
     // Seen on a real resume: the note asked after a 33-minute run reported that whole run's tokens.
     public CodexEventParser(bool resumed = false) => TokensOfSession = resumed;
 
+    // A tool's output came in since the model last answered: what it says next is a new request of its.
+    private bool _answered;
+
     protected override void Read(JsonElement root, List<AgentEvent> events)
     {
+        Measure(root);
         switch (Text(root, "type"))
         {
             case "thread.started":
@@ -551,7 +580,8 @@ public sealed partial class CodexEventParser : AgentEventParser
                 // Input counts the cached part too, as the API does.
                 if (root.TryGetProperty("usage", out var usage))
                 {
-                    Spent(Number(usage, "input_tokens"), Number(usage, "cached_input_tokens"), Number(usage, "output_tokens"), null);
+                    Spent(Number(usage, "input_tokens"), Number(usage, "cached_input_tokens"), Number(usage, "output_tokens"), null,
+                        reasoning: usage.TryGetProperty("reasoning_output_tokens", out _) ? Number(usage, "reasoning_output_tokens") : null);
                 }
 
                 events.Add(new AgentEvent(AgentEventKind.Completed, Summary));
@@ -566,6 +596,73 @@ public sealed partial class CodexEventParser : AgentEventParser
                 Failed = true;
                 events.Add(new AgentEvent(AgentEventKind.Status, Short(Message(Text(root, "message")))));
                 break;
+        }
+    }
+
+    /// <summary>
+    /// What an event adds to the context, for the spend meter. Codex tells no request's size on the way, so a request
+    /// is counted where the model speaks after a tool's output (or first in a turn), and the text's size stands in.
+    /// </summary>
+    private void Measure(JsonElement root)
+    {
+        var type = Text(root, "type");
+        if (type == "turn.started")
+        {
+            _answered = false;
+            return;
+        }
+
+        if (type is not ("item.started" or "item.completed") || !root.TryGetProperty("item", out var item)) return;
+        var kind = Text(item, "type");
+        if (kind is "todo_list" or "error") return;
+        var output = type == "item.completed" && kind is "command_execution" or "mcp_tool_call";
+        if (!output || kind == "mcp_tool_call" && !_answered)
+        {
+            if (!_answered) Meter.Request();
+            _answered = true;
+        }
+
+        if (type == "item.started") return;
+        switch (kind)
+        {
+            case "agent_message" or "reasoning":
+                Meter.Text(SpendPart.Writing, Text(item, "text").Length);
+                break;
+            case "command_execution":
+                var command = Text(item, "command");
+                Meter.Text(SpendPart.Writing, command.Length);
+                Meter.Text(IsSearchCommand(Unwrap(command)) ? SpendPart.Search : SpendPart.Commands, Text(item, "aggregated_output").Length);
+                _answered = false;
+                break;
+            case "mcp_tool_call":
+                Meter.Text(SpendPart.Writing, item.TryGetProperty("arguments", out var arguments) ? arguments.GetRawText().Length : 0);
+                MeasureMcp(item);
+                _answered = false;
+                break;
+        }
+    }
+
+    /// <summary>An MCP result's text as a tool's work, its pictures as pictures.</summary>
+    private void MeasureMcp(JsonElement item)
+    {
+        if (!item.TryGetProperty("result", out var result) || result.ValueKind != JsonValueKind.Object) return;
+        if (!result.TryGetProperty("content", out var content) || content.ValueKind != JsonValueKind.Array)
+        {
+            Meter.Text(SpendPart.Commands, result.GetRawText().Length);
+            return;
+        }
+
+        foreach (var part in content.EnumerateArray())
+        {
+            if (Text(part, "type") == "image")
+            {
+                var (width, height) = SpendMeter.ImageSize(Text(part, "data"));
+                Meter.Tokens(SpendPart.Images, SpendMeter.ImageTokens(width, height));
+            }
+            else
+            {
+                Meter.Text(SpendPart.Commands, Text(part, "text").Length);
+            }
         }
     }
 

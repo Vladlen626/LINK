@@ -1,10 +1,11 @@
 using System.Windows;
+using Link.Desktop.Models;
 using Link.Desktop.Services;
 using Microsoft.Win32;
 
 namespace Link.Desktop;
 
-// Studio: the agents' tasks and the Harness Inspector in a window of their own, apart from the overlay and its panel. It
+// Studio: the agents' tasks, the Harness Inspector and the Spend view in a window of their own, apart from the overlay and its panel. It
 // is made the first time it is wanted and is gone when closed; the AgentPanel it shows stays here, with the tasks' state,
 // and moves into each new Studio. Nothing here runs while the Studio is closed.
 public partial class MainWindow
@@ -35,6 +36,12 @@ public partial class MainWindow
             if (_open is { } work) _ = CompactTask(work);
         };
         studio.InspectorOpened += () => RefreshStudio();
+        studio.SpendFixRequested += fix =>
+        {
+            if (fix == SpendFix.Map) _ = WriteProjectMapAsync();
+            else if (fix == SpendFix.Compact && StudioTask is { } work) _ = CompactTask(work);
+        };
+        studio.SpendHistoryChanged += () => studio.ShowSpendHistory(SpendDays(studio));
         studio.OpenFileRequested += ShowFile;
         studio.ConsoleRequested += ShowAgentConsole;
         studio.TeamPackExportRequested += ExportTeamPack;
@@ -66,18 +73,53 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The Studio's header (the project, the open task's context, Compact) and its inspector as things stand. The
-    /// inspector is built only while its column is open, and again when it opens; <paramref name="live"/> (the session
-    /// told its context) leaves it as it is if it was built a moment ago.
+    /// The Studio's header (the project, the open task's context, Compact) and its right column as things stand. The
+    /// column is built only while it is open, and again when it opens; <paramref name="live"/> (the session told its
+    /// context) leaves it as it is if it was built a moment ago, and the Spend history as it is.
     /// </summary>
     private void RefreshStudio(bool live = false)
     {
         if (_studio is not { } studio) return;
         var context = StudioTask is { } work ? ContextLine(work.Record) ?? "Context not told yet" : null;
-        studio.ShowHeader(_projects.ActiveProject.Name, context, StudioTask is { Busy: false, Waiting: null } open && ResumableTask(open) is not null);
+        var canCompact = StudioTask is { Busy: false, Waiting: null } open && ResumableTask(open) is not null;
+        studio.ShowHeader(_projects.ActiveProject.Name, context, StudioTask is { } shownTask ? ContextFull(shownTask.Record) : null, canCompact);
         if (!studio.InspectorOpen || live && Environment.TickCount64 - _inspectorBuiltAt < LiveInspectorEvery.TotalMilliseconds) return;
         _inspectorBuiltAt = Environment.TickCount64;
-        studio.ShowHarness(CurrentHarness());
+        if (!studio.SpendOpen)
+        {
+            studio.ShowHarness(CurrentHarness());
+            return;
+        }
+
+        studio.ShowSpend(StudioTask is { } shown ? TaskSpend(shown.Record, canCompact) : null, StudioTask?.Run is not null, SpendGauges());
+        if (!live) studio.ShowSpendHistory(SpendDays(studio));
+    }
+
+    /// <summary>How full the task's session is against its limit, 0 to 1; null while neither is known.</summary>
+    private double? ContextFull(AgentTaskRecord record)
+    {
+        var (used, window) = ContextOf(record);
+        return used is { } tokens && AgentContext.Limit(_settings.Current.Agent.ContextBudget, window) is long limit and > 0
+            ? Math.Clamp((double)tokens / limit, 0, 1)
+            : null;
+    }
+
+    /// <summary>The task's spend for the Spend view: each run named by its agent and setup.</summary>
+    private SpendTask TaskSpend(AgentTaskRecord record, bool canCompact) => SpendReport.Of(record,
+        run => $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, ranModel: run.RanModel)}",
+        _settings.Current.Agent.ContextBudget, File.Exists(ProjectMap.PathIn(record.Workspace)), canCompact);
+
+    /// <summary>Both agents' windows as last told, with the shown task's part of each.</summary>
+    private IReadOnlyList<SpendGauge> SpendGauges() => SpendReport.Gauges(
+        [.. _limits.For(AgentProviderKind.ClaudeCode), .. _limits.For(AgentProviderKind.Codex)], StudioTask?.Record, DateTimeOffset.Now);
+
+    /// <summary>The days the Spend history shows: its range back from today, of the shown project or of all.</summary>
+    private IReadOnlyList<SpendDay> SpendDays(StudioWindow studio)
+    {
+        var (days, all) = studio.SpendRange;
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var first = today.AddDays(1 - days);
+        return SpendReport.Days(_spending.Since(first, all ? null : _projects.ActiveProject.Id), first, today);
     }
 
     /// <summary>

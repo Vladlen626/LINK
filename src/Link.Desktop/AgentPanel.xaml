@@ -52,43 +52,6 @@
             <Setter Property="BorderBrush" Value="Transparent" />
             <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
         </Style>
-        <!-- A choice that is on or off, as a pill: lit while it is on. -->
-        <Style x:Key="ToggleChipStyle" TargetType="CheckBox">
-            <Setter Property="Height" Value="28" />
-            <Setter Property="Margin" Value="0,0,6,6" />
-            <Setter Property="Padding" Value="11,0" />
-            <Setter Property="FontSize" Value="12.5" />
-            <Setter Property="Foreground" Value="{StaticResource MutedBrush}" />
-            <Setter Property="Cursor" Value="Hand" />
-            <Setter Property="FocusVisualStyle" Value="{x:Null}" />
-            <Setter Property="ToolTipService.ShowOnDisabled" Value="True" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="CheckBox">
-                        <Border x:Name="Pill" Padding="{TemplateBinding Padding}" Background="Transparent" BorderBrush="{StaticResource GlassBorderBrush}"
-                                BorderThickness="1" CornerRadius="14">
-                            <StackPanel Orientation="Horizontal">
-                                <Path x:Name="Tick" Width="10" Height="10" Margin="0,0,6,0" VerticalAlignment="Center" Data="M2,5 L4.3,7.3 L8.5,2.5"
-                                      Stroke="{StaticResource AccentBrush}" StrokeThickness="1.8" StrokeStartLineCap="Round" StrokeEndLineCap="Round"
-                                      Visibility="Collapsed" />
-                                <ContentPresenter VerticalAlignment="Center" />
-                            </StackPanel>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="Pill" Property="Background" Value="{StaticResource HoverBrush}" /></Trigger>
-                            <Trigger Property="IsChecked" Value="True">
-                                <Setter TargetName="Pill" Property="Background" Value="{StaticResource ActiveContextBrush}" />
-                                <Setter TargetName="Pill" Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" />
-                                <Setter TargetName="Tick" Property="Visibility" Value="Visible" />
-                                <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-                            </Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Pill" Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" /></Trigger>
-                            <Trigger Property="IsEnabled" Value="False"><Setter TargetName="Pill" Property="Opacity" Value="0.45" /></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
         <Style x:Key="FileChipStyle" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Height" Value="24" />
             <Setter Property="Margin" Value="0,0,6,6" />
@@ -409,6 +372,9 @@
                                                            TextTrimming="CharacterEllipsis" />
                                                 <TextBlock Margin="0,1,0,0" FontSize="11.5" Foreground="{StaticResource MutedBrush}" Text="{Binding Preview}"
                                                            TextTrimming="CharacterEllipsis" />
+                                                <!-- Where its tokens went, as long as its share of the costliest task's. -->
+                                                <local:SpendBar Height="3" Margin="0,6,0,1" Gap="1" Parts="{Binding Spend}" Scale="{Binding SpendScale}"
+                                                                Visibility="{Binding SpendVisibility}" />
                                             </StackPanel>
                                         </Grid>
                                     </Button>
@@ -443,6 +409,19 @@
                            TextAlignment="Center" TextWrapping="Wrap" Text="Pick a task on the left, or start a new one" />
                 <Button Margin="0,18,0,0" Padding="18,0" Height="32" HorizontalAlignment="Center" Style="{StaticResource PrimaryButtonStyle}"
                         Click="NewTask_OnClick" Content="New task" />
+                <!-- The Studio's keys, where a first look finds them. -->
+                <Grid Margin="0,26,0,0" HorizontalAlignment="Center" TextBlock.FontSize="12" TextBlock.Foreground="{StaticResource MutedBrush}">
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <Grid.RowDefinitions><RowDefinition /><RowDefinition /><RowDefinition /><RowDefinition /></Grid.RowDefinitions>
+                    <Border Style="{StaticResource KeyCapStyle}" Margin="0,0,10,6" HorizontalAlignment="Right"><TextBlock Text="Ctrl+N" /></Border>
+                    <TextBlock Grid.Column="1" Margin="0,1,0,6" Text="New task" />
+                    <Border Grid.Row="1" Style="{StaticResource KeyCapStyle}" Margin="0,0,10,6" HorizontalAlignment="Right"><TextBlock Text="Ctrl+B" /></Border>
+                    <TextBlock Grid.Row="1" Grid.Column="1" Margin="0,1,0,6" Text="Show or fold the tasks" />
+                    <Border Grid.Row="2" Style="{StaticResource KeyCapStyle}" Margin="0,0,10,6" HorizontalAlignment="Right"><TextBlock Text="Ctrl+Shift+U" /></Border>
+                    <TextBlock Grid.Row="2" Grid.Column="1" Margin="0,1,0,6" Text="Spend: where the tokens went" />
+                    <Border Grid.Row="3" Style="{StaticResource KeyCapStyle}" Margin="0,0,10,0" HorizontalAlignment="Right"><TextBlock Text="Ctrl+Shift+H" /></Border>
+                    <TextBlock Grid.Row="3" Grid.Column="1" Margin="0,1,0,0" Text="Harness: what the agent gets" />
+                </Grid>
             </StackPanel>
         </Grid>
 
@@ -567,6 +546,7 @@
                 <Grid>
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                        <ColumnDefinition Width="Auto" />
                     </Grid.ColumnDefinitions>
                     <TextBlock x:Name="GoalText" VerticalAlignment="Center" FontSize="15" FontWeight="SemiBold"
                                Foreground="{StaticResource TextBrush}" TextTrimming="CharacterEllipsis" />
@@ -579,9 +559,13 @@
                                        Foreground="{StaticResource MutedBrush}" Visibility="Collapsed" />
                         </StackPanel>
                     </Border>
-                    <Button x:Name="StopButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="28" Margin="8,0,0,0"
+                    <!-- The last run's diff, line by line, with comments that go back to the agent. -->
+                    <Button x:Name="ReviewButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="28" Margin="8,0,0,0"
+                            Click="Review_OnClick" Content="Review" Visibility="Collapsed"
+                            ToolTip="The last run's changes, line by line: comment on any line and send the comments to the agent" />
+                    <Button x:Name="StopButton" Grid.Column="3" Style="{StaticResource ChipButtonStyle}" Height="28" Margin="8,0,0,0"
                             Click="Stop_OnClick" Content="■ Stop" ToolTip="Stop the agent now; what it changed so far stays, and the task stays open" />
-                    <Button x:Name="MoreButton" Grid.Column="3" Style="{StaticResource HeaderIconButtonStyle}" Margin="4,0,-4,0"
+                    <Button x:Name="MoreButton" Grid.Column="4" Style="{StaticResource HeaderIconButtonStyle}" Margin="4,0,-4,0"
                             VerticalAlignment="Center" Click="More_OnClick" ToolTip="More: discuss in chat, undo, start over, console…">
                         <TextBlock Margin="0,-4,0,0" FontSize="15" FontWeight="Bold" Foreground="{StaticResource TextBrush}" Text="⋯" />
                     </Button>

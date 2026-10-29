@@ -63,6 +63,7 @@ public abstract class CliAgentProvider : IAgentProvider
     {
         var executable = FindExecutable() ?? throw new InvalidOperationException($"{Name} is not found. Install it or choose its file in Settings.");
         var parser = CreateParser(task);
+        parser.Meter.Start(StandardInput(task).Length, task.ResumeSessionId is not null);
         var loops = new AgentLoopDetector(!task.PlanOnly);
         var clock = Stopwatch.StartNew();
         TimeSpan? firstEvent = null;
@@ -138,10 +139,21 @@ public abstract class CliAgentProvider : IAgentProvider
             Log = process.Log
         };
         var after = await Task.Run(() => AfterRun(result), CancellationToken.None);
-        // What the provider reads after the run (Codex's context) belongs to the run's numbers as well.
+        // What the provider reads after the run (Codex's context) belongs to the run's numbers as well; a curve told
+        // only now gives its own prompt's size: what the first request held beyond the text Link and the agent sent.
         if (after.LastOrDefault(agentEvent => agentEvent.Kind == AgentEventKind.Context) is { } held)
         {
-            result = result with { Stats = result.Stats with { ContextTokens = held.ContextTokens, ContextWindow = held.ContextWindow } };
+            if (!parser.Meter.Measured && held.Curve.Count > 0) parser.Meter.AddBase(held.Curve[0] * 1000L - parser.Meter.First);
+            result = result with
+            {
+                Stats = result.Stats with
+                {
+                    ContextTokens = held.ContextTokens,
+                    ContextWindow = held.ContextWindow,
+                    ContextCurve = held.Curve.Count > 0 ? held.Curve : result.Stats.ContextCurve,
+                    SpendInput = parser.Meter.Requests > 0 ? parser.Meter.Input : null
+                }
+            };
         }
 
         foreach (var agentEvent in after) progress.Report(agentEvent);
@@ -315,6 +327,7 @@ public abstract partial class AgentEventParser
     private static readonly HashSet<string> FolderChanges = new(StringComparer.OrdinalIgnoreCase) { "cd", "Set-Location", "sl", "pushd", "Push-Location" };
     private readonly List<string> _denials = [];
     private readonly List<string> _changedFiles = [];
+    private readonly Dictionary<string, (int Times, int Characters)> _reads = new(StringComparer.OrdinalIgnoreCase);
     private int _toolCalls;
     private int _searches;
     private int _searchesBeforeChange;
@@ -323,6 +336,8 @@ public abstract partial class AgentEventParser
     private long? _cachedTokens;
     private long? _outputTokens;
     private decimal? _cost;
+    private long? _cacheWrites;
+    private long? _reasoning;
     private long? _contextWindow;
 
     public string? SessionId { get; protected set; }
@@ -334,6 +349,9 @@ public abstract partial class AgentEventParser
     public bool Failed { get; protected set; }
     public IReadOnlyList<string> Denials => _denials;
     public IReadOnlyList<string> ChangedFiles => _changedFiles;
+
+    /// <summary>What the run's context is made of, request by request: what its tokens went to.</summary>
+    public SpendMeter Meter { get; } = new();
 
     /// <summary>The run's numbers so far; its time is the runner's to add.</summary>
     public AgentStats Stats => new()
@@ -349,10 +367,25 @@ public abstract partial class AgentEventParser
         CostUsd = _cost,
         SessionTokens = TokensOfSession && _inputTokens is not null,
         ContextTokens = ContextTokens,
-        ContextWindow = _contextWindow
+        ContextWindow = _contextWindow,
+        CacheWriteTokens = _cacheWrites,
+        ReasoningTokens = _reasoning,
+        ApiTime = ApiTime,
+        SpendInput = Meter.Requests > 0 ? Meter.Input : null,
+        ColdTokens = Meter.Measured ? Meter.ColdTokens : null,
+        ContextCurve = Meter.Measured ? Meter.Curve : [],
+        CacheMinutes = CacheMinutes,
+        Rereads = FileReads.Join(_reads.Where(read => read.Value.Times > 1)
+            .Select(read => new FileReads(read.Key, read.Value.Times, (long)(read.Value.Characters / SpendMeter.CharsPerToken))))
     };
 
     protected int Turns { get; set; }
+
+    /// <summary>The time the model's requests took, where the CLI tells it.</summary>
+    protected TimeSpan? ApiTime { get; set; }
+
+    /// <summary>How long the cache keeps what the run wrote to it, in minutes, where the CLI tells it.</summary>
+    protected int? CacheMinutes { get; set; }
 
     /// <summary>What the session holds, as the provider last told; null before it tells.</summary>
     protected long? ContextTokens { get; private set; }
@@ -420,6 +453,13 @@ public abstract partial class AgentEventParser
         });
     }
 
+    /// <summary>A file the agent read, and the size of what the read brought back: files read again are a map's to spare.</summary>
+    protected void FileRead(string path, int characters)
+    {
+        var (times, before) = _reads.GetValueOrDefault(path);
+        _reads[path] = (times + 1, before + characters);
+    }
+
     /// <summary>A tool call that came back with an error; the end of a long error is where its cause usually is.</summary>
     protected void ToolFailed(string name, string error, List<AgentEvent> events)
     {
@@ -428,13 +468,18 @@ public abstract partial class AgentEventParser
         events.Add(new AgentEvent(AgentEventKind.ToolFailed, text.Length <= 2000 ? text : text[^2000..], name));
     }
 
-    /// <summary>Tokens and money as the provider's final events tell them; a run of several turns adds them up.</summary>
-    protected void Spent(long input, long cached, long output, decimal? cost)
+    /// <summary>
+    /// Tokens and money as the provider's final events tell them, with the parts of them it tells apart (input written
+    /// to the cache, output that was thinking); a run of several turns adds them up.
+    /// </summary>
+    protected void Spent(long input, long cached, long output, decimal? cost, long? cacheWrites = null, long? reasoning = null)
     {
         _inputTokens = (_inputTokens ?? 0) + input;
         _cachedTokens = (_cachedTokens ?? 0) + cached;
         _outputTokens = (_outputTokens ?? 0) + output;
         if (cost is { } usd) _cost = (_cost ?? 0) + usd;
+        if (cacheWrites is { } written) _cacheWrites = (_cacheWrites ?? 0) + written;
+        if (reasoning is { } thought) _reasoning = (_reasoning ?? 0) + thought;
     }
 
     /// <summary>

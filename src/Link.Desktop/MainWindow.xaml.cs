@@ -46,9 +46,11 @@ public partial class MainWindow : Window
         AgentCoordinator agents,
         AgentLimits limits,
         UsageReport usage,
+        UsageHistory spending,
         SoundCues cues)
     {
         _usage = usage;
+        _spending = spending;
         _settings = settings;
         _projects = projects;
         _attempts = attempts;

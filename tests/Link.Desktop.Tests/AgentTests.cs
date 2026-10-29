@@ -26,6 +26,10 @@ internal static class AgentTests
         CodexFixtures();
         Stats();
         ContextMeter();
+        SpendSplit();
+        SpendReportOf();
+        ReviewDiff();
+        UsageHistoryDays();
         ContextBudget();
         Loops();
         Arguments();
@@ -767,6 +771,236 @@ internal static class AgentTests
         {
             Program.Equal($"runs code: {command}", AgentEventParser.RunsCode(command), runs);
         }
+    }
+
+    /// <summary>
+    /// Where a run's tokens went: Claude Code tells each request's size and cache, so the growth splits between what
+    /// came in and a lost cache shows as cold; a subagent's messages are its own; a compaction leaves the CLI's prompt
+    /// and the summary; Codex's text sizes stand in until its log tells the first request; pictures by their pixels.
+    /// </summary>
+    /// <summary>
+    /// The days of work: runs of one day, project and agent add up, another agent is a day of its own, days past 90 go
+    /// as the next run is saved, and the file reads back as it was written.
+    /// </summary>
+    private static void UsageHistoryDays()
+    {
+        var folder = TempFolder();
+        try
+        {
+            var file = Path.Combine(folder, "usage-history.json");
+            var project = Guid.NewGuid();
+            var today = DateTimeOffset.Now;
+            var history = new UsageHistory(file);
+            AgentRunRecord Run(AgentProviderKind provider, DateTimeOffset at, long input, long cached, long output) => new()
+            {
+                Provider = provider, StartedAt = at, Duration = TimeSpan.FromMinutes(2), InputTokens = input, CachedTokens = cached,
+                OutputTokens = output, CostUsd = 0.5m, Spent = [new UsageSpent("5 h", 1.5)],
+                Spend = SpendMeter.Split(new SpendParts { Files = 1 }, new TokenCount(input - cached, cached, output))
+            };
+            history.Add(project, Run(AgentProviderKind.ClaudeCode, today.AddDays(-120), 1000, 0, 0));
+            history.Add(project, Run(AgentProviderKind.ClaudeCode, today, 2000, 1000, 10));
+            history.Add(project, Run(AgentProviderKind.ClaudeCode, today, 1000, 0, 0));
+            history.Add(project, Run(AgentProviderKind.Codex, today, 500, 0, 0));
+            history.Add(Guid.NewGuid(), Run(AgentProviderKind.Codex, today, 700, 0, 0));
+            var days = new UsageHistory(file).Since(DateOnly.FromDateTime(DateTime.Today).AddDays(-200), project);
+            var claude = days.Single(day => day.Provider == AgentProviderKind.ClaudeCode);
+            Program.Equal("Usage history: one day per project and agent, an old day dropped, read back from the file",
+                (days.Count, claude.Runs, claude.Uncached, claude.Cached, claude.Output, claude.CostUsd, claude.Time, claude.Windows["5 h"]),
+                (2, 2, 2000L, 1000L, 10L, (decimal?)1.0m, TimeSpan.FromMinutes(4), 3.0));
+            Program.Equal("Usage history: the day's split adds up to its ≈ tokens", (claude.Spend.Files, claude.Equivalent), (2100L, 2150.0));
+            Program.Equal("Usage history: all projects together", new UsageHistory(file).Since(DateOnly.FromDateTime(DateTime.Today)).Count, 3);
+        }
+        finally
+        {
+            Directory.Delete(folder, true);
+        }
+    }
+
+    private static void ReviewDiff()
+    {
+        var git = DiffReview.Parse("""
+            diff --git a/src/a.cs b/src/a.cs
+            index 1111111..2222222 100644
+            --- a/src/a.cs
+            +++ b/src/a.cs
+            @@ -10,4 +10,5 @@ class A
+             using System;
+            --- old comment
+            +var x = 2;
+            +var y = 3;
+             }
+            diff --git a/logo.png b/logo.png
+            Binary files a/logo.png and b/logo.png differ
+            diff --git a/gone.cs b/gone.cs
+            deleted file mode 100644
+            --- a/gone.cs
+            +++ /dev/null
+            @@ -1 +0,0 @@
+            -bye
+            """);
+        var a = git[0];
+        Program.Equal("Review: a git diff's files, their numbers, and each line's place in the old and the new file; a removed line may start with --",
+            (git.Count, a.Path, a.Added, a.Removed, a.Lines[2].Kind, a.Lines[2].Old, a.Lines[3].New, a.Lines[5].Old, a.Lines[5].New, git[1].Lines[0].Kind, git[2].Path, git[2].Removed),
+            (3, "src/a.cs", 2, 1, DiffLineKind.Removed, (int?)11, (int?)11, (int?)12, (int?)13, DiffLineKind.Note, "gone.cs", 1));
+
+        var p4 = DiffReview.Parse("--- //depot/a.cs\t2026-01-01\n+++ C:\\ws\\a.cs\t2026-01-02\n@@ -1,2 +1,2 @@\n-one\n+uno\n two\n--- //depot/b.cs\t2026-01-01\n+++ C:\\ws\\b.cs\t2026-01-02\n@@ -3 +3 @@\n-x\n+y\n?? new.txt");
+        Program.Equal("Review: Perforce's files follow each other with no header; the hunk's counts tell where one ends; an untracked file is a note",
+            (p4.Count, p4[0].Path, p4[0].Lines.Count, p4[1].Path, p4[1].Added, p4[2].Path, p4[2].Lines[0].Kind),
+            (3, "C:\\ws\\a.cs", 4, "C:\\ws\\b.cs", 1, "new.txt", DiffLineKind.Note));
+
+        var added = DiffReview.NewFile("new.cs", "one\r\ntwo\n");
+        Program.Equal("Review: a new file is all added lines", (added.Added, added.Lines[1].New, added.Lines[1].Text), (2, (int?)2, "two"));
+
+        var message = DiffReview.Message([
+            new ReviewComment("src/a.cs", a.Lines[3], "Name it count"),
+            new ReviewComment(null, null, "Keep it small"),
+            new ReviewComment("src/a.cs", a.Lines[2], "Why was this removed?\nIt explained the hack"),
+            new ReviewComment("src/a.cs", a.Lines[1], "   ")
+        ]);
+        Program.Equal("Review: the comments as the agent's next words, the general one first, each line quoted with its place; an empty one left out",
+            message, """
+            Review of your changes. Address each comment, then say what you changed:
+
+            - Keep it small
+
+            - src/a.cs:11
+              `+ var x = 2;`
+              Name it count
+
+            - src/a.cs:11 (removed line)
+              `- -- old comment`
+              Why was this removed?
+              It explained the hack
+            """.Replace("\r\n", "\n"));
+    }
+
+    private static void SpendReportOf()
+    {
+        var now = DateTimeOffset.Now;
+        var task = new AgentTaskRecord
+        {
+            Goal = "Fix the build",
+            Workspace = "C:\\work",
+            Runs =
+            [
+                new AgentRunRecord
+                {
+                    Provider = AgentProviderKind.ClaudeCode, StartedAt = now.AddHours(-1), Duration = TimeSpan.FromMinutes(3), InputTokens = 60_000,
+                    OutputTokens = 100, Spend = new SpendParts { Files = 50_000, Base = 10_000 }, Rereads = [new FileReads("src/a.cs", 3, 12_000)],
+                    SearchesBeforeChange = 20, ColdTokens = 25_000, CacheMinutes = 5, ContextTokens = 210_000, ContextCurve = [10, 20],
+                    Effort = "high", Spent = [new UsageSpent("5 h", 3.0)], Turns = 4, ToolCalls = 9
+                },
+                new AgentRunRecord { Provider = AgentProviderKind.ClaudeCode, StartedAt = now.AddMinutes(-30), Duration = TimeSpan.FromMinutes(2), InputTokens = 1000, Judge = true }
+            ]
+        };
+        var report = SpendReport.Of(task, _ => "Claude Code", 250_000, hasMap: false, canCompact: true);
+        Program.Equal("Spend report: the split runs add up, a run from before the split is its tokens' worth, the last curve is drawn",
+            (report.Parts.Files, report.Unsplit, report.WindowPoints, report.Turns, report.Budget, report.CurveLabel, report.Runs[1].Name, report.Runs[1].Parts.Base),
+            (50_000L, 1000.0, (double?)3.0, 4, (int?)250, "Last run · 2 requests", "Review", 1000L));
+        Program.Equal("Spend report: the largest tips first, each fix offered once",
+            string.Join(" | ", report.Tips.Select(tip => $"{tip.Fix}: {tip.Text}")),
+            "Compact: The context reached 210k of the 250k budget | None: The cache went cold: ~25k read again at full price"
+            + " | Map: a.cs was read 3 times: ~8k read again | None: 20 searches before the first edit");
+        Program.Equal("Spend report: the cache stays warm five minutes after the last worker's run, not the review's", report.CacheWarmUntil, now.AddMinutes(-60 + 3 + 5));
+
+        AgentLimit Limit(double used, bool reached) => new(AgentProviderKind.ClaudeCode, reached ? "week" : "5 h", used, now.AddHours(2.5), reached, now);
+        var gauges = SpendReport.Gauges([Limit(60, false), Limit(100, true)], task, now);
+        Program.Equal("Spend report: a window used faster than it resets warns; the task's part counts since it began",
+            (gauges[0].Label, gauges[0].Used, gauges[0].Mine, gauges[0].Warn, gauges[0].Note.StartsWith("full ", StringComparison.Ordinal), gauges[1].Warn, gauges[1].Note.StartsWith("reached", StringComparison.Ordinal)),
+            ("5-hour window", 60.0, 3.0, true, true, true, true));
+
+        var today = DateOnly.FromDateTime(DateTime.Today);
+        var days = SpendReport.Days([new UsageDay { Day = today.AddDays(-2), Runs = 1, Spend = new SpendParts { Files = 100 } }, new UsageDay { Day = today, Runs = 2, Uncached = 1000 }],
+            today.AddDays(-3), today);
+        Program.Equal("Spend report: every day of the range is there, an empty one too, and a day without a split counts as base",
+            (days.Count, days[0].Runs, days[1].Parts.Files, days[3].Parts.Base, days[3].Runs), (4, 0, 100L, 1000L, 2));
+    }
+
+    private static void SpendSplit()
+    {
+        var claude = new ClaudeEventParser();
+        claude.Meter.Start(3500, resumed: false);
+        foreach (var line in new[]
+                 {
+                     """{"type":"assistant","message":{"id":"m1","content":[{"type":"text","text":"Reading."}],"usage":{"input_tokens":1000,"cache_creation_input_tokens":20000,"cache_read_input_tokens":0,"output_tokens":5}}}""",
+                     """{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Read","input":{"file_path":"a.cs"}}],"usage":{"input_tokens":1000,"cache_creation_input_tokens":20000,"cache_read_input_tokens":0,"output_tokens":5}}}""",
+                     """{"type":"assistant","parent_tool_use_id":"t9","message":{"id":"s1","content":[{"type":"text","text":"A subagent."}],"usage":{"input_tokens":50000,"cache_creation_input_tokens":0,"cache_read_input_tokens":0,"output_tokens":5}}}""",
+                     $$$"""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"{{{new string('x', 7000)}}}"}]}}""",
+                     """{"type":"assistant","message":{"id":"m2","content":[{"type":"text","text":"Done."}],"usage":{"input_tokens":100,"cache_creation_input_tokens":2000,"cache_read_input_tokens":21000,"output_tokens":20}}}""",
+                     """{"type":"assistant","message":{"id":"m3","content":[{"type":"text","text":"x"}],"usage":{"input_tokens":100,"cache_creation_input_tokens":23100,"cache_read_input_tokens":0,"output_tokens":35}}}""",
+                     """{"type":"result","subtype":"success","is_error":false,"result":"Done.","session_id":"s1","num_turns":3,"duration_api_ms":41000,"usage":{"input_tokens":1200,"cache_creation_input_tokens":45100,"cache_read_input_tokens":21000,"output_tokens":60,"cache_creation":{"ephemeral_1h_input_tokens":45100,"ephemeral_5m_input_tokens":0}}}"""
+                 })
+        {
+            claude.Read(line);
+        }
+
+        var stats = claude.Stats;
+        var spend = SpendMeter.Split(stats.SpendInput, new TokenCount(46_300, 21_000, 60));
+        Program.Equal("Spend: the first request's growth beyond the brief is the CLI's own; a file read is files; a cold request reads all again",
+            (spend.Brief, spend.Base, spend.Files, spend.Writing, spend.Total), (2100L, 42_099L, 4183L, 318L, 48_700L));
+        Program.Equal("Spend: the curve and the cold input are measured; a subagent's request is not the session's",
+            (string.Join(",", stats.ContextCurve), stats.ColdTokens, claude.Meter.Requests), ("21,23,23", (long?)23_100, 3));
+        Program.Equal("Spend: the result tells the cache writes, how long they last, and the requests' time",
+            (stats.CacheWriteTokens, stats.CacheMinutes, stats.ApiTime), ((long?)45_100, (int?)60, (TimeSpan?)TimeSpan.FromSeconds(41)));
+
+        var compacted = new ClaudeEventParser();
+        foreach (var line in new[]
+                 {
+                     """{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Read","input":{}}],"usage":{"input_tokens":0,"cache_creation_input_tokens":30000,"cache_read_input_tokens":0,"output_tokens":5}}}""",
+                     $$$"""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t1","content":"{{{new string('x', 6993)}}}"}]}}""",
+                     """{"type":"assistant","message":{"id":"m2","content":[],"usage":{"input_tokens":0,"cache_creation_input_tokens":2000,"cache_read_input_tokens":30000,"output_tokens":5}}}""",
+                     """{"type":"system","subtype":"compact_boundary","compact_metadata":{"pre_tokens":32000}}""",
+                     """{"type":"assistant","message":{"id":"m3","content":[],"usage":{"input_tokens":0,"cache_creation_input_tokens":1000,"cache_read_input_tokens":30000,"output_tokens":5}}}"""
+                 })
+        {
+            compacted.Read(line);
+        }
+
+        var input = compacted.Stats.SpendInput!;
+        Program.Equal("Spend: after a compaction the CLI's prompt stays and the summary is the model's writing; the files went",
+            (input.Base, input.Files, input.Writing, input.Total), (36_000L, 1999L, 1001L, 39_000L));
+
+        var codex = new CodexEventParser();
+        codex.Meter.Start(3500, resumed: false);
+        foreach (var line in new[]
+                 {
+                     """{"type":"turn.started"}""",
+                     """{"type":"item.completed","item":{"id":"i0","type":"reasoning","text":"Plan it."}}""",
+                     """{"type":"item.started","item":{"id":"i1","type":"command_execution","command":"dotnet build","status":"in_progress"}}""",
+                     $$$"""{"type":"item.completed","item":{"id":"i1","type":"command_execution","command":"dotnet build","aggregated_output":"{{{new string('x', 7000)}}}","exit_code":0,"status":"completed"}}""",
+                     """{"type":"item.completed","item":{"id":"i2","type":"agent_message","text":"Built."}}""",
+                     """{"type":"turn.completed","usage":{"input_tokens":5000,"cached_input_tokens":1000,"output_tokens":100,"reasoning_output_tokens":40}}"""
+                 })
+        {
+            codex.Read(line);
+        }
+
+        var estimated = codex.Stats;
+        Program.Equal("Spend: Codex counts a request where the model speaks after a tool's output; sizes are text's, so nothing is measured",
+            (codex.Meter.Requests, estimated.SpendInput!.Brief, estimated.SpendInput.Commands, estimated.SpendInput.Writing, estimated.ContextCurve.Count, estimated.ColdTokens),
+            (2, 1100L, 2000L, 6L, 0, (long?)null));
+        Program.Equal("Spend: Codex tells its thinking apart", estimated.ReasoningTokens, (long?)40);
+        codex.Meter.AddBase(12_000 - codex.Meter.First);
+        Program.Equal("Spend: the prompt a later curve tells is read fresh once and from the cache after", codex.Meter.Input.Base, 12_100L);
+
+        Program.Equal("Spend: a run with tokens and no split puts its input in the base, its output in the writing",
+            (SpendMeter.Split(null, new TokenCount(900, 1000, 10)).Base, SpendMeter.Split(null, new TokenCount(900, 1000, 10)).Writing), (1000L, 50L));
+
+        byte[] png = [0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0, 0, 0, 0x0D, 0x49, 0x48, 0x44, 0x52, 0, 0, 0x06, 0x20, 0, 0, 0x03, 0xE8, 8, 6, 0, 0, 0];
+        byte[] jpeg = [0xFF, 0xD8, 0xFF, 0xE0, 0, 0x10, .. new byte[14], 0xFF, 0xC0, 0, 0x11, 8, 0x03, 0xE8, 0x05, 0xDC, 3, .. new byte[12]];
+        Program.Equal("Spend: a picture's size from the start of its PNG or JPEG; text that is neither tells none",
+            (SpendMeter.ImageSize(Convert.ToBase64String(png)), SpendMeter.ImageSize(Convert.ToBase64String(jpeg)), SpendMeter.ImageSize("not base64!")),
+            ((1568, 1000), (1500, 1000), (0, 0)));
+        Program.Equal("Spend: a picture costs its pixels over 750 after the scale to 1568 px and 1.15 megapixels; an unknown one a full one",
+            (Math.Round(SpendMeter.ImageTokens(1000, 1000)), Math.Round(SpendMeter.ImageTokens(3000, 2000)), SpendMeter.ImageTokens(0, 0)),
+            (1333.0, 1533.0, 1600.0));
+
+        var thin = SpendMeter.Thin([.. Enumerable.Range(0, 300)]);
+        Program.Equal("Spend: a long curve keeps 120 points, its first and last", (thin.Count, thin[0], thin[^1]), (120, 0, 299));
+        var joined = new AgentStats { SpendInput = new SpendParts { Files = 10 }, ContextCurve = [1, 2] }
+            .Add(new AgentStats { SpendInput = new SpendParts { Files = 5, Images = 3 }, ContextCurve = [3], ColdTokens = 7 });
+        Program.Equal("Spend: a run that goes on adds its split, its curve and its cold input",
+            (joined.SpendInput!.Files, joined.SpendInput.Images, string.Join(",", joined.ContextCurve), joined.ColdTokens), (15L, 3L, "1,2,3", (long?)7));
     }
 
     /// <summary>

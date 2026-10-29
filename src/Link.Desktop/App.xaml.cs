@@ -126,6 +126,7 @@ public partial class App : System.Windows.Application
             _agents,
             new AgentLimits(paths.AgentLimitsFile),
             new UsageReport(Log),
+            new UsageHistory(paths.UsageHistoryFile),
             cues);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;

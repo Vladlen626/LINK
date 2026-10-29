@@ -414,12 +414,16 @@ public sealed record PanelToggle(string Label, string Hint, bool On, Action<bool
 /// <summary>
 /// A task in the Studio's sidebar: its goal, how it stands and its last words; no record: Link's own run (the map).
 /// <see cref="RoleBrush"/> is the colour of its specialist's jellyfish; <see cref="IsOpen"/> lights the row of the task the
-/// Studio shows; <see cref="Group"/> is the sidebar's group it is listed under.
+/// Studio shows; <see cref="Group"/> is the sidebar's group it is listed under; <see cref="Spend"/> is where its tokens
+/// went, drawn as a thin bar <see cref="SpendScale"/> of the costliest listed task's long.
 /// </summary>
 public sealed record TaskRow(string Title, string Preview, string Time, string Status, Brush StatusBrush, Brush RoleBrush, AgentTaskRecord? Record)
 {
     public bool IsOpen { get; init; }
     public TaskGroup Group { get; init; } = TaskGroup.Recent;
+    public SpendParts? Spend { get; init; }
+    public double SpendScale { get; init; } = 1;
+    public Visibility SpendVisibility => Spend is { Total: > 0 } ? Visibility.Visible : Visibility.Collapsed;
 }
 
 /// <summary>The sidebar's groups, in their order: what waits for the user first, then what is at work.</summary>

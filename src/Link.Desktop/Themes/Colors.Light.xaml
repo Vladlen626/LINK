@@ -65,4 +65,18 @@
     <SolidColorBrush x:Key="ErrorOrbBrush" Color="#D73A49" />
     <SolidColorBrush x:Key="BusyOrbBrush" Color="{StaticResource AccentColor}" />
     <SolidColorBrush x:Key="IdleOrbBrush" Color="#8C98A4" />
+
+    <!-- The review's diff: an added line on a green tint, a removed one on a red. -->
+    <SolidColorBrush x:Key="DiffAddedBrush" Color="#262B9A47" />
+    <SolidColorBrush x:Key="DiffRemovedBrush" Color="#24CC2F46" />
+
+    <!-- The Spend view's parts, in SpendPart's order: hues that stay apart for colour-blind eyes on this surface; the
+         CLI's own load is the quiet gray. -->
+    <SolidColorBrush x:Key="SpendBriefBrush" Color="#2A78D6" />
+    <SolidColorBrush x:Key="SpendWritingBrush" Color="#EB6834" />
+    <SolidColorBrush x:Key="SpendFilesBrush" Color="#1BAF7A" />
+    <SolidColorBrush x:Key="SpendCommandsBrush" Color="#6250D6" />
+    <SolidColorBrush x:Key="SpendSearchBrush" Color="#EDA100" />
+    <SolidColorBrush x:Key="SpendImagesBrush" Color="#E87BA4" />
+    <SolidColorBrush x:Key="SpendBaseBrush" Color="#A9B3BD" />
 </ResourceDictionary>

@@ -31,6 +31,7 @@ public partial class MainWindow
         ShowPlanOf(record);
         var (changed, changedFiles) = _changes.Task == record.Id ? (_changes.Text, _changes.Hint) : TaskChanges.Describe(null, record.ChangedFiles);
         panel.ShowChanges(changed, changedFiles);
+        panel.ShowReview(CanReview(work));
         panel.ShowThread(BuildThread(record, live));
         var (usage, hint) = UsageText(record);
         panel.ShowUsage(usage, hint);

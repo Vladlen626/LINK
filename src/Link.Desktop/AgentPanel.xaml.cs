@@ -77,6 +77,9 @@ public partial class AgentPanel : UserControl
     public event Action? CardCancelled;
     public event Action? StopRequested;
 
+    /// <summary>The header's Review: the last run's changes are to be shown for comments.</summary>
+    public event Action? ReviewRequested;
+
     /// <summary>The decision card's button; true: remember the allowance for the project.</summary>
     public event Action<bool>? DecisionTaken;
 

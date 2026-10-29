@@ -4,9 +4,71 @@ using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
-// What a run changed: the numbers in the header, the files' rows, undo, and the task's Perforce changelist.
+// What a run changed: the numbers in the header, the files' rows, the review, undo, and the task's Perforce changelist.
 public partial class MainWindow
 {
+    // Your review shows the diff whole up to this (the team's reviewer gets far less); a larger one is cut, and says so.
+    private const int YourReviewDiff = 2_000_000;
+
+    // A new file git does not track is read for the review up to this size; a larger one is listed only.
+    private const long ReviewNewFile = 512 * 1024;
+
+    /// <summary>The last run left changes in a git or Perforce folder, which the review can show line by line.</summary>
+    private static bool CanReview(TaskWork work) =>
+        !work.Busy && work.Waiting is null && work.LastRun is { Before.IsVersioned: true, Changes.Count: > 0 };
+
+    /// <summary>
+    /// Review: the last run's diff in a window of its own, a comment on any line; the comments go to the agent as the
+    /// next words of the task, in the same session, as a reply does. The diff and new files are read off the UI thread.
+    /// </summary>
+    private async Task ReviewChangesAsync(TaskWork work)
+    {
+        if (!CanReview(work) || work.LastRun is not { } run) return;
+        var workspace = run.Before.Workspace;
+        var diff = await _agents.Changes.DiffAsync(run.Before, run.Changes, stat: false, YourReviewDiff, CancellationToken.None) ?? string.Empty;
+        var files = DiffReview.Parse(diff).Select(file => file with { Path = Relative(file.Path, workspace) }).ToList();
+        foreach (var change in run.Changes.Where(change => change.Kind is "??" or "A"))
+        {
+            var path = Relative(change.Path, workspace);
+            var at = files.FindIndex(file => string.Equals(file.Path.Replace('\\', '/'), path.Replace('\\', '/'), StringComparison.OrdinalIgnoreCase));
+            if (at >= 0 && files[at].Lines.Any(line => line.Kind != DiffLineKind.Note)) continue;
+            var file = await Task.Run(() => NewFileOf(change.Path, path));
+            if (at >= 0) files[at] = file;
+            else files.Add(file);
+        }
+
+        if (files.Count == 0)
+        {
+            AgentStatus(work, "No changes Link can show as a diff");
+            return;
+        }
+
+        var (changed, _) = TaskChanges.Describe(null, [.. files.Select(file => file.Path)]);
+        var added = files.Sum(file => file.Added);
+        var removed = files.Sum(file => file.Removed);
+        var window = new ReviewWindow($"Review: {work.Record.Goal}  ·  +{added} −{removed} in {changed}", files) { Owner = _studio };
+        window.ShowDialog();
+        if (window.Review is not { } review || _open != work) return;
+        UserSpoke(work);
+        ContinueAgent(work, review);
+    }
+
+    /// <summary>A new file as the review shows it: all its lines added, or a note when it is large or not text.</summary>
+    private static DiffFile NewFileOf(string fullPath, string path)
+    {
+        try
+        {
+            var info = new FileInfo(fullPath);
+            if (!info.Exists) return new DiffFile(path, 0, 0, [new DiffLine(DiffLineKind.Note, null, null, "Gone since the run")]);
+            if (info.Length > ReviewNewFile) return new DiffFile(path, 0, 0, [new DiffLine(DiffLineKind.Note, null, null, $"A new file of {info.Length / 1024:N0} KB: open it to read")]);
+            var text = File.ReadAllText(fullPath);
+            return text.Contains('\0') ? new DiffFile(path, 0, 0, [new DiffLine(DiffLineKind.Note, null, null, "A new binary file: no lines to show")]) : DiffReview.NewFile(path, text);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return new DiffFile(path, 0, 0, [new DiffLine(DiffLineKind.Note, null, null, "Could not be read: " + exception.Message)]);
+        }
+    }
     /// <summary>
     /// The size of the task's changes in its header: the files at once, then the lines git counts for them. Asked once
     /// when a run ends or a task opens, never on a timer; git runs off the UI thread.

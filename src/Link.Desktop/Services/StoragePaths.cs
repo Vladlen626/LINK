@@ -40,6 +40,9 @@ public sealed class StoragePaths
     /// <summary>The agents' subscription windows as their CLIs last reported them.</summary>
     public string AgentLimitsFile => Path.Combine(Root, "agent-limits.json");
 
+    /// <summary>The days of the agents' work per project, for the Spend view's history.</summary>
+    public string UsageHistoryFile => Path.Combine(Root, "usage-history.json");
+
     /// <summary>The Gemini API key for voice replies, encrypted for this Windows user.</summary>
     public string GeminiKeyFile => Path.Combine(Root, "gemini-key.bin");
 

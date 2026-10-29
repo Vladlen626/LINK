@@ -252,6 +252,27 @@ with buttons; `/tasks`, `/spent` and `/account` (the Claude account new runs use
 each agent and Claude's 5-hour block with its rate, click to count again. A task's usage adds what its own sessions
 cost, Codex's too. It needs Node (`npx`), which Claude Code's npm install brings.
 
+**Where the tokens went.** The chart button in Studio's header (`Ctrl+Shift+U`; `Ctrl+Shift+H` is Harness) opens the
+Spend column for the open task:
+- **≈ tokens:** uncached + 0.1 × cached + 5 × output, the shape of what a subscription counts. They are split into one
+  bar of reading files, searching, commands, editing, images, the harness's base and the answer; hover a part or its
+  legend row to see it.
+- **Where to save:** up to 4 tips from the task's own steps (files read again and again, a cold cache, context near
+  the budget…), each with its **Fix** (Write map, Update map, Compact).
+- **Context per request:** a curve with a hover readout and the budget line; how long the session's cache stays warm.
+- **Runs:** one bar each, at one scale.
+- **Usage windows:** how far each 5-hour and weekly window is used, the task's part in it, and when it fills at this
+  pace.
+- **History:** stacked days over 7–90 days (a slider), this project or **All projects**; hover a day for its parts and
+  cost. Each run adds to `usage-history.json` as it ends.
+
+The task list in the sidebar draws each task's split as a thin bar, scaled to the biggest task. The header's context
+meter turns amber near the budget.
+
+**Review the changes.** **Review** in a done task's header opens its diff: files on the left, lines on the right. Click
+a line and write a comment (`Ctrl+Enter` keeps it); one more box is for the whole change. **Send review** gives the
+agent every comment with its file, line and the line quoted, in the same session. It works in Git and Perforce.
+
 ### 4. Что Link даёт агенту
 
 - **Правила** (`harness\agent-rules.md` рядом с `Link.exe`) — в начале каждой новой сессии, в любой папке:
@@ -513,6 +534,8 @@ dotnet run --project tests/Link.Desktop.Tests
   `Projects\<id>\` — папка проекта, в ней `history.json` со 150 последними вопросами и ответами (с беседой каждого) и `agent-tasks.json` с
   20 последними задачами агента;
 - `agent-limits.json` — окна подписки агентов, как их последний раз сообщили CLI;
+- `usage-history.json` — days of agent work per project and agent (≈ tokens by part, cost, window points), 90 days,
+  for the Spend view's history;
 - `Screenshots\` — ограниченная история PNG; снимки рабочего окна для Auto active window живут, пока Link держит их
   вопрос для перенаправления, и удаляются при выходе; `Recordings\` — последние WAV;
 - `Models\` — модели распознавания речи и локального голоса;
@@ -535,6 +558,7 @@ src/Link.Desktop/
 ├── MainWindow*    overlay; части по темам: Chat, Capture, Voice, Sizing, Panel, Agent
 ├── SidePanelWindow*, ProjectPanel*  панель рядом с карточкой и её содержимое
 ├── StudioWindow*, AgentPanel*, HarnessInspector*  Studio: задачи агентов и что они получают
+├── SpendView*, SpendCharts, ReviewWindow*  Studio: where the tokens went, review of an agent's changes
 ├── ChatPageWindow встроенная страница ChatGPT (WebView2) за краем экрана
 ├── SettingsWindow*, RegionSelectionWindow*, ...
 companion/                  content.js работает с DOM ChatGPT во встроенной странице

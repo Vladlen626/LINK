@@ -122,6 +122,9 @@ public partial class AgentPanel
         ChangesText.Visibility = text.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     }
 
+    /// <summary>Review is offered while the last run left changes Link can show as a diff.</summary>
+    public void ShowReview(bool shown) => ReviewButton.Visibility = shown ? Visibility.Visible : Visibility.Collapsed;
+
     /// <summary>The task's tokens by agent, with what the money means on a subscription; empty hides it.</summary>
     public void ShowUsage(string usage, string hint)
     {
@@ -307,6 +310,8 @@ public partial class AgentPanel
     }
 
     private void Stop_OnClick(object sender, RoutedEventArgs e) => StopRequested?.Invoke();
+
+    private void Review_OnClick(object sender, RoutedEventArgs e) => ReviewRequested?.Invoke();
     private void Decision_OnClick(object sender, RoutedEventArgs e) => DecisionTaken?.Invoke(AlwaysBox.IsChecked == true);
 
     private void Deny_OnClick(object sender, RoutedEventArgs e) => DecisionRefused?.Invoke();
