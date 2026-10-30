@@ -19,6 +19,8 @@ public partial class MainWindow : IRemoteHost
         _projects.Projects.Select(project => new RemoteProject(project.Id, project.Name, project.Id == _projects.ActiveProject.Id,
             project.WorkspaceRoot is { } root && Directory.Exists(root))).ToArray());
 
+    public Task<bool> TeamsOfferedAsync() => OnWindow(() => _settings.Current.Agent.Team.Offered);
+
     /// <summary>The tasks Link holds, of every project, and the active project's others: newest first.</summary>
     public Task<IReadOnlyList<RemoteTask>> TasksAsync() => OnWindow<IReadOnlyList<RemoteTask>>(() =>
     {

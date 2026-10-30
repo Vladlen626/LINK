@@ -254,7 +254,12 @@ public sealed class TelegramBot : IDisposable
     {
         if (await _api("getMe", new { }, token) is not { } me) return false;
         _topics = me.TryGetProperty("has_topics_enabled", out var topics) && topics.ValueKind == JsonValueKind.True;
-        await _api("setMyCommands", new { commands = Commands.Select(command => new { command = command.Name, description = command.Words }) }, token);
+        // /team only while Settings offer the team: one agent that plans and delegates is the way now.
+        var teams = await _host.TeamsOfferedAsync();
+        await _api("setMyCommands", new
+        {
+            commands = Commands.Where(command => teams || command.Name != "team").Select(command => new { command = command.Name, description = command.Words })
+        }, token);
         return true;
     }
 
@@ -380,8 +385,9 @@ public sealed class TelegramBot : IDisposable
         "Each task Link writes about has a card here that changes as the task goes; when the task needs you, a new card comes. " +
         "Turn on topics for this bot in @BotFather, and each task gets a topic of its own. Words or a picture answer the task " +
         "of the topic, of the message you reply to, or of the last card. /tasks — the tasks · /new <task> — a new task: pick " +
-        "the project and the agent · /plan <task> — plan first · /team <task> — the team plans it · /auto <task> — No-stop · /spent — what the agents spent · " +
-        "/account — which Claude account new runs use.";
+        "the project and the agent, who plans it, works it and hands parts to helpers · /plan <task> — plan first · /auto <task> — " +
+        "No-stop · /spent — what the agents spent · /account — which Claude account new runs use. When a plan is done, the card " +
+        "offers Check the work, and Fix them gives the findings to the same session.";
 
     private bool Pairs(string text)
     {
@@ -442,7 +448,17 @@ public sealed class TelegramBot : IDisposable
             return;
         }
 
-        var draft = new Draft(goal, command == "/plan", command == "/auto", pictures, projects) { Project = projects.Length == 1 ? projects[0] : null, Team = command == "/team" };
+        var teams = await _host.TeamsOfferedAsync();
+        if (command == "/team" && !teams)
+        {
+            await SendAsync(chat, topic, "Teams are off in Link's Settings (Offer the team): /new starts one agent that plans the task and hands parts to helpers.", null, token);
+            return;
+        }
+
+        var draft = new Draft(goal, command == "/plan", command == "/auto", pictures, projects)
+        {
+            Project = projects.Length == 1 ? projects[0] : null, Team = command == "/team", TeamsOffered = teams
+        };
         var (text, rows) = Picker(draft);
         draft.Message = await SendAsync(chat, topic, text, rows, token) ?? 0;
         _draft = draft;
@@ -463,6 +479,7 @@ public sealed class TelegramBot : IDisposable
         var rows = new List<object[]> { new[] { Button("As Settings say", "na") } };
         rows.AddRange(Enum.GetValues<AgentLevel>().Select(level => Enum.GetValues<AgentProviderKind>()
             .Select(agent => Button($"{(agent == AgentProviderKind.ClaudeCode ? "Claude" : "Codex")} · {level}", $"na:{agent}:{level}")).ToArray()));
+        if (!draft.TeamsOffered) return ($"{goal} in {project.Name}\n\nWhich agent, and how strong?", rows);
         rows.Add([Button("👥 Team", "nt")]);
         return ($"{goal} in {project.Name}\n\nWhich agent, and how strong? Or the team.", rows);
     }
@@ -901,6 +918,9 @@ public sealed class TelegramBot : IDisposable
         public RemoteProject? Project { get; set; }
 
         public bool Team { get; set; }
+
+        /// <summary>Settings offer the team: the picker has its button.</summary>
+        public bool TeamsOffered { get; init; }
 
         // The picker's message: a press on an older one starts nothing.
         public long Message { get; set; }

@@ -16,6 +16,10 @@ public interface IRemoteHost
     event Action<Guid, string, string>? RemoteAlert;
 
     Task<IReadOnlyList<RemoteProject>> ProjectsAsync();
+
+    /// <summary>Whether Settings offer the team (the old way); off, a task is one agent that plans and delegates.</summary>
+    Task<bool> TeamsOfferedAsync();
+
     Task<IReadOnlyList<RemoteTask>> TasksAsync();
     Task<RemoteTaskView?> TaskAsync(Guid id);
     Task<string?> StartAsync(RemoteNewTask task, string device);
