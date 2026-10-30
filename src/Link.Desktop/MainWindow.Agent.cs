@@ -738,6 +738,7 @@ public partial class MainWindow
         work.OthersEdited = false;
         // The run holds its folder from here on, before anything is awaited.
         work.Run = live;
+        KeepAwakeAtNight();
         _agentPanel ??= CreateAgentPanel();
         // The open task's run shows at once; another's is drawn when it is opened.
         if (work == _open)
@@ -775,6 +776,7 @@ public partial class MainWindow
         {
             FlushAgentEvents();
             work.Run = null;
+            KeepAwakeAtNight();
             live.Clock.Stop();
             live.Stop.Dispose();
             if (!AnyRunning) _activityTimer.Stop();
@@ -1511,8 +1513,9 @@ public partial class MainWindow
             return true;
         }
 
-        // A run that asked while it worked had the user's answer to each tool already: a Deny is not offered again.
-        if (task.Provider == AgentProviderKind.ClaudeCode && task.AskPermission is null && result.Denials.Count > 0)
+        // A run that asked while it worked had the user's answer to each tool already: a Deny is not offered again. A No-stop
+        // run was refused only what no allow opens (its deny rules, the guard's protected folders).
+        if (task.Provider == AgentProviderKind.ClaudeCode && task.AskPermission is null && !task.NoStop && result.Denials.Count > 0)
         {
             var rules = result.Denials;
             OfferChoice(work,
@@ -1575,7 +1578,7 @@ public partial class MainWindow
                     answer.TrySetResult(new AgentPermissionAnswer(true, _rememberAllowance));
                     RefreshTaskList();
                 },
-                noStop: false,
+                noStop: !NoStop.Denies(_settings.Current.Agent.NoStopDeny, ask),
                 refuse: () =>
                 {
                     record.Add(AgentEntryKind.You, $"Denied {rules}");
@@ -1588,6 +1591,8 @@ public partial class MainWindow
                 answer.TrySetCanceled(cancellationToken);
             }));
             _ = answer.Task.ContinueWith(_ => ended.Dispose(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            // Night mode was turned on after the run began: it answers instead of the user.
+            if (NightAnswered(work)) return;
             RefreshTaskList();
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
             _cues.Play(SoundCue.NeedsDecision);

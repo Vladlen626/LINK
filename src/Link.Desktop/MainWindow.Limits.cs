@@ -147,6 +147,7 @@ public partial class MainWindow
         };
         work.ContinueTimer = timer;
         timer.Start();
+        KeepAwakeAtNight();
     }
 
     /// <summary>The wait for a limit's reset is over without firing: the timer stops and the task no longer remembers it.</summary>
@@ -154,6 +155,7 @@ public partial class MainWindow
     {
         work.ContinueTimer?.Stop();
         work.ContinueTimer = null;
+        KeepAwakeAtNight();
         if (work.Record.ContinueAt is null) return;
         work.Record.ContinueAt = null;
         SaveTask(work);

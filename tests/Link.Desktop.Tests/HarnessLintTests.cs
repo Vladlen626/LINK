@@ -96,6 +96,16 @@ internal static class HarnessLintTests
             Program.Equal("Guard: searching on without a change is stopped once at the limit; an edit starts the count over",
                 (searches.Take(searches.Length - 1).All(why => why is null), searches[^1] is not null, afterEdit.All(why => why is null)), (true, true, true));
 
+            var allowing = Guid.NewGuid().ToString();
+            string? As(string tool, object args, string? mode = null, string? agent = null) => Link.Guard.HarnessGuard.Check(
+                System.Text.Json.JsonSerializer.SerializeToElement(new { tool_name = tool, cwd = workspace, session_id = allowing, permission_mode = mode, agent_id = agent, tool_input = args }));
+            var surveys = Enumerable.Range(1, 2 * Link.Guard.HarnessGuard.SearchesWithoutWork).Select(_ => As("Grep", new { pattern = "x" }, agent: "a1")).ToArray();
+            var noStop = Enumerable.Range(1, 2 * Link.Guard.HarnessGuard.SearchesWithoutWork).Select(_ => As("Glob", new { pattern = "*.cs" }, "bypassPermissions")).ToArray();
+            Program.Equal("Guard: a subagent's searches and No-stop's calls are not refused; No-stop still keeps Link's data",
+                (surveys.All(why => why is null), noStop.All(why => why is null), As("Read", new { file_path = big }, "bypassPermissions"),
+                    As("Edit", new { file_path = Path.Combine(linkData, "settings.json") }, "bypassPermissions") is not null),
+                (true, true, (string?)null, true));
+
             string? Stop(string id, bool active = false) => Link.Guard.HarnessGuard.Stop(
                 System.Text.Json.JsonSerializer.SerializeToElement(new { hook_event_name = "Stop", session_id = id, stop_hook_active = active }));
             var shortWork = Stop(session);
@@ -114,7 +124,7 @@ internal static class HarnessLintTests
             }
 
             Program.Equal("Guard: a session that wrote a skill is not asked", Stop(learning), (string?)null);
-            foreach (var id in new[] { session, learning }) File.Delete(Path.Combine(Path.GetTempPath(), "link-guard", id + ".txt"));
+            foreach (var id in new[] { session, learning, allowing }) File.Delete(Path.Combine(Path.GetTempPath(), "link-guard", id + ".txt"));
         }
         finally
         {

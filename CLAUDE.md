@@ -70,7 +70,7 @@ The same harness Link gives its agents, for work on this repo.
 - Remote control: `RemoteControl` (on in Settings) runs `TelegramBot`, the user's bot, over `IRemoteHost`
   (`MainWindow.Remote`); a run's review window reaches the user by the bot's link through `RemoteServer` (127.0.0.1,
   `/view/<ticket>/`) and `RemoteTunnel` (cloudflared).
-  No-stop is `MainWindow.NoStop` + `Services/NoStop`; spending is `UsageReport` (ccusage).
+  Night mode (No-stop in the code) is `MainWindow.NoStop` + `Services/NoStop`; spending is `UsageReport` (ccusage).
 - User data: `%LocalAppData%\Link` — settings.json, projects.json, Screenshots, Recordings, Models, link.log,
   WebView2 (the ChatGPT session: never log or copy it), companion-state.json.
 

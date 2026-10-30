@@ -481,8 +481,8 @@
                 <!-- How the run goes: each choice a pill, its whole meaning under the pointer. -->
                 <WrapPanel Margin="0,12,0,0">
                     <CheckBox x:Name="PlanFirstBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Content="Plan first" />
-                    <CheckBox x:Name="NoStopBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Content="No-stop"
-                              ToolTip="It takes the choices it recommends and asks for nothing. Every stop (a question, the plan, a refused tool, the next step) is taken after 10 s; only the deny list of Settings stays refused. It waits for you after the turns of Settings in a row; untick it on the task to step in" />
+                    <CheckBox x:Name="NoStopBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Content="Night mode"
+                              ToolTip="For when you are away: it allows every tool and takes the choice the agent recommends. Every stop (a question, the plan, a tool it asks for, the next step) is taken after 10 s; only the deny list of Settings stays refused. The computer stays awake while it works. It waits for you after the turns of Settings in a row; untick it on the task to step in" />
                     <CheckBox x:Name="TeamBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Click="TeamBox_OnClick"
                               Content="Team" Visibility="Collapsed"
                               ToolTip="The lead plans the steps, Link gives each to its worker; pays off from about 4 steps. Strong plans first; you see each step with its worker and why, then run the team. Steps run one after another. With fewer steps the plan, briefs and reviews cost more than the cheaper workers save: one agent does it for less" />
@@ -720,7 +720,7 @@
                             <Button x:Name="FinishButton" Style="{StaticResource GhostChipStyle}" Click="Finish_OnClick" Content="Finish"
                                     ToolTip="Close the task; it stays in the list, where it can be opened and taken up again" />
                         </WrapPanel>
-                        <!-- No-stop for this task, also while it works; its label shows the choice it is about to take. -->
+                        <!-- Night mode for this task, also while it works; its label shows the choice it is about to take. -->
                         <CheckBox x:Name="NoStopLiveBox" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
                                   Click="NoStopLiveBox_OnClick" Visibility="Collapsed" />
                         <!-- What the next words run on; nothing starts when it changes. -->

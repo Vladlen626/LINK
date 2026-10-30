@@ -11,7 +11,7 @@ namespace Link.Desktop.Services;
 /// <summary>
 /// Link's tasks in the user's own Telegram bot. A task the bot writes about has one card that changes silently as the task
 /// goes, in a topic of its own when the user turned topics on for the bot; when the task needs the user, a new card comes
-/// that notifies, with the buttons it waits for (the agent's options, Allow or Deny, Stop, No-stop, the changes). Words and
+/// that notifies, with the buttons it waits for (the agent's options, Allow or Deny, Stop, Night mode, the changes). Words and
 /// pictures answer a task, /new starts one once its project and agent are picked, and the pictures a run makes follow its
 /// card. Link asks Telegram for news itself (long polling), so nothing reaches this computer from outside, whatever VPN
 /// the phone uses. Only the chat paired with a code from Settings is heard; what is said goes through Telegram's servers.
@@ -269,7 +269,7 @@ public sealed class TelegramBot : IDisposable
         ("new", "A new task: /new and what to do"),
         ("plan", "A new task that plans first"),
         ("team", "A new task the team plans and works"),
-        ("auto", "A new task in No-stop"),
+        ("night", "A new task in Night mode, for while you sleep"),
         ("spent", "What the agents spent"),
         ("account", "Which Claude account new runs use"),
         ("help", "How the bot works")
@@ -355,7 +355,8 @@ public sealed class TelegramBot : IDisposable
                 var spent = await _host.UsageAsync();
                 await SendAsync(chat, topic, spent is null ? "Link has not counted yet: open the Studio on the computer." : $"{spent.Line}\n\n{spent.Hint}", null, token);
                 return;
-            case "/new" or "/plan" or "/auto" or "/team":
+            // /auto is Night mode's name of before.
+            case "/new" or "/plan" or "/night" or "/auto" or "/team":
                 await DraftAsync(chat, topic, command, rest, pictures, token);
                 return;
             case "/account":
@@ -386,8 +387,8 @@ public sealed class TelegramBot : IDisposable
         "Turn on topics for this bot in @BotFather, and each task gets a topic of its own. Words or a picture answer the task " +
         "of the topic, of the message you reply to, or of the last card; while Claude works, it reads them at its next step " +
         "without stopping. /tasks — the tasks · /new <task> — a new task: pick " +
-        "the project and the agent, who plans it, works it and hands parts to helpers · /plan <task> — plan first · /auto <task> — " +
-        "No-stop · /spent — what the agents spent · /account — which Claude account new runs use. When a plan is done, the card " +
+        "the project and the agent, who plans it, works it and hands parts to helpers · /plan <task> — plan first · /night <task> — " +
+        "Night mode, for while you sleep · /spent — what the agents spent · /account — which Claude account new runs use. When a plan is done, the card " +
         "offers Check the work, and Fix them gives the findings to the same session.";
 
     private bool Pairs(string text)
@@ -433,7 +434,7 @@ public sealed class TelegramBot : IDisposable
         }
     }
 
-    /// <summary>/new, /plan, /team or /auto: the project to start in when there is a choice, then the agent.</summary>
+    /// <summary>/new, /plan, /team or /night: the project to start in when there is a choice, then the agent.</summary>
     private async Task DraftAsync(long chat, long? topic, string command, string goal, IReadOnlyList<string> pictures, CancellationToken token)
     {
         if (goal.Length == 0)
@@ -456,7 +457,7 @@ public sealed class TelegramBot : IDisposable
             return;
         }
 
-        var draft = new Draft(goal, command == "/plan", command == "/auto", pictures, projects)
+        var draft = new Draft(goal, command == "/plan", command is "/night" or "/auto", pictures, projects)
         {
             Project = projects.Length == 1 ? projects[0] : null, Team = command == "/team", TeamsOffered = teams
         };
@@ -793,10 +794,10 @@ public sealed class TelegramBot : IDisposable
         }
 
         if (view.Limit is { } limit) lines.Add("⏸ " + TelegramHtml.Escape(limit));
-        if (view.NoStopPending is { } pending) lines.Add(TelegramHtml.Escape($"No-stop takes «{pending}» in a few seconds."));
+        if (view.NoStopPending is { } pending) lines.Add(TelegramHtml.Escape($"{NoStop.Name} takes «{pending}» in a few seconds."));
         if (view.TakesWords) lines.Add("Write to answer it: words or a picture.");
         if (!task.Working) rows.AddRange(view.Pages.Select((page, index) => new[] { Button("🔗 " + Short(page.Label, 50), $"pg:{id:N}:{index}") }));
-        var foot = new List<object> { Button(task.NoStop ? "No-stop: on ✓" : "No-stop: off", $"n:{id:N}:{(task.NoStop ? 0 : 1)}") };
+        var foot = new List<object> { Button(task.NoStop ? $"🌙 {NoStop.Name}: on ✓" : $"🌙 {NoStop.Name}: off", $"n:{id:N}:{(task.NoStop ? 0 : 1)}") };
         if (task.Working) foot.Insert(0, Button("⏹ Stop", $"s:{id:N}"));
         rows.Add([.. foot]);
         rows.Add(view.ChangedFiles.Count > 0 ? [Button("Changes", $"f:{id:N}"), Button("🔄", $"v:{id:N}")] : [Button("🔄", $"v:{id:N}")]);

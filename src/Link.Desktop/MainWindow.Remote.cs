@@ -195,7 +195,7 @@ public partial class MainWindow : IRemoteHost
         return null;
     });
 
-    public Task<string?> SetNoStopAsync(Guid id, bool on, string device) => OnRemoteWork(id, device, on ? "No-stop on" : "No-stop off", work =>
+    public Task<string?> SetNoStopAsync(Guid id, bool on, string device) => OnRemoteWork(id, device, on ? $"{NoStop.Name} on" : $"{NoStop.Name} off", work =>
     {
         SetNoStop(work, on);
         return null;

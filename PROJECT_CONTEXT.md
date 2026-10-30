@@ -393,6 +393,11 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   the task list searched and grouped by what it waits for. Claude Code asks for a tool outside the rules during the
   run (`--permission-prompt-tool stdio` over stream-json stdin), answered Allow / Deny on the card; "Allow and retry"
   after the run stays only where Link does not ask (No-stop).
+- Night mode (2026-10-31, the user's request): No-stop is named Night mode in the UI and the bot (`/night`; `/auto`
+  still works; the code and saved data keep NoStop). It means "allow everything while I sleep": the guard refuses only
+  edits of protected folders, a tool asked for mid-run is allowed at once unless the deny list holds it, and the
+  computer stays awake while a Night task runs or waits for a limit's reset. Compact budget stays 250k: on 11
+  DriverTheSlop sessions it compacts at ~218k, 200k would save ~9% of tokens and 150k ~15% with twice the compactions.
 
 ## ChatGPT-транспорт
 

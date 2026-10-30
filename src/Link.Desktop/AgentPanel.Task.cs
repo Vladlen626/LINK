@@ -74,8 +74,8 @@ public partial class AgentPanel
 
     /// <summary>
     /// The agent's plan as it last wrote it, as its own app shows it: ✓ done, ● under way (in the agent's words for it,
-    /// when it gave any), ○ to do; a step by its first sentence, the rest a click away. A team's step also names who does
-    /// it and as which specialist, in the colour of that specialist's jellyfish, found by name among
+    /// when it gave any), ○ to do, each step on its line. A team's step shows its first sentence, the rest a click away, and
+    /// names who does it and as which specialist, in the colour of that specialist's jellyfish, found by name among
     /// <paramref name="roles"/>, and why that worker under its words. Its worker chip opens <paramref name="stepMenu"/>
     /// for the step, made when it is clicked.
     /// </summary>
@@ -92,10 +92,11 @@ public partial class AgentPanel
             var (mark, markBrush, words, brush) = item.Done ? ("✓", done, item.Text, muted)
                 : item.Active ? ("●", accent, item.Doing ?? item.Text, text)
                 : ("○", muted, item.Text, text);
-            var (title, rest) = TeamPlan.Headline(words);
-            var detail = string.Join("\n\n", new[] { rest, item.Why is { Length: > 0 } why ? "Why this worker: " + why : string.Empty }.Where(part => part.Length > 0));
             // The agent's own plan names neither.
             var team = !string.IsNullOrEmpty(item.Worker) || !string.IsNullOrEmpty(item.Role);
+            // Its step is a line of the agent's words, whole ("1. Main menu…" has no first sentence to cut at).
+            var (title, rest) = team ? TeamPlan.Headline(words) : (words.ReplaceLineEndings(" ").Trim(), string.Empty);
+            var detail = string.Join("\n\n", new[] { rest, item.Why is { Length: > 0 } why ? "Why this worker: " + why : string.Empty }.Where(part => part.Length > 0));
             var color = !team ? null
                 : roles?.FirstOrDefault(each => string.Equals(each.Name, item.Role, StringComparison.OrdinalIgnoreCase)) is { } role
                     ? RoleBrushes.Of(ProjectRoles.ColorOf(role, roles))

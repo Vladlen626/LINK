@@ -1270,6 +1270,11 @@ internal static class AgentTests
         Program.Equal("No-stop settings: turns and deny list fall back to their defaults",
             (settings.NoStopTurns, settings.NoStopDeny.SequenceEqual(AgentSettings.DefaultNoStopDeny), settings.Clone().NoStopDeny.Count),
             (AgentSettings.DefaultNoStopTurns, true, AgentSettings.DefaultNoStopDeny.Count));
+
+        bool Denies(string tool, string what) => NoStop.Denies(AgentSettings.DefaultNoStopDeny, new AgentPermissionAsk(tool, what, []));
+        Program.Equal("Night mode refuses a run's ask only on the deny list: a push, also chained, but not a status or another tool",
+            (Denies("Bash", "git push origin main"), Denies("Bash", "git add . && git push"), Denies("Bash", "git status"), Denies("WebFetch", "git push")),
+            (true, true, false, false));
     }
 
     private static async Task LocalPagesAsync()

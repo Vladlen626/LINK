@@ -38,21 +38,30 @@ public static partial class HarnessGuard
         if (!input.TryGetProperty("tool_input", out var args) || args.ValueKind != JsonValueKind.Object) return null;
         var workspace = Text(input, "cwd");
         var command = Text(args, "command");
-        var why = tool switch
+        var edited = tool switch
+        {
+            "Write" or "Edit" or "MultiEdit" => Text(args, "file_path"),
+            "NotebookEdit" => Text(args, "notebook_path"),
+            _ => null
+        };
+        if (Protected(edited, workspace) is { } kept) return kept;
+
+        // No-stop asks nothing and refuses nothing else: its run is the user's "allow all", and a nudge reads as a refusal.
+        var noStop = Text(input, "permission_mode") == "bypassPermissions";
+        var why = noStop ? null : tool switch
         {
             "Read" => WholeRead(args),
-            "Write" => Protected(Text(args, "file_path"), workspace) ?? Leftover(Text(args, "file_path"), workspace),
-            "Edit" or "MultiEdit" => Protected(Text(args, "file_path"), workspace),
-            "NotebookEdit" => Protected(Text(args, "notebook_path"), workspace),
+            "Write" => Leftover(edited, workspace),
             "Bash" or "PowerShell" => LongWait(command) ?? Encoding(command, tool == "PowerShell") ?? LongScript(command, workspace),
             _ => null
         };
         if (why is not null) return why;
 
+        // The session is still counted for the retrospective before it ends.
         var session = GuardSession.Load(Text(input, "session_id"));
-        why = Remembered(session, tool, args, command);
+        why = Remembered(session, tool, args, command, subagent: Text(input, "agent_id") is not null);
         session.Save();
-        return why;
+        return noStop ? null : why;
     }
 
     /// <summary>
@@ -80,7 +89,7 @@ public static partial class HarnessGuard
     }
 
     // The rules that need the session's past: an image opened again unchanged, and searching on without doing.
-    private static string? Remembered(GuardSession session, string tool, JsonElement args, string? command)
+    private static string? Remembered(GuardSession session, string tool, JsonElement args, string? command, bool subagent)
     {
         session.Calls++;
         var shell = tool is "Bash" or "PowerShell";
@@ -97,6 +106,8 @@ public static partial class HarnessGuard
             return null;
         }
 
+        // A subagent has a context of its own, and a survey's work is to search: the counts are the main agent's.
+        if (subagent) return null;
         if (tool == "Read" && Text(args, "file_path") is { } file && Binary().IsMatch(file)) return SameImage(session, file);
         if (tool is not ("Read" or "Grep" or "Glob" or "LS") && !(shell && command is not null && ShellCommand.IsSearch(command))) return null;
         if (++session.Searches < SearchesWithoutWork) return null;

@@ -75,8 +75,9 @@ ChatGPT project Link talks to.
   **Start over with a note**, **Escalate**; at a usage limit, **Continue at 15:45**.
 - **Review and undo.** **Review** opens the diff: comment on lines, **Send review**. **Undo agent changes** in Git
   and Perforce (each task gets its own pending changelist).
-- **Access.** **Edit** asks before commands, **Auto** asks nothing. **No-stop** takes the agent's recommended choice
-  after 10 s; `git push`, `p4 submit`, `gh pr merge` and `gh release` stay refused.
+- **Access.** **Edit** asks before commands, **Auto** asks nothing. **Night mode**, for while you sleep, allows every tool,
+  takes the agent's recommended choice after 10 s and keeps the computer awake while it works; `git push`, `p4 submit`,
+  `gh pr merge` and `gh release` stay refused.
 - **Spend** (`Ctrl+Shift+U`): where a task's tokens went, tips to save with a **Fix**, the context curve, usage windows
   and history; today's and this month's cost by [ccusage](https://ccusage.com).
 
@@ -100,8 +101,8 @@ More: [docs/LOOP_PLAN.md](docs/LOOP_PLAN.md) (how a task runs), [docs/PORTABLE_H
 
 A Telegram bot of your own: `@BotFather` → `/newbot` gives a token; Settings → Remote control → paste it, **Pair
 Telegram**. Each task gets one card that updates quietly; when it needs you, a new card notifies with buttons (the
-agent's options, Allow, Deny, Stop, No-stop, Changes as a `.patch`). Words or a photo answer the task, also while it
-works. `/new`, `/plan`, `/auto`, `/tasks`, `/spent`. A model's review window opens in any browser through a Cloudflare
+agent's options, Allow, Deny, Stop, Night mode, Changes as a `.patch`). Words or a photo answer the task, also while it
+works. `/new`, `/plan`, `/night`, `/tasks`, `/spent`. A model's review window opens in any browser through a Cloudflare
 quick tunnel while Link runs.
 
 ## Hotkeys
