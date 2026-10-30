@@ -4471,6 +4471,12 @@ See shots/flat.png. Not crate.blend or a.pngx.")),
             File.WriteAllBytes(sheet, [.. "PNG IHDR"u8, 0, 0, 0, 10, .. "tEXtLink\0sheet"u8, .. "IDAT"u8]);
             Program.Equal("art critic: a sheet is known by sheet.py's mark; a frame, a file without it or none is no sheet",
                 (ArtCritic.IsSheet(sheet), ArtCritic.IsSheet(game), ArtCritic.IsSheet(Path.Combine(workspace, "Art", "gone.png"))), (true, false, false));
+            // A real PNG of one pixel, read off the UI thread as the thread reads its pictures.
+            var render = Path.Combine(workspace, "Art", "render.png");
+            File.WriteAllBytes(render, Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="));
+            Program.Equal("turn pictures: a run's picture is read for its turn, and a file that is no picture shows nothing",
+                (System.Threading.Tasks.Task.Run(() => ThreadImage.Read(render) is not null).GetAwaiter().GetResult(), ThreadImage.Read(game) is null),
+                (true, true));
         }
         finally
         {

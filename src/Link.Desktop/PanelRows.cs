@@ -294,18 +294,18 @@ public sealed class ThreadImage : INotifyPropertyChanged
         PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(Visibility)));
     }
 
-    private static BitmapImage? Read(string path)
+    internal static BitmapImage? Read(string path)
     {
         try
         {
-            // The image as it is now, not WPF's cache of an earlier render to the same path; a renderer may still hold the file.
+            // Read from a stream, the image as it is now: WPF caches by Uri, so an earlier render to the same path is not
+            // shown. IgnoreImageCache has no Uri to go by here and throws. A renderer may still hold the file.
             using var file = new FileStream(path, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete);
             var picture = new BitmapImage();
             picture.BeginInit();
             picture.StreamSource = file;
             picture.DecodePixelHeight = ReadHeight;
             picture.CacheOption = BitmapCacheOption.OnLoad;
-            picture.CreateOptions = BitmapCreateOptions.IgnoreImageCache;
             picture.EndInit();
             picture.Freeze();
             return picture;
