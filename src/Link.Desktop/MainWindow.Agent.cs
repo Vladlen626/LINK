@@ -952,11 +952,13 @@ public partial class MainWindow
         if (work == _open) _ = ShowChangesAsync(record);
         ShowTask(work);
         if (record.Team.Count > 0) AfterTeamStep(work, run, needsYou: work.Question is not null || decision || limitReached);
+        var planDone = false;
         if (checking) AfterFinalCheck(work, run, needsYou || limitReached);
         else if (!needsYou && work.Decision is null && FinalCheck.Due(record, run) && work.PlanChecked != FinalCheck.Key(record.Plan))
         {
             work.PlanChecked = FinalCheck.Key(record.Plan);
             OfferFinalCheck(work);
+            planDone = true;
         }
         if (!needsYou && work.Decision is null && record.LastRun is { } done && WorkerEvidence.Verdict(done) == true && TeamRunner.Current(record) is null)
         {
@@ -976,6 +978,8 @@ public partial class MainWindow
         // The paired devices hear how the run ended, unless No-stop goes on by itself (its wait has an alert of its own).
         var alert = stopped || record.NoStop && NoStopChoice(work) is not null ? null
             : work.Question is not null || decision ? $"{provider.Name} needs you"
+            // The card's button checks the whole change: the alert says the plan is done and asks.
+            : planDone ? "The plan is done: check the work?"
             : result.Succeeded && !checkFailed ? $"{provider.Name} finished"
             : checkFailed ? "The check fails"
             : $"{provider.Name} stopped: {ending.ToLowerInvariant()}";

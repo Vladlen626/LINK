@@ -29,6 +29,12 @@ public partial class MainWindow
             return;
         }
 
+        if (ProjectMap.Shared(workspace) is { } shared)
+        {
+            SetStatus($"The repository keeps its own map, {ProjectMap.Relative(workspace, shared)}: agents read that one");
+            return;
+        }
+
         // The file Link writes would be counted among the changes of the run that edits there now.
         if (FolderBusy(null, workspace) is { } busy)
         {

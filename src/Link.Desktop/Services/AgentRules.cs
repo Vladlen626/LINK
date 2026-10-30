@@ -41,6 +41,14 @@ public static partial class AgentRules
             input.Append("\n\nGit: the workspace itself is not a repository; run git in ")
                 .Append(string.Join(", ", repositories.Select(repository => $"`{repository}/`"))).Append('.');
         }
+
+        // One map: the repository's own where it keeps one, else Link's. Skills written for Link's name docs/map.md.
+        if (ProjectMap.Find(workspace) is { } found)
+        {
+            var map = ProjectMap.Relative(workspace, found);
+            input.Append("\n\nThe project's map: `").Append(map).Append("`, what is where and how to build and check. Read it first.");
+            if (map != ProjectMap.RelativePath) input.Append(" Where a skill or a role names `docs/map.md`, it means this file.");
+        }
         // The engine's or tool's own rules, for every task in a project of it, but a role's that works beside the engine.
         foreach (var pack in role is { PackRules: false } ? [] : ToolPacks.For(workspace))
         {

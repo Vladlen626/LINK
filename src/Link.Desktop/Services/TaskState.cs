@@ -204,7 +204,7 @@ public static class TaskState
     private static string[] Pointers(string workspace)
     {
         var pointers = new List<string>();
-        if (File.Exists(ProjectMap.PathIn(workspace))) pointers.Add($"- Project map: {ProjectMap.RelativePath}");
+        if (ProjectMap.Find(workspace) is { } map) pointers.Add($"- Project map: {ProjectMap.Relative(workspace, map)}");
         if (ProjectSkills.Own(workspace).Count > 0) pointers.Add($"- Skills: {ProjectSkills.RelativeFolder}/");
         pointers.Add("- The brief this task began with is below.");
         return [.. pointers];

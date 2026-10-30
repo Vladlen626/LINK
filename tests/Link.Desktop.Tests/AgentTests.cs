@@ -981,7 +981,7 @@ internal static class AgentTests
             (true, false, false, false, false, false));
         Program.Equal("final check: the last verdict line decides; none is null; the findings go on without it",
             (FinalCheck.NeedsFix("1. a.cs:4 null\nVerdict: fix"), FinalCheck.NeedsFix("All good.\nVerdict: clean"), FinalCheck.NeedsFix("Fine."),
-                FinalCheck.Fix("1. a.cs:4 null\nVerdict: fix").Contains("1. a.cs:4 null\n\nFix the Important ones"), FinalCheck.Fix("x\nVerdict: fix").Contains("Verdict")),
+                FinalCheck.Fix("1. a.cs:4 null\nVerdict: fix").Contains("1. a.cs:4 null\n\nFix the failed steps"), FinalCheck.Fix("x\nVerdict: fix").Contains("Verdict")),
             ((bool?)true, (bool?)false, (bool?)null, true, false));
         var prompt = FinalCheck.Prompt("<!-- note -->Check it.", "A dash prop", plan, "passed", ["a.cs"], "+x");
         Program.Equal("final check: the request without its notes, then the task, its plan, the check, the files and the diff",
@@ -990,6 +990,17 @@ internal static class AgentTests
         Directory.CreateDirectory(Path.Combine(work.Workspace, "Game", ".git"));
         Program.Equal("git: a workspace above its repository is told where git lives; one inside a repository is not",
             (AgentRules.Before("t", work.Workspace, false).Contains("run git in `Game/`."), AgentChanges.RepositoriesInside(Path.Combine(work.Workspace, "Game")).Count), (true, 0));
+
+        Directory.CreateDirectory(Path.Combine(work.Workspace, "docs"));
+        File.WriteAllText(ProjectMap.PathIn(work.Workspace), "# Link's map");
+        var ownOnly = ProjectMap.Relative(work.Workspace, ProjectMap.Find(work.Workspace)!);
+        Directory.CreateDirectory(Path.Combine(work.Workspace, "Game", "docs"));
+        File.WriteAllText(Path.Combine(work.Workspace, "Game", "docs", "README.md"), "# The team's docs");
+        var rules = AgentRules.Before("t", work.Workspace, false);
+        Program.Equal("map: one map; the repository's own wins over Link's, and the rules name it for the skills' docs/map.md",
+            (ownOnly, ProjectMap.Relative(work.Workspace, ProjectMap.Find(work.Workspace)!), rules.Contains("The project's map: `Game/docs/README.md`"),
+                rules.Contains("names `docs/map.md`, it means this file")),
+            ("docs/map.md", "Game/docs/README.md", true, true));
         DeleteFolder(work.Workspace);
     }
 

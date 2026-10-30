@@ -189,6 +189,15 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
     private static HarnessSection Memory(string? workspace)
     {
         if (workspace is null) return new HarnessSection("Project memory", "No workspace chosen");
+        if (ProjectMap.Shared(workspace) is { } shared)
+        {
+            return new HarnessSection("Project memory", $"{ProjectMap.Relative(workspace, shared)} · the repository's own map")
+            {
+                FilePath = shared,
+                Note = "The team keeps it in git: agents read it first, and Link's own map is not used"
+            };
+        }
+
         var map = ProjectMap.PathIn(workspace);
         var lines = File.Exists(map) ? Lines(map) : 0;
         return File.Exists(map)

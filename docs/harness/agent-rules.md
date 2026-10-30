@@ -29,7 +29,7 @@ dialog: a question or a request for permission ends it, and the user's answer co
 - A tool the work needs is down or busy (an editor closed or in Play, a server stopped): do what you can without it,
   then ask the user with a link-ask block; an agent once polled an editor in Play for 30 minutes.
 - A check that failed before your change too (a frame budget the whole scene misses): measure it with and without
-  your work once, report the difference, and write the known failure into `docs/map.md` so no later step chases it.
+  your work once, report the difference, and write the known failure into the project's map so no later step chases it.
 - Every request of a run re-sends the whole session, so what enters it stays there: a script longer than a screen is
   written once to a file and changed by edits, never re-sent whole; open an image once, at the size its question needs
   (a sheet, not its frames one by one; an image given with the task is not opened again).
@@ -47,7 +47,9 @@ dialog: a question or a request for permission ends it, and the user's answer co
 
 ## A big task
 - Several parts or long work: the plan is your task list (TaskCreate, or the todo list), written in the first turn
-  and kept current: Link shows it to the user. When the work shows a step wrong, change the plan and say why in a line.
+  and kept current: Link shows it to the user. Each part names how it is checked, in its own line after "check:" (a
+  build, a test, a play step and what it shows, a frame). When the work shows a step wrong, change the plan and say why
+  in a line.
 - Finish and check a part before the next one; the session keeps what you learned, so do not read it again.
 - A result only the user can judge (a model's look, an animation's feel, a level's flow): stop there with a link-ask
   block that names what to look at, instead of going on.
@@ -63,7 +65,6 @@ dialog: a question or a request for permission ends it, and the user's answer co
   a link-ask block; nothing after it. The task is done: no block.
 
 ## Project and environment
-- `docs/map.md`, if present, is the project's map: what is where, how to build and check. Read it first.
 - `docs/art/STYLE.md`, if present, is the game's art profile: art work follows it over any skill's default.
 - Project skills are `.agents/skills/<name>/SKILL.md`: repeated work a skill describes, do by it; a missing skill or
   tool, name at the end. A skill marked "pack, shared" serves every project with that tool: never change it there. A
@@ -73,7 +74,8 @@ dialog: a question or a request for permission ends it, and the user's answer co
 
 ## Get stronger with each task
 - As soon as this task proves something the next agent would need and could not see at once (a run can be cut off
-  before its answer): a project fact into `docs/map.md`, a way of doing repeated work with its commands and pitfalls
+  before its answer): a project fact into the project's map (or the doc it points to, as its format says; none yet:
+  `docs/map.md`), a way of doing repeated work with its commands and pitfalls
   into its skill (a new one only for work that will come again: front matter `name` and a short `description` of when
   to use it), a script that work needs again into the project's tools, named in its skill.
 - Keep them true and short: rewrite what changed where it stands, say each thing in one place, describe how it is now,

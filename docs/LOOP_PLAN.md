@@ -44,6 +44,15 @@ was flagged as a loop.
 | L.9 | The final check follows the Claude Code team's review (15.10): every finding is tagged `Important`, `Nit` or `Pre-existing` and gives its file and line. An Important finding names its kind, so every place of it gets fixed. Only Important means `Verdict: fix`. The check reads the project's `REVIEW.md` if there is one. | `docs/harness/final-check.md`, `FinalCheck.Fix` |
 | L.10 | A shorter start: the rules say the same in about a third fewer words ("Project and environment", "Get stronger", "How to answer"). HarnessLint flags a skill description over 300 characters, since every session reads all of them; in DriverTheSlop they ran 300–870 characters, 6.5k of the 31k-character prompt. | `docs/harness/agent-rules.md`, `HarnessLint.DescriptionLength` |
 
+| L.11 | One map. If a repository in the workspace keeps its own map (`docs/map.md` or `docs/README.md`, in git for the whole team), that is the map: the rules name it, and skills that say `docs/map.md` mean it. Link's own map is then neither read nor offered (Project tab, Spend tips, Harness). DriverTheSlop: `DriverTheSlop/Docs/README.md`, the team's router. | `ProjectMap.Find`, `ProjectMap.Shared`, `AgentRules.Before` |
+| L.12 | The plan's checks: each part names how it is checked ("check:"). The final check grades every step `done`, `failed` or `unverified`, with evidence. Where a result shows only in the running game, it runs the game through the project's skills and looks. A problem it found stays a finding (Anthropic's harness design, 24.03: a checker that only reads the code, or talks itself out of a finding, passes broken work). | `docs/harness/agent-rules.md`, `docs/harness/final-check.md` |
+| L.13 | Telegram and the other devices: when a plan is done, the alert says "The plan is done: check the work?", and the card carries the button. | `MainWindow.Agent` (alert) |
+
+No Stop hook: Link already runs the project's check after a run and continues the same session with its output
+(`AgentCoordinator.RunAsync`, two retries). That is the same loop, but every project's check command is empty. For
+DriverTheSlop the check is `"C:\Program Files\Git\bin\bash.exe" tools/unity/refresh.sh`: it refreshes the open
+editor and exits 1 on a failed compile.
+
 Checked and left as is: the art critic resumes its Codex session after a redo. The log's 236k → 459k → 546k are the
 session's running totals; the runs themselves cost 236k, 222k and 87k, less than fresh sessions would.
 

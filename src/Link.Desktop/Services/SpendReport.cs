@@ -96,7 +96,7 @@ public static class SpendReport
     /// budget (0: none), <paramref name="hasMap"/> whether the workspace has a map, <paramref name="canCompact"/> whether
     /// Compact is offered now.
     /// </summary>
-    public static SpendTask Of(AgentTaskRecord task, Func<AgentRunRecord, string> who, int budget, bool hasMap, bool canCompact)
+    public static SpendTask Of(AgentTaskRecord task, Func<AgentRunRecord, string> who, int budget, bool hasMap, bool canCompact, bool ownMap = true)
     {
         var split = task.Runs.Where(run => run.Spend is not null).ToArray();
         var parts = split.Aggregate(new SpendParts(), (sum, run) => sum + run.Spend!);
@@ -121,7 +121,7 @@ public static class SpendReport
             Budget = budget > 0 ? budget / 1000 : null,
             Window = curved?.ContextWindow is { } window ? (int)(window / 1000) : null,
             Runs = [.. task.Runs.Select((run, index) => new SpendRun(RunName(run, index, team), who(run), run.Spend ?? SpendMeter.Split(null, TokenCount.Of(run)), run.CostUsd))],
-            Tips = Tips(task, parts, budget, hasMap, canCompact),
+            Tips = Tips(task, parts, budget, hasMap, canCompact, ownMap),
             HasMap = hasMap,
             CacheWarmUntil = last is null || minutes is null ? null : last.StartedAt + last.Duration + TimeSpan.FromMinutes(minutes.Value),
             ContextNow = last?.ContextTokens
@@ -136,15 +136,16 @@ public static class SpendReport
     /// edit (a map spares them), a cache that went cold, pictures, command output, thinking at a high effort, the CLI's
     /// own load, and a context near its budget.
     /// </summary>
-    public static IReadOnlyList<SpendTip> Tips(AgentTaskRecord task, SpendParts parts, int budget, bool hasMap, bool canCompact)
+    public static IReadOnlyList<SpendTip> Tips(AgentTaskRecord task, SpendParts parts, int budget, bool hasMap, bool canCompact, bool ownMap = true)
     {
         var tips = new List<(double Size, SpendTip Tip)>();
         var total = Math.Max(1, parts.Total);
         string Share(SpendPart part) => $"{Math.Round(100.0 * parts[part] / total)}% (~{AgentContext.Tokens(parts[part])})";
-        var mapWhy = hasMap
-            ? "The project map seems to miss this: an update names what is where, so the next run goes straight there."
+        // The repository's own map is the team's to keep: Link writes none beside it.
+        var mapWhy = !ownMap ? "The repository's map seems to miss this: a line there on what is where sends the next run straight to it."
+            : hasMap ? "The project map seems to miss this: an update names what is where, so the next run goes straight there."
             : "A project map names what is where, so the next run goes straight there instead of looking around.";
-        var mapFix = SpendFix.Map;
+        var mapFix = ownMap ? SpendFix.Map : SpendFix.None;
 
         var rereads = FileReads.Join(task.Runs.SelectMany(run => run.Rereads), 50);
         var again = rereads.Sum(read => (double)read.Tokens * (read.Times - 1) / read.Times);

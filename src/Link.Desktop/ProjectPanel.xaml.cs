@@ -55,9 +55,12 @@ public partial class ProjectPanel : UserControl
         ClearWorkspaceButton.Visibility = _workspace is null ? Visibility.Collapsed : Visibility.Visible;
         WorkspaceTools.Visibility = _workspace is null ? Visibility.Collapsed : Visibility.Visible;
         var map = _workspace is null ? null : new FileInfo(ProjectMap.PathIn(_workspace));
-        MapText.Text = map is { Exists: true }
-            ? $"{ProjectMap.RelativePath} · {map.LastWriteTime.ToString("d MMM", CultureInfo.InvariantCulture)}"
+        // A repository that keeps its own map is the one map: Link writes none beside it.
+        var shared = _workspace is null ? null : ProjectMap.Shared(_workspace);
+        MapText.Text = shared is not null ? $"{ProjectMap.Relative(_workspace!, shared)} · the repository's own"
+            : map is { Exists: true } ? $"{ProjectMap.RelativePath} · {map.LastWriteTime.ToString("d MMM", CultureInfo.InvariantCulture)}"
             : "No map yet";
+        MapButton.Visibility = shared is null ? Visibility.Visible : Visibility.Collapsed;
         MapButton.Content = map is { Exists: true } ? "Update map" : "Write map";
         VcsText.Text = _workspace is null ? string.Empty
             : AgentChanges.IsGit(_workspace) ? "Git: undo puts back what an agent changed"

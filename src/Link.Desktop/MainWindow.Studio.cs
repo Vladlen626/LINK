@@ -107,7 +107,7 @@ public partial class MainWindow
     /// <summary>The task's spend for the Spend view: each run named by its agent and setup.</summary>
     private SpendTask TaskSpend(AgentTaskRecord record, bool canCompact) => SpendReport.Of(record,
         run => $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, ranModel: run.RanModel)}",
-        _settings.Current.Agent.ContextBudget, File.Exists(ProjectMap.PathIn(record.Workspace)), canCompact);
+        _settings.Current.Agent.ContextBudget, ProjectMap.Find(record.Workspace) is not null, canCompact, ownMap: ProjectMap.Shared(record.Workspace) is null);
 
     /// <summary>Both agents' windows as last told, with the shown task's part of each.</summary>
     private IReadOnlyList<SpendGauge> SpendGauges() => SpendReport.Gauges(
