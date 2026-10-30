@@ -501,9 +501,12 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
     /// ownership" and refuses it: 13 of 14 measured runs met it and asked again with <c>-c safe.directory</c>. The
     /// workspace's repository is safe for the agent's commands only.
     /// </summary>
-    public override IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task)
+    public override IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task) => GitVariables(task.Workspace);
+
+    /// <summary>The workspace's repository as git's safe folder, for Codex's sandboxed commands (Codex as Claude's helper too).</summary>
+    internal static IReadOnlyDictionary<string, string> GitVariables(string workspace)
     {
-        if (GitRoot(task.Workspace) is not { } root) return new Dictionary<string, string>();
+        if (GitRoot(workspace) is not { } root) return new Dictionary<string, string>();
         // Git reads each setting in single quotes; one inside the path is closed, escaped and opened again.
         var setting = "'safe.directory=" + root.Replace('\\', '/').Replace("'", @"'\''") + "'";
         var inherited = System.Environment.GetEnvironmentVariable("GIT_CONFIG_PARAMETERS");

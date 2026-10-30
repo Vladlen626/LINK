@@ -723,7 +723,7 @@ internal static class AgentTests
             Parse(new ClaudeEventParser(), "claude-denied.jsonl").Parser.Stats.ToolErrors, 2);
         Program.Equal("link.log: the numbers whole, in one order",
             CliAgentProvider.LogStats(claude),
-            "turns 10, tools 9, searches 5 (4 before a change), tool errors 1, tokens in 157371 (cached 148230) out 2105, cost $0.1834");
+            "turns 10, tools 9, helpers 0, searches 5 (4 before a change), tool errors 1, tokens in 157371 (cached 148230) out 2105, cost $0.1834");
 
         var codex = Parse(new CodexEventParser(), "codex-do.jsonl").Parser.Stats;
         Program.Equal("Codex stats: commands and patches are calls, a search is told by its program",
@@ -940,22 +940,33 @@ internal static class AgentTests
     /// <summary>One session that plans and delegates: Codex as its tool, what a helper's events show, and the final check.</summary>
     private static void OneLoop()
     {
-        var claude = new ClaudeCodeProvider(() => new AgentSettings(), _ => { });
         var work = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = TempFolder(), Prompt = "Rename the props" };
-        Program.Equal("one loop: Codex as a tool runs in its sandbox, asks nothing, without the desktop's add-ons",
-            string.Join(" ", ClaudeCodeProvider.CodexServerArguments(work)),
-            "mcp-server -c sandbox_mode=workspace-write -c approval_policy=never " + string.Join(" ", CodexProvider.FeaturesOff.Select(feature => $"-c features.{feature}=false")));
+        var codex = Path.Combine(work.Workspace, "codex.exe");
+        File.WriteAllText(codex, string.Empty);
+        var claude = new ClaudeCodeProvider(() => new AgentSettings { CodexPath = codex }, _ => { });
+        Program.Equal("one loop: Codex as a helper runs in its sandbox, asks nothing, without the desktop's add-ons",
+            string.Join(" ", ClaudeCodeProvider.CodexConfig(work)),
+            "-c sandbox_mode=workspace-write -c approval_policy=never " + string.Join(" ", CodexProvider.FeaturesOff.Select(feature => $"-c features.{feature}=false")));
+        var variables = claude.EnvironmentVariables(work);
+        var script = variables.TryGetValue("PATH", out var path) ? Path.Combine(path.Split(Path.PathSeparator)[0], ClaudeCodeProvider.CodexCommand) : string.Empty;
+        Program.Equal("one loop: a work run may call link-codex, a script first on its PATH that runs the found Codex; a plan first may not",
+            (claude.Arguments(work)[^1], File.Exists(script) && !File.ReadAllText(script).Contains('\r'), variables["LINK_CODEX"],
+                claude.Arguments(work with { PlanOnly = true }).Contains(ClaudeCodeProvider.CodexRule), claude.EnvironmentVariables(work with { PlanOnly = true }).ContainsKey("PATH")),
+            (ClaudeCodeProvider.CodexRule, true, codex.Replace('\\', '/'), false, false));
 
         var parser = claude.CreateParser(work);
         var events = new[]
             {
                 """{"type":"assistant","message":{"id":"m1","content":[{"type":"tool_use","id":"t1","name":"Agent","input":{"subagent_type":"mechanic","description":"Rename the props","prompt":"Rename SM_* files"}}]}}""",
-                """{"type":"assistant","parent_tool_use_id":"t1","message":{"id":"s1","content":[{"type":"text","text":"Renaming."},{"type":"tool_use","id":"s2","name":"TodoWrite","input":{"todos":[{"content":"Rename","status":"in_progress"}]}},{"type":"tool_use","id":"s3","name":"Bash","input":{"command":"git mv a b"}}]}}"""
+                """{"type":"assistant","parent_tool_use_id":"t1","message":{"id":"s1","content":[{"type":"text","text":"Renaming."},{"type":"tool_use","id":"s2","name":"TodoWrite","input":{"todos":[{"content":"Rename","status":"in_progress"}]}},{"type":"tool_use","id":"s3","name":"Bash","input":{"command":"git mv a b"}}]}}""",
+                """{"type":"assistant","message":{"id":"m2","content":[{"type":"tool_use","id":"t2","name":"Bash","input":{"command":"link-codex <<'EOF'\nAdd the dash\nEOF"}}]}}"""
             }
             .SelectMany(parser.Read)
             .ToArray();
         Program.Equal("one loop: a hand-over names the helper and its part; the helper's steps show, its words and its own list do not",
-            string.Join(" | ", events.Select(each => $"{each.Kind}:{each.Text}")), "Tool:Agent: mechanic · Rename the props | Tool:Bash: git mv a b");
+            string.Join(" | ", events.Take(2).Select(each => $"{each.Kind}:{each.Text}")), "Tool:Agent: mechanic · Rename the props | Tool:Bash: git mv a b");
+        Program.Equal("one loop: the run counts its hand-overs, to the mechanic and to Codex",
+            (parser.Stats.HelperCalls, CliAgentProvider.LogStats(parser.Stats).Contains("helpers 2,")), (2, true));
 
         AgentPlanItem[] plan = [new("Model", true, false), new("Rig", true, false), new("Import", true, false)];
         AgentTaskRecord Record(IEnumerable<AgentPlanItem> steps) => new() { Goal = "A dash prop", Workspace = work.Workspace, Plan = [.. steps] };
@@ -970,11 +981,15 @@ internal static class AgentTests
             (true, false, false, false, false, false));
         Program.Equal("final check: the last verdict line decides; none is null; the findings go on without it",
             (FinalCheck.NeedsFix("1. a.cs:4 null\nVerdict: fix"), FinalCheck.NeedsFix("All good.\nVerdict: clean"), FinalCheck.NeedsFix("Fine."),
-                FinalCheck.Fix("1. a.cs:4 null\nVerdict: fix").Contains("1. a.cs:4 null\n\nFix what is right."), FinalCheck.Fix("x\nVerdict: fix").Contains("Verdict")),
+                FinalCheck.Fix("1. a.cs:4 null\nVerdict: fix").Contains("1. a.cs:4 null\n\nFix the Important ones"), FinalCheck.Fix("x\nVerdict: fix").Contains("Verdict")),
             ((bool?)true, (bool?)false, (bool?)null, true, false));
         var prompt = FinalCheck.Prompt("<!-- note -->Check it.", "A dash prop", plan, "passed", ["a.cs"], "+x");
         Program.Equal("final check: the request without its notes, then the task, its plan, the check, the files and the diff",
             prompt, "Check it.\n\n## The task\n\nA dash prop\n\n## Its plan\n\n- Model\n- Rig\n- Import\n\n## The project's check\n\npassed\n\n## Changed files\n\na.cs\n\n## Diff\n\n```diff\n+x\n```");
+
+        Directory.CreateDirectory(Path.Combine(work.Workspace, "Game", ".git"));
+        Program.Equal("git: a workspace above its repository is told where git lives; one inside a repository is not",
+            (AgentRules.Before("t", work.Workspace, false).Contains("run git in `Game/`."), AgentChanges.RepositoriesInside(Path.Combine(work.Workspace, "Game")).Count), (true, 0));
         DeleteFolder(work.Workspace);
     }
 
@@ -2136,7 +2151,7 @@ internal static class AgentTests
         Program.Equal("fake CLI: the session id is kept", result.SessionId, "fake-session");
         Program.Equal("fake CLI: the run's numbers are in the result", (result.Stats.Turns, result.Stats.ToolCalls, result.Stats.Searches), (1, 1, 1));
         Program.Equal("the [Agent] line has the numbers and not the task",
-            log.Count == 1 && log[0].Contains("turns 1, tools 1, searches 1") && !log[0].Contains("fake task"), true);
+            log.Count == 1 && log[0].Contains("turns 1, tools 1, helpers 0, searches 1") && !log[0].Contains("fake task"), true);
     }
 
     /// <summary>The console holds what Link sent each run and every line back; a new task clears it; a long line is cut.</summary>

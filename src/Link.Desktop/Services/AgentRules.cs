@@ -35,6 +35,12 @@ public static partial class AgentRules
         if (!guarded && ReadHarness(GuardedFile) is { Length: > 0 } held) input.Append("\n\n").Append(held);
         // A Perforce workspace's files are read-only until opened: the agent is told how to open them.
         if (AgentChanges.IsPerforce(workspace) && ReadHarness(PerforceFile) is { Length: > 0 } perforce) input.Append("\n\n").Append(perforce);
+        // A workspace above its repository: git fails in it, and an agent learns that only from its first git command.
+        if (AgentChanges.RepositoriesInside(workspace) is { Count: > 0 } repositories)
+        {
+            input.Append("\n\nGit: the workspace itself is not a repository; run git in ")
+                .Append(string.Join(", ", repositories.Select(repository => $"`{repository}/`"))).Append('.');
+        }
         // The engine's or tool's own rules, for every task in a project of it, but a role's that works beside the engine.
         foreach (var pack in role is { PackRules: false } ? [] : ToolPacks.For(workspace))
         {

@@ -31,6 +31,10 @@ internal static class HarnessLintTests
                 string.Join(" | ", notes.Select(note => note.Split(':')[0])),
                 "`docs/map.md` is 120 lines | `.agents/skills/jump/SKILL.md` needs front matter with `name` and a one-line `description`. | " +
                 "`.agents/skills/jump/SKILL.md` has text in another language | `frame.png` looks like a check's leftover");
+            File.WriteAllText(Path.Combine(workspace, ".agents", "skills", "dash", "SKILL.md"),
+                $"---\nname: dash\ndescription: {new string('d', HarnessLint.DescriptionLength + 1)}\n---\nThe dash is one impulse.\n");
+            Program.Equal("Harness lint: a description every session would read at length",
+                HarnessLint.Check(workspace, [new AgentChange(".agents/skills/dash/SKILL.md", "M", false)]).Single().Contains($"description is {HarnessLint.DescriptionLength + 1} characters"), true);
             Program.Equal("Harness lint: the notes go after the user's words", HarnessLint.Heard(["x"], "Go on").StartsWith("Go on\n\n") && HarnessLint.Heard(["x"], "Go on").EndsWith("- x"), true);
 
             var big = Path.Combine(workspace, "Big.cs");

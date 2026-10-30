@@ -186,7 +186,7 @@ public abstract class CliAgentProvider : IAgentProvider
             ? $"tokens in {input} (cached {stats.CachedTokens ?? 0}) out {stats.OutputTokens ?? 0}{(stats.SessionTokens ? " for the session" : string.Empty)}"
             : "tokens unknown";
         var cost = stats.CostUsd is { } usd ? ", cost $" + usd.ToString("0.####", CultureInfo.InvariantCulture) : string.Empty;
-        return $"turns {stats.Turns}, tools {stats.ToolCalls}, searches {stats.Searches}{before}, tool errors {stats.ToolErrors}, {tokens}{cost}";
+        return $"turns {stats.Turns}, tools {stats.ToolCalls}, helpers {stats.HelperCalls}, searches {stats.Searches}{before}, tool errors {stats.ToolErrors}, {tokens}{cost}";
     }
 
     /// <summary>The CLI's arguments for a task; the task's text itself goes on stdin.</summary>
@@ -332,6 +332,7 @@ public abstract partial class AgentEventParser
     private readonly List<string> _changedFiles = [];
     private readonly Dictionary<string, (int Times, int Characters)> _reads = new(StringComparer.OrdinalIgnoreCase);
     private int _toolCalls;
+    private int _helperCalls;
     private int _searches;
     private int _searchesBeforeChange;
     private int _toolErrors;
@@ -361,6 +362,7 @@ public abstract partial class AgentEventParser
     {
         Turns = Turns,
         ToolCalls = _toolCalls,
+        HelperCalls = _helperCalls,
         Searches = _searches,
         SearchesBeforeChange = _changedFiles.Count > 0 ? _searchesBeforeChange : null,
         ToolErrors = _toolErrors,
@@ -438,9 +440,11 @@ public abstract partial class AgentEventParser
     /// A tool call, a step of Activity; <paramref name="arguments"/> tell it from another call of the same tool (a long
     /// write is cut), <paramref name="search"/>: it only looks around; <paramref name="image"/>: the picture it looks at.
     /// </summary>
-    protected void Called(string name, string text, string arguments, bool search, List<AgentEvent> events, bool work = false, string? image = null)
+    protected void Called(string name, string text, string arguments, bool search, List<AgentEvent> events, bool work = false, string? image = null,
+        bool helper = false)
     {
         _toolCalls++;
+        if (helper) _helperCalls++;
         if (search)
         {
             _searches++;

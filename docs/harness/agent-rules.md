@@ -65,37 +65,26 @@ dialog: a question or a request for permission ends it, and the user's answer co
 ## Project and environment
 - `docs/map.md`, if present, is the project's map: what is where, how to build and check. Read it first.
 - `docs/art/STYLE.md`, if present, is the game's art profile: art work follows it over any skill's default.
-- Project skills are `.agents/skills/<name>/SKILL.md`: repeated work that a skill describes, do by it. A skill or a
-  tool was missing: say which at the end. A skill marked "pack, shared" lies outside the workspace and is the tool's
-  know-how for every project: never change it there. A lesson true in any project with that tool (a pitfall, a better
-  way) goes into a copy at `.agents/skills/<name>/` that stays general - no paths, names or sizes of this project -
-  and the user decides whether all projects get it. What holds only here (this project's scripts, assets, numbers)
-  goes into the project's own add-on `.agents/skills/<pack>-project/` (`blender-project`): it builds on the pack's
-  skills, says so in its description, and never repeats them.
+- Project skills are `.agents/skills/<name>/SKILL.md`: repeated work a skill describes, do by it; a missing skill or
+  tool, name at the end. A skill marked "pack, shared" serves every project with that tool: never change it there. A
+  general lesson for it goes into a copy at `.agents/skills/<name>/` with nothing of this project in it, and the user
+  decides whether all projects get it; what holds only here goes into the add-on `.agents/skills/<pack>-project/`,
+  which builds on the pack's skills without repeating them.
 
 ## Get stronger with each task
-- Keep what the next agent would need and could not see at once, as soon as this task proves it: a run can be cut
-  off before its answer. A fact of the project goes into `docs/map.md` (create it if missing); a way of doing
-  repeated work, with its commands and pitfalls, into the skill `.agents/skills/<name>/SKILL.md` (update the one that
-  fits; a new one only for work that will come again, with front matter `name` and a one-line `description` of when
-  to use it); a helper script that work needs again into the project's tools, named in its skill, not the temp folder.
-- Keep it true and short: what changed is rewritten where it stands, never answered by a note that contradicts the
-  rest; a skill says how it is now, not its history; each thing is said in one place, the others point to it; a
-  skill past ~150 lines is condensed before it grows. `docs/map.md` is an index every session reads first: up to ~100
-  short lines of what is where and the commands; how an asset or a system is made goes into its skill, and the map
-  points to it.
-- Remove what this task proved wrong or replaced: a merged skill, a superseded helper, a check's temporary actor or
-  file. A skill this task did not need stays: it is for other work.
-- Only what this task proved; nothing to keep: change nothing. Name in your answer what you kept, rewrote and removed.
+- As soon as this task proves something the next agent would need and could not see at once (a run can be cut off
+  before its answer): a project fact into `docs/map.md`, a way of doing repeated work with its commands and pitfalls
+  into its skill (a new one only for work that will come again: front matter `name` and a short `description` of when
+  to use it), a script that work needs again into the project's tools, named in its skill.
+- Keep them true and short: rewrite what changed where it stands, say each thing in one place, describe how it is now,
+  not its history. The map is an index of ~100 short lines every session reads first; a skill stays under ~150 lines.
+- Remove what this task proved wrong or replaced; a skill this task did not need stays. Nothing proved: change
+  nothing. Name in your answer what you kept, rewrote and removed.
 
 ## How to answer
-- At the end: what you did, what changed (files or objects), what you checked and how, what is left. No preamble and
-  no retelling of the steps.
-- A picture shows the result (a render, a sheet, a screenshot): name the path of the one that shows it best; the user
-  gets that one, not every frame of the checks.
-- In English, whatever language the task is in (it costs fewer tokens); names of tools, files and code as they are.
-  The same for what you write on the way: thinking, notes, the map, skills, comments and commit messages. A section of
-  the map, a skill or a doc you rewrite is rewritten in English; text the user wrote in another language is quoted as it
-  is.
-- Markdown, which Link shows formatted: a bold label or a short heading per part, lists for several things, `code` for
-  names and paths, a fenced block only for code or commands; no tables wider than the panel.
+- At the end: what you did, what changed, what you checked and how, what is left. No preamble, no retelling of steps.
+- A picture shows the result: name the path of the one that shows it best, not every frame of the checks.
+- In English, whatever language the task is in, and so everything you write on the way (notes, the map, skills,
+  comments, commits); names as they are, the user's own words quoted as they are.
+- Markdown, which Link shows formatted: a bold label or short heading per part, lists, `code` for names and paths, a
+  fenced block only for code or commands, no wide tables.

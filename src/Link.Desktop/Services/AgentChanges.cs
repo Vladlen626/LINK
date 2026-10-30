@@ -484,6 +484,22 @@ public sealed partial class AgentChanges
         return false;
     }
 
+    /// <summary>The repositories right inside a folder that is in none, by their folder names: where its git lives.</summary>
+    public static IReadOnlyList<string> RepositoriesInside(string folder)
+    {
+        if (IsGit(folder) || !Directory.Exists(folder)) return [];
+        try
+        {
+            return [.. Directory.EnumerateDirectories(folder)
+                .Where(child => Directory.Exists(Path.Combine(child, ".git")) || File.Exists(Path.Combine(child, ".git")))
+                .Select(Path.GetFileName).OfType<string>().Order(StringComparer.OrdinalIgnoreCase)];
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            return [];
+        }
+    }
+
     /// <summary>Whether the folder is in a Perforce workspace: a .p4config in it or above, as P4V and p4 find it.</summary>
     public static bool IsPerforce(string folder)
     {

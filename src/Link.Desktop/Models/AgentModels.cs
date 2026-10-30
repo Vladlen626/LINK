@@ -216,6 +216,10 @@ public sealed record AgentRunRecord
     public int Turns { get; init; }
 
     public int ToolCalls { get; init; }
+
+    /// <summary>Calls that handed work to a helper (a subagent, Codex); 0 for a run of an older Link.</summary>
+    public int HelperCalls { get; init; }
+
     public int Searches { get; init; }
     public int ToolErrors { get; init; }
 
@@ -615,6 +619,10 @@ public sealed record AgentStats
 {
     public int Turns { get; init; }
     public int ToolCalls { get; init; }
+
+    /// <summary>Calls that handed a part of the work to a helper (a subagent, Codex): whether one loop delegates at all.</summary>
+    public int HelperCalls { get; init; }
+
     public int Searches { get; init; }
 
     /// <summary>Searches before the first changed file, null when nothing changed: what a map of the project cuts.</summary>
@@ -676,6 +684,7 @@ public sealed record AgentStats
         {
             Turns = Turns + next.Turns,
             ToolCalls = ToolCalls + next.ToolCalls,
+            HelperCalls = HelperCalls + next.HelperCalls,
             Searches = Searches + next.Searches,
             SearchesBeforeChange = SearchesBeforeChange ?? (next.SearchesBeforeChange is { } count ? Searches + count : null),
             ToolErrors = ToolErrors + next.ToolErrors,
@@ -781,7 +790,7 @@ public sealed class AgentSettings
     public bool Helpers { get; set; } = true;
 
     /// <summary>
-    /// A Claude Code run may hand a clearly described piece of code to Codex as a tool (<c>codex mcp-server</c>), which
+    /// A Claude Code run may hand a clearly described piece of code to Codex (<c>link-codex</c> over <c>codex exec</c>), which
     /// spends the ChatGPT subscription instead of Claude's window. Only where Codex is found.
     /// </summary>
     public bool CodexHelper { get; set; } = true;

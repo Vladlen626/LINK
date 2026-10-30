@@ -46,7 +46,8 @@ public static partial class FinalCheck
     /// <summary>The words the task's own session gets: the findings, without the verdict line.</summary>
     public static string Fix(string answer) =>
         "A fresh session checked the whole change against the plan and found:\n\n" + Verdict().Replace(answer, string.Empty).Trim() +
-        "\n\nFix what is right. A finding you think is wrong: say why in a line and leave it.";
+        "\n\nFix the Important ones that are right, every place of their kind; a Nit is your call, a Pre-existing one is " +
+        "the user's. A finding you think is wrong: say why in a line and leave it.";
 
     [GeneratedRegex(@"^\s*Verdict:\s*(clean|fix)\b.*$", RegexOptions.Multiline | RegexOptions.IgnoreCase)]
     private static partial Regex Verdict();

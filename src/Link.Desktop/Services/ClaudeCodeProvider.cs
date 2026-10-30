@@ -69,9 +69,7 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         // MCP servers come only from the workspace's .mcp.json, as for Codex: otherwise the user's claude.ai
         // connectors ride along too, such as a docs app in a game task. Link's own answers get none.
         arguments.Add("--strict-mcp-config");
-        var codex = CodexTool(task);
-        string[] configs = [.. new[] { task.WithoutMcp ? null : McpConfigIn(task.Workspace), codex }.OfType<string>()];
-        if (configs.Length > 0) arguments.AddRange(["--mcp-config", .. configs]);
+        if (!task.WithoutMcp && McpConfigIn(task.Workspace) is { } servers) arguments.AddRange(["--mcp-config", servers]);
         // Link's helper: the mechanic subagent for clear mechanical edits, never in a plan first, which changes nothing.
         if (Helps(task) && !task.PlanOnly && Settings.Helpers && HelperAgents() is { } agents) arguments.AddRange(["--agents", agents]);
         if (task.ResumeSessionId is { } session) arguments.AddRange(["--resume", session]);
@@ -89,8 +87,8 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
 
         if (ClaudeAccounts.MemoryFolder(task.Workspace) is { } memory) arguments.AddRange(["--add-dir", memory]);
 
-        // Last: the option takes every argument after it. Codex's tool needs no asking: its own sandbox keeps it in the workspace.
-        var allowed = codex is null ? task.AllowedTools : [.. task.AllowedTools, .. CodexTools];
+        // Last: the option takes every argument after it. Codex needs no asking: its own sandbox keeps it in the workspace.
+        var allowed = CodexHelper(task) is null ? task.AllowedTools : [.. task.AllowedTools, CodexRule];
         if (allowed.Count > 0) arguments.AddRange(allowed.Prepend("--allowedTools"));
         return arguments;
     }
@@ -98,8 +96,10 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     /// <summary>The run is real work, the user's task: Link's own answers, judges and short asks get no helpers.</summary>
     private static bool Helps(AgentTask task) => !task.Judge && !task.WithoutMcp && task.AnswerFile is null && task.MaxTurns is null;
 
-    /// <summary>Codex's two tools as Claude Code names them: a new Codex session, and its next turn.</summary>
-    internal static readonly string[] CodexTools = ["mcp__codex__codex", "mcp__codex__codex-reply"];
+    /// <summary>The command a run hands work to Codex with, from Bash: the brief on stdin, Codex's answer on stdout.</summary>
+    internal const string CodexCommand = "link-codex";
+
+    internal const string CodexRule = $"Bash({CodexCommand}:*)";
 
     /// <summary>
     /// The subagents Link gives a run, in a file (claude.cmd would split JSON's quotes): <c>mechanic</c>, on the Light
@@ -129,28 +129,46 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         "Answer in at most five lines: the files you changed, the check and its result, anything left undone.";
 
     /// <summary>
-    /// Codex as a tool of the run (<c>codex mcp-server</c>) where the setting and a Codex CLI are there: in its own
-    /// sandbox, the workspace writable, asking nothing, without the desktop's add-ons. Null for a plan first, which
-    /// changes nothing, and for Link's own runs.
+    /// The Codex CLI the run hands work to, where the setting and a Codex CLI are there; null for a plan first, which
+    /// changes nothing, and for Link's own runs. Codex has no MCP server since 0.15x, so the run calls
+    /// <see cref="CodexCommand"/> from Bash: a script in the temp folder that runs <c>codex exec</c> in its own sandbox,
+    /// the workspace writable, asking nothing, without the desktop's add-ons.
     /// </summary>
-    private string? CodexTool(AgentTask task)
+    private string? CodexHelper(AgentTask task) =>
+        Helps(task) && !task.PlanOnly && Settings.CodexHelper && CodexScriptFolder() is not null ? FindCodex(Settings) : null;
+
+    /// <summary>
+    /// The script's folder, which goes first on the run's PATH. One script serves every run: what differs by task comes
+    /// in the run's variables (<see cref="CodexVariables"/>). Its answer is Codex's last message, the events go to a log.
+    /// </summary>
+    private static string? CodexScriptFolder()
     {
-        if (!Helps(task) || task.PlanOnly || !Settings.CodexHelper) return null;
-        if (FindCodex(Settings) is not { } codex) return null;
-        // An npm install is a .cmd, which only cmd starts.
-        var script = codex.EndsWith(".cmd", StringComparison.OrdinalIgnoreCase);
-        var arguments = new JsonArray();
-        if (script) foreach (var word in new[] { "/c", codex }) arguments.Add(word);
-        foreach (var word in CodexServerArguments(task)) arguments.Add(word);
-        var server = new JsonObject
-        {
-            ["mcpServers"] = new JsonObject
-            {
-                ["codex"] = new JsonObject { ["command"] = script ? "cmd" : codex, ["args"] = arguments }
-            }
-        }.ToJsonString();
-        return TempFile("link-codex-mcp.json", server);
+        const string script = """
+            #!/bin/sh
+            # Link's Codex helper for a Claude Code run: link-codex [resume <session>] < brief
+            log=$(mktemp)
+            out=$(mktemp)
+            if [ "$1" = resume ] && [ -n "$2" ]; then set -- exec resume "$2"; else set -- exec; fi
+            "$LINK_CODEX" "$@" --json --skip-git-repo-check -o "$out" $LINK_CODEX_CONFIG - >"$log" 2>&1
+            status=$?
+            cat "$out"
+            session=$(grep -o '"thread_id":"[^"]*"' "$log" | head -1 | cut -d'"' -f4)
+            printf '\n[codex session %s, exit %s, events in %s]\n' "${session:-unknown}" "$status" "$log"
+            rm -f "$out"
+            exit $status
+
+            """;
+        var file = TempFile(Path.Combine("link-bin", CodexCommand), script.ReplaceLineEndings("\n"));
+        return file is null ? null : Path.GetDirectoryName(file);
     }
+
+    /// <summary>What the script reads from the run: Codex itself, its settings as for a Codex task of Link's own, git's safe folder.</summary>
+    internal static Dictionary<string, string> CodexVariables(AgentTask task, string codex) =>
+        new(CodexProvider.GitVariables(task.Workspace))
+        {
+            ["LINK_CODEX"] = codex.Replace('\\', '/'),
+            ["LINK_CODEX_CONFIG"] = string.Join(' ', CodexConfig(task))
+        };
 
     // A record, so that runs on other threads read a whole look or none.
     private sealed record CodexLook(string? Chosen, string? Found, long At);
@@ -169,10 +187,10 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         return found;
     }
 
-    /// <summary>What <c>codex mcp-server</c> is started with: Link's sandbox and add-ons, as for a Codex task of its own.</summary>
-    internal static IReadOnlyList<string> CodexServerArguments(AgentTask task)
+    /// <summary>What <c>codex exec</c> is started with: Link's sandbox and add-ons, as for a Codex task of its own.</summary>
+    internal static IReadOnlyList<string> CodexConfig(AgentTask task)
     {
-        var arguments = new List<string> { "mcp-server", "-c", "sandbox_mode=workspace-write", "-c", "approval_policy=never" };
+        var arguments = new List<string> { "-c", "sandbox_mode=workspace-write", "-c", "approval_policy=never" };
         if (AgentChanges.IsPerforce(task.Workspace) || task.NoStop) arguments.AddRange(["-c", "sandbox_workspace_write.network_access=true"]);
         foreach (var feature in CodexProvider.FeaturesOff) arguments.AddRange(["-c", $"features.{feature}=false"]);
         return arguments;
@@ -195,6 +213,7 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         var file = Path.Combine(Path.GetTempPath(), name);
         try
         {
+            Directory.CreateDirectory(Path.GetDirectoryName(file)!);
             if (!File.Exists(file) || File.ReadAllText(file) != text) File.WriteAllText(file, text);
             return file;
         }
@@ -383,6 +402,13 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         if (task.ContextBudget is { } budget and > 0)
         {
             variables["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
+        }
+
+        // Codex as a helper: its script first on PATH, which the run's Bash inherits.
+        if (CodexHelper(task) is { } codex && CodexScriptFolder() is { } folder)
+        {
+            foreach (var (name, value) in CodexVariables(task, codex)) variables[name] = value;
+            variables["PATH"] = folder + Path.PathSeparator + System.Environment.GetEnvironmentVariable("PATH");
         }
 
         return variables;
@@ -725,7 +751,8 @@ public sealed class ClaudeEventParser(IReadOnlyList<AgentPlanItem>? plan = null)
                     : name is "Agent" or "Task" && Text(input, "subagent_type") is { Length: > 0 } helper ? $"{name}: {helper} · {Text(input, "description")}"
                     : target.Length > 0 ? $"{name}: {target}" : name;
                 var work = mcp.Length == 2 || (ShellTools.Contains(name) && RunsCode(command));
-                Called(name, row, arguments, search, events, work, image: name == "Read" && RunImages.IsImage(target) ? target : null);
+                var handOver = name is "Agent" or "Task" || (name == "Bash" && command.StartsWith(ClaudeCodeProvider.CodexCommand, StringComparison.Ordinal));
+                Called(name, row, arguments, search, events, work, image: name == "Read" && RunImages.IsImage(target) ? target : null, handOver);
                 var id = Text(block, "id");
                 _pendingTools[id] = name;
                 _pendingParts[id] = PartOf(name, command);

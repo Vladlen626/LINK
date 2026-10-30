@@ -1118,6 +1118,7 @@ public partial class MainWindow
             ContextWindow = stats.ContextWindow,
             Turns = stats.Turns,
             ToolCalls = stats.ToolCalls,
+            HelperCalls = stats.HelperCalls,
             Searches = stats.Searches,
             ToolErrors = stats.ToolErrors,
             SearchesBeforeChange = stats.SearchesBeforeChange,

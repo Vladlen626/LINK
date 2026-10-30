@@ -267,7 +267,7 @@
                                         <CheckBox x:Name="HelpersBox" Margin="0,4" Content="Helpers for Claude: mechanic and scout"
                                                   ToolTip="Claude Code's session can hand a clear mechanical edit to 'mechanic' (Haiku) and a search to 'scout', which answer it in short: the main session keeps its context and its plan. Their steps show in the task's thread." />
                                         <CheckBox x:Name="CodexHelperBox" Margin="0,4" Content="Codex as Claude's tool"
-                                                  ToolTip="Claude Code's session can give a clearly described piece of code to Codex (codex mcp-server), which spends your ChatGPT subscription instead of Claude's window, and checks what it got. Only where Codex is found." />
+                                                  ToolTip="Claude Code's session can give a clearly described piece of code to Codex (codex exec, through Link's link-codex), which spends your ChatGPT subscription instead of Claude's window, and checks what it got. Only where Codex is found." />
                                         <CheckBox x:Name="TeamOfferedBox" Margin="0,4" Content="Offer the team (old way, to compare)"
                                                   ToolTip="The card offers Team again: a lead plans, each step goes to a worker in a new session. One session that plans and delegates by itself does better on most tasks; turn this on to compare them (with Measure team vs solo)." />
                                         <CheckBox x:Name="LeadReviewBox" Margin="0,4" Content="Team lead reviews each step"

@@ -11,6 +11,9 @@ public static partial class HarnessLint
 {
     public const int MapLines = 100;
     public const int SkillLines = 150;
+
+    // Every new session reads every skill's description; past this it is the skill's body, not when to use it.
+    public const int DescriptionLength = 300;
     // A quoted line of the user's is fine; a section written in another language is not.
     private const int ForeignLines = 3;
 
@@ -34,6 +37,10 @@ public static partial class HarnessLint
                 if (lines.Length > SkillLines) notes.Add($"`{path}` is {lines.Length} lines: condense it under ~{SkillLines}.");
                 var (name, description) = ProjectSkills.Header(string.Join('\n', lines));
                 if (string.IsNullOrWhiteSpace(name) || string.IsNullOrWhiteSpace(description)) notes.Add($"`{path}` needs front matter with `name` and a one-line `description`.");
+                else if (description.Length > DescriptionLength)
+                {
+                    notes.Add($"`{path}`'s description is {description.Length} characters, read by every session: say when to use it in under {DescriptionLength}, the rest goes into the body.");
+                }
                 if (Foreign(lines)) notes.Add($"`{path}` has text in another language: write it in English.");
             }
             else if (change.Kind == "??" && Leftover().IsMatch(path))

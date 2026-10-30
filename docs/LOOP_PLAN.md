@@ -25,20 +25,35 @@ What Team did well stays:
 |---|---|---|
 | L.1 | The plan is the agent's own task list, written in the first turn and kept current. It finishes and checks one part before the next. A result only the user can judge ends the turn with a `link-ask`. Team is off by default: Settings → Agents → **Offer the team (old way, to compare)**. The old `Enabled` key is not read, so it is off for everyone. | `docs/harness/agent-rules.md` → "A big task"; `TeamSettings.Offered` |
 | L.2 | Claude Code runs get Link's subagent `mechanic`, on the Light model, for mechanical edits described exactly; Claude Code's own Explore does searches. Its steps show in the thread; its words and its own task list do not. Not in a plan first, a judge's run or Link's own answers. | `ClaudeCodeProvider.HelperAgents` (`--agents <file>`), `docs/harness/helpers.md`, Settings → **Helpers for Claude** |
-| L.3 | Codex as Claude's tool: `codex mcp-server` (workspace-write sandbox, asks nothing, no desktop add-ons) joins the run's MCP config, and its two tools are allowed. Large, clear parts of the plan go to the ChatGPT subscription. | `ClaudeCodeProvider.CodexTool`, `docs/harness/codex-helper.md`, Settings → **Codex as Claude's tool** |
+| L.3 | Codex as Claude's helper. Codex 0.154 has no `mcp-server`, so since 30.10 the run calls `link-codex` from Bash instead: a script in `%TEMP%\link-bin`, first on the run's PATH and allowed as `Bash(link-codex:*)`. It runs `codex exec` (workspace-write sandbox, asks nothing, no desktop add-ons, git's safe folder) with the brief on stdin, and prints Codex's last message and its session. `link-codex resume <session>` sends the work back. Large, clear parts of the plan go to the ChatGPT subscription. | `ClaudeCodeProvider.CodexHelper`, `docs/harness/codex-helper.md`, Settings → **Codex as Claude's tool** |
 | L.4 | Compact at a phase's end. A reply after a run that finished part of its plan, with no step in progress and steps still to do, starts from the task's state once the session holds half its limit or more. Before this, a reply to a run that had just ended was never compacted. | `CompactRule.PhaseEnd` |
 | L.5 | Final check. When the task's own plan of 3 or more steps is done with changes, Link offers **Check the work**: a fresh, read-only session on the Strong level reads the diff against the plan and ends with `Verdict: clean` or `Verdict: fix`. **Fix them** sends the findings to the session that did the work. It is offered once per plan. | `FinalCheck`, `docs/harness/final-check.md`, `MainWindow.Changes` |
 
 The Harness inspector has a **Helpers** section that names what the session can hand work to.
 
-## Not verified in the cloud (check at home)
+## Built at home (30.10), from the first real runs
 
-1. **`--agents` with a file:** the file form needs Claude Code 2.1.281 or later; Link's comments name 2.1.286. With an
-   older CLI the run exits at start, so turn Helpers off.
-2. **`codex mcp-server`:** the subcommand's name and its tools `codex` / `codex-reply` come from secondary sources.
-   Check `codex mcp-server --help` and the tool's names in the run's Console. If the server fails, Claude Code goes on
-   without it.
-3. **Whether Claude actually delegates:** the Console and the thread show `Agent: mechanic · …` and `codex: codex`.
+The first runs on the new build (DriverTheSlop, 30.10) were 120 and 78 turns with no hand-over at all: 0 mechanic,
+0 Explore, 0 Codex, no task list. Searches stayed in the main session: one run made 17 before its first change and
+was flagged as a loop.
+
+| # | What | Where |
+|---|---|---|
+| L.7 | Every run counts its hand-overs (`helpers N` in the `[Agent]` line, `HelperCalls` in the run's record and export): the article's "was the right tool used", which the eval reads. | `AgentStats.HelperCalls`, `CliAgentProvider.LogStats` |
+| L.8 | A workspace above its repository (`DriverTheSlopMain` holds `DriverTheSlop/.git`) tells the agent where git lives. Before this the first git command failed with exit 128, and about 35 commands began with a `cd`. | `AgentChanges.RepositoriesInside`, `AgentRules.Before` |
+| L.9 | The final check follows the Claude Code team's review (15.10): every finding is tagged `Important`, `Nit` or `Pre-existing` and gives its file and line. An Important finding names its kind, so every place of it gets fixed. Only Important means `Verdict: fix`. The check reads the project's `REVIEW.md` if there is one. | `docs/harness/final-check.md`, `FinalCheck.Fix` |
+| L.10 | A shorter start: the rules say the same in about a third fewer words ("Project and environment", "Get stronger", "How to answer"). HarnessLint flags a skill description over 300 characters, since every session reads all of them; in DriverTheSlop they ran 300–870 characters, 6.5k of the 31k-character prompt. | `docs/harness/agent-rules.md`, `HarnessLint.DescriptionLength` |
+
+Checked and left as is: the art critic resumes its Codex session after a redo. The log's 236k → 459k → 546k are the
+session's running totals; the runs themselves cost 236k, 222k and 87k, less than fresh sessions would.
+
+## Still to verify in real runs
+
+1. **`--agents` with a file:** Claude Code here is 2.1.286, so the file form is supported.
+2. **`link-codex`:** checked here with a stand-in for Codex, not with real Codex. In a run, the Console shows
+   `Bash: link-codex …`, and the `[Agent]` line counts it in `helpers`.
+3. **Whether Claude actually delegates:** watch `helpers` in link.log. If it stays 0 on big tasks, the next lever is
+   the helper's description, one change at a time, not more rules.
 4. **The final check:** its card appears after a plan of 3 or more steps, and Fix them goes on in the work's session,
    not the checker's.
 

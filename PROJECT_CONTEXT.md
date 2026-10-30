@@ -525,12 +525,15 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    L.1–L.5 are built in the cloud and wait for the user's check at home:
    - the plan is the agent's own task list, and a taste result ends with a link-ask;
    - Team is off by default (`TeamSettings.Offered`, a new key);
-   - Claude gets the `mechanic` subagent (`--agents` file) and Codex as a tool (`codex mcp-server`);
+   - Claude gets the `mechanic` subagent (`--agents` file) and Codex as a helper (`link-codex` over `codex exec`:
+     Codex 0.154 has no `mcp-server`);
    - Compact at a phase's end;
    - a final check of the whole diff by a fresh Strong session.
 
-   Not verified: the `--agents` file form on the user's Claude Code, `codex mcp-server`'s name and tools. L.6 is the
-   user's measurement: 10 golden tasks, each twice, one loop against Team; then Team is deleted or kept for one kind.
+   At home (30.10, L.7–L.10): runs count their hand-overs (`helpers N`); a workspace above its repository is told
+   where git lives; the final check tags its findings Important / Nit / Pre-existing and reads `REVIEW.md`; the rules
+   are shorter, and HarnessLint flags long skill descriptions. L.6 is the user's measurement: 10 golden tasks, each
+   twice, one loop against Team; then Team is deleted or kept for one kind.
 
 ## Для AI-агентов
 
