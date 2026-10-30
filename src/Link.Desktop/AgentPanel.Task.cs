@@ -45,9 +45,11 @@ public partial class AgentPanel
         StatusDot.Fill = dot;
     }
 
-    public void SetRunning(bool running)
+    /// <param name="hears">The running session takes words while it works, without a stop.</param>
+    public void SetRunning(bool running, bool hears = false)
     {
         _running = running;
+        _hears = running && hears;
         StopButton.Visibility = running ? Visibility.Visible : Visibility.Collapsed;
         TaskButtons.Visibility = running ? Visibility.Collapsed : Visibility.Visible;
         UpdateReplyHint();

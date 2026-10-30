@@ -1,0 +1,1 @@
+Let the hero pick up pots: E next to a pot you face lifts it overhead, and you walk slower while carrying it. E again throws it forward in an arc where you face; it breaks where it lands and hurts a slime it hits.

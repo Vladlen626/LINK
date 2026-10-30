@@ -1,0 +1,2 @@
+# The game keeps its items in data/, which the repository ignores elsewhere.
+!data/

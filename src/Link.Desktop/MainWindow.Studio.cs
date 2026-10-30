@@ -69,7 +69,7 @@ public partial class MainWindow
     private void KeepOnTop(bool onTop)
     {
         Topmost = onTop && _settings.Current.AlwaysOnTop;
-        if (_panel is not null) _panel.Topmost = Topmost;
+        _panel?.Topmost = Topmost;
     }
 
     /// <summary>

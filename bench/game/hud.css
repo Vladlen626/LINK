@@ -1,0 +1,11 @@
+html, body { margin: 0; height: 100%; overflow: hidden; background: #8ccfef; font-family: system-ui, sans-serif; }
+#game { display: block; width: 100%; height: 100%; }
+#hud { position: fixed; top: 12px; left: 16px; display: flex; gap: 18px; align-items: center; color: #fff;
+  font-size: 22px; font-weight: 700; text-shadow: 0 2px 0 rgba(0, 0, 0, 0.45); pointer-events: none; }
+#hud .heart { color: #ef4a5a; margin-right: 2px; }
+#hud .heart.empty { color: rgba(0, 0, 0, 0.35); }
+#hud .icon { margin-right: 6px; }
+#hud .gems .icon { color: #3fd8e8; }
+#hud .keys .icon { color: #f2c94c; }
+#help { position: fixed; bottom: 10px; left: 0; right: 0; text-align: center; color: rgba(255, 255, 255, 0.85);
+  font-size: 13px; text-shadow: 0 1px 0 rgba(0, 0, 0, 0.4); pointer-events: none; }

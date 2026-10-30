@@ -461,6 +461,12 @@ public sealed record AgentTask
     /// </summary>
     public Func<AgentPermissionAsk, CancellationToken, Task<AgentPermissionAnswer>>? AskPermission { get; init; }
 
+    /// <summary>
+    /// Where the user's words reach the session while it works, as in Claude Code's own app: the agent reads them at its
+    /// next step, nothing stopped. Null, or a CLI that takes no words mid-run (Codex): words wait or steer by a stop.
+    /// </summary>
+    public AgentInbox? Inbox { get; init; }
+
     /// <summary>The model to run, such as claude-opus-5-5; null leaves it to the CLI's own settings.</summary>
     public string? Model { get; init; }
 
@@ -933,4 +939,23 @@ public sealed class AgentSettings
     private static string? Newer(string? model) => model == "claude-haiku-4-5-20251001" ? LightClaudeModel : model;
 
     private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+/// <summary>
+/// The user's way into a run while it works (<see cref="AgentTask.Inbox"/>): the provider opens it once the CLI reads
+/// words, and closes it when the run ends. Copies of the task share it, so a check's next run opens the same one.
+/// </summary>
+public sealed class AgentInbox
+{
+    private Func<string, IReadOnlyList<string>, Task<bool>>? _say;
+
+    /// <summary>Whether a session takes words now.</summary>
+    public bool IsOpen => _say is not null;
+
+    /// <summary>The words, and pictures for it to open, to the working session; false when none takes them now.</summary>
+    public Task<bool> SayAsync(string words, IReadOnlyList<string> images) => _say?.Invoke(words, images) ?? Task.FromResult(false);
+
+    internal void Open(Func<string, IReadOnlyList<string>, Task<bool>> say) => _say = say;
+
+    internal void Close() => _say = null;
 }

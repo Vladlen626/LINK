@@ -1,7 +1,6 @@
 using System.Windows;
 using System.Windows.Threading;
 using Link.Desktop.Services;
-using Link.Desktop.Windows;
 
 namespace Link.Desktop;
 

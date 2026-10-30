@@ -1,0 +1,8 @@
+{
+  "id": "pot-break",
+  "kind": "feature",
+  "set": "smoke",
+  "timeLimitMin": 30,
+  "measures": "following the project's ways (state in the logic, seeded randomness, tests); a correction to earlier work in the same session",
+  "remove": ["src/breakables.js", "test/breakables.test.mjs"]
+}

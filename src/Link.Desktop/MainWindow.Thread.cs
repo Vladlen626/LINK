@@ -37,7 +37,7 @@ public partial class MainWindow
         panel.ShowUsage(usage, hint);
         var provider = live?.Task.Provider ?? record.LastRun?.Provider ?? StartProvider;
         var waiting = work.Waiting;
-        panel.SetRunning(work.Busy || waiting is not null);
+        panel.SetRunning(work.Busy || waiting is not null, hears: live?.Task is { Provider: AgentProviderKind.ClaudeCode, Inbox: not null });
         panel.SetReplyTarget(AgentName(provider));
         panel.ResetCards();
         if (!work.Busy && waiting is null)

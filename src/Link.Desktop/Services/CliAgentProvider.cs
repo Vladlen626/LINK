@@ -1,7 +1,6 @@
 using System.Diagnostics;
 using System.Globalization;
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using Link.Desktop.Models;
 
 namespace Link.Desktop.Services;
@@ -76,6 +75,15 @@ public abstract class CliAgentProvider : IAgentProvider
         };
         _console?.Sent($"{Name} · {(task.ResumeSessionId is { } session ? "resume " + session : "new session")}",
             command.Executable, command.Arguments, command.WorkingDirectory, command.EnvironmentVariables, command.Input);
+        if (talk is not null && Hears && task.Inbox is { } inbox)
+        {
+            inbox.Open((words, images) =>
+            {
+                _console?.Line("You, while it works: " + words);
+                return talk.SayAsync(Said(words, images), words);
+            });
+        }
+
         AgentProcessResult process;
         try
         {
@@ -119,6 +127,7 @@ public abstract class CliAgentProvider : IAgentProvider
         finally
         {
             talking.Cancel();
+            task.Inbox?.Close();
         }
 
         var succeeded = !process.Stopped && process.ExitCode == 0 && !parser.Failed;
@@ -269,6 +278,12 @@ public abstract class CliAgentProvider : IAgentProvider
     /// <summary>The task as the first line of a talk.</summary>
     protected virtual string Opening(string input) => input;
 
+    /// <summary>Whether a talking CLI takes the user's words while it works (<see cref="Said"/>).</summary>
+    protected virtual bool Hears => false;
+
+    /// <summary>The line that gives a talking CLI the user's words while it works.</summary>
+    protected virtual string Said(string words, IReadOnlyList<string> images) => words;
+
     /// <summary>A line of the CLI's in a talk: a question to answer on <paramref name="input"/>, or the end of its work.</summary>
     protected virtual void Talk(string line, AgentTask task, AgentInput input, CancellationToken cancellationToken)
     {
@@ -311,23 +326,8 @@ public abstract class CliAgentProvider : IAgentProvider
 /// Reads one provider's JSONL into events and keeps what the result needs, its numbers included. Lines that are not
 /// JSON and events it does not know are skipped: a newer CLI may add them.
 /// </summary>
-public abstract partial class AgentEventParser
+public abstract class AgentEventParser
 {
-    // Programs that only find, list or read files, by the name a shell command starts with.
-    private static readonly HashSet<string> SearchPrograms = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "rg", "grep", "egrep", "fgrep", "findstr", "find", "fd", "ls", "dir", "tree", "cat", "type", "head", "tail", "more",
-        "Get-ChildItem", "gci", "Select-String", "sls", "Get-Content", "gc"
-    };
-
-    // Programs that run code, by the same first name: interpreters, builds, package runners and DCC apps run headless.
-    private static readonly HashSet<string> CodeRunners = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "node", "python", "python3", "py", "uv", "uvx", "dotnet", "npm", "npx", "pnpm", "yarn", "bun", "deno", "cargo", "go",
-        "make", "cmake", "msbuild", "gradle", "mvn", "java", "pytest", "blender", "UnrealEditor", "UnrealEditor-Cmd"
-    };
-
-    private static readonly HashSet<string> FolderChanges = new(StringComparer.OrdinalIgnoreCase) { "cd", "Set-Location", "sl", "pushd", "Push-Location" };
     private readonly List<string> _denials = [];
     private readonly List<string> _changedFiles = [];
     private readonly Dictionary<string, (int Times, int Characters)> _reads = new(StringComparer.OrdinalIgnoreCase);
@@ -500,38 +500,11 @@ public abstract partial class AgentEventParser
         events.Add(new AgentEvent(AgentEventKind.Context, "Context") { ContextTokens = tokens, ContextWindow = window });
     }
 
-    /// <summary>
-    /// Whether a shell command only looks around: the first program it runs, after any change of folder, finds, lists
-    /// or reads files. Codex searches only this way; Claude Code mostly with its own tools.
-    /// </summary>
-    internal static bool IsSearchCommand(string command) => FirstCommand(command) is { } words &&
-        (ProgramOf(words[0]).Equals("git", StringComparison.OrdinalIgnoreCase)
-            ? words.Length > 1 && words[1] is "grep" or "ls-files"
-            : SearchPrograms.Contains(ProgramOf(words[0])));
+    /// <summary>Whether a shell command only looks around (<see cref="Link.Guard.ShellCommand.IsSearch"/>).</summary>
+    internal static bool IsSearchCommand(string command) => Link.Guard.ShellCommand.IsSearch(command);
 
-    /// <summary>Whether a shell command runs code (a script, a build, a test): work, as an edit is, not a look around.</summary>
-    internal static bool RunsCode(string command) => FirstCommand(command) is { } words && CodeRunners.Contains(ProgramOf(words[0]));
-
-    /// <summary>
-    /// The words of the first command a shell line runs, past changes of folder, variables set for it and a time limit
-    /// (<c>timeout 280 node check.mjs</c>).
-    /// </summary>
-    private static string[]? FirstCommand(string command)
-    {
-        foreach (var part in CommandSeparators().Split(command))
-        {
-            var words = part.Trim().TrimStart('(', '&', '@', '$').Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries)
-                .SkipWhile(word => Assignment().IsMatch(word))
-                .ToArray();
-            if (words.Length > 2 && ProgramOf(words[0]).Equals("timeout", StringComparison.OrdinalIgnoreCase)) words = words[2..];
-            if (words.Length == 0 || FolderChanges.Contains(ProgramOf(words[0]))) continue;
-            return words;
-        }
-
-        return null;
-    }
-
-    private static string ProgramOf(string word) => Path.GetFileNameWithoutExtension(word.Trim('"', '\''));
+    /// <summary>Whether a shell command runs code (<see cref="Link.Guard.ShellCommand.RunsCode"/>).</summary>
+    internal static bool RunsCode(string command) => Link.Guard.ShellCommand.RunsCode(command);
 
     internal static long Number(JsonElement element, string property) =>
         element.ValueKind == JsonValueKind.Object && element.TryGetProperty(property, out var value) && value.TryGetInt64(out var number)
@@ -563,12 +536,4 @@ public abstract partial class AgentEventParser
             : [];
         return string.Join(' ', words.Prepend($"{server}: {tool}"));
     }
-
-    // Commands one after another: ; && || and new lines. A pipe is not one: what it feeds belongs to the first program.
-    [GeneratedRegex(@"&&|\|\||;|\n")]
-    private static partial Regex CommandSeparators();
-
-    // A variable set for the command that follows it: MSYS_NO_PATHCONV=1 node a.mjs.
-    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*=")]
-    private static partial Regex Assignment();
 }

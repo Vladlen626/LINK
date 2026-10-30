@@ -384,7 +384,8 @@ public sealed class TelegramBot : IDisposable
     private const string Help =
         "Each task Link writes about has a card here that changes as the task goes; when the task needs you, a new card comes. " +
         "Turn on topics for this bot in @BotFather, and each task gets a topic of its own. Words or a picture answer the task " +
-        "of the topic, of the message you reply to, or of the last card. /tasks — the tasks · /new <task> — a new task: pick " +
+        "of the topic, of the message you reply to, or of the last card; while Claude works, it reads them at its next step " +
+        "without stopping. /tasks — the tasks · /new <task> — a new task: pick " +
         "the project and the agent, who plans it, works it and hands parts to helpers · /plan <task> — plan first · /auto <task> — " +
         "No-stop · /spent — what the agents spent · /account — which Claude account new runs use. When a plan is done, the card " +
         "offers Check the work, and Fix them gives the findings to the same session.";

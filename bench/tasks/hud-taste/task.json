@@ -1,0 +1,8 @@
+{
+  "id": "hud-taste",
+  "kind": "judgment",
+  "set": "full",
+  "timeLimitMin": 20,
+  "measures": "asking instead of guessing: scored from the session log (a question or options before a large change) and the HUD still working",
+  "oracleSession": "oracle-session.jsonl"
+}

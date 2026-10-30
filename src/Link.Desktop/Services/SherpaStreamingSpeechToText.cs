@@ -17,7 +17,7 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
     // about 0.1 s after this, 0.65 s after the last sound (measured on Link's local voice).
     private static readonly TimeSpan PhrasePause = TimeSpan.FromMilliseconds(550);
     private readonly SpeechModelManager _models;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Timer _idle;
     private SpeechModel? _recognizerModel;
     private Task<OnlineRecognizer>? _recognizer;

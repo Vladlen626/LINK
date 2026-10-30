@@ -10,7 +10,7 @@ public sealed class ScreenshotHistoryService
     private readonly SettingsService _settings;
     // How many holders keep each file out of pruning: the context stack and every input snapshot that has it.
     private readonly Dictionary<string, int> _pinned = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _sync = new();
+    private readonly Lock _sync = new();
 
     public ScreenshotHistoryService(StoragePaths paths, SettingsService settings)
     {

@@ -1,0 +1,7 @@
+{
+  "id": "roll-wall",
+  "kind": "bug",
+  "set": "smoke",
+  "timeLimitMin": 30,
+  "measures": "diagnosis: searches before the first edit, the cause found (movement and collision), not a patch (a clamped frame time or a slower roll fails the check)"
+}

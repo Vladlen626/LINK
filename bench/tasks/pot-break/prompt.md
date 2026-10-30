@@ -1,0 +1,1 @@
+The sword doesn't break anything yet. Make it break pots (one hit) and crates (two hits) - only what's in front of the hero, within the swing's reach. A broken pot or crate should burst into a few pieces that fly out and settle on the ground, and drop a gem or a heart: random, but the same seed should give the same drops.

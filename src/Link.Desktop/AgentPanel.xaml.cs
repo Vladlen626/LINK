@@ -43,6 +43,7 @@ public partial class AgentPanel : UserControl
     private readonly HashSet<string> _skillsOff = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _skillsOn = new(StringComparer.OrdinalIgnoreCase);
     private bool _running;
+    private bool _hears;
     private bool _planning;
     private bool _replanning;
     private bool _hasTask;

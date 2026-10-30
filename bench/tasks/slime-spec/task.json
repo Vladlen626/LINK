@@ -1,0 +1,8 @@
+{
+  "id": "slime-spec",
+  "kind": "mechanic",
+  "set": "full",
+  "timeLimitMin": 40,
+  "measures": "following a spec to the letter: 12 rules, a hidden test each",
+  "remove": ["test/slime.test.mjs"]
+}

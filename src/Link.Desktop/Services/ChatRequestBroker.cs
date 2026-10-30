@@ -13,7 +13,7 @@ internal sealed class ChatRequestBroker : IDisposable
     // Requests that ended recently stay known, so a page still working on one learns why LINK dropped it.
     private const int EndedRequestsKept = 64;
     private const string Unresponsive = "The ChatGPT page did not respond. Open chat shows it; try again once it is there.";
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly BridgeTimings _timings;
     private readonly Dictionary<Guid, PendingRequest> _pending = [];
     private readonly Dictionary<Guid, string> _ended = [];
@@ -324,7 +324,7 @@ internal sealed class ChatRequestBroker : IDisposable
         lock (_gate)
         {
             if (pending.ConversationId.Length > 0) return;
-            pending.ConversationId = conversation.ConversationId!;
+            pending.ConversationId = conversation.ConversationId;
         }
 
         pending.Progress?.Report(new ChatProgress
@@ -332,9 +332,9 @@ internal sealed class ChatRequestBroker : IDisposable
             State = ChatProgressState.ChatStarted,
             StartedConversation = new AvailableChatConversation
             {
-                ConversationId = conversation.ConversationId!,
+                ConversationId = conversation.ConversationId,
                 Title = string.IsNullOrWhiteSpace(conversation.Title) ? "ChatGPT conversation" : conversation.Title.Trim(),
-                Url = conversation.Url!,
+                Url = conversation.Url,
                 LastSeenAt = DateTimeOffset.Now
             }
         });

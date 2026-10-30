@@ -1,0 +1,7 @@
+{
+  "id": "lock-on",
+  "kind": "3D camera",
+  "set": "full",
+  "timeLimitMin": 40,
+  "measures": "3D reasoning; checking its own numbers"
+}

@@ -320,7 +320,7 @@ public static partial class TeamRunner
     public static IReadOnlyList<int> Needing(AgentTaskRecord record, TeamStep step)
     {
         static string Norm(string path) => path.Replace('\\', '/').Trim('/').ToLowerInvariant();
-        bool Shares(string one, string other) =>
+        static bool Shares(string one, string other) =>
             one == other || one.StartsWith(other + "/", StringComparison.Ordinal) || other.StartsWith(one + "/", StringComparison.Ordinal);
         var own = step.Files.Select(Norm).Where(path => path.Length > 0).ToArray();
         var at = record.Team.IndexOf(step);

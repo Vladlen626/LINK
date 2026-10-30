@@ -1,0 +1,7 @@
+{
+  "id": "new-item",
+  "kind": "skills",
+  "set": "full",
+  "timeLimitMin": 30,
+  "measures": "reading and following the project's skill (.agents/skills/items): data/items.json and tools/gen-items.mjs, not a hand edit of src/items.gen.js"
+}

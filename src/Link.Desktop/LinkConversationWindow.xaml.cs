@@ -4,7 +4,6 @@ using System.Windows.Input;
 using System.Windows.Threading;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
-using Link.Desktop.Windows;
 
 namespace Link.Desktop;
 

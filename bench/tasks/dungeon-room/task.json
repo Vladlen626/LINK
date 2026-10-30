@@ -1,0 +1,7 @@
+{
+  "id": "dungeon-room",
+  "kind": "multi-part",
+  "set": "full",
+  "timeLimitMin": 60,
+  "measures": "a plan with a check per part; finishing all four parts; the final check in the page"
+}

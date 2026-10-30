@@ -425,6 +425,12 @@ public partial class MainWindow
         {
             // Link's own step (a note for Start over) takes no words.
             if (work.Run is not { } live || work.RestartWhenStopped) return;
+            if (live.Task.Inbox is { IsOpen: true } inbox)
+            {
+                _ = TellRunningAsync(work, live, inbox, text, images);
+                return;
+            }
+
             work.SteerWith = text;
             work.SteerImages = images;
             work.Record.Add(AgentEntryKind.You, "(steer now) " + text + ImagesNote(images));
@@ -504,6 +510,24 @@ public partial class MainWindow
         var (text, images, files) = WithAttached(words, attached);
         work.AttachedFiles.AddRange(files);
         if (queue) QueueAfterRun(work, text, images);
+        else ContinueAgent(work, text, images);
+    }
+
+    /// <summary>
+    /// Words while the agent works, as in Claude Code's own app: they go into the running session, which reads them at
+    /// its next step, and nothing is stopped. A run that ended meanwhile takes them as the session's next words.
+    /// </summary>
+    private async Task TellRunningAsync(TaskWork work, LiveRun live, AgentInbox inbox, string text, IReadOnlyList<string> images)
+    {
+        if (await inbox.SayAsync(text, images))
+        {
+            work.Record.Add(AgentEntryKind.You, "(while it works) " + text + ImagesNote(images));
+            ShowTask(work);
+            AgentStatus(work, $"{ShortName(live.Task.Provider)} reads your words at its next step");
+            return;
+        }
+
+        if (work.Busy) QueueAfterRun(work, text, images);
         else ContinueAgent(work, text, images);
     }
 
@@ -667,7 +691,9 @@ public partial class MainWindow
             NoStop = record.NoStop,
             Deny = record.NoStop ? _settings.Current.Agent.NoStopDeny : [],
             // A tool its rules do not allow is asked while it works; No-stop asks nothing.
-            AskPermission = record.NoStop ? null : (ask, token) => AskPermissionAsync(work, ask, token)
+            AskPermission = record.NoStop ? null : (ask, token) => AskPermissionAsync(work, ask, token),
+            // The user's words while it works reach the session without a stop, where the CLI takes them.
+            Inbox = new AgentInbox()
         };
         CancelNoStop(work);
         if (work.AttachedFiles.Count > 0)

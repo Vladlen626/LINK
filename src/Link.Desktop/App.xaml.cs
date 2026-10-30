@@ -180,7 +180,7 @@ public partial class App : System.Windows.Application
 
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
     {
-        if (_mainWindow is not null) _mainWindow.AllowClose = true;
+        _mainWindow?.AllowClose = true;
         SaveState();
         base.OnSessionEnding(e);
     }

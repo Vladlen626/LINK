@@ -17,7 +17,7 @@ public sealed class SpeechToTextService : ISpeechToText
     // whisper.cpp takes four threads by default; up to eight end the CPU pass about a third sooner on a desktop.
     private static readonly int Threads = Math.Clamp(Environment.ProcessorCount * 2 / 3, 4, 8);
     private readonly SpeechModelManager _models;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private Task? _turboPreparation;
     private bool _turboReady;
     private bool _turboUnavailable;

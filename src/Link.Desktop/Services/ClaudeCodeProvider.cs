@@ -64,8 +64,10 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         // Task tab shows as a choice. Subagents are the agent's own choice.
         // No-stop's deny list holds in bypassPermissions too: deny rules win over every mode.
         arguments.AddRange(["--disallowedTools", "AskUserQuestion", .. task.Deny]);
-        // A tool the rules do not allow is asked on stdin (Talk) instead of refused, while the user is there to answer.
-        if (Talks(task)) arguments.AddRange(["--input-format", "stream-json", "--permission-prompt-tool", "stdio"]);
+        // A talk keeps stdin open: the user's words while it works go in there, shown back once taken in, and a tool the
+        // rules do not allow is asked there (Talk) instead of refused, while the user is there to answer.
+        if (Talks(task)) arguments.AddRange(["--input-format", "stream-json", "--replay-user-messages"]);
+        if (task.AskPermission is not null) arguments.AddRange(["--permission-prompt-tool", "stdio"]);
         // MCP servers come only from the workspace's .mcp.json, as for Codex: otherwise the user's claude.ai
         // connectors ride along too, such as a docs app in a game task. Link's own answers get none.
         arguments.Add("--strict-mcp-config");
@@ -229,21 +231,25 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     public static string GuardExecutable => Path.Combine(AppContext.BaseDirectory, "Link.Guard.exe");
 
     /// <summary>
-    /// A settings file with the guard as the PreToolUse hook of the tools it checks; null without the guard. A file, not
-    /// JSON on the command line: claude.cmd would split its quotes.
+    /// A settings file with the guard as the PreToolUse hook of the tools it checks and as the Stop hook; null without the
+    /// guard. A file, not JSON on the command line: claude.cmd would split its quotes.
     /// </summary>
     private static string? GuardSettings()
     {
         if (!File.Exists(GuardExecutable)) return null;
+        static JsonArray Guard() => new(new JsonObject { ["type"] = "command", ["command"] = $"\"{GuardExecutable.Replace('\\', '/')}\"" });
         var hook = new JsonObject
         {
             ["hooks"] = new JsonObject
             {
                 ["PreToolUse"] = new JsonArray(new JsonObject
                 {
-                    ["matcher"] = "Read|Write|Bash|PowerShell",
-                    ["hooks"] = new JsonArray(new JsonObject { ["type"] = "command", ["command"] = $"\"{GuardExecutable.Replace('\\', '/')}\"" })
-                })
+                    // Edits, searches and MCP calls too: the guard counts searches since the last piece of work, and edits.
+                    ["matcher"] = "Read|Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|Grep|Glob|LS|mcp__.*",
+                    ["hooks"] = Guard()
+                }),
+                // Before a long session ends, it is asked once what to keep (HarnessGuard.Stop).
+                ["Stop"] = new JsonArray(new JsonObject { ["hooks"] = Guard() })
             }
         }.ToJsonString();
         var file = Path.Combine(Path.GetTempPath(), "link-guard-settings.json");
@@ -258,10 +264,10 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         }
     }
 
-    public override string Input(AgentTask task) =>
-        task.Images.Count == 0
-            ? task.Prompt
-            : task.Prompt + "\n\nImages attached to this task (open them with Read):\n" + string.Join('\n', task.Images);
+    public override string Input(AgentTask task) => WithImages(task.Prompt, task.Images);
+
+    private static string WithImages(string words, IReadOnlyList<string> images) =>
+        images.Count == 0 ? words : words + "\n\nImages attached to this task (open them with Read):\n" + string.Join('\n', images);
 
     /// <summary>What the agent is told when the user does not allow a tool: the run goes on without it.</summary>
     internal const string Refused = "The user did not allow this. Do the task another way, or stop and say what you need.";
@@ -269,7 +275,13 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     // The task's own words as they are, in the console too: stdin is no web page, so nothing but JSON needs escaping.
     private static readonly JsonSerializerOptions Plain = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    protected override bool Talks(AgentTask task) => task.AskPermission is not null;
+    protected override bool Talks(AgentTask task) => task.AskPermission is not null || task.Inbox is not null;
+
+    // Claude Code takes a user message on stdin while it works and shows it to the model at its next step ("The user
+    // sent a new message while you were working"), as its own app does.
+    protected override bool Hears => true;
+
+    protected override string Said(string words, IReadOnlyList<string> images) => Opening(WithImages(words, images));
 
     /// <summary>The task as stream-json's first user message.</summary>
     protected override string Opening(string input) => new JsonObject
@@ -281,23 +293,50 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     }.ToJsonString(Plain);
 
     /// <summary>
-    /// A <c>can_use_tool</c> request waits for the user's answer, which goes back as its <c>control_response</c>; the
-    /// result ends the talk, and the CLI then exits.
+    /// A <c>can_use_tool</c> request waits for the user's answer, which goes back as its <c>control_response</c>; a user
+    /// message shown back (<c>--replay-user-messages</c>) was taken in; the result ends the turn, and with no words left
+    /// unread the talk, and the CLI then exits.
     /// </summary>
     protected override void Talk(string line, AgentTask task, AgentInput input, CancellationToken cancellationToken)
     {
+        if (input.HasUnread && line.Contains("\"type\":\"user\"", StringComparison.Ordinal) && Replayed(line) is { } words)
+        {
+            input.Took(words);
+            return;
+        }
+
         // Most lines are the agent's events: only these two are parsed again.
         if (!line.Contains("\"type\":\"control_request\"", StringComparison.Ordinal) && !line.Contains("\"type\":\"result\"", StringComparison.Ordinal)) return;
         if (Request(line) is not { } request) return;
         if (request.Ended)
         {
-            _ = input.CloseAsync();
+            _ = input.EndTurnAsync();
             return;
         }
 
         _ = request.Ask is { } ask && task.AskPermission is { } asking
             ? AnswerAsync(input, request.Id, ask, request.ToolInput, request.Rules, asking, cancellationToken)
             : input.SendAsync(Failure(request.Id, "Link answers only tool permission requests."));
+    }
+
+    /// <summary>The words of a user message the CLI shows back, without the images' note; null for any other line.</summary>
+    internal static string? Replayed(string line)
+    {
+        try
+        {
+            if (JsonNode.Parse(line) is not JsonObject root || TextOf(root["type"]) != "user" || root["message"] is not JsonObject message) return null;
+            var text = message["content"] switch
+            {
+                JsonValue value when value.TryGetValue<string>(out var content) => content,
+                JsonArray blocks => string.Concat(blocks.OfType<JsonObject>().Where(block => TextOf(block["type"]) == "text").Select(block => TextOf(block["text"]))),
+                _ => null
+            };
+            return text is { Length: > 0 } ? text.Split("\n\nImages attached to this task", 2)[0] : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>A line of the CLI's in a talk: its result, or a request with its id, and a tool to ask about when it is one.</summary>
@@ -398,7 +437,12 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     /// </summary>
     public override IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task)
     {
-        var variables = new Dictionary<string, string>(AccountVariables(Settings));
+        var variables = new Dictionary<string, string>(AccountVariables(Settings))
+        {
+            // Claude Code gives models newer than 4.7 no task list unless asked (2.1.286), and Link's plan, its steps'
+            // checks and the final check all read that list: without it no run of Opus 5.5 ever showed a plan.
+            ["CLAUDE_CODE_ENABLE_TODO_TOOLS"] = "1"
+        };
         if (task.ContextBudget is { } budget and > 0)
         {
             variables["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);

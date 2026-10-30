@@ -55,6 +55,66 @@ internal static class HarnessLintTests
             Program.Equal("Guard: Claude's rules leave out what the guard holds; Codex's keep it",
                 (AgentRules.Before("Go", workspace, false, guarded: true).Contains("Held by Link"), AgentRules.Before("Go", workspace, false).Contains("Held by Link")),
                 (false, true));
+
+            var script = string.Join('\n', Enumerable.Repeat("echo step", Link.Guard.HarnessGuard.LongestCommand + 5));
+            File.WriteAllText(Path.Combine(workspace, "tool.sh"), "echo old");
+            Program.Equal("Guard: a long inline script and a heredoc over a file that is there are refused; a heredoc that makes a new file runs",
+                (Guard("Bash", new { command = "python - <<'EOF'\n" + script + "\nEOF" }) is not null,
+                    Guard("Bash", new { command = "cat > tool.sh <<'EOF'\n" + script + "\nEOF" }) is not null,
+                    Guard("Bash", new { command = "cat > new.sh <<'EOF'\n" + script + "\nEOF" })),
+                (true, true, (string?)null));
+
+            var (linkData, claude, packs) = (Link.Guard.HarnessGuard.ProtectedFolders[0].Folder, Link.Guard.HarnessGuard.ProtectedFolders[1].Folder,
+                Link.Guard.HarnessGuard.ProtectedFolders[3].Folder);
+            string? EditIn(string file, string cwd) => Link.Guard.HarnessGuard.Check(
+                System.Text.Json.JsonSerializer.SerializeToElement(new { tool_name = "Edit", cwd, tool_input = new { file_path = file } }));
+            Program.Equal("Guard: Link's data, Claude's settings and the shared packs are never edited from a task; a pack's own task may, and temp is free",
+                (EditIn(Path.Combine(linkData, "settings.json"), workspace) is not null,
+                    Guard("Write", new { file_path = Path.Combine(claude, "settings.json") }) is not null,
+                    EditIn(Path.Combine(packs, "unity", "skills", "x", "SKILL.md"), workspace) is not null,
+                    EditIn(Path.Combine(packs, "unity", "skills", "x", "SKILL.md"), Path.Combine(packs, "unity")),
+                    EditIn(Path.Combine(Path.GetTempPath(), "frame.txt"), workspace)),
+                (true, true, true, (string?)null, (string?)null));
+
+            var session = Guid.NewGuid().ToString();
+            string? Remembered(string tool, object args) => Link.Guard.HarnessGuard.Check(
+                System.Text.Json.JsonSerializer.SerializeToElement(new { tool_name = tool, cwd = workspace, session_id = session, tool_input = args }));
+            var sheet = Path.Combine(workspace, "sheet.png");
+            File.WriteAllBytes(sheet, [1, 2, 3]);
+            var first = Remembered("Read", new { file_path = sheet });
+            var again = Remembered("Read", new { file_path = sheet });
+            var insisted = Remembered("Read", new { file_path = sheet });
+            File.SetLastWriteTimeUtc(sheet, DateTime.UtcNow.AddMinutes(1));
+            Program.Equal("Guard: an image opened again unchanged is refused once; asked again, or changed, it opens",
+                (first, again is not null, insisted, Remembered("Read", new { file_path = sheet })), ((string?)null, true, (string?)null, (string?)null));
+
+            var searches = Enumerable.Range(1, Link.Guard.HarnessGuard.SearchesWithoutWork)
+                .Select(n => Remembered(n % 2 == 0 ? "Grep" : "Bash", n % 2 == 0 ? new { pattern = "x" } : new { command = "cd src && grep -n x a.cs" }))
+                .ToArray();
+            Remembered("Edit", new { file_path = big });
+            var afterEdit = Enumerable.Range(1, Link.Guard.HarnessGuard.SearchesWithoutWork - 1).Select(_ => Remembered("Glob", new { pattern = "*.cs" })).ToArray();
+            Program.Equal("Guard: searching on without a change is stopped once at the limit; an edit starts the count over",
+                (searches.Take(searches.Length - 1).All(why => why is null), searches[^1] is not null, afterEdit.All(why => why is null)), (true, true, true));
+
+            string? Stop(string id, bool active = false) => Link.Guard.HarnessGuard.Stop(
+                System.Text.Json.JsonSerializer.SerializeToElement(new { hook_event_name = "Stop", session_id = id, stop_hook_active = active }));
+            var shortWork = Stop(session);
+            for (var call = 0; call < Link.Guard.HarnessGuard.LongWork; call++) Remembered("Bash", new { command = "dotnet test" });
+            var (continuing, ended) = (Stop(session, active: true), Stop(session));
+            Program.Equal("Guard: a long session that changed files and kept nothing is asked once, before it ends, what to keep",
+                (shortWork is null, continuing, ended is not null, Stop(session)), (true, (string?)null, true, (string?)null));
+            var learning = Guid.NewGuid().ToString();
+            for (var call = 0; call < Link.Guard.HarnessGuard.LongWork; call++)
+            {
+                Link.Guard.HarnessGuard.Check(System.Text.Json.JsonSerializer.SerializeToElement(new
+                {
+                    tool_name = "Edit", cwd = workspace, session_id = learning,
+                    tool_input = new { file_path = call == 0 ? Path.Combine(workspace, ".agents", "skills", "jump", "SKILL.md") : big }
+                }));
+            }
+
+            Program.Equal("Guard: a session that wrote a skill is not asked", Stop(learning), (string?)null);
+            foreach (var id in new[] { session, learning }) File.Delete(Path.Combine(Path.GetTempPath(), "link-guard", id + ".txt"));
         }
         finally
         {

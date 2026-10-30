@@ -36,6 +36,7 @@ internal static class AgentTests
         Loops();
         Arguments();
         HandOff();
+        await MidRunWordsAsync();
         await StreamAsync();
         await ConsoleAsync();
         await LoopRunAsync();
@@ -2141,8 +2142,9 @@ internal static class AgentTests
                 parameters.EndsWith("'safe.directory=" + repository.Replace('\\', '/').Replace("'", @"'\''") + "'", StringComparison.Ordinal), true);
             Program.Equal("Codex: a folder without git gets no git settings",
                 codex.EnvironmentVariables(new AgentTask { Provider = AgentProviderKind.Codex, Workspace = Path.GetTempPath(), Prompt = "x" }).Count, 0);
-            Program.Equal("Claude runs as the user and needs no git settings",
-                claude.EnvironmentVariables(new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = repository, Prompt = "x" }).Count, 0);
+            Program.Equal("Claude runs as the user and needs no git settings, only its task list on",
+                string.Join(",", claude.EnvironmentVariables(new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = repository, Prompt = "x" })),
+                "[CLAUDE_CODE_ENABLE_TODO_TOOLS, 1]");
         }
         finally
         {
@@ -2284,9 +2286,17 @@ internal static class AgentTests
         };
         var talkArguments = asking.Arguments(watched);
         Program.Equal("ask: a watched run takes stream-json in and asks on stdio, --allowedTools still last",
-            (string.Join(' ', talkArguments).Contains("--input-format stream-json --permission-prompt-tool stdio"), talkArguments[^2], talkArguments[^1],
+            (string.Join(' ', talkArguments).Contains("--input-format stream-json --replay-user-messages --permission-prompt-tool stdio"), talkArguments[^2], talkArguments[^1],
                 string.Join(' ', asking.Arguments(watched with { AskPermission = null })).Contains("--permission-prompt-tool")),
             (true, "--allowedTools", "Read", false));
+        var hearing = string.Join(' ', asking.Arguments(watched with { AskPermission = null, Inbox = new AgentInbox() }));
+        Program.Equal("mid-run words: a No-stop run with an inbox takes stream-json in and shows the words back, asking nothing",
+            (hearing.Contains("--input-format stream-json --replay-user-messages"), hearing.Contains("--permission-prompt-tool")), (true, false));
+        Program.Equal("mid-run words: a message shown back gives its words without the images' note; a tool result gives none",
+            (ClaudeCodeProvider.Replayed("""{"type":"user","message":{"role":"user","content":"Make it red\n\nImages attached to this task (open them with Read):\nC:\\a.png"}}"""),
+                ClaudeCodeProvider.Replayed("""{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Stop there"}]}}"""),
+                ClaudeCodeProvider.Replayed("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"ok"}]}}""")),
+            ((string?)"Make it red", (string?)"Stop there", (string?)null));
         var toolRequest = ClaudeCodeProvider.Request(
             """{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","display_name":"Bash","input":{"command":"python -c \"print(42)\"","description":"Print 42"},"description":"Print 42","permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"python -c \"print(42)\""}],"behavior":"allow","destination":"localSettings"}],"tool_use_id":"toolu_1"}}""");
         Program.Equal("ask: a tool request names the tool, the command and the rule Claude Code suggests",
@@ -2313,6 +2323,25 @@ internal static class AgentTests
         Program.Equal("an earlier Link's session becomes a task of one run",
             AgentTaskRecord.FromSession(new AgentSessionRecord { SessionId = "s9", Workspace = @"C:\Work", Goal = "Fix it", Summary = "Done." }) is
                 { Goal: "Fix it", LastWords: "Done.", Runs: [{ SessionId: "s9" }] }, true);
+    }
+
+    // The words a run's stdin takes while it works: the turn's end leaves it open until they are taken in.
+    private static async Task MidRunWordsAsync()
+    {
+        var input = new AgentInput();
+        await input.OpenAsync(new StreamWriter(new MemoryStream()), "task");
+        var said = await input.SayAsync("{\"type\":\"user\"}", "Make it red");
+        var keptOpen = !await input.CloseAsync(unlessUnread: true);
+        input.Took("task");
+        var stillUnread = input.HasUnread;
+        input.Took("Make it red");
+        Program.Equal("mid-run words: said words keep stdin open past a turn's end until taken in; then it closes, and later words are refused",
+            (said, keptOpen, stillUnread, await input.CloseAsync(unlessUnread: true), await input.SayAsync("{}", "late")), (true, true, true, true, false));
+
+        var inbox = new AgentInbox();
+        var closed = await inbox.SayAsync("x", []);
+        inbox.Open((words, _) => System.Threading.Tasks.Task.FromResult(words == "y"));
+        Program.Equal("mid-run words: an inbox takes words only while a run holds it open", (closed, await inbox.SayAsync("y", []), inbox.IsOpen), (false, true, true));
     }
 
     private static async Task FailureAsync()
