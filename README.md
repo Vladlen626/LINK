@@ -1,617 +1,168 @@
-# Link
-
 <p align="center">
-  <img src="docs/images/overview.svg" width="880" alt="Link поверх рабочего приложения: панель проекта и карточка с ответом">
+  <img src="docs/images/overview.svg" width="880" alt="Link over Blender: the project panel and the card with an answer">
 </p>
 
-Компактный Windows desktop companion на C#/.NET 10 и WPF. Вы работаете в Unreal, Blender, IDE или браузере, а Link
-висит маленьким overlay поверх: собирает нужный контекст — текст, голос, скриншоты, clipboard, текущее приложение —
-отправляет его в связанную беседу ChatGPT и показывает ответ, не заставляя переключаться в окно чата. Работу в вашей
-папке — правки, проверки, карту проекта — делает агент на выбор: **Claude Code** или **Codex**. Задачи агентов живут в
-отдельном окне **Studio**.
+<h1 align="center">Link</h1>
 
-**UI для пользователя — Link. Встроенная страница ChatGPT, CLI агентов — внутренняя реализация.**
+<p align="center">
+  <b>Ask about what is on your screen. Hand the work to an agent. Stay in your app.</b>
+</p>
 
-## Быстрый старт
+<p align="center">
+  <img alt="Windows 11 x64" src="https://img.shields.io/badge/Windows%2011-x64-0078D4">
+  <img alt=".NET 10, WPF" src="https://img.shields.io/badge/.NET%2010-WPF-512BD4">
+  <img alt="Agents: Claude Code and Codex" src="https://img.shields.io/badge/agents-Claude%20Code%20%C2%B7%20Codex-D95E0E">
+  <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-3FB950"></a>
+</p>
 
-1. Нужны Windows 11 x64 и аккаунт ChatGPT; .NET ставить не надо — он внутри сборки. Для агентов — установленные
-   [Claude Code](https://docs.claude.com/en/docs/claude-code) и/или [Codex CLI](https://github.com/openai/codex) с
-   вашей подпиской; для голоса — [Visual C++ Redistributable 2022 x64](https://aka.ms/vs/17/release/vc_redist.x64.exe).
-2. Скачайте `Link-<версия>-win-x64.zip` (~100 МБ) из [Releases](../../releases), распакуйте в свою папку (не в
-   Program Files) и запустите `Link.exe`.
-   Сборка не подписана: Windows SmartScreen может предупредить — «Подробнее» → «Выполнить в любом случае».
-3. Дальше — **Welcome to LINK** и [первый запуск](#установка-и-первый-запуск): вход в ChatGPT, папка проекта, агент.
+Link is a small always-on-top overlay for Windows. You work in Unreal, Unity, Blender, an IDE or a browser; Link sends
+your question to your ChatGPT conversation together with what you choose (a frame of the window you work in, the
+clipboard, the project note, your voice) and shows the answer on top of your work. When the answer is work in your
+folder, **Claude Code** or **Codex** does it in **Link Studio**, under a harness that keeps them on track.
 
-Собрать самому — [ниже](#установка-и-первый-запуск). Лицензия — [MIT](LICENSE).
+- **Ask in place.** Type or hold a key and talk; the card shows what the model sees and streams the answer.
+- **Talk hands-free.** Local speech recognition, a Conversation mode, answers read aloud.
+- **Agents as conversations.** A task is one thread from the brief to the result: its plan, steps, pictures, changes
+  and cost. Several tasks run side by side.
+- **A harness that holds.** Rules, the project's map and skills, a guard that refuses waste, a check after every run
+  and a review of the whole plan: the same for Claude and Codex.
+- **Away from the desk.** A Telegram bot tells you when a task needs you and takes your answer.
 
-> **Дисклеймер.** Неофициальный проект, не связан с OpenAI или Anthropic. Link управляет веб-страницей ChatGPT в
-> своём окне от вашего имени: это может расходиться с условиями OpenAI, а при смене разметки ChatGPT — ломаться.
-> Агенты работают в вашей папке с выданным им доступом и тратят вашу подписку. Всё — на ваш риск, без гарантий.
-> Данные (вход ChatGPT, история, снимки экрана) остаются локально в `%LocalAppData%\Link`.
+## Quick start
 
-## Как работать с Link
+1. You need Windows 11 x64 and a ChatGPT account (.NET comes inside the build). For agents:
+   [Claude Code](https://docs.claude.com/en/docs/claude-code) and/or [Codex CLI](https://github.com/openai/codex) on
+   your subscription. For voice: [Visual C++ Redistributable 2022 x64](https://aka.ms/vs/17/release/vc_redist.x64.exe).
+2. Download `Link-<version>-win-x64.zip` (~100 MB) from [Releases](../../releases), unzip it to a folder of your own
+   (not Program Files) and run `Link.exe`. The build is not signed: SmartScreen may warn, More info → Run anyway.
+3. **Welcome to LINK** checks your agents. Then open the panel, **ChatGPT page**, sign in once, and pick a folder for
+   the project. Claude Code signs in from Settings → Agents → **Sign in**, Codex with `codex login`.
 
-### 1. Спросить
+Optional: paste [docs/harness/chat-instructions.md](docs/harness/chat-instructions.md) into the instructions of the
+ChatGPT project Link talks to.
 
-<p align="center"><img src="docs/images/overlay.svg" width="520" alt="Карточка Link: вопрос, контекст и ответ"></p>
+## Ask
 
-1. **Проект и точка ChatGPT** — зелёная: на связи, красная: войдите в ChatGPT. Клик — выбрать или создать проект,
-   связать его с беседой. Пока есть задача агента, рядом — **пилюля агента** (`Claude · 4:12`, `Claude needs you`,
-   `Claude done`; `+1` — ещё прогоны в работе); клик открывает задачу.
-2. **Панель** (Expand) и **Hide**. Спрятать и показать Link — `Ctrl+Alt+Space`.
-3. **Заметка проекта** — чип с её первой строкой (над чем вы работаете); уходит с вопросом, `×` — без неё на один
-   вопрос, клик — править.
-4. **Вопрос.** Пишите или держите `Ctrl+Alt+V` и говорите — слова появляются в поле; `Enter` отправляет — подсказка
-   внизу говорит куда, а пустое поле подсказывает беседу: «Ask in «Nori jump tuning»…».
-5. **Куда и как.** **ChatGPT · <беседа> ▾** — куда уйдёт сообщение: беседа ChatGPT или агент проекта (раздел 3);
-   другие беседы — во вкладке Chats панели (`Ctrl+K`). Ответ подписан своей беседой. **Fast · Normal · Deep** —
-   насколько глубоко думать. **Conversation** — разговор без рук. **Only my text** — следующий вопрос уходит только
-   с вашим текстом и вложениями, без чипов Link.
-6. **Что видит модель** — строка **Sees** под полем: приложенный снимок (окно, монитор, область) или «свежий кадр
-   окна при отправке», с миниатюрой; клик — меню снимков. Voice — голос, Clipboard — буфер обмена.
-7. **Что уходит с вопросом** — чипы: приложение и заголовок его окна, состояние проекта, буфер; `×` убирает на этот
-   запрос. Над ответом — **Saw: …**: что ушло на самом деле, с миниатюрой отправленного кадра.
-8. **Ответ** приходит по мере печати, Markdown с кодом и таблицами; **Listen** читает вслух, **Copy** копирует.
-   Картинка ChatGPT — карточкой в ответе: пока рисуется, «Creating image… N s» с полосой, потом «Image ready»; клик
-   открывает окно ChatGPT в Link — посмотреть, сохранить или продолжить там.
-9. **Под ответом два действия.** **Ask again ▾** — тот же вопрос из того же снимка: глубже, со свежим экраном, только
-   ваш текст или с поправкой (Edit the question — поправить ослышку). **→ Agent task** — карточка задачи, где бриф —
-   выделенная часть ответа, его блок `link-task` или весь ответ, плюс вопрос; ничего не запускается до Run.
+- **The card.** Write, or hold `Ctrl+Alt+V` and talk; `Enter` sends. **ChatGPT · ‹chat› ▾** says where it goes (a
+  chat, or the project's agent), **Fast · Normal · Deep** how hard to think.
+- **What goes along is in sight.** **Sees** shows the frame (a window, a monitor or a region; or a fresh frame of the
+  window you work in on every send), and chips show the project note and the clipboard; `×` leaves one out. Above the
+  answer, **Saw** lists what really went.
+- **The answer** streams in as Markdown; **Listen** reads it aloud. Under it, **Ask again ▾** (deeper, with a fresh
+  screen, only your text, or corrected) and **→ Agent task**.
+- **Hands-free.** **Conversation** (`Ctrl+Alt+Shift+Space`) listens while Link is free and answers aloud; hold
+  `Ctrl+Alt+Shift+V` to ask about the screen in one go.
+- **The panel** beside the card: the project's chats, its note, its folder, the map, skills and the check command.
+- ChatGPT runs in Link's own page (WebView2) off screen, so it types at full speed with no browser open.
 
-### 2. Проект и панель
+## Agents in Studio
 
-<p align="center"><img src="docs/images/panel.svg" width="400" alt="Панель: беседы, задачи и проект"></p>
+<p align="center">
+  <img src="docs/images/studio.svg" width="880" alt="Link Studio: the task list, a task's thread with its plan, and the Harness column">
+</p>
 
-Две вкладки, как в приложениях ChatGPT и агентов: **Chats** (беседы ChatGPT) и проект; кнопка **Tasks** между ними
-(с точкой: агент работает, ждёт вас, закончил) открывает **Studio** — окно задач агентов (раздел 3).
+- **Start a task** with `Ctrl+Enter` in the card, **New task** in Studio (`Ctrl+N`) or **→ Agent task** under an
+  answer. A card shows the brief, the agent, model, effort and access; nothing runs before **Run**. **Plan first**
+  has the agent only read and propose.
+- **One task, one thread.** Each run shows its steps folded ("Ran 3 commands, read 4 files…"), the pictures it looked
+  at, its answer, the files it changed and what it cost. The agent's own task list is the **Plan** at the top.
+- **Talk while it works.** `Enter` is **Tell now**: Claude reads your words at its next step, nothing stops. Codex
+  gets **Steer now**. `Tab` keeps your words for after the run.
+- **Checked work.** Your check command (a build, tests) runs after every run with edits; a failure goes back to the
+  agent, twice at most. When a plan of three steps or more is done, **Check the work** has a fresh session review the
+  whole diff step by step, and **Fix them** sends its findings back.
+- **Steer the task.** **Hand off ▾** to the other agent, **Compact** (a new session from the task's state),
+  **Start over with a note**, **Escalate**; at a usage limit, **Continue at 15:45**.
+- **Review and undo.** **Review** opens the diff: comment on lines, **Send review**. **Undo agent changes** in Git
+  and Perforce (each task gets its own pending changelist).
+- **Access.** **Edit** asks before commands, **Auto** asks nothing. **No-stop** takes the agent's recommended choice
+  after 10 s; `git push`, `p4 submit`, `gh pr merge` and `gh release` stay refused.
+- **Spend** (`Ctrl+Shift+U`): where a task's tokens went, tips to save with a **Fix**, the context curve, usage windows
+  and history; today's and this month's cost by [ccusage](https://ccusage.com).
 
-1. **Chats** — беседы ChatGPT этого проекта, последняя сверху; та, куда уйдёт следующее сообщение, помечена **here**.
-   Клик открывает беседу: вопросы справа, ответы слева, **Show in Link** показывает ответ целиком в карточке; Link
-   с этого момента пишет в неё. **New chat ▾** начинает новую (в меню — с выжимкой старой: длинные беседы ChatGPT
-   отвечает медленно), строка состояния открывает страницу ChatGPT, меню проекта — **Link ChatGPT conversation…**
-   (беседа из тех, что знает страница). В беседе видно то, что шло через Link (150 последних вопросов проекта).
-2. **Tasks** → **Studio**: задачи агентов (раздел 3) и окна их лимитов полосками; клик по полоске спрашивает агента о его
-   usage заново (без токенов; пока Link ничего не знает — строка «click to ask»). Карта проекта (Update map) идёт там же
-   отдельной строкой со своим Stop и не трогает открытую задачу.
-3. **Проект** (вкладка с его именем). **Заметка** — первая строка: над чем вы работаете; дальше цель, решения,
-   факты. Уходит с вопросами и задачами чипом, который можно убрать на один вопрос.
-4. **Рабочая папка** — где работает агент; выбирается только явно. Под ней — как откатываются правки агента: Git,
-   Perforce (каждая задача — свой pending changelist в P4V); без них Link только показывает, что изменилось.
-5. **Карта проекта** — Write map / Update map: агент осматривает папку и пишет `docs/map.md` (что где лежит, как
-   собрать и проверить); агенты читают её первой, а не ищут по папкам.
-6. **Skills папки** — повторяемая работа, записанная один раз: агенты ведут их сами по правилам харнеса (раздел 3), а
-   колонка Harness в Studio их показывает. Клик показывает `SKILL.md`.
-7. **Проверка после правок** — ваша команда: сборка, линтер, тесты. Link сам запускает её после задачи с правками.
+## The harness
 
-### 3. Агент: задача как беседа
+What every agent session gets, shown in the **Harness** column (`Ctrl+Shift+H`):
 
-<p align="center"><img src="docs/images/agent.svg" width="800" alt="Карточка задачи агента и задача в Studio"></p>
+| Part | What it does |
+|---|---|
+| **Rules** | `harness/agent-rules.md` beside `Link.exe`, at the start of every session, in any folder; editable without a rebuild. |
+| **Project memory** | `docs/map.md` (what is where, how to build and check) and skills in `.agents/skills/<name>/SKILL.md`, one source for both agents. Agents keep them current; a long session that kept nothing is asked once, before it ends. |
+| **Guard** | `Link.Guard`, Claude Code's hook, refuses waste with what to do instead: a big file read whole, a check's leftovers in the project, long waits, long inline scripts, the same picture twice, 15 searches without a change, edits to Link's data or the agents' settings. Codex gets the same rules as text. |
+| **Roles and packs** | Specialists (Gameplay Developer, 3D Artist, QA…) and tool packs (Unreal, Unity, Godot, Blender, Cascadeur, Perforce) in `%USERPROFILE%\LinkPacks`, shared by all your games. **Share with all games** passes a lesson on; a **Team pack** gives a teammate your roles and skills. |
+| **Helpers** | `mechanic` on Haiku for mechanical edits; Codex as Claude's tool on the ChatGPT subscription. |
+| **Effort and context** | **Effort Auto** picks each run's effort and says why; one context budget for both agents; MCP servers only from the project's `.mcp.json`. |
 
-**Studio** — обычное окно Link (кнопка Tasks панели, пилюля агента, пункт **Studio** в tray; место и размер
-запоминаются): посередине задачи проекта, справа складная колонка **Harness** — что агент получил на самом деле и
-почему ведёт себя так. В заголовке — контекст открытой задачи (`Context 182k / 1M (18%)`) и **Compact**.
+More: [docs/LOOP_PLAN.md](docs/LOOP_PLAN.md) (how a task runs), [docs/PORTABLE_HARNESS_PLAN.md](docs/PORTABLE_HARNESS_PLAN.md)
+(the same harness for other models), [bench/](bench/README.md) (Link Bench: harnesses and models on one small game).
 
-Studio коротко:
+## Away from the desk
 
-- **Задача — беседа**, как в приложениях агентов: бриф, прогоны со свёрнутыми шагами, ответ в Markdown, файлы,
-  токены и доля подписки; поправка на ходу (`Enter`), слова после шага (`Tab`), Stop, Hand off, Finish.
-- **Задачи рядом:** несколько задач работают одновременно, каждая со своим агентом; Studio показывает открытую, список
-  — как стоят остальные: с поиском и группами **Needs you** / **Running** / **Recent**. Правки в одной папке идут по очереди, чтение и план — сразу.
-- **One loop:** Claude Code or Codex. A big task is one session: it plans in its first turn and keeps the plan current,
-  and it hands clear parts to helpers. `mechanic` on Haiku takes mechanical edits; Codex, as Claude's tool, takes
-  clear code on the ChatGPT subscription. Their steps show in the thread. When a part of the plan is done and the
-  session is half full, the next part starts compacted. When the plan is done, **Check the work** has a fresh Strong
-  session read the whole diff, and **Fix them** gives its findings back
-  ([docs/LOOP_PLAN.md](docs/LOOP_PLAN.md)). **Team** (a lead plans, each step goes to a worker in a new session) is off
-  by default: Settings → Agents → Offer the team, to compare.
-- **Специалисты** (3D Artist, Gameplay Developer, QA…) и **пакеты инструментов** (Unreal, Unity, Godot, Blender,
-  Cascadeur, Perforce): общие умения для всех игр, проект добавляет к ним своё.
-- **Харнесс:** правила, карта проекта, skills, проверка после правок, Effort Auto, Compact из состояния задачи — и
-  колонка Harness, где всё это видно для открытой задачи, вплоть до текста, который получил агент.
+A Telegram bot of your own: `@BotFather` → `/newbot` gives a token; Settings → Remote control → paste it, **Pair
+Telegram**. Each task gets one card that updates quietly; when it needs you, a new card notifies with buttons (the
+agent's options, Allow, Deny, Stop, No-stop, Changes as a `.patch`). Words or a photo answer the task, also while it
+works. `/new`, `/plan`, `/auto`, `/tasks`, `/spent`. A model's review window opens in any browser through a Cloudflare
+quick tunnel while Link runs.
 
-Новую задачу открывает `Ctrl+Enter` в поле, **New task** в Studio (`Ctrl+N`), **→ Agent task** под ответом ChatGPT или
-**Give to agent** на его блоке `link-task`. Сначала — карточка, потом задача в **Studio** — одна беседа от
-брифа до Finish, сколько бы прогонов, поправок и передач в ней ни было. Пока задача открыта, `Enter` на маршруте
-**To Claude · …** отдаёт ей ваши слова и чипы (снимок экрана — картинкой): поправка, пока агент работает, ответ после.
+## Hotkeys
 
-1. **Бриф** — то, что агент получит слово в слово (первая строка — название задачи); правится перед запуском.
-   Ниже — картинки, которые уйдут агенту, и что ещё идёт вместе с ним (заметка, буфер).
-2. **Агент, модель, effort, доступ.** Модели и effort — собственные у каждого агента (у Codex — его список моделей
-   и уровни каждой); по умолчанию — **Default** из Settings → Agents или то, что задано в самом CLI. Агент у новой
-   карточки — всегда агент по умолчанию из Settings (проект его не запоминает); только пока его лимит кончился, карточка
-   стартует на другом и говорит об этом («Claude's limit is reached until 21:00: Codex takes it; change the agent if
-   you want»). Settings сохраняются сами при каждом изменении; изменили их при открытой карточке — её агенты, модели и effort обновляются, бриф и ваш выбор
-   остаются. Под агентом — его окна лимитов полосками. **Effort Auto** (по умолчанию) — Link выбирает уровень каждого прогона сам, модель
-   и агента — никогда: после провала — на ступень выше; иначе — что агент сам назвал для следующего шага (блок
-   `link-next`); план — medium; ответ после прогона — как прошлый; новая задача — по брифу (архитектура и непонятный
-   сбой — high, переименование и формат — low, только для короткого брифа), потом по роли, иначе medium; шаг команды —
-   по виду из плана (модель, редактор, дизайн, непонятный сбой — high, код и тесты — medium, механика и тексты — low);
-   выше Extra high — только вручную.
-   Причина видна в беседе и в Harness. Доступ: **Edit** — правит файлы, команды — с вашего разрешения; **Auto** — правит и
-   запускает команды без вопросов, рискованное останавливает проверка самого агента.
-   **Ctrl+V** (скрин или файлы) и **перетаскивание файлов** в карточку или в поле ответа прикладывают их: картинки
-   агент видит как изображения, остальные файлы — по пути, их папка открыта ему на чтение; клик по вложению убирает
-   его. Пока агент работает, новую задачу можно завести: **Run** запускает её сразу, рядом — открытая задача работает
-   дальше и ждёт вас в списке. Правки в одной папке (или во вложенной) идут по очереди: прогон, который правил бы папку,
-   где сейчас правит другая задача или Link пишет карту, ждёт и стартует сам (**Stop** снимает ожидание); чтение и
-   план идут сразу.
-3. **Сначала план** — агент только читает и предлагает (на **Strong** из Settings), запускаете вы: план выполняется
-   в той же сессии на модели карточки. Пока сессия в режиме планирования, рядом с Hand off и Finish стоит
-   **Plan mode ✕**: ответы до него только обсуждают план, после — идут с правками.
-4. **Специалист и skills.** Link предлагает роль по брифу — Technical Designer, UI/UX Designer, 3D Artist,
-   Rigger / Animator, Gameplay Developer, Level Artist, QA / Playtest, Build / Performance — и до четырёх skills папки
-   чипами (сначала skills роли); всё меняется на карточке, **General** — без роли. Свои роли папки —
-   `.agents/roles/<id>.md` (заменяют встроенные с тем же id). Роли не знают движка: что делать в Unreal, Unity,
-   Godot, Blender, Cascadeur, им добавляют **пакеты инструментов** в `%USERPROFILE%\LinkPacks\<pack>` (`pack.md`,
-   `rules.md` — правила для любой задачи в таком проекте, `roles/`, `skills/`; у Unity — `unity-verify`, сборка без
-   редактора, и `unity-editor`, мост к живому редактору через Unity CLI; у Blender — `blender-live`, `blender-model`,
-   `blender-anim`), общие для всех игр; Link берёт пакеты, чьи файлы есть в папке (`*.uproject`, `*.blend`…;
-   Unity-проект — и в её подпапке, рядом с Art),
-   Blender — в любой папке Unreal, Unity или Godot (`with:` в `pack.md`), Cascadeur — только где есть `.casc`;
-   `rules.md` движка не идут ролям рядом с движком (`pack-rules: no`: 3D Artist, Art Critic). Как skills учатся и
-   передаются — раздел 4, «Skills: общие и проектные».
-   **Team** (галка сама, когда бриф называет двух специалистов и больше или перечисляет четыре дела списком: команда
-   окупается примерно от 4 шагов, меньше — один агент дешевле, это и написано у галки): ведущий
-   (Strong) планирует шаги, Link раздаёт их по уровням — Haiku, Codex, Opus — с причиной. План сверху задачи — шаг
-   строкой (первая фраза, исполнитель, специалист), клик раскрывает весь шаг и почему этот исполнитель; в ленте —
-   кому ушёл шаг и что он передал дальше. Исполнитель получает свой шаг целиком, остальные — заголовками, и что
-   передали шаги до него (Harness → Injected context показывает этот текст); специалист шага читает первыми skills
-   своей роли и дополнение игры к ним (`blender-project`), не по словам шага. Шаг Haiku или Codex с правками ведущий
-   проверяет в своей сессии, ничего не меняя (diff прогона исполнителя, ответ, проверка; как проверять, сессии
-   говорится один раз, а разросшаяся или остывшая сменяется новой из состояния задачи): принять, вернуть с замечаниями
-   (в сессию того же исполнителя, не больше двух раз) или отдать сильнее; «stop» и проверка без вердикта ждут
-   **Accept and go on** или ваших слов ведущему. Выключается в Settings → Agents. После провала шаг повторяется и
-   поднимается уровень, шаг «на вкус» ждёт **OK, next step**. Шаг модели или редактора, «сделанный» без единого
-   изменённого файла, — **unverified**: исполнителю не засчитывается и ждёт вашего OK. Шаг арта (`asset` — уникальная
-   модель, `instance` — экземпляры генератора проекта) у специалиста со стилем проекта (skill `art-style`) вместо
-   ведущего судит **арт-критик**: новая сессия другого агента, чем у художника (нет такого — того же), ничего не меняет
-   и судит вслепую — задача, кадры, которые назвал художник, сохранённые файлы и ваши референсы, без рассказа художника;
-   лист кадров (`sheet.py`) уходит картинкой, а кадры в нём — путями. После переделки новые кадры судит та же
-   сессия критика, на medium.
-   Вердикт с оценкой 1–5: принять, вернуть художнику с дефектами (не больше двух раз) или оставить вам с замечаниями;
-   ваши слова после вердикта (и во время его работы — они его останавливают) идут художнику вместе с ними. Галка **Art critic** в Settings → Agents. Под настройками —
-   строка `Context budget 250k · 5 skills · MCP: unreal` и **Harness**.
-   The worker chip of a team step opens its menu: another worker (Link's pick, or Claude / Codex at
-   a level), run it again, skip it (it names the later steps that use its files), back to a done step, or **Re-plan
-   the steps left…** (your next words go to the lead; done steps stay). A plan step may name its agent
-   (`"agent": "codex"`), for one agent against another. A failed step offers **Try it again**.
-   A run's turn in the thread shows the pictures it made while it ran (renders, screenshots, sheets) that it looked at
-   or named in its answer, up to 6, as they come; a click opens one. References older than the run do not show.
-5. **Проверка после правок** (если задана у папки). **Run** — без него ничего не запускается.
-6. **Задача:** ‹ к списку, название, состояние (working · 3:12, done, needs you), агент · модель · доступ, `+N −M`
-   строк; **PLAN · 2/5** — план агента со статусами ✓ ◐ ○, как в его приложении (TaskCreate/TaskUpdate и TodoWrite у
-   Claude, todo list у Codex); **■ Stop**, **⋯** — Discuss in chat, Compact, Undo agent changes,
-   Start over with a note, **Export for analysis** (вся задача Markdown-ом в буфер — вставить в ChatGPT в браузере — и
-   файлом в `Projects\<id>\Exports`: цифры, бриф, план команды, каждый прогон с шагами и ответом), Console.
-7. **Беседа задачи:** ваши слова справа; каждый прогон агента слева — модель, итог, шаги свёрнуты группами, как в
-   приложениях агентов («Ran 3 commands, read 2 files, edited 1 file ▸»), его ответ (Markdown с заголовками, списками
-   и кодом; агенты пишут по-английски — так дешевле), изменённые файлы, время и
-   токены; между ними — передачи, смены модели, лимиты. Петля — карточка
-   **Start over with a note** / **Escalate** (та же сессия на Strong).
-8. **Вопрос агента** — варианты кнопками, как в его собственном приложении; можно ответить своими словами. Агент
-   задаёт его блоком `link-ask` по правилам харнеса (у Claude свой AskUserQuestion в `-p` выключен).
-9. **Поле для агента:** пока Claude работает, `Enter` — **Tell now**: слова уходят в живую сессию, и агент читает их
-   на следующем шаге, ничего не останавливая, как в приложении Claude Code (из Telegram так же). У Codex `Enter` —
-   **Steer now** (останавливает шаг и продолжает в той же сессии с вашими словами, ничего не перечитывая). `Tab` —
-   слова ждут конца прогона; после — ответ в той же сессии, и после
-   **Stop** тоже. Рядом с кнопкой отправки — **специалист · модель · effort ▾**, как выбор модели в приложениях
-   агентов: на чём пойдут ваши следующие слова в той же сессии (Auto effort, любой effort и модель агента, другая
-   роль). Выбор ничего не запускает и остаётся для следующих прогонов; Steer и Stop не поднимают Auto effort.
-10. **Hand off ▾** — другой агент в новой сессии (сначала карточка с брифом из истории задачи — его можно поправить);
-    **Back to …** — первый агент в своей сессии. **Finish** — задача закрыта и остаётся в списке.
-11. **Контекст и Compact.** Бюджет контекста — один на всех агентов (Settings → Agents; 250k by default, Auto leaves it to each CLI): beyond it
-    агент сжимает сессию сам. **Compact** (⋯ или заголовок Studio) — новая сессия того же агента из состояния задачи:
-    цель, ваши решения, план, файлы, проверка, проблемы, следующий шаг. Его собирает Link из записи задачи, без
-    модели; перед запуском его видно на карточке и можно поправить. Пока `AutoCompact` в settings.json включён (по
-    умолчанию да), Link сжимает сам там, где сессия всё равно пересобирается: после ожидания лимита и в ответе после долгой паузы (кэш
-    сессии остыл, час и больше); в ленте — «Compacted: … · причина». Поправку (Steer) и план он не трогает.
-12. **Лимит.** У 90 % окна Link тихо предлагает остановиться и передать задачу; кончился лимит — **Hand off to …**
-    и галка **Continue at 15:45**, как в приложении Claude: включена — та же сессия продолжится сама через минуту после
-    сброса, пока Link запущен (ожидание хранится в задаче и переживает перезапуск Link); снятая — задача ждёт ваших
-    слов, и галка остаётся снятой для следующих лимитов. Строка прогона и задачи говорит, сколько он взял от
-    подписки («used 4% of Codex 5 h, 1% of week»): разница окон до и после прогона, ориентир при чужих прогонах на
-    том же аккаунте.
-13. **Голос** не мешает чату: агент говорит только «начал работу», «закончил работу», «ждёт решения» или «спрашивает»,
-    когда голос свободен, и замолкает от любой отправки или push-to-talk.
+| Action | Default |
+|---|---|
+| Show or hide Link | `Ctrl+Alt+Space` |
+| Push-to-talk | `Ctrl+Alt+V` |
+| Send | `Ctrl+Alt+Enter` |
+| Whole desktop · active window · region | `Ctrl+Alt+D` · `Ctrl+Alt+W` · `Ctrl+Alt+Shift+R` |
+| Conversation on or off | `Ctrl+Alt+Shift+Space` |
+| Ask about the screen (hold) | `Ctrl+Alt+Shift+V` |
+| New agent task (in the card) | `Ctrl+Enter` |
 
-После каждого прогона итог задачи сам ложится чипом **Task result** в следующий вопрос ChatGPT — `×` убирает.
+All change in Settings. `F13`–`F24` work without modifiers: handy on a macro pad or a pedal.
 
-```mermaid
-flowchart LR
-    A["Обсуждение в ChatGPT"] -->|"→ Agent task, link-task"| B["Карточка: бриф"]
-    B -->|Run| C["Task: план, шаги"]
-    C -->|"Steer now, Tab"| C
-    C --> D{"Проверка Link"}
-    D -->|"красная, до 2 раз"| C
-    D -->|зелёная| E["Итог"]
-    C -->|"Hand off ▾"| F["Другой агент или модель"]
-    F --> C
-    E -->|"Task result, Discuss in chat"| A
-    E -->|"агент сам, по правилам харнеса"| G[".agents/skills"]
-```
-
-**No-stop.** A box on the task card and at the foot of a task: the task takes the choice its agent recommends at
-each stop (the first option of its question, Run the plan, Allow and retry for this task, the next step it named, a
-fix of a red check) after a 10 s countdown, and its runs ask for nothing (Claude Code `bypassPermissions`, Codex
-`approval_policy=never` in its workspace sandbox). Only Settings' deny list stays refused: `git push`, `p4 submit`,
-`gh pr merge`, `gh release`. It waits for you after 20 choices in a row, the same choice twice, or 3 runs without a
-changed file; a usage limit goes on after its reset. Untick the box to step in.
-
-**From another computer.** Remote control is the Telegram bot below: no app to install, no pairing of devices. A run
-that opened a model's review window sends its link with the alert: Link passes the window through a Cloudflare quick
-tunnel (`cloudflared.exe` in `%LocalAppData%\Link\Tools`, no account), so it opens in any browser while Link runs; mark
-and comment the model there, then the bot's Apply marks sends the marks to the agent.
-
-**Telegram bot.** No tunnel and no second VPN on the phone: Link asks Telegram for news itself. In Telegram,
-@BotFather → `/newbot` gives a token; Settings → Remote control → paste it, Pair Telegram, send the code to the bot.
-Each task Link writes about gets one card that changes silently as the task goes (status, last words, one picture of its
-run: the one its answer names, or the newest); when the task needs you while you are away, a new card notifies, with
-buttons: the agent's options, Allow, Always, Deny, Stop, No-stop, Changes (a `.patch` file). Turn on topics for the
-bot in @BotFather (Bot Settings) and each task gets a topic of its own. A run that opened a model's review window
-sends its link with the alert (the tunnel starts by itself): it opens in any browser; mark the model there, and the Apply marks button sends the
-marks to the task. Words or a photo answer the task of the topic,
-of the message you reply to, or of the last card; `/new`, `/plan` and `/auto` (No-stop) ask the project and the agent
-with buttons; `/tasks`, `/spent` and `/account` (the Claude account new runs use) do the rest. Voice notes are not understood yet: type or dictate. Only the paired chat is heard; the words go through Telegram.
-
-**What was spent.** Under the usage bars: today and this month at API prices, read by
-[ccusage](https://ccusage.com) from every Claude Code and Codex session's logs (Link's or not); hover for the week,
-each agent and Claude's 5-hour block with its rate, click to count again. A task's usage adds what its own sessions
-cost, Codex's too. It needs Node (`npx`), which Claude Code's npm install brings.
-
-**Where the tokens went.** The chart button in Studio's header (`Ctrl+Shift+U`; `Ctrl+Shift+H` is Harness) opens the
-Spend column for the open task:
-- **≈ tokens:** uncached + 0.1 × cached + 5 × output, the shape of what a subscription counts. They are split into one
-  bar of reading files, searching, commands, editing, images, the harness's base and the answer; hover a part or its
-  legend row to see it.
-- **Where to save:** up to 4 tips from the task's own steps (files read again and again, a cold cache, context near
-  the budget…), each with its **Fix** (Write map, Update map, Compact).
-- **Context per request:** a curve with a hover readout and the budget line; how long the session's cache stays warm.
-- **Runs:** one bar each, at one scale.
-- **Usage windows:** how far each 5-hour and weekly window is used, the task's part in it, and when it fills at this
-  pace.
-- **History:** stacked days over 7–90 days (a slider), this project or **All projects**; hover a day for its parts and
-  cost. Each run adds to `usage-history.json` as it ends.
-
-The task list in the sidebar draws each task's split as a thin bar, scaled to the biggest task. The header's context
-meter turns amber near the budget.
-
-**Review the changes.** **Review** in a done task's header opens its diff: files on the left, lines on the right. Click
-a line and write a comment (`Ctrl+Enter` keeps it); one more box is for the whole change. **Send review** gives the
-agent every comment with its file, line and the line quoted, in the same session. It works in Git and Perforce.
-
-### 4. Что Link даёт агенту
-
-- **Правила** (`harness\agent-rules.md` рядом с `Link.exe`) — в начале каждой новой сессии, в любой папке:
-  запуск без диалога, режим чтения, карта, skills, особенности Windows. `AGENTS.md` в папку класть не нужно.
-- **Карта** `docs/map.md` и **skills** `.agents/skills/<имя>/SKILL.md` — один источник для обоих агентов: Codex
-  находит skills сам, Claude Code получает их список с правилами.
-- **Проверка — дело Link:** агенту сказано, что её запустит Link; красная возвращается агенту с концом вывода.
-- **MCP-серверы проекта** (редактор Unreal, Blender) — только из `.mcp.json` в рабочей папке, у обоих агентов:
-  Claude Code получает его с `--strict-mcp-config` (коннекторы claude.ai не едут), Codex — от Link, а серверы из его
-  собственного конфига в прогонах Link выключены (сам конфиг не меняется). В Activity вызов MCP показывает сервер,
-  инструмент и действие: `ue-mcp: tools call level place_actor`.
-- **Лишнее не едет в каждый запрос:** Codex из Link работает без плагинов, приложений и управления компьютером своего
-  десктопного приложения; git в песочнице Codex видит репозиторий рабочей папки своим.
-- **Агент учится и убирает за собой:** выученное он пишет сразу, как доказал (прогон могут оборвать), — факты в
-  карту, приёмы в skills, повторные скрипты в tools проекта; изменившееся переписывает на месте, без противоречащих
-  приписок; удаляет только доказанно неверное или заменённое; в ответе называет, что сохранил, переписал и удалил.
-  Сделанное вами вручную (анимацию, модель, уровень) не перезаписывает — делает рядом.
-- **Специалист** — роль (`harness\roles\*.md` рядом с `Link.exe` или `.agents/roles` папки) идёт в начале сессии
-  с её skills: что он делает, на что смотрит, чего не трогает.
-- **Следующий шаг** — агент заканчивает ответ блоком `link-next` (шаг, effort, почему): Effort Auto берёт его для
-  следующего прогона, Compact — для состояния задачи.
-- **Harness** в Studio показывает всё это для открытой задачи: роль · агент · модель · effort и почему, контекст,
-  правила, роль, карту, состояние задачи, skills, бриф — у команды бриф текущего шага (и Console), MCP и разрешённые
-  инструменты, проверку, куда уходит код, и как здесь справлялись роли и модели (задачи, сделано, среднее время и
-  токены).
-- **Skills: общие и проектные.** Skill пакета (`blender-model`, `unity-verify`…) — умение инструмента для любой игры;
-  проект его не переписывает, а дополняет своим skill `<пакет>-project` (`blender-project`: скрипты, ассеты, цифры
-  этого проекта; «сначала прочти пакетный»). Общий урок (подводный камень Blender, способ лучше) агент пишет в копию
-  пакетного skill в проекте — без путей и имён проекта; после задачи **Share with all games** отдаёт её пакету в
-  `%USERPROFILE%\LinkPacks`, и его получают все ваши игры. Коллегам — через git: skill `share-packs` этого репозитория
-  переносит выученное из `LinkPacks` в `docs/harness/packs`, а Link при запуске обновляет файлы пакетов, которые вы
-  не меняли (`LinkPacks\.link-seeded.json` помнит, что он положил), и не трогает изменённые. Навык, которого агенту
-  не хватает, агент добирает сам по ходу задач: поправка, повторённая ошибка или находка попадает в skill.
-- **Blender-художник:** `blender-model` ведёт по стадиям (референсы → blockout → первичные → вторичные формы →
-  детали → game-ready), каждая проверяется кадрами до следующей; review sheet (6 видов × lit, matcap, wire, UV)
-  снимает `shots.py` одной командой, критика — по форме, а не по наличию деталей; rubric у роли 3D Artist.
-- **Стиль игры — в проекте, ремесло — в пакете.** Профиль `docs/art/STYLE.md` (палитра, игровая камера, бюджеты
-  треугольников, finish, rubric стиля) и `docs/art/REFERENCES.md` (для чего каждый референс), одобренные ассеты в
-  `Art/Approved/` — линейка, с которой сравнивают следующий; skill `art-style` учит работать по ним и набросать
-  профиль новой игры. `shots.py` снимает и как видит игрок: `game` (камера из профиля), `thumb` (мелко на экране),
-  `flat` (одни цветовые зоны); `palette.py` красит грани зонами палитры в атлас. Класс ассетов, который повторяется,
-  — один **генератор** (`blender-procedural`, `gen.py`): параметры, seed и бюджет, тест контракта, лист seeds с
-  игровой камеры и запись `.gen.json` у каждого ассета, чтобы собрать его снова.
-- **Team pack** (внизу колонки Harness) — роли и skills папки (`.agents/roles`, `.agents/skills`) одним файлом
-  `.linkpack` для папки коллеги; настройки, ключи и ваши данные туда не попадают. Импорт проверяет каждый путь до
-  записи и заменяет имеющееся только после «да».
-- **Без субагентов** у обоих агентов: их шаги и токены не видны в Activity и в цифрах задачи.
-- **Цифры** каждой задачи — в Activity и строкой `[Agent]` в `link.log`: по ним видно, что экономит.
-
-## Установка и первый запуск
-
-Готовая сборка — в [Releases](../../releases) (см. [быстрый старт](#быстрый-старт)). Собрать самому — нужны
-Windows 11 и .NET 10 SDK:
+## Build and test
 
 ```powershell
-dotnet build Link.sln --configuration Release
+dotnet build Link.sln -c Release
+dotnet run --project tests/Link.Desktop.Tests -c Release
 src\Link.Desktop\bin\Release\net10.0-windows\Link.exe
 ```
 
-При самом первом запуске (ещё нет `settings.json`) Link показывает **Welcome to LINK**: найдены ли Claude Code и
-Codex и вошли ли вы (ссылка на установку, если нет), выбор файла агента в Settings и **Add folder…** — первый
-проект для рабочей папки. Ничего не спрашивает и ни во что не входит; дальше — как ниже.
+The tests need no microphone and no real ChatGPT; the companion script runs on mock ChatGPT pages in headless Edge.
+A running Link locks its exe: Exit it from the tray before you rebuild.
 
-1. **ChatGPT.** Откройте панель (Expand в заголовке) и нажмите **Open chat**, войдите в свой аккаунт — один раз:
-   вход хранится в профиле `%LocalAppData%\Link\WebView2`. Откройте нужную беседу, закройте окно, в панели нажмите
-   строку беседы и **Link**. Или сразу **New chat** — первое сообщение из Link создаст беседу и свяжет её с проектом.
-2. **Агенты.** Войти один раз: Claude Code — Settings → Agents → **Sign in** (вход откроется в браузере, а код, если
-   страница его покажет, вставляется в окно Link; задача, упавшая без входа, предложит то же), Codex — `codex login`.
-   Claude Code, запущенный Link, входит отдельно от приложения Claude. Settings → Agents показывает, найден ли агент, вошли
-   ли вы и его версию; там же — агент по умолчанию, доступ, с которого начинается карточка, свой путь к exe, модель
-   (у Claude — Opus 5.5, Fable 5.1, Sonnet 5.5, Haiku 4.5; у Codex — модели вашего аккаунта из его списка; Default —
-   настройка самого агента) и effort: Low, Medium, High, Extra high, Max — самый высокий. Ultra у Codex и ultracode у
-   Claude работают через субагентов, а Link запускает агентов без них, поэтому их в списке нет.
-3. **Инструкции для ChatGPT** — вставьте [docs/harness/chat-instructions.md](docs/harness/chat-instructions.md) в
-   инструкции проекта ChatGPT, с которым связан Link; общие советы — [docs/harness/prompting.md](docs/harness/prompting.md).
+## Your data
 
-`Alt+F4` прячет Link в tray, завершить его — `Exit` в меню tray. Перед пересборкой в `bin\Release` завершите Link:
-запущенный `Link.exe` блокирует файл, а второй запуск только покажет «Link is already running». Номер сборки — внизу
-Settings.
+Everything stays in `%LocalAppData%\Link`: `settings.json`, `projects.json` and `Projects\<id>\` (history, agent
+tasks), `Screenshots\`, `Recordings\`, `Models\` (speech), `WebView2\` (the ChatGPT sign-in), `usage-history.json`,
+`link.log` (timings and errors). A Gemini key for voice is encrypted for your Windows account.
+Nothing is captured without your action or a mode you turned on.
 
-### Hotkeys по умолчанию
-
-| Действие | Hotkey |
-|---|---|
-| Показать/скрыть | `Ctrl+Alt+Space` |
-| Push-to-talk | `Ctrl+Alt+V` |
-| Отправить запрос | `Ctrl+Alt+Enter` |
-| Весь desktop | `Ctrl+Alt+D` |
-| Активное окно | `Ctrl+Alt+W` |
-| Выбор области | `Ctrl+Alt+Shift+R` |
-| Conversation вкл./выкл. | `Ctrl+Alt+Shift+Space` |
-| Спросить про экран (держать) | `Ctrl+Alt+Shift+V` |
-| Новая задача агенту (в поле вопроса) | `Ctrl+Enter` |
-
-Совет: клавиши `F13`–`F24` работают как hotkey без модификаторов — удобно повесить push-to-talk на кнопку макропада
-или педаль (назначьте им F13–F24 в их программе, затем запишите клавишу в Settings).
-
-## Возможности подробно
-
-**Overlay**
-- frosted-glass always-on-top: перетаскивание, ширина 320–1200 px, высота по содержимому; нижним краем задаётся
-  предел роста (двойной клик по нему возвращает компактный режим); click-through, прозрачность;
-- **Hide** — кнопка `—` в заголовке, двойной клик по заголовку или `Esc`, когда Link ничего не делает: Link прячется
-  целиком, начатый ответ дописывается. Вернуть — hotkey показа (`Ctrl+Alt+Space`) или tray;
-- **Expand** — кнопка панели в заголовке: рядом с карточкой открывается панель проекта. Она встаёт на ту сторону, где
-  на мониторе больше места, ходит за карточкой и прячется вместе с ней; внешний край задаёт ширину;
-- tray, один экземпляр, глобальные hotkeys (все меняются в Settings); позиция и размер сохраняются на нескольких
-  мониторах;
-- `Enter` отправляет, `Shift+Enter` — новая строка; во время ответа кнопка отправки и `Esc` останавливают запрос и
-  генерацию в ChatGPT;
-- иконка в tray показывает, что происходит: голубая точка — идёт запрос, красная — Link ждёт вас (вход в ChatGPT,
-  решение агента или запрос не удался, пока Link был скрыт), зелёная — ответ пришёл, пока Link был скрыт (гаснет,
-  когда Link покажется); подсказка иконки — строка статуса. Если Link скрыт или неактивен, о готовом ответе ещё и
-  сообщает уведомление Windows; клик открывает нужный проект;
-- короткие звуки (до 150 мс): слушаю, отправлено, нужно ваше решение, готово, ошибка. Пока Link говорит, звучит
-  только «нужно решение»; выключаются в Settings → Behavior.
-
-**Agent**
-- доступ: **Edit** (Claude `acceptEdits`, Codex `workspace-write`) или **Auto** (по умолчанию; Claude `auto`, Codex
-  `workspace-write` с автоматической проверкой запросов из песочницы). `bypassPermissions` и `danger-full-access` не
-  используются никогда, `dontAsk` тоже: режима «только чтение» нет ни у одного прогона — сессия, с которой вы
-  говорите, может сделать то, что вы просите. Plan first просит план словами, с теми же инструментами; критик,
-  ревью ведущего и карта просто не меняют файлы по своему заданию;
-- модель и effort — собственные у каждого CLI (модели Codex и уровни каждой — из его `models_cache.json`, его
-  умолчание — из `config.toml`); в Settings → Agents у каждого три готовых выбора: **Default** (с него начинается
-  карточка), **Quick** (карта, заметка Start over) и **Strong** (план, Escalate). Субагенты и число ходов не ограничены; смена модели в той
-  же сессии стоит один промах кэша;
-- **картинки** — снимки и изображения из чипов: Claude получает пути (и доступ к их папке через `--add-dir`), Codex —
-  `--image`, и в продолжении сессии тоже;
-- **вопрос агента** — блок `link-ask` в конце ответа (правило харнеса): JSON с вопросом и 2–4 вариантами; Link
-  показывает его кнопками, выбранный вариант уходит ответом в ту же сессию. У Claude Code инструмент
-  `AskUserQuestion` выключен: в `-p` нет диалога;
-- **задача** — запись в `Projects\<id>\agent-tasks.json` (20 последних): бриф, прогоны (агент, модель, сессия, итог,
-  токены — у Codex разница с прошлым итогом сессии, его шаги, файлы и ответ — для беседы задачи), лента, план агента,
-  последняя проверка, changelist Perforce; сессии прежнего Link читаются задачами из одного прогона;
-- **■ Stop** виден всё время и останавливает агента со всеми его процессами; после выхода из Link их тоже нет;
-- **лимиты** — Claude Code сообщает их событием `rate_limit_event`, Codex пишет `rate_limits` в журнал своей сессии
-  (Link читает только эти строки); по клику на полоску Link спрашивает сам, без запроса к модели: `claude -p /usage`
-  (его строки «Current session: 23% used · resets …») и `codex app-server` → `account/rateLimits/read`; последнее
-  известное — `agent-limits.json` с временем;
-- **Console** — отдельное окно: для каждого прогона задачи команда CLI, папка, переменные Link и весь текст на stdin,
-  затем каждая строка stdout и stderr (`!`) по мере прихода; только текущая задача, до ~2 МБ, строка длиннее 4000
-  символов обрезается;
-- **передача** — Hand off ▾ → другой агент: новая сессия в той же папке с тем же доступом и проверкой; бриф из записи
-  задачи (до ~1,5k токенов: старые шаги уходят первыми, задача и ваши слова — никогда) сначала на карточке. Откат и
-  Start over покрывают обоих; **Back to …** продолжает сессию первого агента со сводкой сделанного вторым;
-- инструмент вне правил Claude спрашивает прямо во время хода: задача встаёт в **Needs you**, на карточке «Claude
-  Code asks to use Bash: …» → **Allow** (ход идёт дальше; «Always allow for this project» запоминает правило) или
-  **Deny** (агент обходится без него); без вопросов (No-stop) отказ после хода → «Allow and retry»; «Сначала план»
-  → «Run the plan» (отказы в режиме планирования — его свойство, а не нехватка разрешения: «Allow» там не предлагается);
-- **откат**: в Git и Perforce — «Undo agent changes» только для файлов, которые до задачи были чистыми (ваши правки
-  не трогаются), после подтверждения; без VCS изменения видны по размеру и времени файлов, но не откатываются;
-- **Perforce** (`.p4config` в папке или выше): снимок до задачи — `p4 fstat -Ro` и `p4 reconcile -n -m` (по времени
-  файлов, без полного пересчёта); агенту даются правила `harness\perforce.md` (`p4 edit` перед правкой, `p4 add`,
-  `p4 delete`; никаких submit, revert, sync), Claude разрешены эти команды p4, Codex с правками получает доступ к
-  серверу из песочницы. После прогона файлы задачи (только чистые до неё) уходят в её pending changelist — его видно
-  и сабмитят в P4V; описание всегда по-английски: агент заканчивает ответ строкой `Changelist: …`, без неё —
-  «Link: changes of an agent task»; откат — `p4 revert`, пустой changelist удаляется. Истёкший тикет P4 Link видит
-  до запуска («Sign in with P4V»); истёк посреди прогона — ответ агента остаётся, а Link пишет, что файлы прогона
-  неизвестны;
-- **харнесс всегда** — каждая новая сессия агента начинается с правил агента (`harness\agent-rules.md` рядом с
-  `Link.exe`, правится без пересборки), что бы ни лежало в рабочей папке. Claude Code там же получает список skills
-  рабочей папки, Codex находит их сам. Codex из Link запускается без добавок своего десктопного приложения
-  (`plugins`, `apps`, `tool_suggest`, `computer_use`, `browser_use`), а его песочнице git передан `safe.directory`
-  репозитория рабочей папки;
-- **цифры задачи** — строкой под итогом: ходы, вызовы инструментов, из них поиски (и сколько до первой правки),
-  ошибки инструментов, токены (сколько из кэша) и стоимость по ценам API (Codex её не сообщает); те же числа — в
-  строке `[Agent]` link.log. Codex, продолжая сессию, считает токены всей сессии — такие числа помечены
-  «for the session»;
-- **карта проекта** — агент в режиме чтения осматривает папку и отвечает картой, Link пишет её в `docs/map.md` (до
-  ~80 строк). Это единственное изменение, оно в Activity и откатывается как обычно. Задание агенту —
-  `harness\map-task.md` рядом с `Link.exe`;
-- **проверка после изменений** — команда запускается как есть в рабочей папке (через cmd.exe, до 10 минут, Stop
-  работает); красная — агент продолжает сессию с концом её вывода, не больше двух раз, и задача кончается
-  «Check failed», а не «Done». Вывод проверки в link.log не пишется;
-- **петли** — Activity помечает «Looks like a loop: …»: тот же вызов 3 раза, когда между ними ничего не делалось,
-  та же ошибка 3 раза подряд, 12 поисков подряд без работы (только с изменениями). Работа — не только правка файла:
-  запуск скрипта или сборки и вызов MCP тоже (в редакторе игры работа идёт так). Агент не останавливается — решаете вы;
-- **Start over with a note** — после провала или Stop на метке петли (посреди прогона метка — только строка
-  Activity): агент пишет в пяти строках, что пробовал и почему не вышло, и новая сессия берёт исходную задачу с этой
-  заметкой, тем же доступом и папкой, вместо продолжения замусоренной истории;
-- голосом агент говорит только старт, нужное решение и итог в 1–2 фразы; скрытый Link сообщает о нём иконкой tray,
-  звуком и уведомлением.
-
-**Контекст**
-- скриншоты: текущий монитор, весь рабочий стол, каждый монитор, рабочее окно, выбранная область (одна за раз);
-  «A fresh frame of the window on every send» в меню Sees делает свежий снимок рабочего окна для каждого вопроса;
-- захват через Windows.Graphics.Capture: игры, видео и страницы, которые рисует видеокарта, выходят как на экране, а
-  окно снимается целиком, даже под оверлеем, — Link для этого не прячется и не забирает фокус. Запасные пути —
-  PrintWindow и снимок экрана; чёрный кадр (эксклюзивный fullscreen, защищённое видео) не прикладывается молча —
-  статус говорит почему. Каждый захват — строка `[Capture]` в `link.log` (способ, размер, время, без заголовков);
-- снятое окно на полсекунды обводится оранжевой рамкой (Settings → Behavior, не над fullscreen);
-- над игрой во весь экран Link появляется без фокуса; поверх эксклюзивного fullscreen он не показывается вовсе — его
-  бы выбросило из полного экрана: ответ звучит голосом и приходит уведомлением;
-- **Спросить про экран** — держите `Ctrl+Alt+Shift+V`, спросите, отпустите: вопрос сразу уходит в Chat со свежим
-  кадром рабочего окна, ответ читается вслух (голосовые ответы включены по умолчанию);
-- clipboard и текущее приложение в видимом context stack;
-- проекты (по умолчанию General) и их панель: текущая задача, состояние проекта (дата — когда правили), связанная
-  беседа, рабочая папка и 10 последних вопросов и ответов. Состояние уходит в запрос чипом «Project state»: его можно
-  убрать для одного запроса, после ответа он возвращается;
-- рабочее приложение фиксируется в момент вызова Link: просмотр ChatGPT и скрытие Link при захвате экрана его не
-  подменяют.
-
-**Голос**
-- push-to-talk: слова появляются в поле, пока вы говорите (локальный распознаватель, RU или EN), после отпускания
-  Whisper заменяет черновик финальным текстом — large-v3-turbo на видеокарте, Base на CPU; запись без речи в Whisper
-  не идёт;
-- выбор и тест микрофона — Settings → Microphone;
-- голосовой ответ на продиктованный вопрос: Link читает ответ по мере его прихода — первую фразу, пока ChatGPT
-  пишет дальше; код и таблицы не читает («Код — на экране.»), длинный ответ обрывает примерно через минуту речи. При
-  долгом ожидании говорит короткую фразу («Секунду.»). Push-to-talk во время речи перебивает; Esc и Stop сначала
-  заглушают, повторно — останавливают запрос. Кнопка **Listen** на ответе читает его заново, во время речи она же —
-  Stop; по желанию озвучиваются и ответы на набранные вопросы (Settings → Voice replies → «…and when I type»);
-- голос ответа (Settings → Voice replies → Voice engine): **Gemini** 3.8 Flash-Lite TTS — естественный, нужен свой
-  бесплатный ключ из aistudio.google.com/apikey (хранится зашифрованным для вашей учётной записи Windows); в Gemini
-  уходят только слова, которые Link произносит, а на бесплатном тарифе Google может использовать их для улучшения
-  своих продуктов. Звук Gemini бывает медленнее, чем играется, поэтому Link начинает говорить, накопив 2 с звука.
-  **Локальный голос** Supertonic 3 — офлайн, скачивается кнопкой (145 МБ); без ключа Gemini и без скачанной модели
-  Link не говорит, ответ остаётся на экране. В режиме Auto, если Gemini недоступен (лимит, сеть, ключ), говорит
-  локальный голос, а статус коротко сообщает почему;
-- **Conversation** — разговор без рук: метка под полем, Settings → Voice или `Ctrl+Alt+Shift+Space`. Пока Link
-  свободен, он слушает сам; пауза ~0,65 с после фразы — короткий сигнал «услышал», Whisper распознаёт только фразу, и
-  она уходит выбранным маршрутом. Ответ звучит всегда (даже с выключенным Voice replies), в Chat — с просьбой начать
-  коротко и разговорно; потом Link снова слушает. Пока идёт запрос и пока Link говорит, микрофон закрыт;
-  push-to-talk перебивает ответ, работает и пока ChatGPT думает (новые слова уйдут после ответа) и может сам закончить
-  фразу; Send заканчивает её сразу. Нажатая в поле ввода клавиша ставит прослушивание на паузу — можно печатать; Link
-  слушает снова после отправки, очистки поля или ухода из него. Нераспознанную фразу просто повторите. Включённый режим
-  остаётся включённым и после перезапуска Link; выключенный ничего не слушает.
-
-**ChatGPT**
-- ChatGPT живёт во встроенном окне Link (WebView2): браузер держать открытым не нужно, ответ печатается с полной
-  скоростью — сотни символов в секунду, а не 3–5, как в фоновой вкладке. Закрытое окно Link убирает за край экрана, и
-  оно продолжает работать;
-- уровень **Fast / Normal / Deep** переключает и режим ChatGPT: Fast ставит самый лёгкий, Normal возвращает ваш;
-- запрос не зависает: статус в шапке ответа (Sending, Waiting for response, Receiving, Reconnecting, Cancelled,
-  Error) и понятные ошибки; после перезагрузки страницы ответ подхватывается без повторной отправки;
-- **Check chat** забирает ответ прямо из чата, если он не дошёл; Link и сам проверяет чат после 20 с тишины;
-- снимки трёх последних вопросов каждого проекта Link держит вместе с их файлами — для ↻ и ✎ Edit; ссылки из ответа
-  открываются в браузере по умолчанию;
-- когда длинный чат начинает отвечать медленно, статус подсказывает начать новый.
-
-## Проверки
-
-Проверки логики без микрофона и настоящего ChatGPT — консольный раннер, код выхода равен числу ошибок. Он же
-прогоняет companion на мок-страницах ChatGPT в headless Edge или Chrome (без них эти проверки пропускаются).
-CI запускает раннер после сборки.
-
-```powershell
-dotnet run --project tests/Link.Desktop.Tests
-```
-
-## Локальные данные
-
-`%LocalAppData%\Link`:
-
-- `settings.json` — UI, панель, Studio, hotkeys, голос и звуки, агенты;
-- `gemini-key.bin` — ключ Gemini, зашифрованный для вашей учётной записи Windows;
-- `projects.json` — проекты: заметка, рабочая папка, проверка, связанная беседа и её последний ответ;
-  `Projects\<id>\` — папка проекта, в ней `history.json` со 150 последними вопросами и ответами (с беседой каждого) и `agent-tasks.json` с
-  20 последними задачами агента;
-- `agent-limits.json` — окна подписки агентов, как их последний раз сообщили CLI;
-- `usage-history.json` — days of agent work per project and agent (≈ tokens by part, cost, window points), 90 days,
-  for the Spend view's history;
-- `Screenshots\` — ограниченная история PNG; снимки рабочего окна для Auto active window живут, пока Link держит их
-  вопрос для перенаправления, и удаляются при выходе; `Recordings\` — последние WAV;
-- `Models\` — модели распознавания речи и локального голоса;
-- `WebView2\` — профиль встроенного ChatGPT: вход и cookies; `companion-state.json` — режимы ChatGPT, которые
-  выставил Link;
-- `last-request.json` — последний запрос: текст, пути вложений, заголовок окна. Пишется только с диагностикой
-  (Settings → Behavior → Diagnostics, по умолчанию выключена); без неё Link этот файл удаляет;
-- `link.log` — неожиданные ошибки и диагностика (UTF-8, до 1 МБ): строка `[Chat]` на каждый запрос (маршрут и
-  уровень, подготовка в Link, приём страницей, первый текст, скорость ответа), `[TTS]` — путь каждой фразы до звука,
-  `[Voice]` — сколько микрофон слушал и как быстро фраза стала текстом, `[Agent]` — каждый прогон агента (агент,
-  доступ, итог, session id, время, файлы, отказы, цифры задачи; без текста задачи).
-
-## Архитектура
+## How it is built
 
 ```text
-src/Link.Desktop/
-├── Models/        settings, projects, context, PromptRequest, задачи и события агента
-├── Services/      storage, запрос, chat integration, голосовая сессия, STT и TTS, агенты и харнесс
-├── Windows/       Win32: hotkeys, стили окон, захват (Windows.Graphics.Capture, GDI), fullscreen, waveIn, tray
-├── MainWindow*    overlay; части по темам: Chat, Capture, Voice, Sizing, Panel, Agent
-├── SidePanelWindow*, ProjectPanel*  панель рядом с карточкой и её содержимое
-├── StudioWindow*, AgentPanel*, HarnessInspector*  Studio: задачи агентов и что они получают
-├── SpendView*, SpendCharts, ReviewWindow*  Studio: where the tokens went, review of an agent's changes
-├── ChatPageWindow встроенная страница ChatGPT (WebView2) за краем экрана
-├── SettingsWindow*, RegionSelectionWindow*, ...
-companion/                  content.js работает с DOM ChatGPT во встроенной странице
-docs/harness/               правила и задания агента (копируются к Link.exe), инструкции для ChatGPT
-.agents/skills/             skills агентов, которые работают над самим Link: пересборка, рисунки, разбор токенов
-tests/Link.Desktop.Tests/   проверки логики без тестового фреймворка
-tests/companion/            проверки companion на мок-страницах ChatGPT
+src/Link.Desktop/   the app: Models, Services (requests, voice, agents, harness), Windows (Win32), the windows
+src/Link.Guard/     the guard: Claude Code's PreToolUse and Stop hook
+companion/          the script that drives ChatGPT in Link's own page
+docs/harness/       the agents' rules, roles and tasks, copied beside Link.exe
+tests/              logic checks without a test framework; companion checks on mock pages
+bench/              Link Bench
 ```
 
-- Отправка: окно собирает `InputSnapshot` (текст, context stack, рабочее окно, его снимок), `AttemptCoordinator`
-  строит из него `PromptRequest` по маршруту и уровню, отправляет, пишет строку `[Chat]` и хранит последний ответ
-  проекта; перенаправление — новая попытка из того же снимка.
-- `PromptRequest` и контекст принадлежат Link; `IChatIntegration` отделяет их от транспорта. Для ChatGPT это
-  `EmbeddedChatIntegration`: страница ChatGPT в собственном окне Link, где `content.js` работает поверх
-  `embedded-host.js` и говорит с Link через канал WebView2. Жизнь запроса (повторная выдача, тишина, Stop,
-  Check chat) ведёт `ChatRequestBroker`. Подробно — [`companion/README.md`](companion/README.md).
-- Агент: `AgentCoordinator` строит задачу из снимка и карточки, запускает провайдера (`ClaudeCodeProvider`
-  или `CodexProvider` — оба поверх общего `CliAgentProvider` и `AgentProcess`),
-  проверяет результат командой проекта и находит изменения (`AgentChanges`: Git, Perforce или по размеру и времени файлов). Харнесс —
-  `AgentRules`, `ProjectMap`, `ProjectSkills`, `ProjectRoles`; effort — `AutoEffort`, состояние для Compact —
-  `TaskState`, колонка Harness — `HarnessView`; команда — `TeamRunner`, критик арта —
-  `ArtCritic`.
-- Окно страницы никогда не прячется и не сворачивается — иначе движок притормозит страницу, — а ждёт за краем экрана
-  с флагами Chromium против фонового троттлинга.
-- `VoiceSession` — единственный владелец голосового состояния (Idle → Listening → Finalizing → Sending → Waiting →
-  Speaking); UI только отображает фазу и черновик. Один захват waveIn кормит и WAV для Whisper, и live-распознаватель.
-  В Conversation окно открывает микрофон hands-free, когда Link свободен; конец фразы слышит Silero VAD.
+`IChatIntegration` keeps ChatGPT behind one interface ([companion/README.md](companion/README.md));
+`AgentCoordinator` runs a task over `ClaudeCodeProvider` or `CodexProvider`.
 
-## Ограничения
+## Limits
 
-- **ChatGPT.** В очень длинной беседе ChatGPT сам отвечает медленно: первое слово через 15–25 с, дальше несколько
-  символов в секунду — и в Link, и в самом ChatGPT. Новый чат отвечает за 2 с и печатает ~250 символов в секунду:
-  когда беседа разрослась, начните новую (New chat, при нужде — с выжимкой). Встроенная страница — это процессы Edge
-  WebView2: сразу после ответа 650–750 МБ памяти. Через полминуты без запросов она «отдыхает»: не рисуется, CPU почти
-  ноль, память — около 450 МБ; к следующему запросу просыпается сразу. Раз в 6 часов простоя Link загружает её заново.
-- **DOM ChatGPT.** Конец ответа companion узнаёт по нескольким признакам, а при смене разметки пишет в `link.log`, что
-  видела страница. Переключение режима эвристическое: если не вышло, статус пишет «ChatGPT mode not switched (…)», а
-  подсказка всё равно уходит в запрос.
-- **Голос.** При первом использовании скачиваются модели (Whisper Base 148 МБ; turbo 574 МБ, если есть видеокарта с
-  Vulkan; live-модели 30–45 МБ; всё проверяется по SHA-256). Нужен Microsoft Visual C++ Redistributable 2022 x64.
-  Бесплатный тариф Gemini ограничен по запросам: при исчерпании Link минуту–час говорит локальным голосом.
-  Локальный голос, пока говорит, держит ~300 МБ памяти и выгружается через 3 минуты тишины. В Conversation
-  микрофон открыт, пока Link свободен: слушание — 4–5 % одного ядра; разговор или видео рядом Link может принять за
-  вопрос — тогда выключите режим. Эхоподавления нет: перебить ответ голосом нельзя, только push-to-talk.
-- **Агенты.** Claude Code и Codex — только для действий в рабочей папке, чат — только ChatGPT. Агента Link не ставит
-  и не входит в него; задачи идут рядом, но правки в одной папке — по одной (ни worktree, ни слияния правок нет).
-  Слова без остановки шага берёт только Claude; у Codex Steer now останавливает шаг и продолжает сессию.
-- **Экран.** Игра в эксклюзивном fullscreen и защищённое (DRM/UAC) видео захватываются чёрными — Link такой кадр не
-  прикладывает: переключите игру в borderless или спрашивайте голосом. Снимок монитора и области по-прежнему на миг
-  прячет Link (окна WPF с прозрачностью нельзя исключить из захвата); окно — нет.
+- **ChatGPT.** A very long chat answers slowly in Link and in ChatGPT alike: start a new one (**New chat ▾**, with a
+  summary if needed). Its page takes 650–750 MB right after an answer and about 450 MB at rest.
+- **The ChatGPT page can change.** Link logs what it saw when it cannot read an answer.
+- **Voice.** Models download on first use (Whisper Base 148 MB; turbo 574 MB with a Vulkan GPU). No echo
+  cancellation: interrupt an answer with push-to-talk, not with your voice.
+- **Agents.** Claude Code and Codex work in your folder; chat is ChatGPT only. Edits to one folder go one run at a
+  time (no worktrees).
+- **Screen.** Exclusive fullscreen and protected video capture black; Link does not attach such a frame.
+
+> **Disclaimer.** An unofficial project, not affiliated with OpenAI or Anthropic. Link drives the ChatGPT web page in
+> its own window on your behalf: this may conflict with OpenAI's terms and may break when ChatGPT changes. Agents work
+> in your folder with the access you give them and spend your subscription. Use at your own risk, without warranty.
+
+License: [MIT](LICENSE).
