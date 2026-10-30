@@ -50,7 +50,9 @@ The same harness Link gives its agents, for work on this repo.
 - Agents: `AgentCoordinator` runs a task (check after Do, an answer file such as the map, Start over);
   `CliAgentProvider` → `ClaudeCodeProvider` / `CodexProvider` over `AgentProcess`; `AgentChanges` finds and undoes
   changes; `AgentRules`, `ProjectMap`, `ProjectSkills`,
-  `ProjectRoles` are the harness; rules a script can hold are code: `src/Link.Guard` (Claude Code's PreToolUse hook,
+  `ProjectRoles` are the harness, `ToolPacks` its packs shared by all projects; `KnowledgePack` puts what the agents
+  learned in the packs into a `.linkpack` for a friend and takes one in, `TeamPack` a workspace's roles and skills;
+  rules a script can hold are code: `src/Link.Guard` (Claude Code's PreToolUse hook,
   `docs/harness/guarded-rules.md` is their text for Codex) and `HarnessLint` (a run's map and skills); `AutoEffort`, `TaskState` (Compact), `HarnessView` (the inspector); `TeamRunner` (team
   steps), its flow in `MainWindow.Team`. The agent's rules,
   tasks and roles are `docs/harness/**/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel`
@@ -59,7 +61,8 @@ The same harness Link gives its agents, for work on this repo.
   goes, effort), ChatLink (the project's chat, its connection, check), Response (the answer), Capture, Voice, Sizing,
   Panel, Agent (starting and running tasks), AgentCard (the card, setups), Thread (the task's thread, live runs), HandOff
   (compact, start over, hand over), Limits, Changes (undo, changelist), OwnAnswers (the map), Works (the tasks at work
-  side by side; edits go one run at a time per folder), Studio.
+  side by side; edits go one run at a time per folder), Studio, Share (the Harness column's Share card: knowledge
+  and team packs).
 - `ChatPageWindow` the embedded ChatGPT page (WebView2). Never hide or minimize the window — it waits off screen, or
   ChatGPT is throttled to a few characters a second. Only the page inside rests, out of its engine's sight, while
   LINK does not need it (`IChatPage.Rest`); it is awake for every request.

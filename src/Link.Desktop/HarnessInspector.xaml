@@ -74,23 +74,57 @@
     <StackPanel>
         <ItemsControl x:Name="SectionsList" ItemTemplate="{StaticResource SectionTemplate}" />
 
-        <!-- The workspace's roles and skills in one file for a teammate; never settings, keys or the user's data. -->
+        <!-- What the agents learned, for a friend's projects; the workspace's roles and skills, for a teammate. Never
+             settings, keys or the user's data. -->
         <Border Style="{StaticResource CardStyle}">
             <StackPanel>
-                <TextBlock Style="{StaticResource CardHeadingStyle}" Text="Team pack" />
+                <TextBlock Style="{StaticResource CardHeadingStyle}" Text="Share" />
                 <TextBlock Style="{StaticResource SectionNoteStyle}"
-                           Text="The roles and skills of this workspace in one file, for a teammate's workspace. Settings, keys and your data never go in." />
+                           Text="What your agents learned in the tool packs, for a friend's projects, or this workspace's roles and skills, for a teammate: one .linkpack file. Settings, keys and your data never go in." />
                 <WrapPanel Margin="-6,6,0,0">
-                    <Button Margin="0,0,6,0" Style="{StaticResource SectionButtonStyle}" Click="ExportPack_OnClick"
-                            ToolTip="Write .agents/roles and .agents/skills of the workspace to a .linkpack file">
-                        <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Export team pack…" />
+                    <Button Margin="0,0,6,0" Style="{StaticResource SectionButtonStyle}" Click="Share_OnClick"
+                            ToolTip="What goes into the file: what your agents learned, or this workspace's roles and skills">
+                        <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Share ▾" />
                     </Button>
-                    <Button Margin="0" Style="{StaticResource SectionButtonStyle}" Click="ImportPack_OnClick"
-                            ToolTip="Put the roles and skills of a .linkpack file into the workspace; one it has already is replaced only if you say so">
-                        <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Import team pack…" />
+                    <Button Margin="0" Style="{StaticResource SectionButtonStyle}" Click="OpenPack_OnClick"
+                            ToolTip="Take in a .linkpack a friend or a teammate sent: first it shows what it would change">
+                        <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Open a pack…" />
                     </Button>
                 </WrapPanel>
+
+                <!-- What a file will hold, or what one brings: the ticked items go. -->
+                <StackPanel x:Name="PicksPanel" Margin="0,6,0,0" Visibility="Collapsed">
+                    <TextBlock x:Name="PicksHeadingText" Style="{StaticResource SectionNoteStyle}" />
+                    <ItemsControl x:Name="PicksList">
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type local:SharePick}">
+                                <StackPanel Margin="0,6,0,0">
+                                    <CheckBox IsChecked="{Binding Picked}" IsEnabled="{Binding CanPick}">
+                                        <TextBlock Text="{Binding Title}" TextWrapping="Wrap" />
+                                    </CheckBox>
+                                    <TextBlock Style="{StaticResource SectionNoteStyle}" Margin="22,2,0,0" Text="{Binding Note}" TextWrapping="Wrap" />
+                                    <TextBlock Style="{StaticResource SectionNoteStyle}" Margin="22,2,0,0" Text="{Binding Warning}" TextWrapping="Wrap"
+                                               Foreground="{StaticResource BusyOrbBrush}" Visibility="{Binding WarningVisibility}" />
+                                </StackPanel>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
+                    <WrapPanel Margin="-6,8,0,0">
+                        <Button Margin="0,0,6,0" Style="{StaticResource SectionButtonStyle}" Click="ConfirmPicks_OnClick">
+                            <TextBlock x:Name="ConfirmPicksText" Style="{StaticResource SectionLinkTextStyle}" />
+                        </Button>
+                        <Button Margin="0" Style="{StaticResource SectionButtonStyle}" Click="CancelPicks_OnClick">
+                            <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Cancel" />
+                        </Button>
+                    </WrapPanel>
+                </StackPanel>
+
                 <TextBlock x:Name="PackStatusText" Style="{StaticResource SectionNoteStyle}" Margin="0,4,0,0" Visibility="Collapsed" />
+                <Button x:Name="SetUpButton" Margin="-6,4,0,0" HorizontalAlignment="Left" Style="{StaticResource SectionButtonStyle}"
+                        Click="SetUp_OnClick" Visibility="Collapsed"
+                        ToolTip="A task card for this project: the agent fits the new skills to it. Nothing runs before Run">
+                    <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Set up for this project" />
+                </Button>
             </StackPanel>
         </Border>
     </StackPanel>

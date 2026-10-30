@@ -534,6 +534,14 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    where git lives; the final check tags its findings Important / Nit / Pre-existing and reads `REVIEW.md`; the rules
    are shorter, and HarnessLint flags long skill descriptions. L.6 is the user's measurement: 10 golden tasks, each
    twice, one loop against Team; then Team is deleted or kept for one kind.
+16. **Sharing what the agents learned** (the user, 30.10: give the useful knowledge to a friend, who sets it up for
+   their own tasks): the Harness column's Share card. Share ▾ → What my agents learned… lists the tool packs' skills
+   and roles that differ from Link's own; an item with a line that looks personal (a user's folder, an email, a key,
+   a project's name) starts unticked. They go to a `.linkpack` (`KnowledgePack`: Agent Skills folders, with a README
+   for Claude Code or Codex without Link). Open a pack… shows what one brings (new, updates yours, both changed): a
+   file the friend changed too stays theirs, and the pack's goes beside it in `LinkPacks\.incoming\<file>`; Set up for
+   this project opens a task card that fits the skills to the project (its `<pack>-project` add-on, a map line, a
+   merge). The team pack is the menu's other item, and Open a pack… takes it too. Built, waiting for the user's check.
 
 ## Для AI-агентов
 

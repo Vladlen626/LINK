@@ -44,8 +44,7 @@ public partial class MainWindow
         studio.SpendHistoryChanged += () => studio.ShowSpendHistory(SpendDays(studio));
         studio.OpenFileRequested += ShowFile;
         studio.ConsoleRequested += ShowAgentConsole;
-        studio.TeamPackExportRequested += ExportTeamPack;
-        studio.TeamPackImportRequested += ImportTeamPack;
+        WireShare(studio);
         // Back from editing a rules, role or skill file: the inspector reads it again.
         studio.Activated += (_, _) =>
         {
@@ -133,66 +132,6 @@ public partial class MainWindow
     {
         var project = StudioTask?.Project ?? _projects.ActiveProject;
         return StudioTask?.Record.Workspace ?? (project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null);
-    }
-
-    /// <summary>Export team pack…: the workspace's roles and skills to a .linkpack file the user names.</summary>
-    private void ExportTeamPack()
-    {
-        if (_studio is not { } studio) return;
-        if (StudioWorkspace() is not { } workspace)
-        {
-            studio.ShowTeamPackStatus("Choose the workspace folder in the Project tab first.");
-            return;
-        }
-
-        var dialog = new SaveFileDialog
-        {
-            Title = "Export team pack",
-            Filter = "LINK team pack (*.linkpack)|*.linkpack",
-            DefaultExt = TeamPack.Extension,
-            FileName = Path.GetFileName(workspace) + TeamPack.Extension
-        };
-        if (dialog.ShowDialog(studio) != true) return;
-        try
-        {
-            var (roles, skills) = TeamPack.Export(workspace, dialog.FileName);
-            studio.ShowTeamPackStatus(roles + skills == 0
-                ? "Nothing to export: the workspace has no roles or skills of its own in .agents."
-                : $"Exported {Plural(roles, "role")} and {Plural(skills, "skill")} to {dialog.FileName}");
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            studio.ShowTeamPackStatus($"The pack could not be written: {exception.Message}");
-        }
-    }
-
-    /// <summary>Import team pack…: the roles and skills of a .linkpack file into the workspace; what it has already is replaced only if the user says so.</summary>
-    private void ImportTeamPack()
-    {
-        if (_studio is not { } studio) return;
-        if (StudioWorkspace() is not { } workspace)
-        {
-            studio.ShowTeamPackStatus("Choose the workspace folder in the Project tab first.");
-            return;
-        }
-
-        var dialog = new OpenFileDialog { Title = "Import team pack", Filter = "LINK team pack (*.linkpack)|*.linkpack" };
-        if (dialog.ShowDialog(studio) != true) return;
-        // One question for everything the workspace has already, asked at the first.
-        bool? replaceThem = null;
-        try
-        {
-            var result = TeamPack.Import(dialog.FileName, workspace, name => replaceThem ??= MessageBox.Show(studio,
-                $"The workspace has {name} already, and maybe more of the pack's. Replace the ones it has with the pack's?\n\nNo keeps yours and adds only what is new.",
-                "Link · team pack", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes);
-            studio.ShowTeamPackStatus($"Imported: {result.Added.Count} new, {result.Replaced.Count} replaced, {result.Skipped.Count} kept as they were.");
-            RefreshProjectPanel();
-            RefreshStudio();
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
-        {
-            studio.ShowTeamPackStatus($"The pack was not imported: {exception.Message}");
-        }
     }
 
     /// <summary>Another project is shown: the Studio lists its tasks (the list, unless its own task is open) and its harness.</summary>

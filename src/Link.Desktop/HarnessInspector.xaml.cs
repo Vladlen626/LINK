@@ -69,6 +69,21 @@ public sealed class HarnessRow(HarnessSection section) : INotifyPropertyChanged
 }
 
 /// <summary>
+/// One line of what a shared file will hold or what an opened one brings: <see cref="Item"/> goes when ticked. One that
+/// cannot be picked (already the same) is only shown.
+/// </summary>
+public sealed class SharePick(string item, string title, string note, string? warning, bool canPick = true)
+{
+    public string Item { get; } = item;
+    public string Title { get; } = title;
+    public string Note { get; } = note;
+    public string? Warning { get; } = warning;
+    public bool CanPick { get; } = canPick;
+    public bool Picked { get; set; } = canPick;
+    public Visibility WarningVisibility => Warning is null ? Visibility.Collapsed : Visibility.Visible;
+}
+
+/// <summary>
 /// The Harness Inspector: what the agent really gets for the task (setup, context, rules, role, project memory, task
 /// state, skills, the brief, tools, the check and the project's stats), one card each. It only shows; the window builds
 /// the view (<see cref="HarnessView"/>) and does the work behind Open and Console. It has no timer: it draws when it is
@@ -90,17 +105,40 @@ public partial class HarnessInspector : UserControl
     /// <summary>The Console, the raw view of what the agent's CLI got and wrote back, is to be opened.</summary>
     public event Action? ConsoleRequested;
 
-    /// <summary>Export team pack…: the window asks for a file and writes the workspace's roles and skills to it.</summary>
+    /// <summary>Share ▾ → What my agents learned: the window lists what the tool packs hold beyond Link's own.</summary>
+    public event Action? ShareLearnedRequested;
+
+    /// <summary>Share ▾ → This workspace's roles and skills: the window asks for a file and writes the team pack to it.</summary>
     public event Action? TeamPackExportRequested;
 
-    /// <summary>Import team pack…: the window asks for a file and takes its roles and skills in.</summary>
-    public event Action? TeamPackImportRequested;
+    /// <summary>Open a pack…: the window asks for a file and shows what it brings, or takes a team pack in.</summary>
+    public event Action? OpenPackRequested;
 
-    /// <summary>What the last export or import did, or why it could not.</summary>
-    public void ShowTeamPackStatus(string text)
+    /// <summary>The shown list's button: the ticked items go.</summary>
+    public event Action<IReadOnlyList<SharePick>>? PicksConfirmed;
+
+    /// <summary>Set up for this project: a task card that fits what came in to the project.</summary>
+    public event Action? SetUpRequested;
+
+    /// <summary>Lists what a file will hold or what one brings, under <paramref name="heading"/>, with <paramref name="confirm"/> to go on.</summary>
+    public void ShowPicks(string heading, IReadOnlyList<SharePick> picks, string confirm)
     {
+        PicksHeadingText.Text = heading;
+        PicksList.ItemsSource = picks;
+        ConfirmPicksText.Text = confirm;
+        PicksPanel.Visibility = Visibility.Visible;
+        PackStatusText.Visibility = Visibility.Collapsed;
+        SetUpButton.Visibility = Visibility.Collapsed;
+    }
+
+    /// <summary>What the last share or opening did, or why it could not; <paramref name="setUp"/> offers Set up for this project.</summary>
+    public void ShowShareStatus(string text, bool setUp = false)
+    {
+        PicksPanel.Visibility = Visibility.Collapsed;
+        PicksList.ItemsSource = null;
         PackStatusText.Text = text;
         PackStatusText.Visibility = Visibility.Visible;
+        SetUpButton.Visibility = setUp ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>Draws the view. The same sections again change nothing; a changed one is changed in its place.</summary>
@@ -124,9 +162,36 @@ public partial class HarnessInspector : UserControl
 
     private void Console_OnClick(object sender, RoutedEventArgs e) => ConsoleRequested?.Invoke();
 
-    private void ExportPack_OnClick(object sender, RoutedEventArgs e) => TeamPackExportRequested?.Invoke();
+    private void Share_OnClick(object sender, RoutedEventArgs e)
+    {
+        var menu = MenuPlacement.Under((FrameworkElement)sender);
+        var learned = new MenuItem
+        {
+            Header = "What my agents learned…",
+            ToolTip = "The tool packs' skills and roles your agents changed or added, for a friend's Link (or Claude Code and Codex without it)"
+        };
+        learned.Click += (_, _) => ShareLearnedRequested?.Invoke();
+        var team = new MenuItem
+        {
+            Header = "This workspace's roles and skills…",
+            ToolTip = "The workspace's .agents/roles and .agents/skills, for a teammate's copy of the same project"
+        };
+        team.Click += (_, _) => TeamPackExportRequested?.Invoke();
+        menu.Items.Add(learned);
+        menu.Items.Add(team);
+        menu.IsOpen = true;
+    }
 
-    private void ImportPack_OnClick(object sender, RoutedEventArgs e) => TeamPackImportRequested?.Invoke();
+    private void OpenPack_OnClick(object sender, RoutedEventArgs e) => OpenPackRequested?.Invoke();
+
+    private void ConfirmPicks_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (PicksList.ItemsSource is IEnumerable<SharePick> picks) PicksConfirmed?.Invoke([.. picks.Where(pick => pick.CanPick && pick.Picked)]);
+    }
+
+    private void CancelPicks_OnClick(object sender, RoutedEventArgs e) => ShowShareStatus("Nothing was shared or taken.");
+
+    private void SetUp_OnClick(object sender, RoutedEventArgs e) => SetUpRequested?.Invoke();
 
     private void Detail_OnClick(object sender, RoutedEventArgs e)
     {

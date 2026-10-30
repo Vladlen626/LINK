@@ -34,8 +34,11 @@ public partial class StudioWindow : Window
         TasksHost.Child = tasks;
         Inspector.OpenFileRequested += path => OpenFileRequested?.Invoke(path);
         Inspector.ConsoleRequested += () => ConsoleRequested?.Invoke();
+        Inspector.ShareLearnedRequested += () => ShareLearnedRequested?.Invoke();
         Inspector.TeamPackExportRequested += () => TeamPackExportRequested?.Invoke();
-        Inspector.TeamPackImportRequested += () => TeamPackImportRequested?.Invoke();
+        Inspector.OpenPackRequested += () => OpenPackRequested?.Invoke();
+        Inspector.PicksConfirmed += picks => PicksConfirmed?.Invoke(picks);
+        Inspector.SetUpRequested += () => SetUpRequested?.Invoke();
         Spend.Start(settings.SpendDays, settings.SpendAllProjects);
         Spend.FixRequested += fix => SpendFixRequested?.Invoke(fix);
         Spend.HistoryChanged += () =>
@@ -87,11 +90,20 @@ public partial class StudioWindow : Window
     /// <summary>The Console is to be opened.</summary>
     public event Action? ConsoleRequested;
 
-    /// <summary>The inspector's Export team pack…</summary>
+    /// <summary>The inspector's Share ▾ → What my agents learned.</summary>
+    public event Action? ShareLearnedRequested;
+
+    /// <summary>The inspector's Share ▾ → This workspace's roles and skills.</summary>
     public event Action? TeamPackExportRequested;
 
-    /// <summary>The inspector's Import team pack…</summary>
-    public event Action? TeamPackImportRequested;
+    /// <summary>The inspector's Open a pack…</summary>
+    public event Action? OpenPackRequested;
+
+    /// <summary>The ticked items of the inspector's list.</summary>
+    public event Action<IReadOnlyList<SharePick>>? PicksConfirmed;
+
+    /// <summary>The inspector's Set up for this project.</summary>
+    public event Action? SetUpRequested;
 
     public bool InspectorOpen => _settings.InspectorOpen;
 
@@ -125,7 +137,9 @@ public partial class StudioWindow : Window
 
     public void ShowSpendHistory(IReadOnlyList<SpendDay> days) => Spend.ShowHistory(days);
 
-    public void ShowTeamPackStatus(string text) => Inspector.ShowTeamPackStatus(text);
+    public void ShowSharePicks(string heading, IReadOnlyList<SharePick> picks, string confirm) => Inspector.ShowPicks(heading, picks, confirm);
+
+    public void ShowShareStatus(string text, bool setUp = false) => Inspector.ShowShareStatus(text, setUp);
 
     /// <summary>Opens the right column on the Harness, or folds it if the Harness is what it shows.</summary>
     public void ShowInspector(bool open) => ShowSide(open, spend: false);

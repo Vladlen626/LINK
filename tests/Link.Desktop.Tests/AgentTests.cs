@@ -94,6 +94,9 @@ internal static class AgentTests
         TeamPackLinks();
         TeamPackReplace();
         TeamPackRefusals();
+        KnowledgePackLearned();
+        KnowledgePackRoundTrip();
+        KnowledgePackRefusals();
         StepKindsWords();
         TeamPlanSplit();
         TeamPlanPrompt();
@@ -3107,6 +3110,199 @@ internal static class AgentTests
         finally
         {
             DeleteFolder(workspace);
+            DeleteFolder(folder);
+        }
+    }
+
+    /// <summary>
+    /// Link's own Blender pack (a skill to model, one to rig, a QA role) and a packs folder where the agents changed the
+    /// model skill and the QA role, added a bake skill with a script and an artist role, and left the rig as it shipped.
+    /// </summary>
+    private static (string BuiltIn, string Packs) LearnedPacks()
+    {
+        var builtIn = TempFolder();
+        var packs = TempFolder();
+        foreach (var root in new[] { builtIn, packs })
+        {
+            PackFile(root, "blender/pack.md", "---\nname: Blender\ndescription: Blender\ndetect: *.blend\n---\n");
+            PackFile(root, "blender/skills/blender-model/SKILL.md", "---\nname: blender-model\ndescription: Model a prop.\n---\nBevel last.\n");
+            PackFile(root, "blender/skills/blender-rig/SKILL.md", "---\nname: blender-rig\ndescription: Rig it.\n---\n");
+            PackFile(root, "blender/roles/qa.md", "---\nname: QA\n---\nCheck the model.\n");
+        }
+
+        PackFile(packs, "blender/skills/blender-model/SKILL.md", "---\nname: blender-model\ndescription: Model a prop.\n---\nBevel first: a lesson.\n");
+        PackFile(packs, "blender/roles/qa.md", "---\nname: QA\n---\nCheck the model, then its bake.\n");
+        PackFile(packs, "blender/skills/blender-rig/__pycache__/rig.cpython-312.pyc", "cache");
+        PackFile(packs, "blender/skills/blender-bake/SKILL.md", "---\nname: blender-bake\ndescription: Bake the textures.\n---\nSave to C:\\Users\\vlad\\Desktop\\bake.\n");
+        PackFile(packs, "blender/skills/blender-bake/scripts/run.py", "token = 'abcdef1234567890xyz'\n");
+        PackFile(packs, "blender/roles/artist.md", "---\nname: Artist\n---\nKeep the DriveSlop palette.\n");
+        return (builtIn, packs);
+    }
+
+    private static void PackFile(string root, string name, string text)
+    {
+        var path = Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, text);
+    }
+
+    /// <summary>What the agents learned is what differs from Link's own, each item with the lines of it that look personal.</summary>
+    private static void KnowledgePackLearned()
+    {
+        Program.Equal("knowledge pack: why a line looks personal",
+            string.Join("|", new[]
+                {
+                    @"Save to C:\Users\vlad\Desktop", "cd /c/Users/vlad/game", "Ask vlad@example.com", "sk-" + new string('a', 24), "password: hunter2hunter2",
+                    "The DriveSlop menu", "DriveSlopper", "Bevel before you bake."
+                }
+                .Select(line => KnowledgePack.Why(line, ["DriveSlop"]) ?? "-")),
+            "a user's folder|a user's folder|an email|a key or token|a key or token|\"DriveSlop\"|-|-");
+
+        var (builtIn, packs) = LearnedPacks();
+        try
+        {
+            var learned = KnowledgePack.Learned(packs, builtIn, ["DriveSlop"]);
+            Program.Equal("knowledge pack: added and changed items with their personal lines; Link's own as shipped and Python's cache left out",
+                string.Join("|", learned.Select(item => $"{item.Item}={item.State}:{string.Join(",", item.Personal)}")),
+                "blender/skills/blender-bake=Added:scripts/run.py:1 a key or token,SKILL.md:5 a user's folder|blender/skills/blender-model=Changed:|" +
+                "blender/roles/artist.md=Added:artist.md:4 \"DriveSlop\"|blender/roles/qa.md=Changed:");
+            Program.Equal("knowledge pack: a skill is described by its SKILL.md, a role without a description by its name",
+                string.Join("|", learned.Select(item => item.Description)), "Bake the textures.|Model a prop.|Artist|QA");
+        }
+        finally
+        {
+            DeleteFolder(builtIn);
+            DeleteFolder(packs);
+        }
+    }
+
+    /// <summary>
+    /// What the agents learned goes to a file and into a friend's packs folder: new items and Link's untouched files are
+    /// taken, a file the friend changed too goes beside theirs, and the friend's agent gets a brief to fit it to a project.
+    /// </summary>
+    private static void KnowledgePackRoundTrip()
+    {
+        var (builtIn, packs) = LearnedPacks();
+        var friend = TempFolder();
+        var folder = TempFolder();
+        var file = Path.Combine(folder, "skills-2026" + TeamPack.Extension);
+        try
+        {
+            KnowledgePack.Export(packs, KnowledgePack.Learned(packs, builtIn, []), file);
+            Program.Equal("knowledge pack: the items with their pack.md, a README and pack.json, nothing else",
+                string.Join("|", PackEntries(file)),
+                "README.md|pack.json|packs/blender/pack.md|packs/blender/roles/artist.md|packs/blender/roles/qa.md|packs/blender/skills/blender-bake/SKILL.md|" +
+                "packs/blender/skills/blender-bake/scripts/run.py|packs/blender/skills/blender-model/SKILL.md");
+            using (var zip = ZipFile.OpenRead(file))
+            using (var readme = new StreamReader(zip.GetEntry("README.md")!.Open()))
+            {
+                var text = readme.ReadToEnd();
+                Program.Equal("knowledge pack: its README says where the skills go without Link, and what is inside",
+                    (text.Contains("~/.claude/skills/"), text.Contains("<project>/.agents/skills/"), text.Contains("- `blender/skills/blender-bake` — Bake the textures.")),
+                    (true, true, true));
+            }
+
+            var team = Path.Combine(folder, "team" + TeamPack.Extension);
+            MakeZip(team, ("pack.json", "{\"format\":1}"), ("roles/qa.md", "x"));
+            var plainText = Path.Combine(folder, "text" + TeamPack.Extension);
+            File.WriteAllText(plainText, "plain text");
+            Program.Equal("knowledge pack: told apart from a team pack and from a file that is no zip",
+                (KnowledgePack.IsOne(file), KnowledgePack.IsOne(team), KnowledgePack.IsOne(plainText)), (true, false, false));
+
+            // The friend's Link seeded its own Blender pack, and the friend changed its QA role since; the bake skill has its
+            // SKILL.md but not its script yet, and the pack's pack.md is gone.
+            ToolPacks.Seed(builtIn, friend);
+            File.Delete(Path.Combine(friend, "blender", "pack.md"));
+            PackFile(friend, "blender/roles/qa.md", "---\nname: QA\n---\nCheck it my way.\n");
+            PackFile(friend, "blender/skills/blender-bake/SKILL.md", File.ReadAllText(Path.Combine(packs, "blender", "skills", "blender-bake", "SKILL.md")));
+            var preview = KnowledgePack.Preview(file, friend);
+            Program.Equal("knowledge pack: a missing file or Link's untouched one updates, a missing item is new, one the friend changed is both",
+                string.Join("|", preview.Select(item => $"{item.Item}={item.State}")),
+                "blender/skills/blender-bake=Updates|blender/skills/blender-model=Updates|blender/roles/artist.md=Added|blender/roles/qa.md=BothChanged");
+            Program.Equal("knowledge pack: an opened pack describes its items", string.Join("|", preview.Select(item => item.Description)),
+                "Bake the textures.|Model a prop.|Artist|QA");
+
+            var nothing = KnowledgePack.Import(file, friend, []);
+            Program.Equal("knowledge pack: nothing ticked, nothing taken",
+                (nothing.Taken.Count, nothing.PutBeside.Count, File.Exists(Path.Combine(friend, "blender", "roles", "artist.md"))), (0, 0, false));
+            var import = KnowledgePack.Import(file, friend, [.. preview.Select(item => item.Item)]);
+            var beside = Path.Combine(friend, KnowledgePack.IncomingFolder, "skills-2026");
+            Program.Equal("knowledge pack: taken into the packs, the friend's changed one put beside",
+                (string.Join("|", import.Taken), string.Join("|", import.PutBeside), import.Beside),
+                ("blender/skills/blender-bake|blender/skills/blender-model|blender/roles/artist.md", "blender/roles/qa.md", beside));
+            Program.Equal("knowledge pack: the pack's files land, the friend's QA stays with the pack's beside it, the pack comes with its pack.md",
+                (File.ReadAllText(Path.Combine(friend, "blender", "skills", "blender-model", "SKILL.md")).Contains("Bevel first"),
+                    File.Exists(Path.Combine(friend, "blender", "skills", "blender-bake", "scripts", "run.py")),
+                    File.ReadAllText(Path.Combine(friend, "blender", "roles", "qa.md")).Contains("my way"),
+                    File.ReadAllText(Path.Combine(beside, "blender", "roles", "qa.md")).Contains("then its bake"),
+                    string.Join("|", ToolPacks.All(friend).Select(pack => pack.Id))),
+                (true, true, true, true, "blender"));
+            Program.Equal("knowledge pack: opened again, all is the same but the friend's own QA",
+                string.Join("|", KnowledgePack.Preview(file, friend).Select(item => $"{item.Item}={item.State}")),
+                "blender/skills/blender-bake=Same|blender/skills/blender-model=Same|blender/roles/artist.md=Same|blender/roles/qa.md=BothChanged");
+            Program.Equal("knowledge pack: taken again, what is the same is left", KnowledgePack.Import(file, friend, [.. import.Taken]).Taken.Count, 0);
+
+            var brief = KnowledgePack.SetUpBrief("skills-2026", friend, import);
+            var plain = KnowledgePack.SetUpBrief("skills-2026", friend, new KnowledgeImport(["blender/skills/blender-bake"], [], beside));
+            Program.Equal("knowledge pack: the set-up brief names what was taken and what is beside, and asks a merge only then",
+                (brief.Contains("- blender/roles/artist.md\n"), brief.Contains($"in {beside}:\n- blender/roles/qa.md\n"), brief.Contains("\n4. For each skill with two versions"),
+                    plain.Contains("- blender/skills/blender-bake\n"), plain.Contains("beside"), plain.Contains("\n4. "), plain.EndsWith("one line per skill.", StringComparison.Ordinal)),
+                (true, true, true, true, false, false, true));
+        }
+        finally
+        {
+            DeleteFolder(builtIn);
+            DeleteFolder(packs);
+            DeleteFolder(friend);
+            DeleteFolder(folder);
+        }
+    }
+
+    /// <summary>A file of another kind or version, and every entry that could leave the packs or hide in them, are refused before anything is written.</summary>
+    private static void KnowledgePackRefusals()
+    {
+        var friend = TempFolder();
+        var folder = TempFolder();
+        try
+        {
+            string Open(params (string Name, string Text)[] entries)
+            {
+                var file = Path.Combine(folder, Guid.NewGuid().ToString("N") + TeamPack.Extension);
+                MakeZip(file, entries);
+                try
+                {
+                    var items = KnowledgePack.Preview(file, friend);
+                    KnowledgePack.Import(file, friend, [.. items.Select(item => item.Item)]);
+                    return string.Join("|", items.Select(item => item.Item));
+                }
+                catch (InvalidDataException)
+                {
+                    return "refused";
+                }
+            }
+
+            const string Manifest = "{\"kind\":\"learned\",\"format\":1,\"created\":\"2026-10-30\",\"items\":[]}";
+            Program.Equal("knowledge pack: a team pack is refused", Open(("pack.json", "{\"format\":1}"), ("packs/blender/roles/qa.md", "x")), "refused");
+            Program.Equal("knowledge pack: a pack of another format is refused", Open(("pack.json", "{\"kind\":\"learned\",\"format\":2}"), ("packs/blender/roles/qa.md", "x")), "refused");
+            foreach (var bad in new[]
+                     {
+                         "packs/../evil.md", "packs/blender/../../evil.md", "packs/blender/skills/x/..\\..\\evil.md", "/packs/evil.md", "C:/evil.md",
+                         "packs//blender/roles/qa.md", "packs/.incoming/roles/qa.md", "packs/.git/roles/qa.md"
+                     })
+            {
+                Program.Equal($"knowledge pack: the entry {bad} is refused", Open(("pack.json", Manifest), ("packs/blender/roles/qa.md", "fine"), (bad, "evil")), "refused");
+            }
+
+            Program.Equal("knowledge pack: nothing was written by any refused pack",
+                (Directory.GetFileSystemEntries(friend).Length, File.Exists(Path.Combine(folder, "evil.md"))), (0, false));
+            Program.Equal("knowledge pack: the README, a folder entry and files outside skills and roles are not taken",
+                Open(("pack.json", Manifest), ("README.md", "x"), ("packs/blender/", string.Empty), ("packs/blender/notes.txt", "x"), ("packs/blender/skills/stray.md", "x"),
+                    ("packs/blender/roles/qa.txt", "x"), ("packs/blender/skills/x/SKILL.md", "---\nname: x\n---\n")),
+                "blender/skills/x");
+        }
+        finally
+        {
+            DeleteFolder(friend);
             DeleteFolder(folder);
         }
     }
