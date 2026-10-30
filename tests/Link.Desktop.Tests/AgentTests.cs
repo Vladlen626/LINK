@@ -1945,7 +1945,8 @@ internal static class AgentTests
 
     private static void ArgumentLines(string codexHome)
     {
-        var settings = new AgentSettings();
+        // Codex as a tool depends on this machine's install; OneLoop checks it.
+        var settings = new AgentSettings { CodexHelper = false };
         var claude = new ClaudeCodeProvider(() => settings, _ => { });
         var codex = new CodexProvider(() => settings, _ => { });
         var analyze = new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Explain" };
@@ -2249,7 +2250,7 @@ internal static class AgentTests
         Program.Equal("usage: an error answer gives no windows", CodexProvider.AccountLimits("""{"id":2,"error":{"code":-32603}}""", now).Count, 0);
 
         // Asked while it works: Claude Code's can_use_tool request and Link's answer, as claude 2.1.278 sends and takes them.
-        var asking = new ClaudeCodeProvider(() => new AgentSettings(), _ => { });
+        var asking = new ClaudeCodeProvider(() => new AgentSettings { CodexHelper = false }, _ => { });
         var watched = new AgentTask
         {
             Provider = AgentProviderKind.ClaudeCode, Workspace = @"C:\Work", Prompt = "Fix", AllowedTools = ["Read"],
