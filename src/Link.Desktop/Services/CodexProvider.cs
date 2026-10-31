@@ -6,7 +6,8 @@ namespace Link.Desktop.Services;
 
 /// <summary>
 /// Codex CLI through <c>codex exec --json</c>. Every run is in the <c>workspace-write</c> sandbox, a plan first too (it is
-/// asked for in words); <c>read-only</c> and <c>danger-full-access</c> are never used.
+/// asked for in words), but a No-stop one: Night mode lets the agent do anything, as the user asleep cannot answer.
+/// <c>read-only</c> is never used.
 /// </summary>
 public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
     : CliAgentProvider(settings, log, console)
@@ -364,12 +365,13 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
         foreach (var image in task.Images) arguments.AddRange(["--image", image]);
         // resume takes no --sandbox or --cd: the sandbox is set through config (an unquoted value is read as a string),
         // the folder is the working one.
+        var sandbox = task.NoStop ? "danger-full-access" : "workspace-write";
         arguments.AddRange(task.ResumeSessionId is null
-            ? ["--json", "--skip-git-repo-check", "--sandbox", "workspace-write", "--cd", task.Workspace]
-            : ["--json", "--skip-git-repo-check", "-c", "sandbox_mode=workspace-write"]);
+            ? ["--json", "--skip-git-repo-check", "--sandbox", sandbox, "--cd", task.Workspace]
+            : ["--json", "--skip-git-repo-check", "-c", $"sandbox_mode={sandbox}"]);
         // Perforce opens files for edit through its server, so p4 in a Perforce workspace needs the network.
-        // So does a No-stop run, which stops for nothing the sandbox would refuse, and a run that reads the web.
-        if (AgentChanges.IsPerforce(task.Workspace) || task.NoStop || task.ReadsWeb)
+        // So does a run that reads the web.
+        if (!task.NoStop && (AgentChanges.IsPerforce(task.Workspace) || task.ReadsWeb))
         {
             arguments.AddRange(["-c", "sandbox_workspace_write.network_access=true"]);
         }
@@ -393,7 +395,7 @@ public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<s
         if (task.ContextBudget is { } budget and > 0) arguments.AddRange(["-c", $"model_auto_compact_token_limit={budget * 9 / 10}"]);
         // Auto: what would leave the sandbox (the network, a file outside the workspace) goes to Codex's automatic
         // review instead of failing, as --approve-for-me does; resume takes it only through config.
-        // No-stop asks nothing: the sandbox stays the workspace's.
+        // No-stop asks nothing.
         if (task.NoStop)
         {
             arguments.AddRange(["-c", "approval_policy=never"]);

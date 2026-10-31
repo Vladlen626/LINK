@@ -42,19 +42,4 @@ public static class NoStop
 
         return null;
     }
-
-    /// <summary>
-    /// Whether the deny list holds a tool a running agent asks for: a rule names the tool (<c>WebFetch</c>), a command
-    /// (<c>Bash(git push)</c>) or a command's start (<c>Bash(git push:*)</c>), in any part of a chained command.
-    /// </summary>
-    public static bool Denies(IEnumerable<string> deny, AgentPermissionAsk ask) => deny.Any(rule =>
-    {
-        var open = rule.IndexOf('(');
-        if (open < 0 || !rule.EndsWith(')')) return string.Equals(rule, ask.Tool, StringComparison.Ordinal);
-        if (!string.Equals(rule[..open], ask.Tool, StringComparison.Ordinal)) return false;
-        var content = rule[(open + 1)..^1];
-        return ask.What.Split(["&&", "||", ";", "|", "\n"], StringSplitOptions.TrimEntries).Any(part => content.EndsWith(":*", StringComparison.Ordinal)
-            ? part.StartsWith(content[..^2], StringComparison.Ordinal)
-            : string.Equals(part, content, StringComparison.Ordinal));
-    });
 }

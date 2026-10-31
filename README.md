@@ -75,9 +75,8 @@ ChatGPT project Link talks to.
   **Start over with a note**, **Escalate**; at a usage limit, **Continue at 15:45**.
 - **Review and undo.** **Review** opens the diff: comment on lines, **Send review**. **Undo agent changes** in Git
   and Perforce (each task gets its own pending changelist).
-- **Access.** **Edit** asks before commands, **Auto** asks nothing. **Night mode**, for while you sleep, allows every tool,
-  takes the agent's recommended choice after 10 s and keeps the computer awake while it works; `git push`, `p4 submit`,
-  `gh pr merge` and `gh release` stay refused.
+- **Access.** **Edit** asks before commands, **Auto** asks nothing. **Night mode**, for while you sleep, lets the agent do
+  anything (push and submit too), takes its recommended choice after 10 s and keeps the computer awake while it works.
 - **Spend** (`Ctrl+Shift+U`): where a task's tokens went, tips to save with a **Fix**, the context curve, usage windows
   and history; today's and this month's cost by [ccusage](https://ccusage.com).
 

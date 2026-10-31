@@ -8,7 +8,7 @@ namespace Link.Desktop.Services;
 /// Claude Code in print mode with stream-json events. A run is in <c>acceptEdits</c> (a command not allowed by the
 /// project's rules is asked of the user while it works when the task can ask, else refused and listed in the result),
 /// or in <c>auto</c> on Auto, where Claude Code's own check stops
-/// risky actions. A No-stop task runs in <c>bypassPermissions</c> with its deny list. No run is read only: <c>plan</c>
+/// risky actions. A No-stop task runs in <c>bypassPermissions</c>. No run is read only: <c>plan</c>
 /// and <c>dontAsk</c> are never used.
 /// </summary>
 public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
@@ -62,8 +62,7 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         if (task.Effort is { } effort) arguments.AddRange(["--effort", effort]);
         // No AskUserQuestion: a run has no dialog to answer it, so a question ends the answer as a link-ask block, which the
         // Task tab shows as a choice. Subagents are the agent's own choice.
-        // No-stop's deny list holds in bypassPermissions too: deny rules win over every mode.
-        arguments.AddRange(["--disallowedTools", "AskUserQuestion", .. task.Deny]);
+        arguments.AddRange(["--disallowedTools", "AskUserQuestion"]);
         // A talk keeps stdin open: the user's words while it works go in there, shown back once taken in, and a tool the
         // rules do not allow is asked there (Talk) instead of refused, while the user is there to answer.
         if (Talks(task)) arguments.AddRange(["--input-format", "stream-json", "--replay-user-messages"]);

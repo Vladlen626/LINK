@@ -441,8 +441,8 @@ public sealed record AgentTask
     public bool AutoApprove { get; init; }
 
     /// <summary>
-    /// No-stop: nothing is asked or refused but <see cref="Deny"/> (Claude Code's <c>bypassPermissions</c>; Codex never asks
-    /// and its sandbox gets the network).
+    /// No-stop (Night mode): nothing is asked or refused, the user is asleep (Claude Code's <c>bypassPermissions</c>; Codex
+    /// never asks and runs without its sandbox).
     /// </summary>
     public bool NoStop { get; init; }
 
@@ -451,9 +451,6 @@ public sealed record AgentTask
     /// <see cref="AllowedTools"/>, and Codex's sandbox gets the network, without which it cannot fetch a page.
     /// </summary>
     public bool ReadsWeb { get; init; }
-
-    /// <summary>Tool rules Claude Code may never use, such as <c>Bash(git push:*)</c>: a No-stop run's deny list.</summary>
-    public IReadOnlyList<string> Deny { get; init; } = [];
 
     /// <summary>
     /// The user is there to answer: Claude Code asks for a tool its rules do not allow while it works, and the run goes on
@@ -815,15 +812,6 @@ public sealed class AgentSettings
     /// <summary>How many choices No-stop takes for a task in a row before it waits for the user again (see <see cref="Services.NoStop"/>).</summary>
     public int NoStopTurns { get; set; } = DefaultNoStopTurns;
 
-    /// <summary>
-    /// What a No-stop run of Claude Code may never do, as its deny rules: the outward steps that cannot be taken back.
-    /// Codex's sandbox keeps its runs in the workspace instead.
-    /// </summary>
-    public List<string> NoStopDeny { get; set; } = [.. DefaultNoStopDeny];
-
-    public static readonly IReadOnlyList<string> DefaultNoStopDeny =
-        ["Bash(git push:*)", "Bash(git push)", "Bash(p4 submit:*)", "Bash(p4 submit)", "Bash(gh pr merge:*)", "Bash(gh release:*)"];
-
     /// <summary>Who serves the tiers of a team plan, and whether the steps go to workers.</summary>
     public TeamSettings Team { get; set; } = new();
 
@@ -850,7 +838,6 @@ public sealed class AgentSettings
         ClaudeModel = Newer(ClaudeModel);
         LatestModels ??= [];
         if (NoStopTurns is < 1 or > 200) NoStopTurns = DefaultNoStopTurns;
-        NoStopDeny = NoStopDeny is null ? [.. DefaultNoStopDeny] : [.. NoStopDeny.Select(Trimmed).OfType<string>().Distinct(StringComparer.Ordinal)];
 
         Team ??= new();
         Team.Normalize();
@@ -909,7 +896,6 @@ public sealed class AgentSettings
         CodexHelper = CodexHelper,
         ContinueAfterLimit = ContinueAfterLimit,
         NoStopTurns = NoStopTurns,
-        NoStopDeny = [.. NoStopDeny],
         Team = Team.Clone(),
         LatestModels = new Dictionary<string, string>(LatestModels)
     };

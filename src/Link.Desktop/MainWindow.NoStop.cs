@@ -68,16 +68,14 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// A tool the running agent asks for, answered at once on Night mode as the user away would: allowed, or refused when
-    /// the deny list of Settings holds it (<see cref="TaskDecision.NoStop"/> off). Only such an ask has a Deny, and only
-    /// while its run works. True when it answered.
+    /// A tool the running agent asks for, allowed at once on Night mode: the agent may do anything while the user sleeps.
+    /// Only such an ask has a Deny, and only while its run works. True when it answered.
     /// </summary>
     private bool NightAnswered(TaskWork work)
     {
         if (!work.Record.NoStop || !work.Busy || work.Decision is not { Refuse: not null } ask) return false;
-        work.Record.Add(AgentEntryKind.HandOff, ask.NoStop ? $"{NoStop.Name} took: {ask.Button}" : $"{NoStop.Name} refused it: the deny list holds it");
-        if (ask.NoStop) TakeDecision(work, ask, always: false);
-        else RefuseDecision(work, ask);
+        work.Record.Add(AgentEntryKind.HandOff, $"{NoStop.Name} took: {ask.Button}");
+        TakeDecision(work, ask, always: false);
         return true;
     }
 
@@ -134,7 +132,7 @@ public partial class MainWindow
     /// <summary>The box at the foot of a task: Night mode on or off, with the choice it is about to take.</summary>
     private PanelToggle NoStopToggle(TaskWork work) => new(
         work.NoStopPending is { } pending ? $"{NoStop.Name} · «{Shorten(pending, 40)}» in {NoStop.CountdownSeconds} s" : NoStop.Name,
-        "For when you are away: the task allows every tool but the deny list of Settings, takes the choice its agent recommends " +
+        "For when you are away: the agent may do anything (push and submit too), takes the choice it recommends " +
         "at each stop, and keeps the computer awake while it works; " +
         $"it waits for you after {_settings.Current.Agent.NoStopTurns} choices in a row, a repeated choice, or {NoStop.IdleRuns} runs without a changed file",
         work.Record.NoStop,

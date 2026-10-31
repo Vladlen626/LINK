@@ -1265,16 +1265,11 @@ internal static class AgentTests
         record.Runs.AddRange([Run(0), Run(0)]);
         Program.Equal("No-stop waits after runs that changed no file", NoStop.WhyWait(record, 20, "b", "a") is not null, true);
 
-        var settings = new AgentSettings { NoStopTurns = 0, NoStopDeny = null! };
+        var settings = new AgentSettings { NoStopTurns = 0 };
         settings.Normalize();
-        Program.Equal("No-stop settings: turns and deny list fall back to their defaults",
-            (settings.NoStopTurns, settings.NoStopDeny.SequenceEqual(AgentSettings.DefaultNoStopDeny), settings.Clone().NoStopDeny.Count),
-            (AgentSettings.DefaultNoStopTurns, true, AgentSettings.DefaultNoStopDeny.Count));
-
-        bool Denies(string tool, string what) => NoStop.Denies(AgentSettings.DefaultNoStopDeny, new AgentPermissionAsk(tool, what, []));
-        Program.Equal("Night mode refuses a run's ask only on the deny list: a push, also chained, but not a status or another tool",
-            (Denies("Bash", "git push origin main"), Denies("Bash", "git add . && git push"), Denies("Bash", "git status"), Denies("WebFetch", "git push")),
-            (true, true, false, false));
+        Program.Equal("No-stop settings: turns fall back to their default", settings.NoStopTurns, AgentSettings.DefaultNoStopTurns);
+        var older = System.Text.Json.JsonSerializer.Deserialize<AgentSettings>("""{"NoStopTurns":5,"NoStopDeny":["Bash(git push:*)"]}""")!;
+        Program.Equal("Settings with the old deny list of Night mode still load", older.NoStopTurns, 5);
     }
 
     private static async Task LocalPagesAsync()
@@ -2032,15 +2027,15 @@ internal static class AgentTests
             (string.Join(' ', codex.Arguments(analyze with { AutoApprove = true })).Contains("-c approval_policy=on-request -c approvals_reviewer=auto_review"),
                 string.Join(' ', codex.Arguments(analyze with { AutoApprove = true, PlanOnly = true })).Contains("approval")), (true, true));
 
-        // No-stop: nothing is asked; the deny list holds.
-        var noStop = analyze with { AutoApprove = true, NoStop = true, Deny = ["Bash(git push:*)"] };
-        Program.Equal("Claude No-stop bypasses permissions and keeps its deny list beside AskUserQuestion",
+        // No-stop (Night mode): nothing is asked or refused.
+        var noStop = analyze with { AutoApprove = true, NoStop = true };
+        Program.Equal("Claude No-stop bypasses permissions and refuses only AskUserQuestion",
             (claude.Arguments(noStop).Contains("bypassPermissions"),
-                string.Join(' ', claude.Arguments(noStop)).Contains("--disallowedTools AskUserQuestion Bash(git push:*) --strict-mcp-config")), (true, true));
+                string.Join(' ', claude.Arguments(noStop)).Contains("--disallowedTools AskUserQuestion --strict-mcp-config")), (true, true));
         var codexNoStop = string.Join(' ', codex.Arguments(noStop));
-        Program.Equal("Codex No-stop never asks, its sandbox the workspace's with the network",
-            (codexNoStop.Contains("-c approval_policy=never"), codexNoStop.Contains("auto_review"), codexNoStop.Contains("--sandbox workspace-write"),
-                codexNoStop.Contains("network_access=true")), (true, false, true, true));
+        Program.Equal("Codex No-stop never asks and runs without its sandbox, on resume too",
+            (codexNoStop.Contains("-c approval_policy=never"), codexNoStop.Contains("auto_review"), codexNoStop.Contains("--sandbox danger-full-access"),
+                string.Join(' ', codex.Arguments(noStop with { ResumeSessionId = "t1" })).Contains("-c sandbox_mode=danger-full-access")), (true, false, true, true));
         Program.Equal("Codex gets the network for a run that reads the web, and not for others",
             (string.Join(' ', codex.Arguments(analyze with { ReadsWeb = true })).Contains("network_access=true"),
                 string.Join(' ', codex.Arguments(analyze)).Contains("network_access=true")), (true, false));

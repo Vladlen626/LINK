@@ -689,7 +689,6 @@ public partial class MainWindow
             ContextBudget = _settings.Current.Agent.ContextBudget,
             EffortReason = null,
             NoStop = record.NoStop,
-            Deny = record.NoStop ? _settings.Current.Agent.NoStopDeny : [],
             // A tool its rules do not allow is asked while it works; No-stop asks nothing.
             AskPermission = record.NoStop ? null : (ask, token) => AskPermissionAsync(work, ask, token),
             // The user's words while it works reach the session without a stop, where the CLI takes them.
@@ -1514,7 +1513,7 @@ public partial class MainWindow
         }
 
         // A run that asked while it worked had the user's answer to each tool already: a Deny is not offered again. A No-stop
-        // run was refused only what no allow opens (its deny rules, the guard's protected folders).
+        // run was refused only what no allow opens (the guard's protected folders).
         if (task.Provider == AgentProviderKind.ClaudeCode && task.AskPermission is null && !task.NoStop && result.Denials.Count > 0)
         {
             var rules = result.Denials;
@@ -1578,7 +1577,6 @@ public partial class MainWindow
                     answer.TrySetResult(new AgentPermissionAnswer(true, _rememberAllowance));
                     RefreshTaskList();
                 },
-                noStop: !NoStop.Denies(_settings.Current.Agent.NoStopDeny, ask),
                 refuse: () =>
                 {
                     record.Add(AgentEntryKind.You, $"Denied {rules}");
