@@ -196,7 +196,7 @@ public partial class MainWindow
             ? ranModel is null ? ModelName(agent, chosen) : $"{ModelName(agent, chosen)} ({ranModel})"
             : ranModel ?? unknown;
         var words = (effort ?? own.Effort) is { } level ? $"{modelName} · {EffortName(agent, level)}" : modelName;
-        return autoReason is null ? words : $"{words} · auto: {autoReason}";
+        return autoReason is null or AutoEffort.SameAsLast ? words : $"{words} · auto: {autoReason}";
     }
 
     /// <summary>

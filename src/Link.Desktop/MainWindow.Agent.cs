@@ -354,7 +354,10 @@ public partial class MainWindow
         var agent = _settings.Current.Agent;
         // The agent works in English; the user sees what it was given in the task's brief.
         var written = plan.Goal;
-        plan = plan with { Goal = await InEnglishAsync(plan.Goal, project) };
+        var english = await InEnglishAsync(plan.Goal, project);
+        // It answers in the user's language (agent-rules.md), which a translated brief no longer shows.
+        if (!ReferenceEquals(english, written) && written.Any(letter => letter is >= 'Ѐ' and <= 'ӿ')) english += "\n\n(The user wrote this in Russian.)";
+        plan = plan with { Goal = english };
         // Measuring team against solo: by turns for each kind of work, the strong agent alone takes a team's task.
         var measured = plan.Team && agent.Team.Alternate;
         if (measured && !TeamVsSolo.TeamsTurn(_projects.ReadAgentTasks(project), StepKinds.Of(written.Split('\n')[0])))
@@ -956,7 +959,7 @@ public partial class MainWindow
         turn.OutcomeBrush = OutcomeBrush(ending);
         turn.Said = text;
         turn.Pages = pages.Count > 0 ? pages : LatestPages(record);
-        turn.Files = run.Changes.Select(change => ToChangeRow(change, record.Workspace)).ToArray();
+        turn.Files = run.Own.Select(change => ToChangeRow(change, record.Workspace)).ToArray();
         turn.Stats = StatsLine(result.Stats) + SpentLine(task.Provider, spent);
         turn.StepsOpen = false;
 
@@ -1045,7 +1048,7 @@ public partial class MainWindow
         AgentStatus(work, limitReached
             ? $"{provider.Name} ran out of its limit · the Studio offers a way on"
             : work.Question is not null ? $"{provider.Name} asks: the choice is in the Studio"
-            : $"{provider.Name}: {ending.ToLowerInvariant()} · {Plural(run.Changes.Count, "file")} changed");
+            : $"{provider.Name}: {ending.ToLowerInvariant()} · {Plural(run.Own.Count, "file")} changed");
         NoStopSoon(work);
         _ = RefreshSpentAsync(now: false);
     }
@@ -1163,8 +1166,8 @@ public partial class MainWindow
             Looped = result.Loops.Count > 0,
             Spent = [.. spent],
             Steps = [.. live.Steps.TakeLast(StepsKeptPerRun)],
-            Files = files,
-            Images = [.. RunImages.Of(ArtCritic.Named(answer), [.. live.Images, .. run.Changes.Select(change => change.Path)], record.Workspace,
+            Files = [.. run.Own.Select(change => Relative(change.Path, record.Workspace))],
+            Images =[.. RunImages.Of(ArtCritic.Named(answer), [.. live.Images, .. run.Changes.Select(change => change.Path)], record.Workspace,
                 live.StartedAt, RunImages.Written)],
             Words = Shorten(answer, 12_000)
         };
@@ -1173,7 +1176,7 @@ public partial class MainWindow
         _spending.Add(work.Project.Id, record.Runs[^1]);
         record.Add(AgentEntryKind.Run,
             $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort, ranModel: record.Runs[^1].RanModel)}: " +
-            $"{ending.ToLowerInvariant()}, {Plural(run.Changes.Count, "file")} changed");
+            $"{ending.ToLowerInvariant()}, {Plural(run.Own.Count, "file")} changed");
         // A family the task asked for (haiku) got a newer model than last time: never a silent change of behaviour.
         if (task.Provider == AgentProviderKind.ClaudeCode && _settings.Current.Agent.NoteResolved(task.Model, result.Model) is { } resolved)
         {

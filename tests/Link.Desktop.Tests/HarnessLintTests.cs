@@ -75,6 +75,12 @@ internal static class HarnessLintTests
                     EditIn(Path.Combine(packs, "unity", "skills", "x", "SKILL.md"), Path.Combine(packs, "unity")),
                     EditIn(Path.Combine(Path.GetTempPath(), "frame.txt"), workspace)),
                 (true, true, true, (string?)null, (string?)null));
+            var slug = System.Text.RegularExpressions.Regex.Replace(workspace, "[^A-Za-z0-9]", "-");
+            Program.Equal("Guard: the workspace's own memory is written, under the user's account or one of Link's; another's is not",
+                (EditIn(Path.Combine(claude, "projects", slug, "memory", "state.md"), workspace),
+                    EditIn(Path.Combine(linkData, "ClaudeAccounts", "Account 2", "projects", slug, "memory", "state.md"), workspace),
+                    EditIn(Path.Combine(claude, "projects", "C--Other", "memory", "state.md"), workspace) is not null),
+                ((string?)null, (string?)null, true));
 
             var session = Guid.NewGuid().ToString();
             string? Remembered(string tool, object args) => Link.Guard.HarnessGuard.Check(

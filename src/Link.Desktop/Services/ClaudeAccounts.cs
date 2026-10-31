@@ -15,11 +15,18 @@ public static class ClaudeAccounts
     private static string OwnProjects => Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), ".claude", "projects");
 
     /// <summary>
-    /// The folder of a workspace's memory where it exists. Through an account's junction Claude Code takes it for a folder
-    /// outside its own and refuses to write it (agents met "Not allowed: Write" there), so a run is given it.
+    /// The folder of a workspace's memory where it exists, and under another account the same folder as that account sees
+    /// it. Through an account's junction Claude Code takes it for a folder outside its own and asks before it writes there
+    /// (a run waited 17 minutes on it), so a run is given both.
     /// </summary>
-    public static string? MemoryFolder(string workspace) =>
-        Path.Combine(OwnProjects, Regex.Replace(workspace, "[^A-Za-z0-9]", "-"), "memory") is var folder && Directory.Exists(folder) ? folder : null;
+    public static IReadOnlyList<string> MemoryFolders(string workspace, string? account)
+    {
+        var memory = Path.Combine(Regex.Replace(workspace, "[^A-Za-z0-9]", "-"), "memory");
+        if (!Directory.Exists(Path.Combine(OwnProjects, memory))) return [];
+        return account is null
+            ? [Path.Combine(OwnProjects, memory)]
+            : [Path.Combine(OwnProjects, memory), Path.Combine(Root, account, "projects", memory)];
+    }
 
     /// <summary>The other accounts, by their folders' names.</summary>
     public static IReadOnlyList<string> Names() =>

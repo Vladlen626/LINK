@@ -258,6 +258,18 @@ public sealed partial class AgentChanges
         return string.IsNullOrWhiteSpace(numstat) ? null : numstat;
     }
 
+    /// <summary>
+    /// The files a task changed so far, as they are when its next run starts: with them <see cref="Own"/> tells that
+    /// run's own changes from the task's.
+    /// </summary>
+    public static IReadOnlyDictionary<string, string> Marks(IEnumerable<AgentChange> changed) =>
+        changed.DistinctBy(change => change.Path, StringComparer.OrdinalIgnoreCase)
+            .ToDictionary(change => change.Path, change => Fingerprint(change.Path), StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>Of a task's changes after a run, those the run made itself: a file new to the task, or changed again.</summary>
+    public static IReadOnlyList<AgentChange> Own(IReadOnlyList<AgentChange> changes, IReadOnlyDictionary<string, string> marks) =>
+        [.. changes.Where(change => !marks.TryGetValue(change.Path, out var mark) || mark != Fingerprint(change.Path))];
+
     private static IReadOnlyList<AgentChange> ChangedSince(WorkspaceBefore before,
         IReadOnlyList<(string Path, string Code)> after) =>
         after

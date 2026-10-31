@@ -67,7 +67,7 @@ ChatGPT project Link talks to.
 - **One task, one thread.** Each run shows its steps folded ("Ran 3 commands, read 4 files…"), the pictures it looked
   at, its answer, the files it changed and what it cost. The agent's own task list is the **Plan** at the top.
 - **Talk while it works.** `Enter` is **Tell now**: Claude reads your words at its next step, nothing stops. Codex
-  gets **Steer now**. `Tab` keeps your words for after the run.
+  gets **Steer now**. `Tab` keeps your words for after the run; `↑` in an empty box brings back your last words.
 - **Checked work.** Your check command (a build, tests) runs after every run with edits; a failure goes back to the
   agent, twice at most. When a plan of three steps or more is done, **Check the work** has a fresh session review the
   whole diff step by step, and **Fix them** sends its findings back.

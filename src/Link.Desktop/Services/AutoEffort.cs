@@ -31,6 +31,9 @@ public enum EffortPhase
 /// </summary>
 public static class AutoEffort
 {
+    /// <summary>The reason of a reply's effort: it tells nothing new, so a run's header leaves it out.</summary>
+    public const string SameAsLast = "same as the last run";
+
     // The efforts of the agents' CLIs by what they spend, lowest first.
     private static readonly string[] Order = ["low", "medium", "high", "xhigh", "max"];
 
@@ -117,7 +120,7 @@ public static class AutoEffort
         }
 
         if (phase == EffortPhase.RunPlan) return ("medium", "carrying out the approved plan");
-        if (phase is EffortPhase.Reply or EffortPhase.Steer && lastEffort is { } last && Rank(last) >= 0) return (Order[Rank(last)], "same as the last run");
+        if (phase is EffortPhase.Reply or EffortPhase.Steer && lastEffort is { } last && Rank(last) >= 0) return (Order[Rank(last)], SameAsLast);
         return ByBrief(brief, roleEffort);
     }
 

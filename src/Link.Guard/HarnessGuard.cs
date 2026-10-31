@@ -185,6 +185,9 @@ public static partial class HarnessGuard
     {
         if (file is null || workspace is null) return null;
         var full = Path.GetFullPath(WindowsPath(file, workspace));
+        // The workspace's memory is the agent's own to keep, under the user's account or one of Link's (a junction to it).
+        var memory = Path.Combine("projects", Regex.Replace(Path.GetFullPath(workspace), "[^A-Za-z0-9]", "-"), "memory");
+        if (full.Contains(Path.DirectorySeparatorChar + memory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return null;
         foreach (var (folder, what) in ProtectedFolders)
         {
             if (Inside(full, folder) && !Inside(Path.GetFullPath(workspace), folder))

@@ -258,6 +258,15 @@ public partial class AgentPanel
             return;
         }
 
+        // Up in an empty box brings back the words sent last, as in Claude Code: to send them again or correct them.
+        if (e.Key == Key.Up && ReplyBox.Text.Length == 0 && _lastReply.Length > 0)
+        {
+            e.Handled = true;
+            ReplyBox.Text = _lastReply;
+            ReplyBox.CaretIndex = ReplyBox.Text.Length;
+            return;
+        }
+
         if (e.Key != Key.Enter || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
         e.Handled = true;
         SendReply(queue: false);
@@ -274,6 +283,7 @@ public partial class AgentPanel
     {
         var reply = ReplyBox.Text.Trim();
         if (reply.Length == 0 && _replyAttached.Count == 0) return;
+        if (reply.Length > 0) _lastReply = reply;
         // Pictures alone still say something: the agent is told to look.
         if (reply.Length == 0) reply = "Look at what I attached.";
         IReadOnlyList<string> attached = [.. _replyAttached];

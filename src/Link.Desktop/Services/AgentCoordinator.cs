@@ -50,7 +50,14 @@ public sealed record AgentRun(
     WorkspaceBefore Before,
     AgentResult Result,
     IReadOnlyList<AgentChange> Changes,
-    AgentCheckResult? Check = null);
+    AgentCheckResult? Check = null)
+{
+    /// <summary>
+    /// What this run changed itself, which its turn shows as Claude's app does; <see cref="Changes"/> are the task's since
+    /// its first run, which Review and Undo take.
+    /// </summary>
+    public IReadOnlyList<AgentChange> Own { get; init; } = Changes;
+}
 
 /// <summary>
 /// Runs agent tasks for the window: builds the task from an input snapshot and the confirmation card, notes the
@@ -267,6 +274,7 @@ public sealed class AgentCoordinator
         CancellationToken cancellationToken)
     {
         var before = previous?.Before ?? await _changes.CaptureAsync(task.Workspace, cancellationToken);
+        var marks = AgentChanges.Marks(previous?.Changes ?? []);
         var provider = Provider(task.Provider);
         var result = await provider.RunAsync(task, progress, cancellationToken);
         AgentCheckResult? check = null;
@@ -300,7 +308,7 @@ public sealed class AgentCoordinator
             changes = [.. changes, written];
         }
 
-        return new AgentRun(task, before, result, changes, check);
+        return new AgentRun(task, before, result, changes, check) { Own = AgentChanges.Own(changes, marks) };
     }
 
     /// <summary>

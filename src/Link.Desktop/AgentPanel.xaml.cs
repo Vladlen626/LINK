@@ -20,6 +20,8 @@ public partial class AgentPanel : UserControl
     // Pictures and files the user pasted or dropped, for the card and for the next reply.
     private readonly List<string> _cardAttached = [];
     private readonly List<string> _replyAttached = [];
+    // The words sent last, which Up in an empty box brings back.
+    private string _lastReply = string.Empty;
     private static readonly AgentChoice AutoChoice = new("auto", "Auto — Link picks");
     private AgentCardModel? _card;
     private bool _fillingCard;

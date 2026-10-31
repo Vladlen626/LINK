@@ -397,7 +397,13 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   still works; the code and saved data keep NoStop). It means "allow everything while I sleep": the guard refuses only
   edits of protected folders, a tool asked for mid-run is allowed at once, and the computer stays awake while a Night
   task runs or waits for a limit's reset. No deny list since the first night: its `git push` refusal looped the
-  finished task six times; the user wants agents to do anything at night (Codex runs `danger-full-access`). Compact budget stays 250k: on 11
+  finished task six times; the user wants agents to do anything at night (Codex runs `danger-full-access`).
+- Closer to Claude's app (2026-10-31, from the DriverTheSlop sessions): a run's turn shows the files it changed itself
+  (Review, Undo and the task state keep the task's), so Night mode's 3-idle-runs stop works; agents answer in the
+  user's language (a brief translated from Russian says so), all else stays English; the guard lets the workspace's
+  Claude memory through (it refused 14 writes there in one session) and a run gets the memory folder under its account
+  too (an ask waited 17 min); `↑` in the composer brings back the last words; "auto: same as the last run" is not
+  repeated in headers. Compact budget stays 250k: on 11
   DriverTheSlop sessions it compacts at ~218k, 200k would save ~9% of tokens and 150k ~15% with twice the compactions.
 
 ## ChatGPT-транспорт

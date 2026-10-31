@@ -431,6 +431,15 @@ internal static class AgentTests
             Program.Equal("git: the agent's changes are found",
                 string.Join(",", found.OrderBy(change => change.Path).Select(change => $"{Path.GetFileName(change.Path)}:{change.Undoable}")),
                 "clean.txt:True,mine.txt:False,new.txt:True");
+            // The next run of the task changes one of those again and adds one: its turn shows only these two.
+            var marks = AgentChanges.Marks(found);
+            File.WriteAllText(Path.Combine(workspace, "new.txt"), "agent, again");
+            File.SetLastWriteTimeUtc(Path.Combine(workspace, "new.txt"), DateTime.UtcNow.AddMinutes(2));
+            File.WriteAllText(Path.Combine(workspace, "next.txt"), "agent");
+            var next = await changes.CompareAsync(before, CancellationToken.None);
+            Program.Equal("git: a run's own changes are told from the task's",
+                (next.Count, string.Join(",", AgentChanges.Own(next, marks).Select(change => Path.GetFileName(change.Path)).Order())), (4, "new.txt,next.txt"));
+            File.Delete(Path.Combine(workspace, "next.txt"));
             var diff = await changes.DiffAsync(before, found, stat: false, 20_000, CancellationToken.None) ?? string.Empty;
             Program.Equal("git: a run's diff is its own work, the user's edit before it not; the user's index is as it was",
                 (before.DiffsOwnWork, diff.Contains("-my edit", StringComparison.Ordinal), diff.Contains("+my edit and the agent's", StringComparison.Ordinal),

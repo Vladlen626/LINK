@@ -86,7 +86,7 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
             if (Path.Combine(pack.Folder, "skills") is var skills && Directory.Exists(skills)) arguments.AddRange(["--add-dir", skills]);
         }
 
-        if (ClaudeAccounts.MemoryFolder(task.Workspace) is { } memory) arguments.AddRange(["--add-dir", memory]);
+        foreach (var memory in ClaudeAccounts.MemoryFolders(task.Workspace, Settings.ClaudeAccount)) arguments.AddRange(["--add-dir", memory]);
 
         // Last: the option takes every argument after it. Codex needs no asking: its own sandbox keeps it in the workspace.
         var allowed = CodexHelper(task) is null ? task.AllowedTools : [.. task.AllowedTools, CodexRule];
