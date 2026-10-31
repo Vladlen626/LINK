@@ -166,6 +166,12 @@ public sealed class StudioSettings
 
     public bool SpendAllProjects { get; set; }
 
+    /// <summary>
+    /// The project the Studio shows, chosen in its header apart from the overlay's; null (or one removed since): the
+    /// overlay's.
+    /// </summary>
+    public Guid? ProjectId { get; set; }
+
     /// <summary>Keeps where the window stands, its normal bounds when it is maximized.</summary>
     public void Remember(double left, double top, double width, double height, bool maximized)
     {

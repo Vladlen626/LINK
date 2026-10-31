@@ -183,7 +183,7 @@ public partial class MainWindow
         {
             var import = KnowledgePack.Import(file, ToolPacks.Folder, [.. picked.Select(pick => pick.Item)]);
             var any = import.Taken.Count + import.PutBeside.Count > 0;
-            var workspace = _projects.ActiveProject.WorkspaceRoot is { } root && Directory.Exists(root);
+            var workspace = StudioProject.WorkspaceRoot is { } root && Directory.Exists(root);
             _setUpBrief = any ? KnowledgePack.SetUpBrief(Path.GetFileNameWithoutExtension(file), ToolPacks.Folder, import) : null;
             studio.ShowShareStatus(
                 $"Taken into the tool packs: {Plural(import.Taken.Count, "item")}" +
@@ -203,7 +203,7 @@ public partial class MainWindow
     private async Task SetUpPackAsync()
     {
         if (_setUpBrief is not { } brief) return;
-        var snapshot = await TakeSnapshotAsync(_projects.ActiveProject, brief, RequestRoute.Agent, freshFrame: false);
+        var snapshot = await TakeSnapshotAsync(StudioProject, brief, RequestRoute.Agent, freshFrame: false);
         OpenAgentCard(snapshot, brief);
     }
 

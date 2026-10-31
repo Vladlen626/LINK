@@ -125,7 +125,7 @@ public partial class MainWindow
         _projectPanel.NoteChanged += OnNoteChanged;
         _projectPanel.EditEnded += _projects.Save;
         _projectPanel.WorkspaceChosen += OnWorkspaceChosen;
-        _projectPanel.MapRequested += () => _ = WriteProjectMapAsync();
+        _projectPanel.MapRequested += () => _ = WriteProjectMapAsync(_projects.ActiveProject);
         _projectPanel.SkillRequested += ShowFile;
         // Saved with the note, when the field is left.
         _projectPanel.CheckCommandChanged += command => _projects.ActiveProject.CheckCommand = command.Length == 0 ? null : command;

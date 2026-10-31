@@ -17,16 +17,19 @@ public partial class MainWindow
             .Select(item => item.Label)
             .ToArray();
         var (starting, notice) = StartingAgent();
+        // The card is for the snapshot's project, the overlay's or the Studio's; the Studio turns to it.
+        var project = _projects.Projects.FirstOrDefault(each => each.Id == snapshot.ProjectId) ?? _projects.ActiveProject;
         // The task runs beside the others at once; only its edits wait for another task's in the same folder.
-        if (_projects.ActiveProject.WorkspaceRoot is { Length: > 0 } folder && FolderBusy(null, folder) is { } busy)
+        if (project.WorkspaceRoot is { Length: > 0 } folder && FolderBusy(null, folder) is { } busy)
         {
             var waits = $"{busy}: this task's edits wait for that run and start by itself, reading and planning start at once.";
             notice = notice is null ? waits : $"{waits} {notice}";
         }
 
         var card = CardModel(brief ?? snapshot.Text, others.Length == 0 ? string.Empty : "Goes along: " + string.Join(", ", others),
-            images, starting) with { Notice = notice };
+            images, starting, project) with { Notice = notice };
         _cardRun = RunAgentAsync;
+        ShowStudioProject(project);
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
         RefreshStudio();
@@ -35,7 +38,7 @@ public partial class MainWindow
 
     /// <summary>
     /// The card's agents, each with its own models and efforts, Settings' choice first, and its usage. The card keeps the
-    /// project it is made for (the active one unless <paramref name="forProject"/> says), whatever is active when it runs.
+    /// project it is made for (the overlay's unless <paramref name="forProject"/> says), whatever is shown when it runs.
     /// </summary>
     private AgentCardModel CardModel(string goal, string attachments, IReadOnlyList<string> images, AgentProviderKind provider,
         LinkProject? forProject = null)

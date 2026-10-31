@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Link.Desktop.Models;
@@ -25,11 +26,15 @@ public partial class StudioWindow : Window
     private const double NarrowWidth = 980;
     private readonly StudioSettings _settings;
     private readonly AgentPanel _tasks;
+    // Link's projects as they stand (the list Link keeps), for the header's menu.
+    private readonly IReadOnlyList<LinkProject> _projects;
+    private Guid _project;
 
-    public StudioWindow(StudioSettings settings, AgentPanel tasks)
+    public StudioWindow(StudioSettings settings, AgentPanel tasks, IReadOnlyList<LinkProject> projects)
     {
         _settings = settings;
         _tasks = tasks;
+        _projects = projects;
         InitializeComponent();
         TasksHost.Child = tasks;
         Inspector.OpenFileRequested += path => OpenFileRequested?.Invoke(path);
@@ -75,6 +80,9 @@ public partial class StudioWindow : Window
     /// <summary>The header's Compact: a fresh session of the open task's agent is to be started from its state.</summary>
     public event Action? CompactRequested;
 
+    /// <summary>A project chosen in the header: the Studio is to show it, the overlay stays on its own.</summary>
+    public event Action<LinkProject>? ProjectChosen;
+
     /// <summary>The right column opened or turned to its other view: it is to be shown the harness or the spend as they stand.</summary>
     public event Action? InspectorOpened;
 
@@ -119,10 +127,11 @@ public partial class StudioWindow : Window
     /// The project, the open task's context line (null: no task is open) with how full it is (0 to 1; null: no limit is
     /// known), and whether Compact is offered.
     /// </summary>
-    public void ShowHeader(string project, string? context, double? full, bool canCompact)
+    public void ShowHeader(LinkProject project, string? context, double? full, bool canCompact)
     {
-        ProjectText.Text = project;
-        ProjectText.ToolTip = project;
+        _project = project.Id;
+        ProjectText.Text = project.Name;
+        ProjectButton.ToolTip = $"{project.Name}: the Studio's project, apart from the overlay's. Click to switch";
         ContextText.Text = context ?? string.Empty;
         ContextPanel.Visibility = context is null ? Visibility.Collapsed : Visibility.Visible;
         ContextMeter.Visibility = full is null ? Visibility.Collapsed : Visibility.Visible;
@@ -211,6 +220,19 @@ public partial class StudioWindow : Window
     }
 
     private void Compact_OnClick(object sender, RoutedEventArgs e) => CompactRequested?.Invoke();
+
+    private void Project_OnClick(object sender, RoutedEventArgs e)
+    {
+        var menu = MenuPlacement.Under(ProjectButton);
+        foreach (var project in _projects)
+        {
+            var item = new MenuItem { Header = project.Name, IsCheckable = true, IsChecked = project.Id == _project };
+            item.Click += (_, _) => ProjectChosen?.Invoke(project);
+            menu.Items.Add(item);
+        }
+
+        menu.IsOpen = true;
+    }
 
     /// <summary>A view's toggle: folds the column if it shows that view, else opens it on that view.</summary>
     private void ToggleSide(bool spend) => ShowSide(!(_settings.InspectorOpen && _settings.SpendShown == spend), spend);

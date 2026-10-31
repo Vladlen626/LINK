@@ -329,6 +329,8 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   только вручную; лимит — не провал. Специалисты — встроенные роли (`docs/harness/roles`, копируются к Link.exe) и
   роли папки, подбираются по брифу вместе с skills, меняются на карточке.
   Remote (телефон через свой VPS пользователя) — после проверки приложения.
+  Since 2026-10-31 the Studio has its own project (`StudioSettings.ProjectId`; null follows the overlay), switched in
+  its header apart from the overlay's; a card or task opened from the overlay turns the Studio to its project.
 - Fast / Normal / Deep: provider-neutral подсказка в запросе плюс переключение режима ChatGPT с проверкой; Normal
   возвращает режим, который был до LINK.
 - ChatGPT — только встроенная страница WebView2 (2026-09-26). Расширение и loopback HTTP-мост удалены, когда

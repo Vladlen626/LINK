@@ -30,15 +30,25 @@ public partial class MainWindow
 
     private StudioWindow CreateStudio(AgentPanel tasks)
     {
-        var studio = new StudioWindow(_settings.Current.Studio, tasks);
+        var studio = new StudioWindow(_settings.Current.Studio, tasks, _projects.Projects);
         studio.CompactRequested += () =>
         {
             if (_open is { } work) _ = CompactTask(work);
         };
+        studio.ProjectChosen += project =>
+        {
+            // A card is made for its project: it goes with the project the Studio leaves.
+            if (_cardRun is not null && project.Id != StudioProject.Id) CancelCard();
+            ShowStudioProject(project);
+            // Chosen here, even the overlay's own: the Studio keeps it when the overlay turns to another.
+            if (_settings.Current.Studio.ProjectId == project.Id) return;
+            _settings.Current.Studio.ProjectId = project.Id;
+            _settings.Save();
+        };
         studio.InspectorOpened += () => RefreshStudio();
         studio.SpendFixRequested += fix =>
         {
-            if (fix == SpendFix.Map) _ = WriteProjectMapAsync();
+            if (fix == SpendFix.Map) _ = WriteProjectMapAsync(StudioProject);
             else if (fix == SpendFix.Compact && StudioTask is { } work) _ = CompactTask(work);
         };
         studio.SpendHistoryChanged += () => studio.ShowSpendHistory(SpendDays(studio));
@@ -81,7 +91,7 @@ public partial class MainWindow
         if (_studio is not { } studio) return;
         var context = StudioTask is { } work ? ContextLine(work.Record) ?? "Context not told yet" : null;
         var canCompact = StudioTask is { Busy: false, Waiting: null } open && ResumableTask(open) is not null;
-        studio.ShowHeader(_projects.ActiveProject.Name, context, StudioTask is { } shownTask ? ContextFull(shownTask.Record) : null, canCompact);
+        studio.ShowHeader(StudioProject, context, StudioTask is { } shownTask ? ContextFull(shownTask.Record) : null, canCompact);
         if (!studio.InspectorOpen || live && Environment.TickCount64 - _inspectorBuiltAt < LiveInspectorEvery.TotalMilliseconds) return;
         _inspectorBuiltAt = Environment.TickCount64;
         if (!studio.SpendOpen)
@@ -118,7 +128,7 @@ public partial class MainWindow
         var (days, all) = studio.SpendRange;
         var today = DateOnly.FromDateTime(DateTime.Today);
         var first = today.AddDays(1 - days);
-        return SpendReport.Days(_spending.Since(first, all ? null : _projects.ActiveProject.Id), first, today);
+        return SpendReport.Days(_spending.Since(first, all ? null : StudioProject.Id), first, today);
     }
 
     /// <summary>
@@ -130,14 +140,31 @@ public partial class MainWindow
     /// <summary>The folder the Studio's harness is of: the shown task's, else the project's workspace; null when there is none.</summary>
     private string? StudioWorkspace()
     {
-        var project = StudioTask?.Project ?? _projects.ActiveProject;
+        var project = StudioTask?.Project ?? StudioProject;
         return StudioTask?.Record.Workspace ?? (project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null);
+    }
+
+    /// <summary>The project the Studio lists and shows: its own once one is chosen in its header, else the overlay's.</summary>
+    private LinkProject StudioProject =>
+        _projects.Projects.FirstOrDefault(project => project.Id == _settings.Current.Studio.ProjectId) ?? _projects.ActiveProject;
+
+    /// <summary>
+    /// The Studio turns to <paramref name="project"/>, chosen in its header or the project of what it is to show: its tasks
+    /// (those waiting for a limit's reset taken up) and its harness. The overlay stays on its own.
+    /// </summary>
+    private void ShowStudioProject(LinkProject project)
+    {
+        if (project.Id == StudioProject.Id) return;
+        _settings.Current.Studio.ProjectId = project.Id;
+        _settings.Save();
+        RearmContinue();
+        RefreshStudioProject();
     }
 
     /// <summary>Another project is shown: the Studio lists its tasks (the list, unless its own task is open) and its harness.</summary>
     private void RefreshStudioProject()
     {
-        if (_agentPanel is not null && _shown is not null && _shown.Project.Id != _projects.ActiveProject.Id) ShowTaskList();
+        if (_agentPanel is not null && _shown is not null && _shown.Project.Id != StudioProject.Id) ShowTaskList();
         else RefreshTaskList();
         RefreshStudio();
     }

@@ -47,8 +47,19 @@
                             <Control Width="20" Height="20" Focusable="False" Foreground="{StaticResource BrandBrush}"
                                      Template="{StaticResource LinkGlyphTemplate}" />
                             <TextBlock Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold" Text="Studio" />
-                            <TextBlock x:Name="ProjectText" Grid.Column="2" Margin="12,1,12,0" VerticalAlignment="Center" FontSize="13"
-                                       Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
+                            <!-- The Studio's own project, apart from the overlay's: a click lists the projects. -->
+                            <Button x:Name="ProjectButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" MaxWidth="220"
+                                    Margin="12,0,12,0" Padding="9,2,8,2" HorizontalAlignment="Left" VerticalAlignment="Center"
+                                    shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="Project_OnClick">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ProjectText" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <Path Grid.Column="1" Width="8" Margin="7,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
+                                          Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                                </Grid>
+                            </Button>
                         </Grid>
 
                         <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">

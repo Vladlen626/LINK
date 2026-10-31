@@ -2833,14 +2833,18 @@ internal static class AgentTests
         var missing = JsonSerializer.Deserialize<AppSettings>("""{"Studio":null}""")!;
         missing.Normalize();
         Program.Equal("studio settings: a missing section is the defaults", Of(missing.Studio), Of(older.Studio));
+        Program.Equal("studio settings: an older settings.json shows the overlay's project in the Studio", older.Studio.ProjectId, null);
 
         var kept = new AppSettings();
         kept.Studio.Remember(120, 80, 1400, 900, maximized: true);
         kept.Studio.InspectorOpen = false;
+        var project = Guid.NewGuid();
+        kept.Studio.ProjectId = project;
         var back = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(kept))!;
         back.Normalize();
         Program.Equal("studio settings: the place, the size, maximized and a folded inspector are saved",
             Of(back.Studio), ((double?)120.0, (double?)80.0, 1400.0, 900.0, true, false));
+        Program.Equal("studio settings: the Studio's own project is saved", back.Studio.ProjectId, project);
         Program.Equal("studio settings: a place on a screen left of the first is a place",
             Of(Remembered(-1500, 40, 1000, 700, false)), ((double?)-1500.0, (double?)40.0, 1000.0, 700.0, false, true));
     }

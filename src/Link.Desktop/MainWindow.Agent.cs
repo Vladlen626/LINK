@@ -136,7 +136,7 @@ public partial class MainWindow
     private async Task OpenNewTaskCardAsync()
     {
         RemoveMissingContextFiles();
-        var snapshot = await TakeSnapshotAsync(_projects.ActiveProject, PromptBox.Text, RequestRoute.Agent, AutoFrameOn);
+        var snapshot = await TakeSnapshotAsync(StudioProject, PromptBox.Text, RequestRoute.Agent, AutoFrameOn);
         _attempts.Keep(snapshot);
         OpenAgentCard(snapshot);
     }
@@ -245,12 +245,12 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The project's tasks, newest first, those Link holds as they stand in memory, saved yet or not; the open one
+    /// The Studio's project's tasks, newest first, those Link holds as they stand in memory, saved yet or not; the open one
     /// leads.
     /// </summary>
     private IReadOnlyList<TaskRow> TaskRows()
     {
-        var project = _projects.ActiveProject;
+        var project = StudioProject;
         var tasks = _projects.ReadAgentTasks(project).Select(task => WorkOf(task.Id)?.Record ?? task).ToList();
         foreach (var work in _works.Where(work => work.Project.Id == project.Id && !tasks.Contains(work.Record))) tasks.Insert(0, work.Record);
         if (_open is { } open && open.Project.Id == project.Id)
@@ -608,7 +608,7 @@ public partial class MainWindow
             return;
         }
 
-        var work = TakeUpTask(record, _projects.ActiveProject);
+        var work = TakeUpTask(record, StudioProject);
         OpenWork(work);
         ShowTaskInPanel();
         // A team left mid-way goes on from the step it is on; a question it ended on is answered first.
@@ -665,6 +665,8 @@ public partial class MainWindow
     {
         if (_open is not { } work) return;
         OpenWork(work);
+        // A task of another project than the Studio's, such as the overlay's: the Studio turns to it.
+        ShowStudioProject(work.Project);
         ShowTask(work);
     }
 
@@ -1342,7 +1344,7 @@ public partial class MainWindow
     {
         var shown = StudioTask;
         var record = shown?.Record;
-        var project = shown?.Project ?? _projects.ActiveProject;
+        var project = shown?.Project ?? StudioProject;
         var settings = _settings.Current.Agent;
         var workspace = StudioWorkspace();
 

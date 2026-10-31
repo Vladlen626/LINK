@@ -10,9 +10,10 @@ public partial class MainWindow
     /// <summary>
     /// The workspace's Map button: the agent looks through the folder, told to change nothing, and Link writes its answer to
     /// docs/map.md, the one change, shown and undone like any other. Link's own answer, on Quick: a run of its own
-    /// in the Studio, beside the tasks at work, which it leaves as they are.
+    /// in the Studio, beside the tasks at work, which it leaves as they are. <paramref name="project"/> is the overlay's or the
+    /// Studio's, by where it was asked.
     /// </summary>
-    private async Task WriteProjectMapAsync()
+    private async Task WriteProjectMapAsync(LinkProject project)
     {
         if (_own?.Live is not null)
         {
@@ -22,7 +23,6 @@ public partial class MainWindow
             return;
         }
 
-        var project = _projects.ActiveProject;
         if (project.WorkspaceRoot is not { } workspace || !Directory.Exists(workspace))
         {
             SetError("Choose the workspace folder first.");
@@ -67,7 +67,7 @@ public partial class MainWindow
             WithoutMcp = true
         };
         ShowAgentPanel();
-        await StartOwnAsync(map);
+        await StartOwnAsync(map, project.Name);
     }
 
     /// <summary>Link's own run at the top of the list while it works, and after it until the next one: one click shows it.</summary>
@@ -87,14 +87,14 @@ public partial class MainWindow
     /// Link's own answer (the map): a run of its own beside the tasks at work, which it leaves as they are. Its agent only
     /// reads; the file Link writes is an edit of the folder, so the tasks' edits there wait for it.
     /// </summary>
-    private async Task StartOwnAsync(AgentTask task)
+    private async Task StartOwnAsync(AgentTask task, string project)
     {
         task = task with { ContextBudget = _settings.Current.Agent.ContextBudget, EffortReason = null };
         var provider = _agents.Provider(task.Provider);
         var turn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort, unknown: ".")}", "Starting…",
             (Brush)FindResource("AccentBrush"), RoleBrushes.For(task.RoleId, WorkspaceRoles(task.Workspace))) { StepsOpen = true };
         var live = new LiveRun(task, turn, _limits.For(task.Provider));
-        var own = _own = new OwnRun(task, turn) { Live = live };
+        var own = _own = new OwnRun(task, turn, project) { Live = live };
         _agentPanel ??= CreateAgentPanel();
         ShowOwnRun();
         _activityTimer ??= CreateActivityTimer();
@@ -154,7 +154,7 @@ public partial class MainWindow
         _ownShown = true;
         var task = own.Task;
         var live = own.Live;
-        panel.ShowTaskView($"Link writes {OwnWhat(task)}", $"{_projects.ActiveProject.Name} · {task.Workspace}", null);
+        panel.ShowTaskView($"Link writes {OwnWhat(task)}", $"{own.Project} · {task.Workspace}", null);
         panel.SetStatus(live is not null ? "working" : own.Status, (Brush)FindResource(live is not null ? "BusyOrbBrush" : own.Dot));
         panel.SetHeader(live is not null ? AgentHeader(live) : $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort)} · answer");
         panel.ShowPlan([]);
@@ -223,11 +223,15 @@ public partial class MainWindow
         if (!_sending) SetError(exception.Message);
     }
 
-    /// <summary>Link's own run (a map): its task, its turn in the thread, the run while under way, and once over, the run and how it ended.</summary>
-    private sealed class OwnRun(AgentTask task, ThreadTurn turn)
+    /// <summary>
+    /// Link's own run (a map): its task, its turn in the thread, its project's name, the run while under way, and once over,
+    /// the run and how it ended.
+    /// </summary>
+    private sealed class OwnRun(AgentTask task, ThreadTurn turn, string project)
     {
         public AgentTask Task { get; } = task;
         public ThreadTurn Turn { get; } = turn;
+        public string Project { get; } = project;
         public LiveRun? Live { get; set; }
         public AgentRun? Run { get; set; }
         public string Status { get; set; } = "working";
