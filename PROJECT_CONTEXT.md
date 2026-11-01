@@ -373,8 +373,9 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   progress bar by time, then "Image ready") that opens Link's ChatGPT window: the picture stays there, not copied, so
   the user looks, saves or goes on in the chat (the user's choice over a viewer of Link's own); Codex's image_gen
   pictures come from its rollout into the run's thread. The Telegram bot stays a chat bot (no Mini App yet): one
-  silently edited card per task, a topic per task when topics are on, Deny, photos both ways (one picture per run, the
-  one its answer names, else the newest: the user wants no stack of check frames), a picker for /new; no /ask to ChatGPT from the phone.
+  silently edited card per task, a topic per task when topics are on, Deny, photos both ways (since 2026-10-31 a run's
+  pictures as its thread shows them, at most 6, as one silent album: one picture per run hid the other collages), a
+  picker for /new; no /ask to ChatGPT from the phone.
   Remote is Telegram only (2026-10-26, the user's choice): the task page (PWA, pairing, Web Push) is removed, Telegram
   serves tasks better. Kept is the review: a run's link-page (the model's review window) comes as the bot's link with the
   alert, through Link's server (`/view/<ticket>/`, the viewer uses relative paths) and a Cloudflare quick tunnel

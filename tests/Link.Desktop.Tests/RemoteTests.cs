@@ -202,23 +202,27 @@ internal static class RemoteTests
                 bot.Start();
                 await Program.EventuallyAsync("Telegram: started, it sets its commands", () => Count("setMyCommands") > 0, true);
                 bot.Alert(FakeHost.Task, "Claude Code needs you · Make the jump", "## Which jump?\n- **high**\n- long");
-                await Program.EventuallyAsync("Telegram: an alert posts the task's card in a topic of its own, with its buttons and one picture of the run", () =>
+                await Program.EventuallyAsync("Telegram: an alert posts the task's card in a topic of its own, with its buttons and the run's pictures as one album", () =>
                     (Count("createForumTopic"), Count("sendMessage", "\"message_thread_id\":77"), Count("sendMessage", $"q:{FakeHost.Task:N}:0"),
-                        Count("sendMessage", $"r:{FakeHost.Task:N}"), Count("sendPhoto")), (1, 1, 1, 1, 1));
+                        Count("sendMessage", $"r:{FakeHost.Task:N}"), Count("sendMediaGroup", "attach://p1"), Count("sendPhoto")), (1, 1, 1, 1, 1, 0));
                 Program.Equal("Telegram: the alert's words keep their lines, as HTML",
                     (Count("sendMessage", "\"parse_mode\":\"HTML\""), Count("sendMessage", "\\u003Cb\\u003EWhich jump?\\u003C/b\\u003E\\n\\u2022 \\u003Cb\\u003Ehigh\\u003C/b\\u003E\\n\\u2022 long")), (1, 1));
                 var card = Last("sendMessage");
 
                 host.Words = "Done the jump";
                 host.Updated += TimeSpan.FromMinutes(1);
+                var newer = Path.Combine(folder, "newer.png");
+                File.Copy(made, newer);
+                host.Pictures = [made, checkFrame, newer];
                 host.Change();
                 await Program.EventuallyAsync("Telegram: the card follows its task in place", () => Count("editMessageText", "Done the jump"), 1);
+                await Program.EventuallyAsync("Telegram: a picture the card has not had comes alone, as a photo", () => (Count("sendPhoto"), Count("sendMediaGroup")), (1, 1));
                 Program.Equal("Telegram: the card shows the task's plan, the step under way and its course",
                     (Count("editMessageText", "Plan, 1 of 2 done"), Count("editMessageText", "Now: Fixing the jump"), Count("editMessageText", "Before:")), (1, 1, 1));
                 var edits = Count("editMessageText");
                 await bot.HandleAsync(Update(Press(42, $"v:{FakeHost.Task:N}", card)), default);
                 Program.Equal("Telegram: refreshing a card that shows the task as it is changes nothing and sends no picture again",
-                    (Count("editMessageText"), Count("sendPhoto")), (edits, 1));
+                    (Count("editMessageText"), Count("sendPhoto"), Count("sendMediaGroup")), (edits, 1, 1));
                 bot.Stop();
             }
 

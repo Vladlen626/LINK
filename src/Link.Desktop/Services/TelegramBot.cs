@@ -27,8 +27,16 @@ public sealed class TelegramBot : IDisposable
     /// <summary>A file the user sent, by the path getFile gave for it; null when it could not be fetched.</summary>
     public delegate Task<byte[]?> Download(string path, CancellationToken token);
 
-    /// <summary>A call's fields, with a file to upload under <paramref name="Field"/>.</summary>
-    public sealed record FileBody(IReadOnlyDictionary<string, string> Fields, string Field, string Name, byte[] Bytes);
+    /// <summary>A call's fields, with the files to upload: one, or an album's.</summary>
+    public sealed record FileBody(IReadOnlyDictionary<string, string> Fields, IReadOnlyList<Upload> Files)
+    {
+        public FileBody(IReadOnlyDictionary<string, string> fields, string field, string name, byte[] bytes) : this(fields, [new Upload(field, name, bytes)])
+        {
+        }
+    }
+
+    /// <summary>A file to upload under <paramref name="Field"/>.</summary>
+    public sealed record Upload(string Field, string Name, byte[] Bytes);
 
     /// <summary>How long Settings' pairing code is good.</summary>
     public static readonly TimeSpan CodeLife = TimeSpan.FromMinutes(10);
@@ -40,8 +48,8 @@ public sealed class TelegramBot : IDisposable
     private const int PlanShown = 15;
     private const int CardsKept = 100;
     private const int ProjectsShown = 20;
-    // One picture tells what a run made: the one its answer names, or the newest; the rest are in Link's thread.
-    private const int PicturesPerRun = 1;
+    // A Telegram album holds up to 10 photos.
+    private const int Album = 10;
     // Telegram takes a photo up to 10 MB and any other file up to 50 MB.
     private const int MaxPhoto = 10 << 20;
     private const int MaxFile = 50 << 20;
@@ -126,7 +134,7 @@ public sealed class TelegramBot : IDisposable
     {
         var content = new MultipartFormDataContent();
         foreach (var (name, value) in file.Fields) content.Add(new StringContent(value), name);
-        content.Add(new ByteArrayContent(file.Bytes), file.Field, file.Name);
+        foreach (var upload in file.Files) content.Add(new ByteArrayContent(upload.Bytes), upload.Field, upload.Name);
         return content;
     }
 
@@ -826,17 +834,36 @@ public sealed class TelegramBot : IDisposable
             ? thread.GetInt64()
             : 0;
 
-    /// <summary>The picture the task's last run made that its card has not had: as a photo, a big one as a file.</summary>
+    /// <summary>
+    /// The pictures the task's last run made that its card has not had, those its thread in Link shows (the ones its
+    /// answer names first): one as a photo, more as one silent album; a big one as a file of its own.
+    /// </summary>
     private async Task PicturesAsync(long chat, Guid id, TelegramCard card, CancellationToken token)
     {
         var pictures = await _host.ImagesAsync(id);
-        foreach (var path in pictures.Except(card.Pictures).Take(PicturesPerRun))
+        var fresh = pictures.Except(card.Pictures).Select(path => (Path: path, Size: new FileInfo(path).Length)).Where(file => file.Size <= MaxFile).ToArray();
+        foreach (var album in fresh.Where(file => file.Size <= MaxPhoto).Select(file => file.Path).Chunk(Album))
         {
-            var size = new FileInfo(path).Length;
-            if (size > MaxFile) continue;
-            var photo = size <= MaxPhoto;
-            await _api(photo ? "sendPhoto" : "sendDocument",
-                new FileBody(Fields(chat, card.Topic), photo ? "photo" : "document", Path.GetFileName(path), await File.ReadAllBytesAsync(path, token)), token);
+            if (album.Length == 1)
+            {
+                await _api("sendPhoto", new FileBody(Fields(chat, card.Topic), "photo", Path.GetFileName(album[0]), await File.ReadAllBytesAsync(album[0], token)), token);
+                continue;
+            }
+
+            var fields = Fields(chat, card.Topic);
+            fields["media"] = JsonSerializer.Serialize(album.Select((_, index) => new { type = "photo", media = $"attach://p{index}" }));
+            var files = new List<Upload>();
+            for (var index = 0; index < album.Length; index++)
+            {
+                files.Add(new Upload($"p{index}", Path.GetFileName(album[index]), await File.ReadAllBytesAsync(album[index], token)));
+            }
+
+            await _api("sendMediaGroup", new FileBody(fields, files), token);
+        }
+
+        foreach (var big in fresh.Where(file => file.Size > MaxPhoto))
+        {
+            await _api("sendDocument", new FileBody(Fields(chat, card.Topic), "document", Path.GetFileName(big.Path), await File.ReadAllBytesAsync(big.Path, token)), token);
         }
 
         // All the run's pictures are seen, so the others do not trickle in later.
