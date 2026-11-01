@@ -31,8 +31,12 @@ public static partial class HarnessGuard
     /// </summary>
     public const int SearchesWithoutWork = 15;
 
-    /// <summary>Why the call breaks a rule, said to the agent; null when it may run.</summary>
-    public static string? Check(JsonElement input)
+    /// <summary>
+    /// Why the call breaks a rule, said to the agent; null when it may run. <paramref name="project"/> is the folder the run
+    /// started in (Claude Code's CLAUDE_PROJECT_DIR): the input's cwd follows the agent's cd, into a nested repository or
+    /// even a protected folder.
+    /// </summary>
+    public static string? Check(JsonElement input, string? project = null)
     {
         var tool = Text(input, "tool_name") ?? string.Empty;
         if (!input.TryGetProperty("tool_input", out var args) || args.ValueKind != JsonValueKind.Object) return null;
@@ -44,7 +48,7 @@ public static partial class HarnessGuard
             "NotebookEdit" => Text(args, "notebook_path"),
             _ => null
         };
-        if (Protected(edited, workspace) is { } kept) return kept;
+        if (Protected(edited, workspace, project ?? workspace) is { } kept) return kept;
 
         // No-stop asks nothing and refuses nothing else: its run is the user's "allow all", and a nudge reads as a refusal.
         var noStop = Text(input, "permission_mode") == "bypassPermissions";
@@ -181,16 +185,17 @@ public static partial class HarnessGuard
         (Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.UserProfile), "LinkPacks"), "the skill packs every project shares")
     ];
 
-    private static string? Protected(string? file, string? workspace)
+    private static string? Protected(string? file, string? workspace, string? project)
     {
-        if (file is null || workspace is null) return null;
+        if (file is null || workspace is null || project is null) return null;
         var full = Path.GetFullPath(WindowsPath(file, workspace));
-        // The workspace's memory is the agent's own to keep, under the user's account or one of Link's (a junction to it).
-        var memory = Path.Combine("projects", Regex.Replace(Path.GetFullPath(workspace), "[^A-Za-z0-9]", "-"), "memory");
+        project = Path.TrimEndingDirectorySeparator(Path.GetFullPath(project));
+        // The project's memory is the agent's own to keep, under the user's account or one of Link's (a junction to it).
+        var memory = Path.Combine("projects", Regex.Replace(project, "[^A-Za-z0-9]", "-"), "memory");
         if (full.Contains(Path.DirectorySeparatorChar + memory + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)) return null;
         foreach (var (folder, what) in ProtectedFolders)
         {
-            if (Inside(full, folder) && !Inside(Path.GetFullPath(workspace), folder))
+            if (Inside(full, folder) && !Inside(project, folder))
             {
                 return $"{full} is in {what}, which a task never edits. Leave it, and say at the end of your answer what " +
                     "should change there and why: the user does it.";

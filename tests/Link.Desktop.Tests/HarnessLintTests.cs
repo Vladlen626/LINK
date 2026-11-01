@@ -81,6 +81,12 @@ internal static class HarnessLintTests
                     EditIn(Path.Combine(linkData, "ClaudeAccounts", "Account 2", "projects", slug, "memory", "state.md"), workspace),
                     EditIn(Path.Combine(claude, "projects", "C--Other", "memory", "state.md"), workspace) is not null),
                 ((string?)null, (string?)null, true));
+            string? EditFrom(string file, string cwd) => Link.Guard.HarnessGuard.Check(
+                System.Text.Json.JsonSerializer.SerializeToElement(new { tool_name = "Edit", cwd, tool_input = new { file_path = file } }), workspace);
+            Program.Equal("Guard: the project is where the run started, not where the agent went with cd",
+                (EditFrom(Path.Combine(linkData, "ClaudeAccounts", "Account 2", "projects", slug, "memory", "state.md"), Path.Combine(workspace, "Game", "Assets")),
+                    EditFrom(Path.Combine(claude, "settings.json"), Path.Combine(claude, "projects", slug, "memory")) is not null),
+                ((string?)null, true));
 
             var session = Guid.NewGuid().ToString();
             string? Remembered(string tool, object args) => Link.Guard.HarnessGuard.Check(

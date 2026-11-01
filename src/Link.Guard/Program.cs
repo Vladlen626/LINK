@@ -9,7 +9,8 @@ try
     using var input = JsonDocument.Parse(Console.OpenStandardInput());
     var root = input.RootElement;
     var stop = root.TryGetProperty("hook_event_name", out var name) && name.ValueKind == JsonValueKind.String && name.GetString() == "Stop";
-    if ((stop ? HarnessGuard.Stop(root) : HarnessGuard.Check(root)) is { } why)
+    var project = Environment.GetEnvironmentVariable("CLAUDE_PROJECT_DIR") is { Length: > 0 } started ? started : null;
+    if ((stop ? HarnessGuard.Stop(root) : HarnessGuard.Check(root, project)) is { } why)
     {
         Console.Error.WriteLine(why);
         return 2;
