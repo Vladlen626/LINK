@@ -1337,7 +1337,7 @@ public partial class MainWindow
     private static IReadOnlyList<string> HelperNames(AgentSettings settings) =>
     [
         .. settings.Helpers ? new[] { $"mechanic · {settings.ClaudeLight.Model ?? "haiku"}", "Explore" } : [],
-        .. settings.CodexHelper && ClaudeCodeProvider.FindCodex(settings) is not null ? new[] { "Codex as a tool" } : []
+        .. settings.CodexHelper && ClaudeCodeProvider.FindCodex(settings) is not null ? new[] { "scout · Codex", "Codex as a tool" } : []
     ];
 
     internal HarnessView CurrentHarness()

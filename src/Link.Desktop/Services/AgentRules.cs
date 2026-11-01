@@ -79,6 +79,9 @@ public static partial class AgentRules
 
     public static string CodexHelperFile => Path.Combine(AppContext.BaseDirectory, "harness", "codex-helper.md");
 
+    /// <summary>What Claude's final check is told of Codex as a second reader of the change.</summary>
+    public static string CodexReviewFile => Path.Combine(AppContext.BaseDirectory, "harness", "codex-review.md");
+
     public static string PerforceFile => Path.Combine(AppContext.BaseDirectory, "harness", "perforce.md");
 
     /// <summary>A harness file's text without its notes for whoever edits it.</summary>

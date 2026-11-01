@@ -57,6 +57,7 @@
     <Content Include="..\..\docs\harness\final-check.md" Link="harness\final-check.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\helpers.md" Link="harness\helpers.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\codex-helper.md" Link="harness\codex-helper.md" CopyToOutputDirectory="PreserveNewest" />
+    <Content Include="..\..\docs\harness\codex-review.md" Link="harness\codex-review.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\map-task.md" Link="harness\map-task.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\team-task.md" Link="harness\team-task.md" CopyToOutputDirectory="PreserveNewest" />
     <Content Include="..\..\docs\harness\team-review.md" Link="harness\team-review.md" CopyToOutputDirectory="PreserveNewest" />

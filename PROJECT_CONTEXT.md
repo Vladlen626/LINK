@@ -549,6 +549,16 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    where git lives; the final check tags its findings Important / Nit / Pre-existing and reads `REVIEW.md`; the rules
    are shorter, and HarnessLint flags long skill descriptions. L.6 is the user's measurement: 10 golden tasks, each
    twice, one loop against Team; then Team is deleted or kept for one kind.
+
+   Codex reads for Claude (02.11, from the Drive Slop runs of 30.10–01.11): Claude Code's Explore runs on the lead's
+   model (Opus), and in one run seven of them made a third of the requests to bring back a few lines, while
+   `link-codex` was never called. So:
+   - a run gets `scout`, a Light-model subagent that asks `link-codex scout` (a plan first too);
+   - the final check of a Claude task may start `link-codex review` as a second reader of another model family
+     (Greptile 2026: each family finds more bugs in the other's code). Only findings Claude confirmed count;
+   - both run in Codex's read-only sandbox whatever the run's access, Night mode's too;
+   - a level's model the ChatGPT account lacks is retried once on the user's own model;
+   - without Codex, everything is as before (Explore, the check alone).
 16. **Sharing what the agents learned** (the user, 30.10: give the useful knowledge to a friend, who sets it up for
    their own tasks): the Harness column's Share card. Share ▾ → What my agents learned… lists the tool packs' skills
    and roles that differ from Link's own; an item with a line that looks personal (a user's folder, an email, a key,

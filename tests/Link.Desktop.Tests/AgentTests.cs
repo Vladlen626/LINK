@@ -963,10 +963,26 @@ internal static class AgentTests
             "-c sandbox_mode=workspace-write -c approval_policy=never " + string.Join(" ", CodexProvider.FeaturesOff.Select(feature => $"-c features.{feature}=false")));
         var variables = claude.EnvironmentVariables(work);
         var script = variables.TryGetValue("PATH", out var path) ? Path.Combine(path.Split(Path.PathSeparator)[0], ClaudeCodeProvider.CodexCommand) : string.Empty;
-        Program.Equal("one loop: a work run may call link-codex, a script first on its PATH that runs the found Codex; a plan first may not",
+        Program.Equal("one loop: a work run may call link-codex, a script first on its PATH that runs the found Codex; a plan first may not hand it work",
             (claude.Arguments(work)[^1], File.Exists(script) && !File.ReadAllText(script).Contains('\r'), variables["LINK_CODEX"],
-                claude.Arguments(work with { PlanOnly = true }).Contains(ClaudeCodeProvider.CodexRule), claude.EnvironmentVariables(work with { PlanOnly = true }).ContainsKey("PATH")),
-            (ClaudeCodeProvider.CodexRule, true, codex.Replace('\\', '/'), false, false));
+                claude.Arguments(work with { PlanOnly = true }).Contains(ClaudeCodeProvider.CodexRule)),
+            (ClaudeCodeProvider.CodexRule, true, codex.Replace('\\', '/'), false));
+
+        var judge = work with { Judge = true };
+        Program.Equal("Codex reads: a plan first may only scout and a final check only review, in the read-only sandbox whatever the run's access; the art critic neither",
+            (claude.Arguments(work with { PlanOnly = true })[^1], claude.Arguments(judge)[^1],
+                claude.Arguments(judge with { RoleId = ArtCritic.RoleId }).Any(argument => argument.Contains(ClaudeCodeProvider.CodexCommand)),
+                variables["LINK_CODEX_SCOUT"].StartsWith("-c sandbox_mode=read-only", StringComparison.Ordinal),
+                claude.EnvironmentVariables(work with { NoStop = true })["LINK_CODEX_REVIEW"].StartsWith("-c sandbox_mode=read-only", StringComparison.Ordinal),
+                File.ReadAllText(script).Split("scout)")[1].Split(";;")[0].Contains("--sandbox read-only")),
+            (ClaudeCodeProvider.ScoutRule, ClaudeCodeProvider.ReviewRule, false, true, true, true));
+        string? Agents(AgentTask task) => claude.Arguments(task).ToList() is var arguments && arguments.IndexOf("--agents") is var at and >= 0 ? File.ReadAllText(arguments[at + 1]) : null;
+        Program.Equal("Codex reads: a plan first gets the scout alone, a work run the mechanic and the scout, a judge no subagent",
+            (Agents(work with { PlanOnly = true }) is { } scout && scout.Contains("\"scout\"") && !scout.Contains("\"mechanic\""),
+                Agents(work) is { } both && both.Contains("\"scout\"") && both.Contains("\"mechanic\""), Agents(judge)),
+            (true, true, (string?)null));
+        Program.Equal("Codex reads: the final check is told of its second reader, a work run of the scout",
+            (claude.StandardInput(judge).Contains("link-codex review"), claude.StandardInput(work).Contains("`scout`")), (true, true));
 
         var parser = claude.CreateParser(work);
         var events = new[]

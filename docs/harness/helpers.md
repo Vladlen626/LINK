@@ -6,5 +6,5 @@
   repeated edit across files, docs and comments. Give it the files, the change and the check; it answers in a few
   lines. Look at its diff before you go on. Design, an unclear bug and taste stay yours.
 - Explore: a search whose answer is a few lines (where is X, what uses Y) instead of reading many files into this
-  session.
+  session. Where `scout` is there (below), ask it instead: Explore runs on this session's model.
 - A helper knows only what you write to it: the plan and the decisions stay here.
