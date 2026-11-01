@@ -1,4 +1,4 @@
-# Drives the user's own Link through UI Automation, at the user's request: in the project Link shows, Studio -> New
+# Drives the user's own Link through UI Automation, at the user's request: Studio on the project, New
 # task, the goal from a UTF-8 file, the agent picked on the card (or its default), and Run.
 # ASCII only: Windows PowerShell 5.1 runs it; the Russian goal comes from a UTF-8 file.
 param([Parameter(Mandatory = $true)] [string]$Project, [Parameter(Mandatory = $true)] [string]$Goal, [string]$Agent = '', [switch]$NoRun)
@@ -49,14 +49,25 @@ function Select-Item($combo, [string]$like) {
 for ($i = 0; $i -lt 120 -and [Idle]::Seconds() -lt 15; $i++) { Start-Sleep -Seconds 1 }
 "idle: $([Idle]::Seconds()) s"
 
-$name = (Wait-Id 'ProjectNameText').Current.Name
-"project: $name"
-if ($name -ne $Project) { throw "Link shows the project '$name', not '$Project': switch it first" }
-
 # The side panel open, its Studio button pressed (it opens the Studio); New task opens the card (Link refuses while
 # an agent works).
 if (-not (Find-Id 'StudioButton')) { Invoke-Element (Wait-Id 'ExpandButton'); Start-Sleep -Milliseconds 800 }
 Invoke-Element (Wait-Id 'StudioButton'); Start-Sleep -Milliseconds 800
+
+# The Studio has a project of its own, apart from the overlay's: New task is for it. Its header's menu switches it.
+$header = Wait-Id 'ProjectButton'
+$byText = New-Object System.Windows.Automation.PropertyCondition($A::AutomationIdProperty, 'ProjectText')
+$name = $header.FindFirst($Tree::Descendants, $byText).Current.Name
+"studio project: $name"
+if ($name -ne $Project) {
+  Invoke-Element $header; Start-Sleep -Milliseconds 600
+  $byName = New-Object System.Windows.Automation.PropertyCondition($A::NameProperty, $Project)
+  $item = $null
+  foreach ($w in (Main-Window)) { $item = $w.FindFirst($Tree::Descendants, $byName); if ($item) { break } }
+  if (-not $item) { throw "the Studio's menu has no project '$Project'" }
+  Invoke-Element $item; Start-Sleep -Milliseconds 800
+  "studio project: $($header.FindFirst($Tree::Descendants, $byText).Current.Name)"
+}
 if (-not (Find-Id 'NewTaskButton')) {
   # A task is open: its back button (no name, only the tooltip) leads to the list.
   $back = New-Object System.Windows.Automation.PropertyCondition($A::HelpTextProperty, 'All tasks of the project')
