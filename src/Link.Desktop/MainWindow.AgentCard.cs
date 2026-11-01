@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Windows.Media;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
@@ -7,6 +8,29 @@ namespace Link.Desktop;
 // The task card: which agent works with what model and effort, the limits it shows, and the setup of the next run.
 public partial class MainWindow
 {
+    // A new task's card left unsent when Link closed (a restart, a rebuild): the next Link's card starts from it.
+    private readonly string _cardDraftFile;
+
+    private CardDraft? ReadCardDraft() => AtomicJsonFile.Read<CardDraft>(_cardDraftFile);
+
+    /// <summary>
+    /// Link closes: a new task's words and pictures not run yet are kept for the next Link, none takes the file away.
+    /// Without the Studio opened this time the draft on disk is the last Link's, and stays.
+    /// </summary>
+    private void SaveCardDraft()
+    {
+        if (_agentPanel is not { } panel) return;
+        try
+        {
+            if (panel.Draft is { } draft) AtomicJsonFile.Write(_cardDraftFile, draft, new JsonSerializerOptions());
+            else File.Delete(_cardDraftFile);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Closing must go on: the draft is lost, as it was before Link kept one.
+        }
+    }
+
     /// <summary>The task card for a snapshot: <paramref name="brief"/> is what the agent is told, the question by default.</summary>
     private void OpenAgentCard(InputSnapshot snapshot, string? brief = null)
     {

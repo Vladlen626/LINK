@@ -127,7 +127,8 @@ public partial class App : System.Windows.Application
             new AgentLimits(paths.AgentLimitsFile),
             new UsageReport(Log),
             new UsageHistory(paths.UsageHistoryFile),
-            cues);
+            cues,
+            paths.CardDraftFile);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
         _mainWindow.NotificationRequested += ShowNotification;

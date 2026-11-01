@@ -63,7 +63,8 @@ ChatGPT project Link talks to.
 
 - **Start a task** with `Ctrl+Enter` in the card, **New task** in Studio (`Ctrl+N`) or **→ Agent task** under an
   answer. A card shows the brief, the agent, model, effort and access; nothing runs before **Run**. **Plan first**
-  has the agent only read and propose.
+  has the agent only read and propose. A card left without Run keeps its words and pasted pictures as a draft, also
+  across a restart: the next **New task** starts from it.
 - **Its own project.** Studio's header picks the project it shows, apart from the overlay's: write in one while agents
   work in another. A task or card opened from the overlay turns Studio to its project.
 - **One task, one thread.** Each run shows its steps folded ("Ran 3 commands, read 4 files…"), the pictures it looked

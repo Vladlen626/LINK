@@ -143,7 +143,7 @@ public partial class MainWindow
 
     private AgentPanel CreateAgentPanel()
     {
-        var panel = new AgentPanel { SaveImage = _history.SaveClipboardImage };
+        var panel = new AgentPanel { SaveImage = bitmap => _history.SaveClipboardImage(bitmap, kept: true), Draft = ReadCardDraft() };
         panel.RunRequested += plan =>
         {
             if (_cardRun is { } run) _ = run(plan);

@@ -89,6 +89,7 @@ internal static class AgentTests
         HarnessCardLine();
         StudioSettingsKept();
         StudioSettingsOdd();
+        CardDraftKept();
         FirstRunWords();
         TeamPackRoundTrip();
         TeamPackLinks();
@@ -2818,6 +2819,17 @@ internal static class AgentTests
         Program.Equal("harness card line: one skill; no skills and no servers",
             (HarnessView.CardLine(550_000, 1, ["unreal"]), HarnessView.CardLine(1_000_000, 0, [])),
             ("Context budget 550k · 1 skill · MCP: unreal", "Context budget 1M · no skills · no MCP servers"));
+    }
+
+    /// <summary>A new task's card left unsent comes back after a restart, its words and pictures as they were.</summary>
+    private static void CardDraftKept()
+    {
+        var file = Path.Combine(TempFolder(), "card-draft.json");
+        AtomicJsonFile.Write(file, new CardDraft("Fix the seats\nand the legs", [@"C:\pictures\a.png", @"C:\pictures\b.png"]), new JsonSerializerOptions());
+        var back = AtomicJsonFile.Read<CardDraft>(file);
+        Program.Equal("card draft: the words and pictures of an unsent card are read back after a restart",
+            (back?.Goal, back?.Pictures.Length, back?.Pictures[1]), ("Fix the seats\nand the legs", (int?)2, @"C:\pictures\b.png"));
+        Directory.Delete(Path.GetDirectoryName(file)!, recursive: true);
     }
 
     /// <summary>The Studio window's place and inspector are saved with the settings; an older settings.json has the defaults.</summary>

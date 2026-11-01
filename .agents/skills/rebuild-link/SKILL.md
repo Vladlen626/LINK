@@ -17,6 +17,9 @@ the user has not said they will do it themselves.
 `agent running` — an agent task works in Link: never close it, the task would die. Commit, and tell the user to
 rebuild when the task is over.
 
+`running, idle` says nothing about the user: they may be writing a task card with pictures right now (2026-11-01 a
+close took one). Close their Link only on their yes, asked right before.
+
 ## While Link stays open
 
 Build and test into the scratchpad, not `bin\Release`:
