@@ -208,7 +208,7 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
             }
             : new HarnessSection("Project memory", $"{ProjectMap.RelativePath} · missing")
             {
-                Note = "Without it the agent searches the folders itself; the Map button of the Project tab has it written"
+                Note = "Without it the agent searches the folders itself; the Map button of the project's column has it written"
             };
     }
 
@@ -278,7 +278,7 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
         return new HarnessSection("Verification", input.CheckCommand ?? "None — you check the result")
         {
             Note = lines.Length > 0 ? $"Last: {lines[0]}"
-                : input.CheckCommand is null ? "A check command in the Project tab runs after the agent's edits and sends a failure back" : null,
+                : input.CheckCommand is null ? "A check command in the project's column runs after the agent's edits and sends a failure back" : null,
             Detail = lines.Length > 1 ? last : null
         };
     }

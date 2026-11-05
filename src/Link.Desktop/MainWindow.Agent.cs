@@ -198,7 +198,7 @@ public partial class MainWindow
         _ = RefreshSpentAsync(now: false);
         // The card is in the Studio, so the Studio is there to open its column.
         panel.HarnessRequested += () => _studio?.ShowInspector(true);
-        // The folder chosen on the card is the project's, as if chosen in the Project tab; the card takes its harness.
+        // The folder chosen on the card is the project's, as if chosen in the project's column; the card takes its harness.
         panel.WorkspaceChosen += (projectId, folder) =>
         {
             if (_projects.Projects.FirstOrDefault(each => each.Id == projectId) is not { } project) return;
@@ -1378,7 +1378,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The agent's pill in the card's header and the side panel's Studio button dot: who works and how the task stands,
+    /// The agent's pill in the card's header and the Link window's Studio tab dot: who works and how the task stands,
     /// the open task's or else the one at work, Link's own answer while it is written, and how many more runs are at work.
     /// </summary>
     private void UpdateAgentPill()
@@ -1388,7 +1388,7 @@ public partial class MainWindow
         if (work is null && own is null)
         {
             AgentPill.Visibility = Visibility.Collapsed;
-            _panel?.ShowTaskDot(null);
+            _studio?.ShowTaskDot(null);
             return;
         }
 
@@ -1409,7 +1409,7 @@ public partial class MainWindow
                             (_limits.Describe(provider) is { Length: > 0 } limits ? $"\nUsage: {limits}" : string.Empty) +
                             "\nClick to see it in the Studio";
         AgentPill.Visibility = Visibility.Visible;
-        _panel?.ShowTaskDot(dot);
+        _studio?.ShowTaskDot(dot);
     }
 
     private void AgentPill_OnClick(object sender, RoutedEventArgs e)

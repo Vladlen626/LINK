@@ -53,10 +53,10 @@ $name = (Wait-Id 'ProjectNameText').Current.Name
 "project: $name"
 if ($name -ne $Project) { throw "Link shows the project '$name', not '$Project': switch it first" }
 
-# The side panel open, its Studio button pressed (it opens the Studio); New task opens the card (Link refuses while
+# The Link window open (the card's Expand), on its Studio tab; New task opens the card (Link refuses while
 # an agent works).
-if (-not (Find-Id 'StudioButton')) { Invoke-Element (Wait-Id 'ExpandButton'); Start-Sleep -Milliseconds 800 }
-Invoke-Element (Wait-Id 'StudioButton'); Start-Sleep -Milliseconds 800
+Invoke-Element (Wait-Id 'ExpandButton'); Start-Sleep -Milliseconds 800
+Invoke-Element (Wait-Id 'StudioTabButton'); Start-Sleep -Milliseconds 800
 if (-not (Find-Id 'NewTaskButton')) {
   # A task is open: its back button (no name, only the tooltip) leads to the list.
   $back = New-Object System.Windows.Automation.PropertyCondition($A::HelpTextProperty, 'All tasks of the project')

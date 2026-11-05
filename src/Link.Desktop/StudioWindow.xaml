@@ -3,7 +3,7 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:shell="clr-namespace:System.Windows.Shell;assembly=PresentationFramework"
         xmlns:local="clr-namespace:Link.Desktop"
-        Title="Link Studio" Icon="{StaticResource StudioIconImage}" Width="1100" Height="720" MinWidth="760" MinHeight="480"
+        Title="Link" Icon="{StaticResource StudioIconImage}" Width="1100" Height="720" MinWidth="760" MinHeight="480"
         Style="{StaticResource LinkWindowStyle}" WindowStartupLocation="CenterScreen" ResizeMode="CanResize" ShowInTaskbar="True"
         WindowStyle="None">
     <shell:WindowChrome.WindowChrome>
@@ -22,14 +22,16 @@
             <Grid>
                 <Grid.RowDefinitions><RowDefinition Height="46" /><RowDefinition Height="*" /></Grid.RowDefinitions>
 
-                <!-- The caption: the tasks' toggle, Link and the project; on the right the open task's context with Compact,
-                     the Spend and Harness toggles of the right column, and the window's own buttons. -->
+                <!-- The caption: the tasks' toggle, Link with its two tabs and the project; on the Studio tab, on the right, the
+                     open task's context with Compact and the Spend and Harness toggles of the right column; the window's own
+                     buttons. -->
                 <Border BorderBrush="{StaticResource HairlineBrush}" BorderThickness="0,0,0,1">
                     <Grid>
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
 
+                        <!-- Hidden, not collapsed, on the Chat tab: the tabs stay where the pointer left them. -->
                         <Button x:Name="SidebarButton" Margin="10,0,6,0" Width="32" Height="32" VerticalAlignment="Center"
                                 Style="{StaticResource HeaderIconButtonStyle}" shell:WindowChrome.IsHitTestVisibleInChrome="True"
                                 Click="Sidebar_OnClick">
@@ -46,12 +48,51 @@
                             </Grid.ColumnDefinitions>
                             <Control Width="20" Height="20" Focusable="False" Foreground="{StaticResource BrandBrush}"
                                      Template="{StaticResource LinkGlyphTemplate}" />
-                            <TextBlock Grid.Column="1" Margin="9,0,0,0" VerticalAlignment="Center" FontSize="14" FontWeight="SemiBold" Text="Studio" />
-                            <TextBlock x:Name="ProjectText" Grid.Column="2" Margin="12,1,12,0" VerticalAlignment="Center" FontSize="13"
-                                       Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
+
+                            <!-- The two tabs as one switch: the chats with ChatGPT, and the Studio of the agents' tasks with
+                                 the task's standing as a dot. -->
+                            <Border Grid.Column="1" Margin="12,0,0,0" Padding="2" VerticalAlignment="Center" CornerRadius="8"
+                                    BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1">
+                                <StackPanel Orientation="Horizontal">
+                                    <Button x:Name="ChatTabButton" Height="28" Padding="10,2" Style="{StaticResource GhostButtonStyle}"
+                                            shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="ChatTab_OnClick"
+                                            ToolTip="Chat: the project's chats with ChatGPT and what was asked in them (Ctrl+1)">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Viewbox Width="14" Height="14" Margin="0,1,7,0">
+                                                <Path Data="{StaticResource ChatIconGeometry}" Fill="Transparent"
+                                                      Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                      StrokeThickness="1.9" StrokeLineJoin="Round" />
+                                            </Viewbox>
+                                            <TextBlock VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Text="Chat" />
+                                        </StackPanel>
+                                    </Button>
+                                    <Button x:Name="StudioTabButton" Height="28" Margin="2,0,0,0" Padding="10,2" Style="{StaticResource GhostButtonStyle}"
+                                            shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="StudioTab_OnClick"
+                                            ToolTip="Studio: the agents' tasks, their threads, the Harness and the Spend (Ctrl+2)">
+                                        <StackPanel Orientation="Horizontal">
+                                            <Grid Width="19" Height="16" Margin="0,1,6,0">
+                                                <Viewbox Width="15" Height="15" HorizontalAlignment="Left" VerticalAlignment="Top">
+                                                    <Path Data="{StaticResource CodeIconGeometry}" Fill="Transparent"
+                                                          Stroke="{Binding Foreground, RelativeSource={RelativeSource AncestorType=Button}}"
+                                                          StrokeThickness="1.9" StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                                                </Viewbox>
+                                                <Ellipse x:Name="TaskTabDot" Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                                                         Stroke="{StaticResource PanelBrush}" StrokeThickness="1.5" Visibility="Collapsed" />
+                                            </Grid>
+                                            <TextBlock VerticalAlignment="Center" FontSize="13" FontWeight="SemiBold" Text="Studio" />
+                                        </StackPanel>
+                                    </Button>
+                                </StackPanel>
+                            </Border>
+
+                            <Button x:Name="ProjectButton" Grid.Column="2" Margin="10,0,12,0" Height="30" Padding="8,2" HorizontalAlignment="Left"
+                                    VerticalAlignment="Center" Style="{StaticResource GhostButtonStyle}"
+                                    shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="Project_OnClick">
+                                <TextBlock x:Name="ProjectText" FontSize="13" TextTrimming="CharacterEllipsis" />
+                            </Button>
                         </Grid>
 
-                        <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
+                        <StackPanel x:Name="StudioTools" Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                             <StackPanel x:Name="ContextPanel" Orientation="Horizontal" Visibility="Collapsed">
                                 <TextBlock x:Name="ContextText" VerticalAlignment="Center" FontSize="13" Style="{StaticResource SecondaryTextStyle}" />
                                 <!-- How full the session is against its limit, at a glance; the warning colour near it. -->
@@ -112,14 +153,16 @@
                     </Grid>
                 </Border>
 
-                <!-- The tasks (the sidebar and the open task, AgentPanel) in the middle; on the right, in a column that folds
-                     away, what the agent really gets (Harness) or where its tokens went (Spend). Clear of the resize band on the
-                     right, which would take the scroll bars' clicks. -->
+                <!-- The tab's page in the middle: the chats (ChatsPanel) at a reading width, or the tasks (the sidebar and the
+                     open task, AgentPanel). On the right, in a column that folds away, the project itself (ProjectPanel), on
+                     the Studio tab also what the agent really gets (Harness) or where its tokens went (Spend). Clear of the
+                     resize band on the right, which would take the scroll bars' clicks. -->
                 <Grid Grid.Row="1" Margin="0,0,6,0">
                     <Grid.ColumnDefinitions>
                         <ColumnDefinition Width="*" />
                         <ColumnDefinition x:Name="InspectorColumn" Width="340" />
                     </Grid.ColumnDefinitions>
+                    <Border x:Name="ChatHost" MaxWidth="760" Margin="20,14,14,16" />
                     <Border x:Name="TasksHost" />
                     <Border x:Name="InspectorHost" Grid.Column="1" BorderBrush="{StaticResource HairlineBrush}" BorderThickness="1,0,0,0">
                         <Grid>
@@ -129,6 +172,8 @@
                             <ScrollViewer x:Name="SpendScroll" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled" Visibility="Collapsed">
                                 <local:SpendView x:Name="Spend" Margin="12,12,6,12" />
                             </ScrollViewer>
+                            <!-- ProjectPanel scrolls itself. -->
+                            <Border x:Name="ProjectHost" Margin="12,12,6,12" Visibility="Collapsed" />
                         </Grid>
                     </Border>
                 </Grid>

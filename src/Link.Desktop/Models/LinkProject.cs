@@ -36,7 +36,7 @@ public sealed class LinkProject
     public ChatConversationLink? LinkedConversation { get; set; }
     public ProjectResponse? LastResponse { get; set; }
 
-    /// <summary>The ChatGPT chats this project has talked in, the panel's list of chats; the linked one is among them.</summary>
+    /// <summary>The ChatGPT chats this project has talked in, the Chat tab's list of chats; the linked one is among them.</summary>
     public List<ProjectChat> Chats { get; set; } = [];
 
     /// <summary>Puts a chat the project talks in at the top of its list, or brings its title and time up to date.</summary>
@@ -120,7 +120,7 @@ public sealed class ProjectExchange
     public bool Picture { get; init; }
 }
 
-/// <summary>A ChatGPT chat of the project, as the panel lists it.</summary>
+/// <summary>A ChatGPT chat of the project, as the Chat tab lists it.</summary>
 public sealed class ProjectChat
 {
     public required string ConversationId { get; init; }

@@ -35,7 +35,7 @@ current app / screen / clipboard / voice → Link (Context Brain) → Chat Integ
 ## Направления и статус
 
 - **Overlay** — сделано: frosted-glass always-on-top, drag, ширина 320–1200 px, высота по содержимому до выбранного
-  предела, Hide (кнопка, двойной клик по заголовку, Esc в простое), боковая панель Expand, click-through,
+  предела, Hide (кнопка, двойной клик по заголовку, Esc в простое), Expand открывает окно Link, click-through,
   прозрачность, tray с иконкой по состоянию, короткие звуки, переназначаемые hotkeys.
 - **Vision** — сделано: монитор, весь desktop, каждый монитор, рабочее окно, область (одна за раз), свежий кадр окна
   на каждый Send; Windows.Graphics.Capture с запасными путями, строка Sees, «Saw: …», вопрос про экран одной клавишей.
@@ -75,6 +75,14 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
 
 ## Принятые решения
 
+- Одно окно Link (2026-11-05, видение пользователя: «линк студия и чат будут одним общим окном, с 2мя аккуратными
+  вкладками»). Вкладки **Chat** и **Studio** в заголовке (`StudioWindow`, `Ctrl+1`/`Ctrl+2`, вкладка запоминается в
+  `StudioSettings.Tab`); боковая панель у карточки и кнопка Studio убраны, Expand открывает окно. Проект — колонка
+  справа по имени проекта, на обеих вкладках (`StudioSide`: Harness, Spend, Project). Карточка — быстрый ввод по
+  хоткею; ответ и история переезжают во вкладку Chat (шаг 2). Дальше по плану: проекты вкладками, голос в агентах,
+  видимая очередь, встроенный просмотрщик (md, картинки, 3D, карта проекта, память моделей), комментарии на
+  результате, вырезка лишнего (Team, Translate, Only my text, Ask again, Conversation, вопрос про экран, Route и
+  Effort чата, Escalate и Start over с заметкой, Console, Perforce), полиш.
 - Ответ в overlay: длинный заполняет выбранную высоту и прокручивается, короткий остаётся компактным (не растягивать).
 - Последний ответ хранится для каждого проекта (`LinkProject.LastResponse`). Синхронизации ответов, написанных прямо в
   ChatGPT, нет; если понадобится — pull «последний ответ» при переключении проекта, а не push в announce.
@@ -549,7 +557,7 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
 - Живая проверка: UI Automation запущенного Link (AutomationId `PromptBox`, `SendButton`, `SendHintText`,
   `ResponseStateText`, `StatusText`, `CheckChatButton`, `RouteButton`, `EffortButton`, `OnlyMyTextButton`,
   `SeesButton`, `SeesTitle`, `HideButton`, `ExpandButton`, `AgentPill`, `ResponseDocument`, `SawText`, `AskAgainButton`,
-  `ToAgentButton`; в окне панели — `ProjectTabButton`, `TaskTabButton`, `NoteBox`, `OpenChatButton`, `NewChatButton`,
+  `ToAgentButton`; в окне Link — `ChatTabButton`, `StudioTabButton`, `ProjectButton`, `NoteBox`, `OpenChatButton`, `NewChatButton`,
   `ChatConnectionText`, `GoalText`, `ReplyBox`; скрытый оверлей показывает hotkey ShowHide из `settings.json`).
   Тестовая копия для таких проверок — свой корень данных, свой mutex, необычные hotkeys и без страницы ChatGPT. Разметку страницы ChatGPT можно снять диагностикой Check chat в `link.log` через временную версию
   companion. Сообщения в чат пользователя — только с его разрешения. Claude in Chrome в Opera GX не работает.

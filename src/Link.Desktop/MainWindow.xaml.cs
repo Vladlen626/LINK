@@ -85,14 +85,10 @@ public partial class MainWindow : Window
         _loadingProject = false;
         UpdateRouteButton();
         UpdateEffortButton();
-        UpdateExpandButton();
 
         SourceInitialized += OnSourceInitialized;
         PreviewKeyDown += OnPreviewKeyDown;
         IsVisibleChanged += OnVisibleChanged;
-        LocationChanged += (_, _) => PlacePanel();
-        SizeChanged += (_, _) => PlacePanel();
-        DpiChanged += (_, _) => PlacePanel();
         Loaded += OnLoaded;
         Activated += OnActivated;
         Closing += OnClosing;
@@ -120,12 +116,6 @@ public partial class MainWindow : Window
         Opacity = 1;
         Topmost = _settings.Current.AlwaysOnTop;
         ApplyGlass(this, ShellBorder);
-        if (_panel is not null)
-        {
-            _panel.Topmost = Topmost;
-            ApplyGlass(_panel, _panel.ShellBorder);
-        }
-
         UpdateSees();
         // Voice replies may have been switched off or on.
         UpdateReadAloudButton();
@@ -208,15 +198,11 @@ public partial class MainWindow : Window
 
     private void OnVisibleChanged(object sender, DependencyPropertyChangedEventArgs e)
     {
-        if (IsVisible)
-        {
-            // Shown, Link tells its news itself.
-            _unseen = null;
-            ReportState();
-            RefreshWorkPreview();
-        }
-
-        FollowCardVisibility();
+        if (!IsVisible) return;
+        // Shown, Link tells its news itself.
+        _unseen = null;
+        ReportState();
+        RefreshWorkPreview();
     }
 
     private void OnActivated(object? sender, EventArgs e)
@@ -446,9 +432,7 @@ public partial class MainWindow : Window
         var project = _projects.Create(dialog.ProjectName);
         LoadProject(project);
         // A new project starts with its note and workspace.
-        SetPanelOpen(true);
-        ShowPanelTab(PanelTab.Project);
-        _projectPanel?.FocusNote();
+        ShowProjectSettings();
     }
 
     /// <summary>A project for a folder, named by it and working there; it becomes the current one. Returns its name.</summary>

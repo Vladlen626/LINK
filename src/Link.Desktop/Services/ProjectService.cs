@@ -5,7 +5,7 @@ namespace Link.Desktop.Services;
 
 public sealed class ProjectService
 {
-    // The chats in the panel show their questions and answers from here: enough for the threads of a working week.
+    // The chats on the Chat tab show their questions and answers from here: enough for the threads of a working week.
     private const int HistorySize = 150;
     private readonly StoragePaths _paths;
     private readonly SettingsService _settings;

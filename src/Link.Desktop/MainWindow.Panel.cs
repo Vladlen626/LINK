@@ -1,37 +1,34 @@
 using System.Globalization;
 using System.Windows;
-using System.Windows.Interop;
-using System.Windows.Media;
-using System.Windows.Threading;
 using Link.Desktop.Models;
 
 namespace Link.Desktop;
 
-// The panel beside the card: Expand opens it, it follows the card and hides and shows with it. Two tabs, as in the
-// apps the user knows: the project's chats with ChatGPT, and the project itself (its note and workspace). The agents'
-// tasks are the Studio, a window of its own that the panel's Studio button opens. The card keeps chips of what goes with
-// a request.
+// The project's chats with ChatGPT and the project itself (its note and workspace), shown in the Link window: the chats
+// on its Chat tab, the project in its right column. Expand on the card opens the window. The card keeps chips of what
+// goes with a request.
 public partial class MainWindow
 {
     // How much of an answer the chat's thread shows; Show in Link has the whole of it.
     private const int AnswerGlance = 1200;
-    private SidePanelWindow? _panel;
     private ChatsPanel? _chatsPanel;
     private ProjectPanel? _projectPanel;
-    private PanelTab _panelTab = PanelTab.Chats;
-    // The chat whose thread the Chats tab shows; null: its list.
+    // The chat whose thread the Chat tab shows; null: its list.
     private ChatRow? _shownChat;
     // The note's × in the card: the next question goes without it.
     private bool _noteLeftOut;
 
-    private bool IsLinkActive => IsActive || _panel?.IsActive == true || _studio?.IsActive == true;
+    private bool IsLinkActive => IsActive || _studio?.IsActive == true;
 
-    private void Expand_OnClick(object sender, RoutedEventArgs e) => SetPanelOpen(!_settings.Current.SidePanel.IsOpen);
+    private void Expand_OnClick(object sender, RoutedEventArgs e) => ShowLinkWindow();
 
-    private void NoteChip_OnClick(object sender, RoutedEventArgs e)
+    private void NoteChip_OnClick(object sender, RoutedEventArgs e) => ShowProjectSettings();
+
+    /// <summary>The project's column in the Link window, its note ready for typing.</summary>
+    private void ShowProjectSettings()
     {
-        SetPanelOpen(true);
-        ShowPanelTab(PanelTab.Project);
+        ShowLinkWindow();
+        _studio?.ShowProject();
         _projectPanel?.FocusNote();
     }
 
@@ -56,65 +53,10 @@ public partial class MainWindow
             }
             : null;
 
-    private void SetPanelOpen(bool open)
+    /// <summary>The chats' and the project's panels, made the first time the Link window wants them; true when just made.</summary>
+    private bool EnsureChatAndProject()
     {
-        _settings.Current.SidePanel.IsOpen = open;
-        _settings.Save();
-        UpdateExpandButton();
-        if (open) ShowPanel();
-        else _panel?.Hide();
-    }
-
-    private void UpdateExpandButton()
-    {
-        var open = _settings.Current.SidePanel.IsOpen;
-        ExpandIcon.Stroke = (Brush)FindResource(open ? "AccentBrush" : "TextBrush");
-        ExpandButton.ToolTip = open ? "Close the panel" : "Open the panel: the project's chats and the project itself";
-    }
-
-    private void ShowPanel()
-    {
-        if (!IsVisible || !_settings.Current.SidePanel.IsOpen) return;
-        if (_panel is null)
-        {
-            _panel = CreatePanel();
-            RefreshProjectPanel();
-        }
-
-        _panel.PlaceBeside(this, _settings.Current.SidePanel.Width);
-        _panel.Show();
-    }
-
-    /// <summary>One of the panel's tabs: the chats, or the project.</summary>
-    private void ShowPanelTab(PanelTab tab)
-    {
-        _panelTab = tab;
-        if (_panel is null || _projectPanel is null || _chatsPanel is null) return;
-        _panel.ShowTab(tab, _projects.ActiveProject.Name, tab == PanelTab.Chats ? _chatsPanel : _projectPanel);
-        UpdateAgentPill();
-    }
-
-    private SidePanelWindow CreatePanel()
-    {
-        var panel = new SidePanelWindow { Owner = this, Topmost = Topmost };
-        // Placed and glazed before it is first shown, so it never flashes elsewhere.
-        new WindowInteropHelper(panel).EnsureHandle();
-        ApplyGlass(panel, panel.ShellBorder);
-        // Exiting Link closes the panel too; it stays open for the next start.
-        panel.CloseRequested += () =>
-        {
-            if (!AllowClose) SetPanelOpen(false);
-        };
-        panel.WidthChosen += width =>
-        {
-            _settings.Current.SidePanel.Width = width;
-            _settings.Save();
-            PlacePanel();
-        };
-        panel.DpiChanged += (_, _) => PlacePanel();
-        panel.TabChosen += ShowPanelTab;
-        panel.StudioRequested += ShowAgentPanel;
-
+        if (_chatsPanel is not null && _projectPanel is not null) return false;
         _chatsPanel = new ChatsPanel();
         _chatsPanel.ChatSelected += OnChatSelected;
         _chatsPanel.NewChatRequested += withSummary => _ = StartNewChatAsync(withSummary);
@@ -129,20 +71,19 @@ public partial class MainWindow
         _projectPanel.SkillRequested += ShowFile;
         // Saved with the note, when the field is left.
         _projectPanel.CheckCommandChanged += command => _projects.ActiveProject.CheckCommand = command.Length == 0 ? null : command;
-        return panel;
+        return true;
     }
 
-    /// <summary>Shows the active project in the panel, when there is one.</summary>
+    /// <summary>Shows the active project in the Link window, when its panels are made.</summary>
     private void RefreshProjectPanel()
     {
         RefreshStudioProject();
-        if (_panel is null || _projectPanel is null || _chatsPanel is null) return;
+        if (_projectPanel is null || _chatsPanel is null) return;
         _projectPanel.ShowProject(_projects.ActiveProject);
         _shownChat = null;
         _chatsPanel.ShowListView();
         RefreshChats();
         _chatsPanel.SetBusy(_sending);
-        ShowPanelTab(_panelTab);
         UpdateConnectionState();
     }
 
@@ -240,18 +181,6 @@ public partial class MainWindow
     private string AnswerSource() =>
         _projects.ActiveProject.LinkedConversation is { IsNew: false } chat ? $"ChatGPT · {chat.Title}" : "ChatGPT";
 
-    private void PlacePanel()
-    {
-        if (_panel is { IsVisible: true }) _panel.PlaceBeside(this, _settings.Current.SidePanel.Width);
-    }
-
-    private void FollowCardVisibility()
-    {
-        if (!IsVisible) _panel?.Hide();
-        // Link is drawn first and its panel a moment later, so showing Link is not held up by it.
-        else Dispatcher.BeginInvoke(ShowPanel, DispatcherPriority.Background);
-    }
-
     /// <summary>The note's chip shows its first line, the focus, while the note goes with the next question.</summary>
     private void UpdateNoteChip()
     {
@@ -317,7 +246,7 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>When something in the panel happened: the time today, the day before that.</summary>
+    /// <summary>When something in the chats happened: the time today, the day before that.</summary>
     private static string ShortTime(DateTimeOffset at)
     {
         var when = at.ToLocalTime();

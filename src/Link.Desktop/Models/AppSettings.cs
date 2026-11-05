@@ -60,7 +60,6 @@ public sealed class AppSettings
     public bool OutlineCapturedWindow { get; set; } = true;
     public Guid? ActiveProjectId { get; set; }
     public WindowPlacement Window { get; set; } = new();
-    public SidePanelSettings SidePanel { get; set; } = new();
     public StudioSettings Studio { get; set; } = new();
     public HotkeySettings Hotkeys { get; set; } = new();
     public AgentSettings Agent { get; set; } = new();
@@ -71,7 +70,6 @@ public sealed class AppSettings
         Window ??= new WindowPlacement();
         Agent ??= new AgentSettings();
         Remote ??= new RemoteSettings();
-        SidePanel ??= new SidePanelSettings();
         Studio ??= new StudioSettings();
         Hotkeys ??= new HotkeySettings();
         if (SchemaVersion < 4)
@@ -115,28 +113,16 @@ public sealed class AppSettings
             ? Math.Round(Math.Clamp(VoiceReplySpeed, 0.5, 2.0), 2)
             : DefaultVoiceReplySpeed;
         Window.Normalize();
-        SidePanel.Normalize();
         Studio.Normalize();
         Hotkeys.Normalize();
         Agent.Normalize();
     }
 }
 
-/// <summary>The panel beside Link: whether it opens with Link and how wide it is.</summary>
-public sealed class SidePanelSettings
-{
-    public const double MinWidth = 260;
-    public const double MaxWidth = 640;
-    private const double DefaultWidth = 300;
-
-    public bool IsOpen { get; set; }
-    public double Width { get; set; } = DefaultWidth;
-
-    public void Normalize() =>
-        Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, MinWidth, MaxWidth) : DefaultWidth;
-}
-
-/// <summary>The Studio window: where it was left, how big, and whether its tasks sidebar and its inspector column are open.</summary>
+/// <summary>
+/// The Link window: where it was left, how big, which tab it shows, whether its tasks sidebar and its right column are
+/// open and on what.
+/// </summary>
 public sealed class StudioSettings
 {
     public const double MinWidth = 760;
@@ -155,11 +141,12 @@ public sealed class StudioSettings
     public double Width { get; set; } = DefaultWidth;
     public double Height { get; set; } = DefaultHeight;
     public bool Maximized { get; set; }
+    public StudioTab Tab { get; set; } = StudioTab.Chat;
     public bool InspectorOpen { get; set; } = true;
     public bool SidebarOpen { get; set; } = true;
 
-    /// <summary>The right column shows the Spend view rather than the Harness.</summary>
-    public bool SpendShown { get; set; }
+    /// <summary>What the right column shows when it is open.</summary>
+    public StudioSide Side { get; set; } = StudioSide.Harness;
 
     /// <summary>How many days back the Spend history shows, and whether of every project or the shown one.</summary>
     public int SpendDays { get; set; } = DefaultSpendDays;
@@ -180,9 +167,29 @@ public sealed class StudioSettings
         Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, MinWidth, MaxWidth) : DefaultWidth;
         Height = double.IsFinite(Height) && Height > 0 ? Math.Clamp(Height, MinHeight, MaxHeight) : DefaultHeight;
         SpendDays = SpendDays <= 0 ? DefaultSpendDays : Math.Clamp(SpendDays, 7, Services.UsageHistory.KeptDays);
+        if (!Enum.IsDefined(Tab)) Tab = StudioTab.Chat;
+        if (!Enum.IsDefined(Side)) Side = StudioSide.Harness;
     }
 
     private static bool IsPlace(double value) => double.IsFinite(value) && Math.Abs(value) <= FarthestPlace;
+}
+
+/// <summary>The Link window's tabs: the chats with ChatGPT, and the Studio of the agents' tasks.</summary>
+public enum StudioTab
+{
+    Chat,
+    Studio
+}
+
+/// <summary>
+/// What the window's right column shows: what the agent really gets, where its tokens went, or the project itself (its
+/// note, workspace, map, skills and check).
+/// </summary>
+public enum StudioSide
+{
+    Harness,
+    Spend,
+    Project
 }
 
 public sealed class WindowPlacement

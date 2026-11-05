@@ -512,7 +512,7 @@
                             <TextBlock Grid.Row="1" Margin="0,4,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" FontSize="12" Text="Workspace" />
                             <TextBlock x:Name="WorkspaceText" Grid.Row="1" Grid.Column="1" Margin="0,4,0,0" VerticalAlignment="Center" FontSize="12"
                                        Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
-                            <!-- The folder the agent works in, chosen here rather than in the Project tab: Run waits for it. -->
+                            <!-- The folder the agent works in, chosen here rather than in the project's column: Run waits for it. -->
                             <Button x:Name="ChooseWorkspaceButton" Grid.Row="1" Grid.Column="2" Margin="8,4,-6,0" Padding="8,2" VerticalAlignment="Center"
                                     Style="{StaticResource GhostButtonStyle}" Click="ChooseWorkspace_OnClick"
                                     ToolTip="The folder of the project's work: the agent reads and edits there. The project keeps it">

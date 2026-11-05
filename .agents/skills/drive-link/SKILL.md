@@ -17,7 +17,7 @@ unasked is refused, and Link's agents spend the user's limits.
    ```powershell
    & .agents\skills\drive-link\handoff.ps1 -Project <name> -Extra <words.txt> -NoRun
    ```
-   It waits until nobody has typed for 15 s (the card takes the keyboard), opens the Studio (the side panel's Studio button), the newest task, Hand off ▾ →
+   It waits until nobody has typed for 15 s (the card takes the keyboard), opens the Studio (the card's Expand, then the Link window's Studio tab), the newest task, Hand off ▾ →
    Claude Code · new session, and appends the words to the brief.
 4. Read the card through UIA (ProviderCombo, ModelCombo, EffortCombo, AccessCombo, the end of GoalBox), then invoke
    `RunButton`. The pill (`AgentPillText`) shows "Claude · 0:10" once it runs; its `[Agent]` line comes to link.log at
@@ -28,7 +28,7 @@ unasked is refused, and Link's agents spend the user's limits.
 ```powershell
 & .agents\skills\drive-link\newtask.ps1 -Project <name> -Goal <goal.txt> [-Agent 'Claude Code'|Codex] [-NoRun]
 ```
-It waits for 15 s without typing, opens the Studio (the side panel's Studio button), New task, picks the agent if
+It waits for 15 s without typing, opens the Studio (the card's Expand, then the Link window's Studio tab), New task, picks the agent if
 asked, puts the goal from the UTF-8 file into `GoalBox`, prints the card (agent, model, effort, access, plan first,
 what goes along) and presses Run. After `-NoRun` the card stays open: invoke `RunButton` once it is right.
 
@@ -37,7 +37,7 @@ what goes along) and presses Run. After `-NoRun` the card stays open: invoke `Ru
 ```powershell
 & .agents\skills\drive-link\reply.ps1 -Project <name> -Words <words.txt> [-NoSend]
 ```
-It waits for 15 s without typing, opens the Studio (the side panel's Studio button) — the task Link shows there, or else the newest of the list — puts the
+It waits for 15 s without typing, opens the Studio (the card's Expand, then the Link window's Studio tab) — the task Link shows there, or else the newest of the list — puts the
 words into `ReplyBox` and invokes `ContinueButton` (Send). It prints the task's goal and whether the `Plan mode ✕`
 chip shows: while it does, the session only plans, so a reply that should do the work comes after a click on it.
 

@@ -5,9 +5,10 @@ using Microsoft.Win32;
 
 namespace Link.Desktop;
 
-// Studio: the agents' tasks, the Harness Inspector and the Spend view in a window of their own, apart from the overlay and its panel. It
-// is made the first time it is wanted and is gone when closed; the AgentPanel it shows stays here, with the tasks' state,
-// and moves into each new Studio. Nothing here runs while the Studio is closed.
+// The Link window: the project's chats (the Chat tab) and the agents' tasks with the Harness Inspector and the Spend view
+// (the Studio tab), the project itself in its right column; apart from the overlay card, the quick entry. It is made the
+// first time it is wanted and is gone when closed; the panels it shows stay here, with their state, and move into each
+// new window. Nothing here runs while the window is closed.
 public partial class MainWindow
 {
     // A running session tells its context many times a second; the inspector reads files, so it follows once a second.
@@ -15,22 +16,29 @@ public partial class MainWindow
     private StudioWindow? _studio;
     private long _inspectorBuiltAt;
 
-    private void StudioHeader_OnClick(object sender, RoutedEventArgs e) => ShowAgentPanel();
+    /// <summary>The Link window on its Studio tab, with the tasks as they stand: the card, the open task, or the list.</summary>
+    public void ShowAgentPanel() => ShowLinkWindow(StudioTab.Studio);
 
-    /// <summary>The Studio, opened or brought forward, with the tasks as they stand: the card, the open task, or the list.</summary>
-    public void ShowAgentPanel()
+    /// <summary>The Link window, opened or brought forward on <paramref name="tab"/>, else on the tab it was left on.</summary>
+    private void ShowLinkWindow(StudioTab? tab = null)
     {
         _agentPanel ??= CreateAgentPanel();
+        var made = EnsureChatAndProject();
+        var opened = _studio is null;
         _studio ??= CreateStudio(_agentPanel);
+        if (tab is { } chosen) _studio.ShowTab(chosen);
         if (!_studio.IsVisible) _studio.Show();
         if (_studio.WindowState == WindowState.Minimized) _studio.WindowState = WindowState.Normal;
         _studio.Activate();
-        RefreshStudio();
+        if (made) RefreshProjectPanel();
+        else RefreshStudio();
+        // The new window's Studio tab bears the task's dot.
+        if (opened) UpdateAgentPill();
     }
 
     private StudioWindow CreateStudio(AgentPanel tasks)
     {
-        var studio = new StudioWindow(_settings.Current.Studio, tasks);
+        var studio = new StudioWindow(_settings.Current.Studio, tasks, _chatsPanel!, _projectPanel!);
         studio.CompactRequested += () =>
         {
             if (_open is { } work) _ = CompactTask(work);
@@ -62,20 +70,14 @@ public partial class MainWindow
         return studio;
     }
 
-    /// <summary>
-    /// The overlay and its side panel stay on top of other apps, not of the Studio the user works in. Both go together:
-    /// an owned window cannot sit below a topmost owner.
-    /// </summary>
-    private void KeepOnTop(bool onTop)
-    {
-        Topmost = onTop && _settings.Current.AlwaysOnTop;
-        if (_panel is not null) _panel.Topmost = Topmost;
-    }
+    /// <summary>The overlay stays on top of other apps, not of the Link window the user works in.</summary>
+    private void KeepOnTop(bool onTop) => Topmost = onTop && _settings.Current.AlwaysOnTop;
 
     /// <summary>
-    /// The Studio's header (the project, the open task's context, Compact) and its right column as things stand. The
-    /// column is built only while it is open, and again when it opens; <paramref name="live"/> (the session told its
-    /// context) leaves it as it is if it was built a moment ago, and the Spend history as it is.
+    /// The window's header (the project, the open task's context, Compact) and its right column as things stand. The
+    /// Harness and the Spend view are built only while open, and again when they open; <paramref name="live"/> (the
+    /// session told its context) leaves them as they are if built a moment ago, and the Spend history as it is. The
+    /// project's column follows the project on its own.
     /// </summary>
     private void RefreshStudio(bool live = false)
     {
@@ -83,9 +85,10 @@ public partial class MainWindow
         var context = StudioTask is { } work ? ContextLine(work.Record) ?? "Context not told yet" : null;
         var canCompact = StudioTask is { Busy: false, Waiting: null } open && ResumableTask(open) is not null;
         studio.ShowHeader(_projects.ActiveProject.Name, context, StudioTask is { } shownTask ? ContextFull(shownTask.Record) : null, canCompact);
-        if (!studio.InspectorOpen || live && Environment.TickCount64 - _inspectorBuiltAt < LiveInspectorEvery.TotalMilliseconds) return;
+        if (studio.OpenSide is not { } side || side == StudioSide.Project ||
+            live && Environment.TickCount64 - _inspectorBuiltAt < LiveInspectorEvery.TotalMilliseconds) return;
         _inspectorBuiltAt = Environment.TickCount64;
-        if (!studio.SpendOpen)
+        if (side == StudioSide.Harness)
         {
             studio.ShowHarness(CurrentHarness());
             return;
@@ -141,7 +144,7 @@ public partial class MainWindow
         if (_studio is not { } studio) return;
         if (StudioWorkspace() is not { } workspace)
         {
-            studio.ShowTeamPackStatus("Choose the workspace folder in the Project tab first.");
+            studio.ShowTeamPackStatus("Choose the workspace folder first: the project's name at the top opens it.");
             return;
         }
 
@@ -172,7 +175,7 @@ public partial class MainWindow
         if (_studio is not { } studio) return;
         if (StudioWorkspace() is not { } workspace)
         {
-            studio.ShowTeamPackStatus("Choose the workspace folder in the Project tab first.");
+            studio.ShowTeamPackStatus("Choose the workspace folder first: the project's name at the top opens it.");
             return;
         }
 

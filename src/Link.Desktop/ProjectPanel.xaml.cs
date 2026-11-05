@@ -10,7 +10,7 @@ using Microsoft.Win32;
 namespace Link.Desktop;
 
 /// <summary>
-/// The Project tab beside Link: the project note and the workspace with its map, skills, check and version control.
+/// The project's column of the Link window: the project note and the workspace with its map, skills, check and version control.
 /// It only shows and edits; the card does the work behind each action.
 /// </summary>
 public partial class ProjectPanel : UserControl

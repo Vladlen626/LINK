@@ -8,17 +8,16 @@ namespace Link.Desktop;
 // The chat the project talks in: linked, switched, started anew with a summary, its connection, and checked.
 public partial class MainWindow
 {
-    /// <summary>Ctrl+K: the project's chats in the panel, where one opens and goes on, or a new one starts.</summary>
+    /// <summary>Ctrl+K: the project's chats on the Link window's Chat tab, where one opens and goes on, or a new one starts.</summary>
     private void ShowAllChats()
     {
-        SetPanelOpen(true);
-        ShowPanelTab(PanelTab.Chats);
+        ShowLinkWindow(StudioTab.Chat);
         _shownChat = null;
         _chatsPanel?.ShowListView();
     }
 
     /// <summary>
-    /// A chat of those Link's ChatGPT page knows, picked in a dialog (the project menu, ChatGPT's chats… in the panel):
+    /// A chat of those Link's ChatGPT page knows, picked in a dialog (the project menu, ChatGPT's chats… on the Chat tab):
     /// Link talks there from now on. The dialog also starts a new chat or shows the page.
     /// </summary>
     private void LinkConversation()
@@ -210,9 +209,9 @@ public partial class MainWindow
         if (state == _connectionState) return;
         _connectionState = state;
         if (state == ChatConnectionState.SignInRequired) _cues.Play(SoundCue.NeedsDecision);
-        // The chat row lives in the panel, which may be closed: trouble with the chat shows in the status line too.
+        // The chat row lives in the Link window, which may be closed: trouble with the chat shows in the status line too.
         if (_sending) ReportState();
-        else if (state == ChatConnectionState.SignInRequired) SetStatus("Sign in to ChatGPT: panel → Open chat");
+        else if (state == ChatConnectionState.SignInRequired) SetStatus("Sign in to ChatGPT: the Link window's Chat tab → Open chat");
         else if (state == ChatConnectionState.BridgeUnavailable) SetStatus(text);
         else ReportState();
     }

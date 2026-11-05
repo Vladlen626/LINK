@@ -47,7 +47,7 @@
         </Viewbox>
     </ControlTemplate>
 
-    <!-- Link Studio's icon for the taskbar and the button that opens it: the jellyfish on a warm dark tile, in fixed
+    <!-- The Link window's icon for the taskbar: the jellyfish on a warm dark tile, in fixed
          colours, since the taskbar is not Link's theme. The glyph is LinkGlyphTemplate's, scaled into the tile. -->
     <DrawingImage x:Key="StudioIconImage">
         <DrawingImage.Drawing>

@@ -1,4 +1,5 @@
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
 using Link.Desktop.Models;
@@ -8,10 +9,12 @@ using Link.Desktop.Windows;
 namespace Link.Desktop;
 
 /// <summary>
-/// Link Studio: the tasks on the left (the sidebar of the <see cref="AgentPanel"/> it is given), the open task in the
-/// middle, the Harness Inspector or the Spend view on the right, and in the header the open task's context with Compact. It wears Link's
-/// glass and draws its own caption. A normal window, made when it is first opened and gone when it is closed: it keeps no
-/// timer, and gives the tasks back so that the next Studio can host them.
+/// The Link window, with two tabs as in the apps the user knows. Chat: the project's chats with ChatGPT (the
+/// <see cref="ChatsPanel"/> it is given). Studio: the tasks on the left (the sidebar of the <see cref="AgentPanel"/> it is
+/// given), the open task in the middle, and in the header the open task's context with Compact. On the right, a column
+/// for the project (the <see cref="ProjectPanel"/> it is given), and on the Studio tab for the Harness Inspector or the
+/// Spend view. It draws its own caption. A normal window, made when it is first opened and gone when it is closed: it
+/// keeps no timer, and gives the panels back so that the next window can host them.
 /// </summary>
 public partial class StudioWindow : Window
 {
@@ -26,12 +29,14 @@ public partial class StudioWindow : Window
     private readonly StudioSettings _settings;
     private readonly AgentPanel _tasks;
 
-    public StudioWindow(StudioSettings settings, AgentPanel tasks)
+    public StudioWindow(StudioSettings settings, AgentPanel tasks, ChatsPanel chats, ProjectPanel project)
     {
         _settings = settings;
         _tasks = tasks;
         InitializeComponent();
         TasksHost.Child = tasks;
+        ChatHost.Child = chats;
+        ProjectHost.Child = project;
         Inspector.OpenFileRequested += path => OpenFileRequested?.Invoke(path);
         Inspector.ConsoleRequested += () => ConsoleRequested?.Invoke();
         Inspector.TeamPackExportRequested += () => TeamPackExportRequested?.Invoke();
@@ -55,7 +60,7 @@ public partial class StudioWindow : Window
         }
 
         if (settings.Maximized) WindowState = WindowState.Maximized;
-        ShowSide(settings.InspectorOpen, settings.SpendShown);
+        ShowTab(settings.Tab);
         ShowSidebar(settings.SidebarOpen);
         ApplyState();
         PreviewKeyDown += OnPreviewKeyDown;
@@ -64,15 +69,17 @@ public partial class StudioWindow : Window
         Closing += (_, _) =>
         {
             Remember();
-            // The tasks outlive the window: the next one hosts them again, and a control has only one parent.
+            // The panels outlive the window: the next one hosts them again, and a control has only one parent.
             TasksHost.Child = null;
+            ChatHost.Child = null;
+            ProjectHost.Child = null;
         };
     }
 
     /// <summary>The header's Compact: a fresh session of the open task's agent is to be started from its state.</summary>
     public event Action? CompactRequested;
 
-    /// <summary>The right column opened or turned to its other view: it is to be shown the harness or the spend as they stand.</summary>
+    /// <summary>The right column opened or turned to another view: it is to be shown the harness or the spend as they stand.</summary>
     public event Action? InspectorOpened;
 
     /// <summary>A Spend tip's fix: the map is to be written or updated, or the open task compacted.</summary>
@@ -93,15 +100,16 @@ public partial class StudioWindow : Window
     /// <summary>The inspector's Import team pack…</summary>
     public event Action? TeamPackImportRequested;
 
-    public bool InspectorOpen => _settings.InspectorOpen;
-
-    /// <summary>The right column is open on the Spend view rather than the Harness.</summary>
-    public bool SpendOpen => _settings.InspectorOpen && _settings.SpendShown;
+    /// <summary>What the right column shows now; null while it is folded or its view is not of this tab.</summary>
+    public StudioSide? OpenSide => SideShown ? _settings.Side : null;
 
     /// <summary>How many days the Spend history shows, and whether of every project.</summary>
     public (int Days, bool AllProjects) SpendRange => (_settings.SpendDays, _settings.SpendAllProjects);
 
     private bool Narrow => ActualWidth is > 0 and < NarrowWidth;
+
+    // The Chat tab has the project's column only: the Harness and the Spend are of the Studio's tasks.
+    private bool SideShown => _settings.InspectorOpen && (_settings.Tab == StudioTab.Studio || _settings.Side == StudioSide.Project);
 
     /// <summary>
     /// The project, the open task's context line (null: no task is open) with how full it is (0 to 1; null: no limit is
@@ -110,7 +118,7 @@ public partial class StudioWindow : Window
     public void ShowHeader(string project, string? context, double? full, bool canCompact)
     {
         ProjectText.Text = project;
-        ProjectText.ToolTip = project;
+        ProjectButton.ToolTip = $"The project {project}: its note, workspace, map, skills and check";
         ContextText.Text = context ?? string.Empty;
         ContextPanel.Visibility = context is null ? Visibility.Collapsed : Visibility.Visible;
         ContextMeter.Visibility = full is null ? Visibility.Collapsed : Visibility.Visible;
@@ -127,31 +135,70 @@ public partial class StudioWindow : Window
 
     public void ShowTeamPackStatus(string text) => Inspector.ShowTeamPackStatus(text);
 
-    /// <summary>Opens the right column on the Harness, or folds it if the Harness is what it shows.</summary>
-    public void ShowInspector(bool open) => ShowSide(open, spend: false);
+    /// <summary>The Studio tab's dot: how the agent's task stands (working, needs you, done); null hides it.</summary>
+    public void ShowTaskDot(Brush? dot)
+    {
+        TaskTabDot.Fill = dot;
+        TaskTabDot.Visibility = dot is null ? Visibility.Collapsed : Visibility.Visible;
+    }
 
-    /// <summary>
-    /// Opens the right column on the Harness or on the Spend view (<paramref name="spend"/>), or folds it, and keeps the
-    /// choice; the view it was on last is the one it opens on.
-    /// </summary>
-    private void ShowSide(bool open, bool spend)
+    /// <summary>One of the tabs, kept for the next time the window opens.</summary>
+    public void ShowTab(StudioTab tab)
+    {
+        _settings.Tab = tab;
+        var studio = tab == StudioTab.Studio;
+        ChatHost.Visibility = studio ? Visibility.Collapsed : Visibility.Visible;
+        TasksHost.Visibility = studio ? Visibility.Visible : Visibility.Collapsed;
+        SidebarButton.Visibility = studio ? Visibility.Visible : Visibility.Hidden;
+        StudioTools.Visibility = studio ? Visibility.Visible : Visibility.Collapsed;
+        ShowChosen(ChatTabButton, !studio);
+        ShowChosen(StudioTabButton, studio);
+        ApplySide();
+        if (SideShown) InspectorOpened?.Invoke();
+    }
+
+    /// <summary>Opens the right column on the Harness, or folds it.</summary>
+    public void ShowInspector(bool open) => ShowSide(open, StudioSide.Harness);
+
+    /// <summary>Opens the right column on the project, on either tab.</summary>
+    public void ShowProject() => ShowSide(true, StudioSide.Project);
+
+    /// <summary>Opens the right column on a view, or folds it, and keeps the choice; the view it was on last is the one it opens on.</summary>
+    private void ShowSide(bool open, StudioSide side)
     {
         _settings.InspectorOpen = open;
-        _settings.SpendShown = spend;
-        InspectorColumn.Width = new GridLength(open ? spend ? SpendWidth : InspectorWidth : 0);
+        _settings.Side = side;
+        ApplySide();
+        if (open && Narrow && _settings.SidebarOpen && _settings.Tab == StudioTab.Studio) ShowSidebar(false);
+        if (open) InspectorOpened?.Invoke();
+    }
+
+    /// <summary>The right column and its toggles as the tab and the choice say.</summary>
+    private void ApplySide()
+    {
+        var side = _settings.Side;
+        var open = SideShown;
+        InspectorColumn.Width = new GridLength(open ? side == StudioSide.Spend ? SpendWidth : InspectorWidth : 0);
         InspectorHost.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
-        InspectorScroll.Visibility = spend ? Visibility.Collapsed : Visibility.Visible;
-        SpendScroll.Visibility = spend ? Visibility.Visible : Visibility.Collapsed;
-        HarnessButton.Foreground = (Brush)FindResource(open && !spend ? "AccentBrush" : "TextBrush");
-        SpendButton.Foreground = (Brush)FindResource(open && spend ? "AccentBrush" : "TextBrush");
-        HarnessButton.ToolTip = open && !spend
+        InspectorScroll.Visibility = side == StudioSide.Harness ? Visibility.Visible : Visibility.Collapsed;
+        SpendScroll.Visibility = side == StudioSide.Spend ? Visibility.Visible : Visibility.Collapsed;
+        ProjectHost.Visibility = side == StudioSide.Project ? Visibility.Visible : Visibility.Collapsed;
+        HarnessButton.Foreground = (Brush)FindResource(open && side == StudioSide.Harness ? "AccentBrush" : "TextBrush");
+        SpendButton.Foreground = (Brush)FindResource(open && side == StudioSide.Spend ? "AccentBrush" : "TextBrush");
+        ProjectText.Foreground = (Brush)FindResource(open && side == StudioSide.Project ? "AccentBrush" : "MutedBrush");
+        HarnessButton.ToolTip = open && side == StudioSide.Harness
             ? "Fold the Harness column (Ctrl+Shift+H)"
             : "Show the Harness: what the agent really gets, and why it behaves so (Ctrl+Shift+H)";
-        SpendButton.ToolTip = open && spend
+        SpendButton.ToolTip = open && side == StudioSide.Spend
             ? "Fold the Spend column (Ctrl+Shift+U)"
             : "Show the Spend: where the task's tokens went, the usage windows and the days (Ctrl+Shift+U)";
-        if (open && Narrow && _settings.SidebarOpen) ShowSidebar(false);
-        if (open) InspectorOpened?.Invoke();
+    }
+
+    /// <summary>A tab's button lit while its tab is shown.</summary>
+    private void ShowChosen(Button button, bool chosen)
+    {
+        button.Background = chosen ? (Brush)FindResource("ActiveContextBrush") : Brushes.Transparent;
+        button.Foreground = (Brush)FindResource(chosen ? "TextBrush" : "MutedBrush");
     }
 
     /// <summary>Opens or folds the tasks' sidebar, and keeps the choice.</summary>
@@ -161,7 +208,7 @@ public partial class StudioWindow : Window
         _tasks.ShowSidebar(open);
         SidebarButton.Foreground = (Brush)FindResource(open ? "AccentBrush" : "TextBrush");
         SidebarButton.ToolTip = open ? "Fold the tasks (Ctrl+B)" : "Show the tasks (Ctrl+B)";
-        if (open && Narrow && _settings.InspectorOpen) ShowSide(false, _settings.SpendShown);
+        if (open && Narrow && SideShown) ShowSide(false, _settings.Side);
     }
 
     /// <summary>Writes where the window stands to its settings, its normal bounds when it is maximized; the owner saves them.</summary>
@@ -186,24 +233,48 @@ public partial class StudioWindow : Window
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Ctrl+B for the tasks, Ctrl+Shift+H for the Harness, Ctrl+Shift+U for the Spend and Ctrl+N for a new task, wherever
-        // the focus is in the Studio.
-        if (e.Key == Key.B && Keyboard.Modifiers == ModifierKeys.Control) ShowSidebar(!_settings.SidebarOpen);
-        else if (e.Key == Key.H && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) ToggleSide(spend: false);
-        else if (e.Key == Key.U && Keyboard.Modifiers == (ModifierKeys.Control | ModifierKeys.Shift)) ToggleSide(spend: true);
-        else if (e.Key == Key.N && Keyboard.Modifiers == ModifierKeys.Control) _tasks.RequestNewTask();
+        // Ctrl+1 and Ctrl+2 for the tabs, Ctrl+B for the tasks, Ctrl+Shift+H for the Harness, Ctrl+Shift+U for the Spend and
+        // Ctrl+N for a new task, wherever the focus is in the window. The Studio's keys bring its tab.
+        var keys = Keyboard.Modifiers;
+        if (keys == ModifierKeys.Control && e.Key is Key.D1 or Key.NumPad1) ShowTab(StudioTab.Chat);
+        else if (keys == ModifierKeys.Control && e.Key is Key.D2 or Key.NumPad2) ShowTab(StudioTab.Studio);
+        else if (e.Key == Key.B && keys == ModifierKeys.Control && _settings.Tab == StudioTab.Studio) ShowSidebar(!_settings.SidebarOpen);
+        else if (e.Key == Key.H && keys == (ModifierKeys.Control | ModifierKeys.Shift)) ToggleSide(StudioSide.Harness);
+        else if (e.Key == Key.U && keys == (ModifierKeys.Control | ModifierKeys.Shift)) ToggleSide(StudioSide.Spend);
+        else if (e.Key == Key.N && keys == ModifierKeys.Control)
+        {
+            ShowTab(StudioTab.Studio);
+            _tasks.RequestNewTask();
+        }
         else return;
         e.Handled = true;
     }
 
     private void Compact_OnClick(object sender, RoutedEventArgs e) => CompactRequested?.Invoke();
 
-    /// <summary>A view's toggle: folds the column if it shows that view, else opens it on that view.</summary>
-    private void ToggleSide(bool spend) => ShowSide(!(_settings.InspectorOpen && _settings.SpendShown == spend), spend);
+    /// <summary>
+    /// A view's toggle: folds the column if it shows that view, else opens it on that view. The Harness and the Spend open
+    /// on the Studio tab, from the Chat tab too.
+    /// </summary>
+    private void ToggleSide(StudioSide side)
+    {
+        if (side != StudioSide.Project && _settings.Tab != StudioTab.Studio)
+        {
+            ShowTab(StudioTab.Studio);
+            ShowSide(true, side);
+        }
+        else ShowSide(!(SideShown && _settings.Side == side), side);
+    }
 
-    private void Harness_OnClick(object sender, RoutedEventArgs e) => ToggleSide(spend: false);
+    private void ChatTab_OnClick(object sender, RoutedEventArgs e) => ShowTab(StudioTab.Chat);
 
-    private void Spend_OnClick(object sender, RoutedEventArgs e) => ToggleSide(spend: true);
+    private void StudioTab_OnClick(object sender, RoutedEventArgs e) => ShowTab(StudioTab.Studio);
+
+    private void Project_OnClick(object sender, RoutedEventArgs e) => ToggleSide(StudioSide.Project);
+
+    private void Harness_OnClick(object sender, RoutedEventArgs e) => ToggleSide(StudioSide.Harness);
+
+    private void Spend_OnClick(object sender, RoutedEventArgs e) => ToggleSide(StudioSide.Spend);
 
     private void Sidebar_OnClick(object sender, RoutedEventArgs e) => ShowSidebar(!_settings.SidebarOpen);
 
