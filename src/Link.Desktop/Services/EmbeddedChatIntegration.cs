@@ -13,18 +13,17 @@ public sealed class EmbeddedChatIntegration : IChatIntegration, IDisposable
     private readonly ChatRequestBroker _broker;
     private readonly ChatPageHost _host;
 
-    /// <param name="stateFile">Keeps the chat modes the companion set, across restarts.</param>
-    public EmbeddedChatIntegration(string stateFile)
-        : this(stateFile, BridgeTimings.Default, PageTimings.Default, Convert.ToHexString(RandomNumberGenerator.GetBytes(32)))
+    public EmbeddedChatIntegration()
+        : this(BridgeTimings.Default, PageTimings.Default, Convert.ToHexString(RandomNumberGenerator.GetBytes(32)))
     {
     }
 
     /// <summary>An integration with other waits and a known token, for tests.</summary>
-    internal EmbeddedChatIntegration(string stateFile, BridgeTimings timings, PageTimings pageTimings, string token)
+    internal EmbeddedChatIntegration(BridgeTimings timings, PageTimings pageTimings, string token)
     {
         _token = token;
         _broker = new ChatRequestBroker(timings);
-        _host = new ChatPageHost(_broker, stateFile, pageTimings, token);
+        _host = new ChatPageHost(_broker, pageTimings, token);
     }
 
     public string TransportId => ChatTransports.Embedded;

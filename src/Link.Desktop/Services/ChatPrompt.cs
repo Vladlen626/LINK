@@ -8,10 +8,6 @@ internal static class ChatPrompt
 {
     private const long MaxAttachmentBytes = 15 * 1024 * 1024;
     private const long MaxTotalAttachmentBytes = 25 * 1024 * 1024;
-    // Read aloud, an answer is heard from its first words, and Link says only the start of a long one.
-    private const string ConversationHint =
-        "[Interaction mode: Conversation — the user talks by voice and hears your reply read aloud. Start with a " +
-        "short, natural spoken answer of one or two sentences; details, steps and code come after it.]";
 
     /// <summary>The page request for a prompt; its images are read from disk off the calling thread.</summary>
     public static async Task<ChatPageRequest> CreateAsync(
@@ -27,12 +23,11 @@ internal static class ChatPrompt
             RequestId = request.Id,
             ConversationId = conversationId,
             Prompt = Format(request),
-            Effort = request.Effort.ToString().ToLowerInvariant(),
             Attachments = attachments
         };
     }
 
-    /// <summary>The prompt as the chat reads it. Direct is the text and its attachments alone, without Link's lines.</summary>
+    /// <summary>The prompt as the chat reads it: the text, Link's lines and the context.</summary>
     internal static string Format(PromptRequest request)
     {
         var result = new StringBuilder();
@@ -40,7 +35,7 @@ internal static class ChatPrompt
         else result.Append("Please use the attached context.");
 
         var contextLines = new List<string>();
-        if (request.Route == RequestRoute.Chat) AddLinkLines(request, result, contextLines);
+        AddLinkLines(request, contextLines);
         foreach (var item in request.Context.Where(item => !string.IsNullOrWhiteSpace(item.Text)))
         {
             contextLines.Add($"{item.Label}:\n{item.Text!.Trim()}");
@@ -55,21 +50,9 @@ internal static class ChatPrompt
         return result.ToString();
     }
 
-    /// <summary>
-    /// What Link adds in Chat: the depth and conversation hints after the prompt, and the project, work window and task.
-    /// </summary>
-    private static void AddLinkLines(PromptRequest request, StringBuilder prompt, List<string> contextLines)
+    /// <summary>What Link adds: the project and the work window.</summary>
+    private static void AddLinkLines(PromptRequest request, List<string> contextLines)
     {
-        // The hint works in any chat; the companion additionally switches the ChatGPT mode when it can.
-        var effortHint = request.Effort switch
-        {
-            ResponseEffort.Fast => "[Fast answer: reply briefly and directly — the answer first, a few sentences or a short list at most, no preamble or recap, no extended reasoning.]",
-            ResponseEffort.Deep => "[Deep answer: think hard about this and give a thorough, carefully reasoned answer.]",
-            _ => null
-        };
-        if (effortHint is not null) prompt.Append("\n\n").Append(effortHint);
-        if (request.Conversation) prompt.Append("\n\n").Append(ConversationHint);
-
         if (!string.IsNullOrWhiteSpace(request.ProjectName) &&
             !string.Equals(request.ProjectName.Trim(), "General", StringComparison.OrdinalIgnoreCase))
         {

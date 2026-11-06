@@ -25,9 +25,6 @@ internal static class VoiceSessionTests
         Program.Equal("request goes out", rig.Session.Phase, VoicePhase.Sending);
         Program.Equal("the voice gets ready while the chat thinks", rig.Speech.Prepared, 1);
         Program.Equal("push-to-talk waits for the request", rig.Session.CanStartListening, false);
-        rig.Settings.ConversationMode = true;
-        Program.Equal("in conversation push-to-talk works while the chat thinks", rig.Session.CanStartListening, true);
-        rig.Settings.ConversationMode = false;
         rig.Session.ReportProgress(Waiting());
         Program.Equal("chat accepted the prompt", rig.Session.Phase, VoicePhase.Waiting);
         var answered = rig.Session.CompleteRequestAsync(Answer);
@@ -126,13 +123,15 @@ internal static class VoiceSessionTests
         await OverChatPageAsync();
         await WaitingCuesAsync();
         await LiveDraftAsync();
-        await HandsFreeAsync();
 
         rig = new Rig();
         rig.Session.StartListening();
         rig.Session.SendWhenTranscribed();
         var transcript = await rig.Session.FinishListeningAsync();
         Program.Equal("send pressed while speaking is kept", transcript?.SendRequested, true);
+        Program.Equal("link.log tells how long it listened and how long the transcript took",
+            rig.Log.Any(line => line.StartsWith("[Voice] listened ", StringComparison.Ordinal) &&
+                                line.Contains(" transcribed ", StringComparison.Ordinal)), true);
         rig.Session.StartListening();
         transcript = await rig.Session.FinishListeningAsync();
         Program.Equal("send request is used once", transcript?.SendRequested, false);
@@ -382,86 +381,6 @@ internal static class VoiceSessionTests
             (true, VoicePhase.Idle));
     }
 
-    /// <summary>
-    /// Conversation: the microphone listens without a key, a pause ends the phrase, and only the phrase is
-    /// transcribed; push-to-talk takes a phrase over, and a long quiet starts the listening afresh.
-    /// </summary>
-    private static async Task HandsFreeAsync()
-    {
-        var rig = new Rig();
-        var ended = 0;
-        rig.Session.PhraseEnded += () => ended++;
-        rig.Session.StartHandsFree();
-        Program.Equal("hands-free listens for the pause", (rig.Session.IsHandsFree, rig.Streaming.Starts[0].HandsFree),
-            (true, true));
-        var live = rig.Streaming.Last!;
-        Program.Equal("before a phrase the listening gives way", (rig.Session.IsPhraseUnderWay, rig.Session.CanReadAloud),
-            (false, true));
-        live.EndPhrase(TimeSpan.FromSeconds(12.5));
-        Program.Equal("a pause after speech ends the phrase", ended, 1);
-        var transcript = await rig.Session.FinishListeningAsync();
-        Program.Equal("the phrase is transcribed without the wait before it", (transcript?.Text, rig.Recorder.Skipped),
-            ("Как дела?", TimeSpan.FromSeconds(11.5)));
-        Program.Equal("link.log tells how long it listened and how long the transcript took",
-            rig.Log.Any(line => line.StartsWith("[Voice] listened ", StringComparison.Ordinal) &&
-                                line.Contains(" hands-free", StringComparison.Ordinal) &&
-                                line.Contains(" transcribed ", StringComparison.Ordinal)), true);
-
-        rig = new Rig();
-        ended = 0;
-        rig.Session.PhraseEnded += () => ended++;
-        rig.Session.StartHandsFree();
-        rig.Session.HoldListening();
-        rig.Streaming.Last!.EndPhrase(TimeSpan.FromSeconds(1));
-        Program.Equal("push-to-talk takes the phrase over", (ended, rig.Session.IsHandsFree, rig.Session.Phase),
-            (0, false, VoicePhase.Listening));
-
-        rig = new Rig();
-        var drafts = new List<string>();
-        rig.Session.DraftChanged += drafts.Add;
-        rig.Session.StartHandsFree();
-        rig.Session.CancelListening();
-        Program.Equal("cancelled listening closes the microphone and drops the live words",
-            (rig.Session.Phase, rig.Recorder.IsRecording, rig.Streaming.Last!.Disposed, drafts.Count, drafts.FirstOrDefault()),
-            (VoicePhase.Idle, false, true, 1, string.Empty));
-
-        rig = new Rig();
-        rig.Session.StartHandsFree();
-        rig.Time.Elapse();
-        Program.Equal("a long quiet starts listening afresh",
-            (rig.Recorder.Starts, rig.Streaming.Starts.Count, rig.Streaming.Starts[0].Draft, rig.Session.IsHandsFree),
-            (2, 2, true, true));
-        rig.Streaming.Last!.HeardSpeech = true;
-        rig.Time.Elapse();
-        Program.Equal("a phrase under way is not cut", rig.Recorder.Starts, 2);
-
-        rig = new Rig();
-        rig.Settings.VoiceReplies = false;
-        rig.Settings.ConversationMode = true;
-        rig.Session.StartHandsFree();
-        var listening = rig.Session.ReadAloudAsync(Answer);
-        Program.Equal("Listen in conversation silences the microphone and speaks",
-            (rig.Recorder.IsRecording, rig.Session.Phase), (false, VoicePhase.Speaking));
-        rig.Session.StopSpeaking();
-        await listening;
-
-        rig = new Rig();
-        rig.Settings.VoiceReplies = false;
-        rig.Settings.ConversationMode = true;
-        rig.Session.BeginRequest("How do I enable Nanite?");
-        var answered = rig.Session.CompleteRequestAsync(Answer);
-        Program.Equal("in conversation every answer is read", rig.Speech.Said, $"{Opening} {Rest}");
-        await rig.FinishSpeakingAsync(answered);
-
-        rig = new Rig();
-        rig.Session.StartListening();
-        await Program.ThrowsAsync<InvalidOperationException>("hands-free waits for a free microphone", () =>
-        {
-            rig.Session.StartHandsFree();
-            return Task.CompletedTask;
-        });
-    }
-
     private static ChatProgress Waiting() => new() { State = ChatProgressState.Waiting };
 
     private static ChatProgress Receiving(string text) => new() { State = ChatProgressState.Receiving, Text = text };
@@ -548,15 +467,11 @@ internal static class VoiceSessionTests
             return true;
         }
 
-        /// <summary>How much of the start the last stopped recording left out.</summary>
-        public TimeSpan Skipped { get; private set; }
-
         public int Starts { get; private set; }
 
-        public AudioRecording Stop(bool save = true, TimeSpan skip = default)
+        public AudioRecording Stop(bool save = true)
         {
             IsRecording = false;
-            Skipped = skip;
             return Recording;
         }
 
@@ -588,12 +503,12 @@ internal static class VoiceSessionTests
     {
         public bool? Heard { get; set; } = true;
         public string? Note { get; set; }
-        public List<(VoiceLanguage Language, bool Draft, bool HandsFree)> Starts { get; } = [];
+        public List<(VoiceLanguage Language, bool Draft)> Starts { get; } = [];
         public FakeTranscription? Last { get; private set; }
 
-        public IStreamingTranscription Start(VoiceLanguage language, bool draft, bool handsFree)
+        public IStreamingTranscription Start(VoiceLanguage language, bool draft)
         {
-            Starts.Add((language, draft, handsFree));
+            Starts.Add((language, draft));
             Last = new FakeTranscription(Heard, Note);
             return Last;
         }
@@ -603,21 +518,11 @@ internal static class VoiceSessionTests
     {
         public event Action<string>? DraftChanged;
 
-        public event Action<TimeSpan>? PhraseEnded;
-
         public string? Note => note;
-        public bool HeardSpeech { get; set; }
         public int Samples { get; private set; }
         public bool Disposed { get; private set; }
 
         public void Draft(string words) => DraftChanged?.Invoke(words);
-
-        /// <summary>The speaker paused after a phrase that began at <paramref name="start"/>.</summary>
-        public void EndPhrase(TimeSpan start)
-        {
-            HeardSpeech = true;
-            PhraseEnded?.Invoke(start);
-        }
 
         public void Accept(float[] samples) => Samples += samples.Length;
 

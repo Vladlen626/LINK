@@ -4,18 +4,18 @@ using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
-// What a run changed: the numbers in the header, the files' rows, the review, undo, and the task's Perforce changelist.
+// What a run changed: the numbers in the header, the files' rows, the review and undo.
 public partial class MainWindow
 {
-    // Your review shows the diff whole up to this (the team's reviewer gets far less); a larger one is cut, and says so.
+    // Your review shows the diff whole up to this; a larger one is cut, and says so.
     private const int YourReviewDiff = 2_000_000;
 
     // A new file git does not track is read for the review up to this size; a larger one is listed only.
     private const long ReviewNewFile = 512 * 1024;
 
-    /// <summary>The last run left changes in a git or Perforce folder, which the review can show line by line.</summary>
+    /// <summary>The last run left changes in a git folder, which the review can show line by line.</summary>
     private static bool CanReview(TaskWork work) =>
-        !work.Busy && work.Waiting is null && work.LastRun is { Before.IsVersioned: true, Changes.Count: > 0 };
+        !work.Busy && work.Waiting is null && work.LastRun is { Before.IsGit: true, Changes.Count: > 0 };
 
     /// <summary>
     /// Review: the last run's diff in a window of its own, a comment on any line; the comments go to the agent as the
@@ -169,13 +169,13 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Undo the agent's changes (Git, Perforce), when there is something to undo: of a task's run, or of Link's own answer
+    /// Undo the agent's changes in git, when there is something to undo: of a task's run, or of Link's own answer
     /// (<paramref name="work"/> null).
     /// </summary>
     private PanelAction? UndoAction(TaskWork? work, AgentRun run)
     {
         var undoable = run.Changes.Count(change => change.Undoable);
-        return run.Before.IsVersioned && undoable > 0
+        return run.Before.IsGit && undoable > 0
             ? new PanelAction($"Undo agent changes ({undoable})",
                 "Put back the files the agent changed that had no changes of yours before the task", () => _ = UndoAgentChangesAsync(work, run))
             : null;
@@ -233,13 +233,6 @@ public partial class MainWindow
 
             var record = work.Record;
             work.LastRun = run with { Changes = left };
-            // The task's changelist goes with its last file; Perforce keeps one that still holds files.
-            if (run.Before.IsPerforce && record.Changelist is { } changelist && left.All(change => !change.Undoable))
-            {
-                await AgentChanges.DropChangelistIfEmptyAsync(run.Before.Workspace, changelist, CancellationToken.None);
-                record.Changelist = null;
-            }
-
             work.AfterRun = work.AfterRun.Where(action => !action.Label.StartsWith("Undo", StringComparison.Ordinal))
                 .Prepend(UndoAction(work, work.LastRun)).OfType<PanelAction>().ToArray();
             record.ChangedFiles = left.Select(change => Relative(change.Path, record.Workspace)).ToList();
@@ -255,21 +248,4 @@ public partial class MainWindow
         }
     }
 
-    /// <summary>In Perforce the task's files wait in a pending changelist of its own, which P4V shows; its number stays with the task.</summary>
-    private async Task KeepInChangelistAsync(TaskWork work, AgentRun run)
-    {
-        if (!run.Before.IsPerforce || run.Changes.Count == 0) return;
-        // P4V's descriptions are in English whatever the task's language: the agent's own line, else a plain one.
-        var english = AgentChanges.SplitChangelistLine(run.Result.Summary).Description;
-        var changelist = await _agents.Changes.KeepInChangelistAsync(run.Before, run.Changes,
-            english ?? $"Link: changes of an agent task ({Plural(run.Changes.Count, "file")})", english is not null,
-            work.Record.Changelist, CancellationToken.None);
-        if (changelist is null)
-        {
-            DiagnosticsReported?.Invoke("Perforce made no changelist for the task's files: they stay where the agent opened them");
-            return;
-        }
-
-        work.Record.Changelist = changelist;
-    }
 }

@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -320,11 +321,11 @@ public sealed class ThreadImage : INotifyPropertyChanged
 
 /// <summary>
 /// A step of the agent's plan: its mark (✓ done, ● under way, ○ to do) and the mark's colour, its first sentence and
-/// their colour; the rest of its words (<see cref="Detail"/>) open under it on a click. A team's step also names who
-/// does it (<see cref="Worker"/>) and the specialist, with the colour of its jellyfish; an agent's own plan has neither.
+/// their colour; the rest of its words (<see cref="Detail"/>) open under it on a click.
 /// </summary>
-public sealed class PlanRow(string mark, Brush markBrush, string title, Brush brush) : INotifyPropertyChanged
+public sealed partial class PlanRow(string mark, Brush markBrush, string title, Brush brush) : INotifyPropertyChanged
 {
+    private const int HeadlineLength = 160;
     private bool _open;
 
     public event PropertyChangedEventHandler? PropertyChanged;
@@ -334,18 +335,9 @@ public sealed class PlanRow(string mark, Brush markBrush, string title, Brush br
     public string Title => title;
     public Brush Brush => brush;
 
-    /// <summary>The words after the first sentence and, for a team's step, why its worker; empty: the row does not open.</summary>
+    /// <summary>The words after the first sentence; empty: the row does not open.</summary>
     public string Detail { get; init; } = string.Empty;
 
-    public string Worker { get; init; } = string.Empty;
-    public string RoleName { get; init; } = string.Empty;
-    public Brush? RoleBrush { get; init; }
-
-    /// <summary>The step's place in the plan, from 0: its worker chip opens the step's menu.</summary>
-    public int Index { get; init; }
-
-    public Visibility WorkerVisibility => Worker.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
-    public Visibility RoleVisibility => RoleName.Length == 0 ? Visibility.Collapsed : Visibility.Visible;
     public string Chevron => Detail.Length == 0 ? string.Empty : _open ? "▾" : "▸";
     public Visibility DetailVisibility => _open ? Visibility.Visible : Visibility.Collapsed;
 
@@ -360,6 +352,24 @@ public sealed class PlanRow(string mark, Brush markBrush, string title, Brush br
             PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(nameof(DetailVisibility)));
         }
     }
+
+    /// <summary>
+    /// A step's first sentence, the line the plan card shows, and the rest of its text. A first sentence longer than
+    /// <see cref="HeadlineLength"/> is cut, and then the rest is the whole text.
+    /// </summary>
+    public static (string Title, string Body) Headline(string text)
+    {
+        text = text.Trim();
+        var end = SentenceEnd().Match(text) is { Success: true } match ? match.Index : text.Length;
+        var title = text[..end].Trim();
+        if (title.Length <= HeadlineLength) return (title, text[end..].Trim());
+        var space = title.LastIndexOf(' ', HeadlineLength - 1);
+        return (title[..(space > 40 ? space : HeadlineLength - 1)] + "…", text);
+    }
+
+    // The end of a step's first sentence: a full stop before a space or a line, or a line break.
+    [GeneratedRegex(@"(?<=\.)\s|\n")]
+    private static partial Regex SentenceEnd();
 }
 
 /// <summary>

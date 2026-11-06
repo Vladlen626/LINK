@@ -130,7 +130,7 @@ function sendToPage(api, message) {
 }
 
 function promptRequest(conversationId, prompt, extra = {}) {
-  return { requestId: crypto.randomUUID(), conversationId, kind: "prompt", prompt, effort: "normal", attachments: [], attempt: 1, sent: false, ...extra };
+  return { requestId: crypto.randomUUID(), conversationId, kind: "prompt", prompt, attachments: [], attempt: 1, sent: false, ...extra };
 }
 
 async function openFrame(src) {
@@ -181,17 +181,11 @@ const ANSWER_BLOCKS = [
   { html: '<pre><code class="language-js">let x = 1;</code></pre>' }
 ];
 const ANSWER_MARKDOWN = "Первый абзац готов. Второе предложение здесь.\n\n- пункт один\n- пункт два\n\n```js\nlet x = 1;\n```";
-const MODES = [
-  ["Мгновенный", "Отвечает сразу"],
-  ["Средний", "Думает, когда нужно"],
-  ["Высокий", "Думает дольше"],
-  ["Очень высокий", "Думает дольше всего"]
-];
 
 /**
  * ChatGPT's conversation page as the companion sees it: articles with user and assistant messages, the composer
- * form with its Send / Stop button and its mode picker (a Radix menu opened on pointerdown, rendered in a portal),
- * and the header's model picker. Options vary what the real page was seen to do or might do.
+ * form with its Send / Stop button and its mode picker, and the header's model picker. Options vary what the real
+ * page was seen to do or might do.
  */
 class ChatGptMock {
   constructor(window, options = {}) {
@@ -204,10 +198,6 @@ class ChatGptMock {
       thinkingMs: 400,      // "Думаю" before the answer starts
       tokenMs: 80,
       takesPrompt: true,    // false: Send does nothing
-      itemsChoose: true,    // false: the mode menu's items ignore clicks
-      composerPicker: true, // false: the older UI, whose header picker ("ChatGPT") offers Auto, Instant and Thinking
-      pickerPrefix: "",     // what the composer's picker shows before the mode, e.g. "Рассуждение · "
-      mode: "Средний",
       turns: 2,
       image: false,         // the answer is a picture, drawn frame by frame
       imageFrameMs: 400,
@@ -216,7 +206,6 @@ class ChatGptMock {
     };
     this.sent = [];
     this.stopClicks = 0;
-    this.headerOpens = 0;
     this.generating = false;
     this.finished = false;
     this.nextId = 1;
@@ -243,7 +232,7 @@ class ChatGptMock {
           <div contenteditable="true" id="prompt-textarea" class="ProseMirror" role="textbox"></div>
           <div class="footer">
             <button type="button" data-testid="composer-plus-btn" aria-haspopup="menu" aria-label="Добавить файлы и другое">+</button>
-            <button type="button" class="mode-picker" aria-haspopup="menu" aria-expanded="false" data-state="closed"><span></span><svg width="8" height="8"></svg></button>
+            <button type="button" class="mode-picker" aria-haspopup="menu" aria-expanded="false" data-state="closed"><span>Средний</span><svg width="8" height="8"></svg></button>
             <button type="button" aria-label="Начало диктовки">mic</button>
             <span class="submit"></span>
           </div>
@@ -252,11 +241,6 @@ class ChatGptMock {
     this.turns = this.document.querySelector(".turns");
     this.form = this.document.querySelector("form");
     this.composer = this.document.getElementById("prompt-textarea");
-    this.picker = this.document.querySelector(".mode-picker");
-    this.header = this.document.querySelector('[data-testid="model-switcher-dropdown-button"]');
-    this.headerMode = "Auto";
-    this.mode = this.options.mode;
-    if (!this.options.composerPicker) this.picker.remove();
     for (let turn = 0; turn < this.options.turns; turn++) {
       this.addUserTurn(`Старый вопрос ${turn + 1}`);
       const { article, root } = this.addAssistantTurn();
@@ -268,65 +252,6 @@ class ChatGptMock {
     this.composer.addEventListener("input", () => {
       if (!this.generating) this.setSubmit(this.composer.innerText.trim() ? "send" : "speech");
     });
-    for (const [trigger, modes, choose] of [
-      [this.picker, MODES, label => {
-        this.mode = label;
-      }],
-      [this.header, [["Auto", "Решает сам"], ["Instant", "Сразу"], ["Thinking", "Думает"], ["Pro", "Для исследований"]], label => {
-        this.headerMode = label;
-      }]
-    ]) {
-      trigger.addEventListener("pointerdown", event => {
-        if (event.button !== 0 || event.ctrlKey) return;
-        event.preventDefault();
-        if (trigger === this.header) this.headerOpens++;
-        if (this.menu) this.closeMenu();
-        // The logged-in header picker offered modes before June 2026; now it is a model picker without them.
-        else this.openMenu(trigger, trigger === this.picker || !this.options.composerPicker ? modes : [], choose);
-      });
-    }
-    this.document.addEventListener("keydown", event => {
-      if (event.key === "Escape") this.closeMenu();
-    });
-  }
-
-  get mode() {
-    return this.picker.querySelector("span").textContent.slice(this.options.pickerPrefix.length);
-  }
-
-  set mode(label) {
-    this.picker.querySelector("span").textContent = this.options.pickerPrefix + label;
-  }
-
-  /** A Radix menu in a portal at the end of the page, named by the trigger's aria-controls while open. */
-  openMenu(trigger, modes, choose) {
-    const wrapper = this.element("div", { "data-radix-popper-content-wrapper": "" });
-    const menu = this.element("div", { role: "menu", id: "radix-menu", "data-state": "open" });
-    for (const [label, description] of modes) {
-      const item = this.element("div", { role: "menuitemradio", "aria-checked": "false" },
-        `<div>${label}</div><div class="text-xs">${description}</div>`);
-      if (this.options.itemsChoose) {
-        item.addEventListener("click", () => {
-          choose(label);
-          this.closeMenu();
-        });
-      }
-      menu.append(item);
-    }
-    if (!modes.length) menu.append(this.element("div", { role: "menuitem" }, "Войти"));
-    wrapper.append(menu);
-    this.document.body.append(wrapper);
-    this.menu = wrapper;
-    this.trigger = trigger;
-    trigger.setAttribute("aria-expanded", "true");
-    trigger.setAttribute("aria-controls", "radix-menu");
-  }
-
-  closeMenu() {
-    this.menu?.remove();
-    this.menu = null;
-    this.trigger?.setAttribute("aria-expanded", "false");
-    this.trigger?.removeAttribute("aria-controls");
   }
 
   setSubmit(kind, slot = this.form.querySelector(".submit")) {
@@ -511,8 +436,6 @@ class OctaneMock {
     this.options = {
       thinkingMs: 400,
       tokenMs: 80,
-      mode: "Высокий",
-      pickerHaspopup: true,     // false: the mode picker is only a popovertarget button
       userMarkdown: false,      // true: the prompt's bubble renders "- " lines as a list and "---" as a rule
       newTurnsBefore: false,    // true: new turns land in a list placed before the transcript
       trailingTemplate: false,  // true: a hidden user-message template sits at the end of the page
@@ -538,7 +461,6 @@ class OctaneMock {
   }
 
   build() {
-    const haspopup = this.options.pickerHaspopup ? ' aria-haspopup="menu"' : "";
     this.document.body.innerHTML = `
       <header><button data-testid="model-switcher-dropdown-button" aria-haspopup="menu" aria-label="Селектор модели">ChatGPT</button></header>
       <section data-conversation-id="chat-1">
@@ -549,7 +471,7 @@ class OctaneMock {
         <textarea id="mobile-composer-prompt" name="prompt" data-mobile-composer-prompt placeholder="Спросите ChatGPT"></textarea>
         <button type="button" aria-label="Добавить файлы и другое" popovertarget="composer-actions">+</button>
         <div id="composer-actions" popover="auto"><button type="button">Фото</button><button type="button">Файлы</button></div>
-        <button type="button" class="mode-picker" popovertarget="mode-popover"${haspopup}></button>
+        <button type="button" class="mode-picker" popovertarget="mode-popover" aria-haspopup="menu">Высокий</button>
         <div id="mode-popover" popover="auto"></div>
         <button type="submit" data-composer-submit aria-label="Отправить сообщение" data-send-label="Отправить сообщение"
           data-stop-label="Перестать формировать">↑</button>
@@ -563,17 +485,6 @@ class OctaneMock {
     this.form = this.document.querySelector("form");
     this.composer = this.document.querySelector("textarea");
     this.submit = this.document.querySelector("[data-composer-submit]");
-    this.picker = this.document.querySelector(".mode-picker");
-    this.popover = this.document.getElementById("mode-popover");
-    this.mode = this.options.mode;
-    for (const [label, description] of MODES) {
-      const item = this.element("button", { type: "button" }, `<div>${label}</div><div>${description}</div>`);
-      item.addEventListener("click", () => {
-        this.mode = label;
-        this.popover.hidePopover();
-      });
-      this.popover.append(item);
-    }
     for (let turn = 0; turn < this.options.turns; turn++) {
       this.addUserTurn(`Старый вопрос ${turn + 1}`, this.transcript);
       const answer = this.addAssistantTurn(this.transcript);
@@ -589,18 +500,6 @@ class OctaneMock {
         this.takePrompt();
       }
     });
-  }
-
-  get mode() {
-    return this.picker.textContent;
-  }
-
-  set mode(label) {
-    this.picker.textContent = label;
-  }
-
-  get menu() {
-    return this.popover.matches(":popover-open") ? this.popover : null;
   }
 
   addUserTurn(text, list = this.newTurns) {
@@ -678,7 +577,7 @@ class OctaneMock {
  * the prompt and its answer, each a unit named by data-chatgpt-search-unit-key ("…:0:user", "…:1:assistant") with
  * its message ids; the answer's Markdown root is typed out under data-markdown-animated; the prompt and the finished
  * answer have action buttons (.turn-action-controls) without test ids; the composer's last button turns into
- * "Остановить" while ChatGPT writes; the picker's Radix menu sets the effort on a slider, a level per arrow key.
+ * "Остановить" while ChatGPT writes.
  */
 class ShellMock {
   constructor(window, options = {}) {
@@ -687,10 +586,8 @@ class ShellMock {
     this.options = {
       thinkingMs: 400,
       tokenMs: 80,
-      mode: "Высокий",
       typedAfterStop: false, // true: Stop goes when the first paragraph is there, and the rest is typed out slowly
       busyMs: 0,             // ChatGPT is still writing an earlier answer this long when the page opens
-      controlsMs: 0,         // the composer's buttons appear this long after the composer, as on a new chat's page
       turns: 2,
       ...options
     };
@@ -721,7 +618,7 @@ class ShellMock {
           <div contenteditable="true" role="textbox" class="ProseMirror" aria-label="Спросить ChatGPT" data-virtualkeyboard="true"></div>
           <button type="button" aria-label="Добавить файлы и другое">+</button>
           <button type="button" class="picker" aria-label="Выбрать модель ChatGPT" aria-haspopup="menu" aria-expanded="false"
-            data-state="closed"><span aria-hidden="true" style="position: absolute; visibility: hidden">Уровень усилий рассуждения</span><span class="label"></span></button>
+            data-state="closed"><span aria-hidden="true" style="position: absolute; visibility: hidden">Уровень усилий рассуждения</span><span class="label">Высокий</span></button>
           <button type="button" aria-label="Диктовать">mic</button>
           <span class="primary"></span>
         </form>
@@ -729,8 +626,6 @@ class ShellMock {
     this.thread = this.document.querySelector("[data-thread-find-target]");
     this.form = this.document.querySelector("form");
     this.composer = this.form.querySelector("[contenteditable]");
-    this.picker = this.form.querySelector(".picker");
-    this.mode = this.options.mode;
     for (let turn = 0; turn < this.options.turns; turn++) {
       const prompt = this.addTurn(`Старый вопрос ${turn + 1}`);
       const answer = this.addAnswer(prompt);
@@ -741,71 +636,7 @@ class ShellMock {
     this.composer.addEventListener("input", () => {
       if (!this.generating) this.setPrimary(this.composer.innerText.trim() ? "send" : "voice");
     });
-    this.picker.addEventListener("pointerdown", event => {
-      event.preventDefault();
-      if (this.menu) this.closeMenu();
-      else this.openMenu();
-    });
-    this.document.addEventListener("keydown", event => {
-      if (event.key === "Escape") this.closeMenu();
-    });
     if (this.options.busyMs) void this.answer("Вопрос из самого чата", this.options.busyMs);
-    if (this.options.controlsMs) {
-      const controls = [...this.form.querySelectorAll(":scope > button")];
-      for (const control of controls) control.remove();
-      this.window.setTimeout(() => this.composer.after(...controls), this.options.controlsMs);
-    }
-  }
-
-  get mode() {
-    return this.picker.querySelector(".label").textContent;
-  }
-
-  set mode(label) {
-    this.picker.querySelector(".label").textContent = label;
-  }
-
-  /** The effort menu: a view toggle, the slider's announcement, the slider, and the model list of the other view. */
-  openMenu() {
-    const levels = ["Instant", "Средний", "Высокий"];
-    const wrapper = this.element("div", { "data-radix-popper-content-wrapper": "" });
-    const menu = this.element("div", { role: "menu", id: "radix-effort", "data-state": "open", "data-radix-menu-content": "" }, `
-      <div role="menuitem" aria-label="Выбрать модель" data-model-picker-view-toggle="true"><span class="effort"></span></div>
-      <span role="status" aria-live="polite"></span>
-      <span>Используйте клавиши со стрелками влево и вправо</span>
-      <div role="menuitem" aria-label="Мощность" data-reasoning-slider="true" aria-keyshortcuts="ArrowLeft ArrowRight" tabindex="-1">
-        <span role="slider" aria-valuemin="0" aria-valuemax="2" aria-hidden="true"></span>
-      </div>
-      <div aria-hidden="true" inert>
-        <div role="menuitemradio" aria-checked="true">GPT-5.6 Sol</div>
-        <div role="menuitemradio" aria-checked="false">GPT-5.5</div>
-      </div>`);
-    const show = level => {
-      menu.querySelector(".effort").textContent = levels[level];
-      menu.querySelector('[role="status"]').textContent = `${levels[level]}, ${level + 1} из ${levels.length}.`;
-      menu.querySelector('[role="slider"]').setAttribute("aria-valuenow", String(level));
-      this.mode = levels[level];
-    };
-    let level = Math.max(0, levels.indexOf(this.mode));
-    show(level);
-    menu.querySelector("[data-reasoning-slider]").addEventListener("keydown", event => {
-      const next = level + (event.key === "ArrowRight" ? 1 : event.key === "ArrowLeft" ? -1 : 0);
-      if (next === level || next < 0 || next >= levels.length) return;
-      level = next;
-      show(level);
-    });
-    wrapper.append(menu);
-    this.document.body.append(wrapper);
-    this.menu = wrapper;
-    this.picker.setAttribute("aria-expanded", "true");
-    this.picker.setAttribute("aria-controls", "radix-effort");
-  }
-
-  closeMenu() {
-    this.menu?.remove();
-    this.menu = null;
-    this.picker.setAttribute("aria-expanded", "false");
-    this.picker.removeAttribute("aria-controls");
   }
 
   setPrimary(kind) {

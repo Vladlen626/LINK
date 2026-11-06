@@ -193,8 +193,8 @@ public static partial class ProjectRoles
 
     /// <summary>
     /// The role's own skills that the workspace has, then the game's add-on of their tool where it has one
-    /// (<c>blender-project</c> beside <c>blender-model</c>): what was learned in this game; at most four. What a team's
-    /// step and the art critic read first, whatever the step's words. Names as the workspace has them.
+    /// (<c>blender-project</c> beside <c>blender-model</c>): what was learned in this game; at most four. What the role
+    /// reads first, whatever the task's words. Names as the workspace has them.
     /// </summary>
     public static IReadOnlyList<string> OwnSkills(AgentRole? role, IReadOnlyList<ProjectSkill> skills)
     {

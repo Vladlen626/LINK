@@ -61,26 +61,20 @@ public sealed class AttemptCoordinator
     }
 
     /// <summary>
-    /// Sends the snapshot to its project's chat by a route and depth and returns the answer; throws when the chat
-    /// fails or the request is cancelled. <paramref name="spoken"/>: asked in conversation mode, where the answer is
-    /// read aloud. The latency started when the user asked, before Link's own work; progress is reported on the
+    /// Sends the snapshot to its project's chat and returns the answer; throws when the chat fails or the request is
+    /// cancelled. The latency started when the user asked, before Link's own work; progress is reported on the
     /// calling thread.
     /// </summary>
     public async Task<ChatResponse> SendAsync(
         InputSnapshot snapshot,
-        RequestRoute route,
-        ResponseEffort effort,
-        bool spoken,
         RequestLatency latency,
         Action<ChatProgress> onProgress,
         CancellationToken cancellationToken)
     {
         var project = _projects.Projects.First(project => project.Id == snapshot.ProjectId);
-        // Chat and Direct both go to the project's chat.
         var conversation = project.LinkedConversation
             ?? throw new InvalidOperationException("Link this project to a ChatGPT conversation first.");
-        var request = RequestService.Build(snapshot, route, effort, spoken);
-        var attempt = request.Conversation ? $"{route}, {effort}, conversation" : $"{route}, {effort}";
+        var request = RequestService.Build(snapshot);
         _requests.Log(request);
         var progress = new Progress<ChatProgress>(update =>
         {
@@ -106,17 +100,17 @@ public sealed class AttemptCoordinator
                 Picture = response.Picture
             };
             _projects.Save();
-            _log(latency.Describe(attempt, "answer", response.Text.Length));
+            _log(latency.Describe("chat", "answer", response.Text.Length));
             return response;
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            _log(latency.Describe(attempt, "cancelled"));
+            _log(latency.Describe("chat", "cancelled"));
             throw;
         }
         catch (Exception exception)
         {
-            _log(latency.Describe(attempt, $"failed ({exception.Message})"));
+            _log(latency.Describe("chat", $"failed ({exception.Message})"));
             throw;
         }
     }

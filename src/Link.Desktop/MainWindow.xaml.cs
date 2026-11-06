@@ -26,8 +26,6 @@ public partial class MainWindow : Window
     private readonly VoiceSession _voice;
     private readonly SoundCues _cues;
     private readonly ObservableCollection<ContextItem> _context = [];
-    // The next question goes with only the user's text and attachments.
-    private bool _onlyMyText;
     // What came while Link was hidden, an answer or a failed request; it lasts until Link is shown.
     private LinkState? _unseen;
     private IntPtr _windowHandle;
@@ -67,7 +65,6 @@ public partial class MainWindow : Window
         InitializeComponent();
         _voice.PhaseChanged += OnVoicePhaseChanged;
         _voice.DraftChanged += OnVoiceDraftChanged;
-        _voice.PhraseEnded += OnPhraseEnded;
         _connectionTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(2) };
         _connectionTimer.Tick += (_, _) =>
         {
@@ -84,7 +81,6 @@ public partial class MainWindow : Window
         LoadProject(_projects.ActiveProject);
         _loadingProject = false;
         UpdateRouteButton();
-        UpdateEffortButton();
 
         SourceInitialized += OnSourceInitialized;
         PreviewKeyDown += OnPreviewKeyDown;
@@ -122,7 +118,6 @@ public partial class MainWindow : Window
         HideButton.ToolTip = $"Hide Link · {_settings.Current.Hotkeys.ShowHide} brings it back";
         // The default agent or the access the card starts with may have changed.
         UpdateRouteButton();
-        ApplyConversation();
         // The agents' models and levels, Auto or the context budget may have changed: an open card and the
         // Studio's header and inspector follow, without losing what the user typed or picked on the card.
         _agentPanel?.RefreshSetup();
@@ -139,7 +134,7 @@ public partial class MainWindow : Window
         {
             NotificationRequested?.Invoke(
                 "Link stays hidden over this game",
-                $"It would throw the game out of exclusive fullscreen. Hold {_settings.Current.Hotkeys.AskAboutScreen} to ask about the screen by voice, or switch the game to borderless.",
+                "It would throw the game out of exclusive fullscreen. Switch the game to borderless to use Link over it.",
                 _projects.ActiveProject.Id);
         }
         else
@@ -190,8 +185,6 @@ public partial class MainWindow : Window
         RestoreWindowState();
         UpdateConnectionState();
         _connectionTimer.Start();
-        // Conversation mode left on listens again from the start.
-        ApplyConversation();
         // A task left waiting for a usage limit's reset goes on waiting; its file is read once Link has nothing else to do.
         Dispatcher.BeginInvoke(DispatcherPriority.ApplicationIdle, new Action(RearmContinue));
     }
@@ -299,26 +292,6 @@ public partial class MainWindow : Window
         if (prune) _history.Prune();
     }
 
-    /// <summary>"Only my text": the next question goes without Link's chips, its frame and its hints; the toggle shows it.</summary>
-    private void SetOnlyMyText(bool on)
-    {
-        _onlyMyText = on;
-        OnlyMyTextDot.Fill = (Brush)FindResource(on ? "BusyOrbBrush" : "IdleOrbBrush");
-        OnlyMyTextText.Foreground = (Brush)FindResource(on ? "TextBrush" : "MutedBrush");
-        OnlyMyTextButton.ToolTip = on
-            ? "On for the next question: only your text and what you attached go. Click to send Link's chips too"
-            : "Send the next question with only your text and what you attached, without Link's chips";
-        UpdateNoteChip();
-        ShowApplicationContext();
-        UpdateSees();
-    }
-
-    private void OnlyMyText_OnClick(object sender, RoutedEventArgs e)
-    {
-        SetOnlyMyText(!_onlyMyText);
-        SetStatus(_onlyMyText ? "The next question goes with only your text and attachments" : "Link's chips go with the next question");
-    }
-
     private void RemoveMissingContextFiles()
     {
         foreach (var item in _context.Where(item => item.FilePath is not null && !File.Exists(item.FilePath)).ToArray())
@@ -363,8 +336,6 @@ public partial class MainWindow : Window
 
     private void LoadProject(LinkProject project)
     {
-        // A correction belongs to the other project's snapshot.
-        _editing = null;
         ProjectNameText.Text = project.Name;
         // The Agent route names the project's own agent.
         UpdateRouteButton();
@@ -513,17 +484,10 @@ public partial class MainWindow : Window
         // A cleared prompt no longer holds the dictated words, so its answer is not read aloud.
         if (!empty) return;
         _voice.ForgetVoicePrompt();
-        // Nothing typed any more: the conversation listens again.
-        if (_typing && !PromptBox.IsReadOnly)
-        {
-            _typing = false;
-            ScheduleListening();
-        }
     }
 
     private async void PromptBox_OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        YieldToTyping(e);
         // Enter sends, Shift+Enter keeps the TextBox newline. IME composition arrives as ImeProcessed.
         if (e.Key != Key.Return || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
         e.Handled = true;
@@ -549,12 +513,10 @@ public partial class MainWindow : Window
         }
 
         if (e.Key != Key.Escape) return;
-        // Like the Stop orb: silence Link first, then stop the request; with nothing going on Esc hides Link, which
-        // goes on listening in conversation.
+        // Like the Stop orb: silence Link first, then stop the request; with nothing going on Esc hides Link.
         if (_voice.Phase == VoicePhase.Speaking) _voice.StopSpeaking();
         else if (_sending) CancelSend();
-        else if (_editing is not null) CancelEdit();
-        else if (_voice.Phase == VoicePhase.Idle || _voice.IsHandsFree) HideOverlay();
+        else if (_voice.Phase == VoicePhase.Idle) HideOverlay();
         else return;
         e.Handled = true;
     }

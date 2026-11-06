@@ -19,8 +19,7 @@ public interface IAudioRecorder : IDisposable
     /// </summary>
     bool Start(string? deviceId);
 
-    /// <summary>Ends the recording; the audio before <paramref name="skip"/> is left out of it.</summary>
-    AudioRecording Stop(bool save = true, TimeSpan skip = default);
+    AudioRecording Stop(bool save = true);
 
     void Cancel();
 }

@@ -1,11 +1,10 @@
 # Frames from shots.py glued into one sheet with captions.
 # uv run --no-project --with pillow sheet.py <out.png> <cols> <in1.png> <in2.png> ...
 # Each cell is the size of the first frame; a frame of another size is fitted into it, a small one (a thumbnail)
-# enlarged by whole pixels so that its pixels stay as the player would see them. A PNG is marked as a sheet: Link then
-# sends the critic the sheet as an image and its frames by path, not the same frames twice.
+# enlarged by whole pixels so that its pixels stay as the player would see them.
 import os
 import sys
-from PIL import Image, ImageDraw, PngImagePlugin
+from PIL import Image, ImageDraw
 
 out, cols, ins = sys.argv[1], int(sys.argv[2]), sys.argv[3:]
 tiles = [Image.open(p).convert("RGB") for p in ins]
@@ -29,7 +28,5 @@ for i, (p, t) in enumerate(zip(ins, tiles)):
 if max(g.size) > 1600:
     k = 1600 / max(g.size)
     g = g.resize((int(g.width * k), int(g.height * k)), Image.LANCZOS)
-mark = PngImagePlugin.PngInfo()
-mark.add_text("Link", "sheet")
-g.save(out, pnginfo=mark)
+g.save(out)
 print(out, g.size)

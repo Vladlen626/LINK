@@ -11,8 +11,8 @@ namespace Link.Desktop.Services;
 /// risky actions. A No-stop task runs in <c>bypassPermissions</c> with its deny list. No run is read only: <c>plan</c>
 /// and <c>dontAsk</c> are never used.
 /// </summary>
-public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
-    : CliAgentProvider(settings, log, console)
+public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log)
+    : CliAgentProvider(settings, log)
 {
     public override AgentProviderKind Kind => AgentProviderKind.ClaudeCode;
     public override string Name => "Claude Code";
@@ -266,7 +266,7 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     /// <summary>What the agent is told when the user does not allow a tool: the run goes on without it.</summary>
     internal const string Refused = "The user did not allow this. Do the task another way, or stop and say what you need.";
 
-    // The task's own words as they are, in the console too: stdin is no web page, so nothing but JSON needs escaping.
+    // The task's own words as they are: stdin is no web page, so nothing but JSON needs escaping.
     private static readonly JsonSerializerOptions Plain = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
     protected override bool Talks(AgentTask task) => task.AskPermission is not null;

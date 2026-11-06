@@ -68,15 +68,14 @@ public static class CompactRule
     /// </summary>
     public static string? PhaseEnd(long? contextTokens, int budget, int? window, IReadOnlyList<AgentPlanItem>? plan)
     {
-        // A team's plan has its own sessions per step.
-        if (contextTokens is not { } held || plan is null || plan.Any(item => item.Worker is not null) || AgentContext.Limit(budget, window) is not { } limit) return null;
+        if (contextTokens is not { } held || plan is null || AgentContext.Limit(budget, window) is not { } limit) return null;
         var done = plan.Count(item => item.Done);
         if (done == 0 || done == plan.Count || plan.Any(item => item.Active) || held * 100 < limit * PhaseShare) return null;
         return $"{done} of {plan.Count} steps of the plan are done and the session holds {AgentContext.Tokens(held)} of {AgentContext.Tokens(limit)}: the next part starts from the task's state";
     }
 
     /// <summary>
-    /// The reason to start a step of Link's own, such as the team lead's review, in a fresh session rather than resume the
+    /// The reason to start a step of Link's own, such as handing the task back, in a fresh session rather than resume the
     /// session <paramref name="last"/> ran in: no reply of the user's is taken from it, so a session near its budget
     /// starts fresh at once. Null: resume, or Settings do not allow it.
     /// </summary>

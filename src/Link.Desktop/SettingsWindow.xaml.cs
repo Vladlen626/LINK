@@ -96,7 +96,6 @@ public partial class SettingsWindow : Window
         VoiceLanguageCombo.ItemsSource = Enum.GetValues<VoiceLanguage>();
         VoiceLanguageCombo.SelectedItem = current.VoiceLanguage;
         LiveTranscriptionBox.IsChecked = current.LiveTranscription;
-        ConversationModeBox.IsChecked = current.ConversationMode;
         LoadMicrophones(current);
         VoiceRepliesBox.IsChecked = current.VoiceReplies;
         ReadTypedAnswersBox.IsChecked = current.ReadTypedAnswers;
@@ -114,8 +113,6 @@ public partial class SettingsWindow : Window
         SetHotkey(DesktopHotkey, current.Hotkeys.CaptureDesktop);
         SetHotkey(WindowHotkey, current.Hotkeys.CaptureActiveWindow);
         SetHotkey(RegionHotkey, current.Hotkeys.CaptureRegion);
-        SetHotkey(ConversationHotkey, current.Hotkeys.Conversation);
-        SetHotkey(AskAboutScreenHotkey, current.Hotkeys.AskAboutScreen);
         VersionText.Text = $"Version {GetInformationalVersion()}";
         DefaultAgentCombo.ItemsSource = _agents.Select(agent => agent.Name).ToArray();
         DefaultAgentCombo.SelectedIndex = Math.Max(0, Array.FindIndex(_agents, agent => agent.Kind == current.Agent.DefaultProvider));
@@ -126,11 +123,6 @@ public partial class SettingsWindow : Window
         AutoEffortBox.IsChecked = current.Agent.AutoEffort;
         HelpersBox.IsChecked = current.Agent.Helpers;
         CodexHelperBox.IsChecked = current.Agent.CodexHelper;
-        TeamOfferedBox.IsChecked = current.Agent.Team.Offered;
-        LeadReviewBox.IsChecked = current.Agent.Team.LeadReview;
-        ArtReviewBox.IsChecked = current.Agent.Team.ArtReview;
-        AlternateBox.IsChecked = current.Agent.Team.Alternate;
-        AutoLowerBox.IsChecked = current.Agent.Team.AutoLower;
         var claude = _agents.First(agent => agent.Kind == AgentProviderKind.ClaudeCode);
         var codex = _agents.First(agent => agent.Kind == AgentProviderKind.Codex);
         ShowChoices(ClaudeModelCombo, claude.Models, current.Agent.ClaudeModel, "Default — Claude Code's own");
@@ -686,9 +678,7 @@ public partial class SettingsWindow : Window
             GetHotkey(SendHotkey),
             GetHotkey(DesktopHotkey),
             GetHotkey(WindowHotkey),
-            GetHotkey(RegionHotkey),
-            GetHotkey(ConversationHotkey),
-            GetHotkey(AskAboutScreenHotkey)
+            GetHotkey(RegionHotkey)
         };
         if (hotkeys.Any(string.IsNullOrWhiteSpace)) return "Each action must have a unique hotkey.";
         try
@@ -725,8 +715,6 @@ public partial class SettingsWindow : Window
             current.Hotkeys.CaptureDesktop = GetHotkey(DesktopHotkey);
             current.Hotkeys.CaptureActiveWindow = GetHotkey(WindowHotkey);
             current.Hotkeys.CaptureRegion = GetHotkey(RegionHotkey);
-            current.Hotkeys.Conversation = GetHotkey(ConversationHotkey);
-            current.Hotkeys.AskAboutScreen = GetHotkey(AskAboutScreenHotkey);
         }
 
         current.Theme = (AppTheme)(ThemeCombo.SelectedItem ?? AppTheme.System);
@@ -734,7 +722,6 @@ public partial class SettingsWindow : Window
         current.BlurBackground = BlurBackgroundBox.IsChecked == true;
         current.VoiceLanguage = (VoiceLanguage)(VoiceLanguageCombo.SelectedItem ?? VoiceLanguage.Auto);
         current.LiveTranscription = LiveTranscriptionBox.IsChecked == true;
-        current.ConversationMode = ConversationModeBox.IsChecked == true;
         var microphone = MicrophoneCombo.SelectedItem as AudioInputDevice;
         if (microphone != _disconnectedMicrophone)
         {
@@ -762,11 +749,6 @@ public partial class SettingsWindow : Window
         current.Agent.AutoEffort = AutoEffortBox.IsChecked == true;
         current.Agent.Helpers = HelpersBox.IsChecked == true;
         current.Agent.CodexHelper = CodexHelperBox.IsChecked == true;
-        current.Agent.Team.Offered = TeamOfferedBox.IsChecked == true;
-        current.Agent.Team.LeadReview = LeadReviewBox.IsChecked == true;
-        current.Agent.Team.ArtReview = ArtReviewBox.IsChecked == true;
-        current.Agent.Team.Alternate = AlternateBox.IsChecked == true;
-        current.Agent.Team.AutoLower = AutoLowerBox.IsChecked == true;
         current.Agent.ClaudeModel = Chosen(ClaudeModelCombo);
         current.Agent.CodexModel = Chosen(CodexModelCombo);
         current.Agent.SetEffort(AgentProviderKind.ClaudeCode, Chosen(ClaudeEffortCombo));

@@ -17,9 +17,6 @@ public enum EffortPhase
     /// <summary>The plan the user approved is carried out.</summary>
     RunPlan,
 
-    /// <summary>A new session takes the task again, after a run that got stuck.</summary>
-    Restart,
-
     /// <summary>The other agent takes the task over.</summary>
     HandOff
 }
@@ -59,40 +56,13 @@ public static class AutoEffort
         return (Nearest(meant, efforts), reason);
     }
 
-    /// <summary>
-    /// The effort for a step of a team plan and why: the step's kind as the lead named it, not the words of its text,
-    /// which tell what the step touches (a long step mentions renames and comments in passing). Design, an unknown cause
-    /// and editor or DCC work high, code, tests, reviews and instances of a generator medium, mechanical edits and text
-    /// low; one above that once the step has failed (<paramref name="failures"/>).
-    /// </summary>
-    public static (string? Effort, string Reason) ForStep(StepKind kind, IReadOnlyList<string> efforts, int failures)
-    {
-        var meant = kind switch
-        {
-            StepKind.Design or StepKind.Investigate or StepKind.Asset => "high",
-            StepKind.Mechanical or StepKind.Docs => "low",
-            _ => "medium"
-        };
-        var what = kind switch
-        {
-            StepKind.Asset => "an asset step",
-            StepKind.Instance => "an instance step",
-            StepKind.Investigate => "an investigation step",
-            StepKind.Docs => "a text step",
-            _ => $"a {kind.ToString().ToLowerInvariant()} step"
-        };
-        return failures > 0
-            ? (Nearest(OneAbove(meant, efforts), efforts), $"raised: {what} that failed")
-            : (Nearest(meant, efforts), $"{what} of the plan");
-    }
-
     /// <summary>Whether <paramref name="effort"/> is one of the efforts the CLIs take.</summary>
     public static bool IsLevel(string effort) => Rank(effort) >= 0;
 
     /// <summary>
     /// The runs since the task's last good one that failed or failed the check. A stopped run (the user's Stop or Steer,
     /// a usage limit) ends the count like a good one, a loop label on it too: the user stopped it and says what comes
-    /// next, and a loop has its own Start over, which raises.
+    /// next.
     /// </summary>
     public static int Failures(IReadOnlyList<AgentRunRecord> runs)
     {
@@ -104,11 +74,7 @@ public static class AutoEffort
     private static (string Effort, string Reason) Meant(
         EffortPhase phase, string brief, IReadOnlyList<string> efforts, string? lastEffort, int failures, AgentNext? next, string? roleEffort)
     {
-        if (failures > 0 || phase == EffortPhase.Restart)
-        {
-            return (OneAbove(lastEffort, efforts),
-                phase == EffortPhase.Restart ? "raised: starting over after a stuck run" : "raised after a failed run");
-        }
+        if (failures > 0) return (OneAbove(lastEffort, efforts), "raised after a failed run");
 
         if (next?.Effort is { } asked && Rank(asked) >= 0)
         {
@@ -127,12 +93,12 @@ public static class AutoEffort
     /// </summary>
     private static (string Effort, string Reason) ByBrief(string brief, string? roleEffort)
     {
-        foreach (var (reason, words) in StepKinds.Hard)
+        foreach (var (reason, words) in Hard)
         {
             if (words.FirstOrDefault(word => Stems.Found(brief, word)) is { } hard) return ("high", $"the brief reads as {reason} (\"{hard}\")");
         }
 
-        if (brief.Trim().Length <= MechanicalLength && StepKinds.Mechanical.FirstOrDefault(word => Stems.Found(brief, word)) is { } easy)
+        if (brief.Trim().Length <= MechanicalLength && Mechanical.FirstOrDefault(word => Stems.Found(brief, word)) is { } easy)
         {
             return ("low", $"the brief reads as a mechanical change (\"{easy.Trim()}\")");
         }
@@ -142,6 +108,27 @@ public static class AutoEffort
 
     // About two sentences: "Rename the sprites to the SM_ scheme in Content/Props".
     private const int MechanicalLength = 200;
+
+    // Stems of the brief's words, English and Russian; what sounds like design or an unknown cause asks for more.
+    private static readonly string[] Design =
+    [
+        "architecture", "design a", "new mechanic", "system", "refactor", "rewrite",
+        "архитектур", "спроектир", "механик", "систем", "рефактор", "переписа"
+    ];
+
+    private static readonly string[] Unclear =
+    [
+        "investigate", "why", "crash", "race", "deadlock", "performance", "memory leak", "unclear",
+        "разбер", "почему", "вылета", "падает", "утечк", "производител", "непонятн"
+    ];
+
+    private static readonly (string Reason, string[] Words)[] Hard = [("a design task", Design), ("an unclear failure", Unclear)];
+
+    private static readonly string[] Mechanical =
+    [
+        "rename", "typo", "import ", "imports", "imported", "reimport", "move file", "format", "translate", "comment", "docs", "description", "bump version",
+        "переимен", "опечат", "импорт", "перенеси", "форматир", "перевед", "коммент", "описани", "документац"
+    ];
 
     /// <summary>The next effort of the CLI's list above the last one, never above <see cref="Highest"/>; high when the last is not known.</summary>
     private static string OneAbove(string? lastEffort, IReadOnlyList<string> efforts)

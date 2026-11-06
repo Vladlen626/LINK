@@ -5,16 +5,14 @@ namespace Link.Desktop.Services;
 
 /// <summary>
 /// One part of what the agent really gets, for the inspector: a title, a line of what it is, short notes that always
-/// show, a longer <see cref="Detail"/> behind a toggle, a <see cref="FilePath"/> to show in Explorer, and whether the
-/// Console has the raw text. <see cref="Meter"/> (0..1) draws a bar under the value, <see cref="Color"/> ("#RRGGBB")
-/// a jellyfish beside it.
+/// show, a longer <see cref="Detail"/> behind a toggle and a <see cref="FilePath"/> to show in Explorer.
+/// <see cref="Meter"/> (0..1) draws a bar under the value, <see cref="Color"/> ("#RRGGBB") a jellyfish beside it.
 /// </summary>
 public sealed record HarnessSection(string Title, string Value)
 {
     public string? Note { get; init; }
     public string? Detail { get; init; }
     public string? FilePath { get; init; }
-    public bool ShowsConsole { get; init; }
     public double? Meter { get; init; }
     public string? Color { get; init; }
 }
@@ -45,9 +43,6 @@ public sealed record HarnessInput(
 
     /// <summary>The project's stats, the busiest group first (<see cref="AgentStatsReport"/>).</summary>
     public IReadOnlyList<StatsRow> Stats { get; init; } = [];
-
-    /// <summary>Team against solo per kind of work, from the measured tasks (<see cref="Services.TeamVsSolo"/>).</summary>
-    public IReadOnlyList<string> TeamVsSolo { get; init; } = [];
 
     /// <summary>The project's last two weeks looked back on (<see cref="Services.Reflection"/>).</summary>
     public IReadOnlyList<string> Reflection { get; init; } = [];
@@ -239,21 +234,16 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
         };
     }
 
-    /// <summary>
-    /// The task's brief and hand-overs; while a team works, what the worker of the current step is told instead.
-    /// </summary>
+    /// <summary>The task's brief and hand-overs.</summary>
     private static HarnessSection Injected(HarnessInput input)
     {
-        if (input.Task is not { Brief.Length: > 0 } task) return new HarnessSection("Injected context", "Nothing yet") { ShowsConsole = true };
-        var step = TeamRunner.Current(task);
-        var text = step is not null ? TaskState.StepBrief(task, null, task.Workspace, step, input.AgentName) : task.BriefText;
+        if (input.Task is not { Brief.Length: > 0 } task) return new HarnessSection("Injected context", "Nothing yet");
+        var text = task.BriefText;
         var length = text.Length.ToString("N0", CultureInfo.InvariantCulture);
-        return new HarnessSection("Injected context",
-            step is not null ? $"Step {TeamRunner.Number(task, step)}'s brief: {length} characters" : $"The brief Link gave: {length} characters")
+        return new HarnessSection("Injected context", $"The brief Link gave: {length} characters")
         {
-            Note = "The rules and the role go before it in a new session; the Console has the exact text",
-            Detail = text,
-            ShowsConsole = true
+            Note = "The rules and the role go before it in a new session",
+            Detail = text
         };
     }
 
@@ -288,8 +278,7 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
             ? new HarnessSection("Stats", "No runs yet")
             : new HarnessSection("Stats", Plural(input.Stats.Sum(row => row.Runs), "run") + " in this project")
             {
-                Note = string.Join('\n', input.Stats.Take(StatsShown).Select(Line)) +
-                       (input.TeamVsSolo.Count > 0 ? "\nTeam vs solo, a done task:\n" + string.Join('\n', input.TeamVsSolo) : string.Empty)
+                Note = string.Join('\n', input.Stats.Take(StatsShown).Select(Line))
             };
 
     private static HarnessSection Reflect(HarnessInput input) =>

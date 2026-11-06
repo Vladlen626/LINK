@@ -6,7 +6,7 @@ namespace Link.Desktop.Services;
 
 /// <summary>
 /// A task as one Markdown text for a reader outside Link, such as ChatGPT in the browser: what it cost, what was asked
-/// and given, the team's plan, then the thread in order, each run with its setup, numbers, last steps, files and answer.
+/// and given, the agent's plan, then the thread in order, each run with its setup, numbers, last steps, files and answer.
 /// Only what the task's record keeps: the sessions' own transcripts stay with the CLIs, and the user's words are as the
 /// history keeps them (a long one cut).
 /// </summary>
@@ -28,7 +28,6 @@ public static class TaskExport
         Summary(text, task, agentName, roleName, strong);
         Fenced(text, "Brief", task.Brief);
         for (var index = 0; index < task.Handovers.Count; index++) Fenced(text, $"Hand-over {index + 1}", task.Handovers[index]);
-        Team(text, task, roleName);
         Plan(text, task);
         Thread(text, task, agentName, roleName);
         // One line break everywhere, whatever the system's and the words' own.
@@ -49,7 +48,7 @@ public static class TaskExport
     {
         var metric = TaskMetrics.Of(task, strong);
         text.AppendLine("## Summary");
-        text.Append("- Status: ").Append(task.Status).Append(" · mode: ").Append(task.Mode).Append(" · specialist: ").AppendLine(roleName(task.RoleId));
+        text.Append("- Status: ").Append(task.Status).Append(" · specialist: ").AppendLine(roleName(task.RoleId));
         text.Append("- Folder: ").AppendLine(LastPart(task.Workspace));
         text.Append("- Started ").Append(Stamp(task.CreatedAt)).Append(", last change ").Append(Stamp(task.UpdatedAt))
             .Append("; the agents worked ").AppendLine(Duration(metric.Time));
@@ -61,7 +60,6 @@ public static class TaskExport
 
         text.Append(" · the user's words: ").Append(task.Entries.Count(entry => entry.Kind == AgentEntryKind.You))
             .Append(", ").Append(metric.Steers).Append(" of them while a run went");
-        if (metric.Escalations > 0) text.Append(" · escalations: ").Append(metric.Escalations);
         text.AppendLine();
         foreach (var agent in metric.Agents)
         {
@@ -93,36 +91,10 @@ public static class TaskExport
         text.AppendLine();
     }
 
-    /// <summary>The team's plan as Link routed it: each step's kind, tier, specialist, worker and standing, and the notes that went with it.</summary>
-    private static void Team(StringBuilder text, AgentTaskRecord task, Func<string?, string> roleName)
-    {
-        if (task.Team.Count == 0) return;
-        text.AppendLine("## Team plan");
-        for (var index = 0; index < task.Team.Count; index++)
-        {
-            var step = task.Team[index];
-            text.Append(index + 1).Append(". ").Append(OneLine(step.Text)).Append(" — ").Append(step.Kind).Append(", ").Append(step.Tier)
-                .Append(", ").Append(roleName(step.Role)).Append(", ").Append(step.Worker.Length > 0 ? step.Worker : "no worker").Append(": ").Append(step.Status);
-            if (step.EscalatedFrom is { } from) text.Append(", escalated from ").Append(from);
-            if (step.Failures > 0) text.Append(", failed ").Append(step.Failures).Append('×');
-            if (step.Redos > 0) text.Append(", sent back ").Append(step.Redos).Append('×');
-            if (step.Check) text.Append(", waits for the user's OK");
-            if (step.Unverified) text.Append(", nothing shows it saved");
-            text.AppendLine();
-            Detail(text, "Why this worker", step.Reason);
-            Detail(text, "The worker before ended in", step.Failure);
-            Detail(text, "Handed over", step.HandedOver);
-            Detail(text, "The lead's notes", step.ReviewNotes);
-            Detail(text, "The art critic's notes", step.CriticNotes);
-        }
-
-        text.AppendLine();
-    }
-
-    /// <summary>The agent's own plan; a team's is the team plan above.</summary>
+    /// <summary>The agent's own plan.</summary>
     private static void Plan(StringBuilder text, AgentTaskRecord task)
     {
-        if (task.Team.Count > 0 || task.Plan.Count == 0) return;
+        if (task.Plan.Count == 0) return;
         text.AppendLine("## The agent's plan");
         foreach (var item in task.Plan) text.Append(item.Done ? "- [x] " : "- [ ] ").AppendLine(OneLine(item.Text));
         text.AppendLine();
@@ -168,7 +140,6 @@ public static class TaskExport
         if (run.RanModel is { } ran) text.Append(" (").Append(ran).Append(')');
         text.Append(" · ").Append(run.Effort ?? "its own effort").Append(" · as ").Append(roleName(run.RoleId))
             .Append(" · ").Append(run.Judge ? "judge" : run.AutoApprove ? "auto" : "edits");
-        if (run.Step is { } step) text.Append(" · team step ").Append(step).Append(run.Kind is { } kind ? $" ({kind}, {run.Tier})" : string.Empty);
         text.AppendLine();
         // The outcome tells the time: "Done in 3:12".
         text.Append("- ").Append(Stamp(run.StartedAt)).Append(" · ").Append(run.Outcome.Length > 0 ? run.Outcome : Duration(run.Duration));

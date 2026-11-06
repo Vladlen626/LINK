@@ -8,8 +8,8 @@ namespace Link.Desktop.Services;
 /// Codex CLI through <c>codex exec --json</c>. Every run is in the <c>workspace-write</c> sandbox, a plan first too (it is
 /// asked for in words); <c>read-only</c> and <c>danger-full-access</c> are never used.
 /// </summary>
-public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
-    : CliAgentProvider(settings, log, console)
+public sealed partial class CodexProvider(Func<AgentSettings> settings, Action<string> log)
+    : CliAgentProvider(settings, log)
 {
     public override AgentProviderKind Kind => AgentProviderKind.Codex;
     public override string Name => "Codex";

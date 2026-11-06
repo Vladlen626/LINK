@@ -71,7 +71,6 @@ public partial class MainWindow
             settings.DefaultAccess)
         {
             AutoEffort = settings.AutoEffort,
-            TeamOffered = settings.Team.Offered,
             Roles = roles,
             RoleId = ProjectRoles.Suggest(goal, roles)?.Id,
             WorkspaceSkills = skills,
@@ -89,9 +88,6 @@ public partial class MainWindow
 
     private static string EffortName(IAgentProvider agent, string effort) =>
         agent.Efforts.FirstOrDefault(choice => choice.Value == effort)?.Label.Split(" — ")[0] ?? effort;
-
-    /// <summary>Whether a run is on the strongest model and effort Settings has for its agent.</summary>
-    private bool IsStrongest(AgentTask task) => (task.Model, task.Effort) == _settings.Current.Agent.Level(task.Provider, AgentLevel.Deep);
 
     /// <summary>
     /// An agent's usage windows as bars: how much is used and when each resets. Each asks the agent anew when clicked;

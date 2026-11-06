@@ -14,13 +14,11 @@ public abstract class CliAgentProvider : IAgentProvider
 {
     private readonly Func<AgentSettings> _settings;
     private readonly Action<string> _log;
-    private readonly AgentConsole? _console;
 
-    protected CliAgentProvider(Func<AgentSettings> settings, Action<string> log, AgentConsole? console = null)
+    protected CliAgentProvider(Func<AgentSettings> settings, Action<string> log)
     {
         _settings = settings;
         _log = log;
-        _console = console;
     }
 
     public abstract AgentProviderKind Kind { get; }
@@ -74,8 +72,6 @@ public abstract class CliAgentProvider : IAgentProvider
         {
             EnvironmentVariables = EnvironmentVariables(task)
         };
-        _console?.Sent($"{Name} · {(task.ResumeSessionId is { } session ? "resume " + session : "new session")}",
-            command.Executable, command.Arguments, command.WorkingDirectory, command.EnvironmentVariables, command.Input);
         AgentProcessResult process;
         try
         {
@@ -98,13 +94,11 @@ public abstract class CliAgentProvider : IAgentProvider
                 command,
                 line =>
                 {
-                    _console?.Line(line);
                     lock (turn) Report(parser.Read(line));
                     if (talk is not null) Talk(line, task, talk, talking.Token);
                 },
                 line =>
                 {
-                    _console?.Line(line, error: true);
                     lock (turn) Report(parser.ReadError(line));
                 },
                 cancellationToken,
@@ -113,7 +107,6 @@ public abstract class CliAgentProvider : IAgentProvider
         catch (Exception exception) when (exception is not OperationCanceledException)
         {
             _log($"[Agent] {Name}: could not start ({exception.Message})");
-            _console?.Line($"Link could not start it: {exception.Message}", error: true);
             throw;
         }
         finally

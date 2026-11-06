@@ -79,9 +79,9 @@ public partial class MainWindow
             return decision.NoStop ? (decision.Text, decision.Button, () => TakeDecision(work, decision, always: false)) : null;
         }
 
-        // A team or a training goes on by its own moves; a solo run that ended well names its next step.
+        // A run that ended well names its next step.
         var record = work.Record;
-        if (record.Mode != TaskMode.Solo || work.LastRun is not { } run) return null;
+        if (work.LastRun is not { } run) return null;
         if (record.Status == AgentTaskStatus.Done && AgentNext.Split(run.Result.Summary).Next is { } next)
         {
             var words = NoStop.GoOn(next);

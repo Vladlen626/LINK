@@ -4,7 +4,7 @@ using Link.Desktop.Models;
 
 namespace Link.Desktop;
 
-// The labels under the prompt: where Send goes (ChatGPT or the agent) and with what response effort.
+// The label under the prompt: where Send goes, ChatGPT or the agent.
 public partial class MainWindow
 {
     /// <summary>The menu of a label under the prompt: one line per option, the current one checked.</summary>
@@ -90,21 +90,4 @@ public partial class MainWindow
         : TaskTakesWords && _open is { } open ? $"the task «{Shorten(open.Record.Goal, 40)}»"
         : $"a task card for {_agents.Provider(StartProvider).Name}";
 
-    private void Effort_OnClick(object sender, RoutedEventArgs e) =>
-        ShowOptions(EffortButton, EffortOptions, _settings.Current.ResponseEffort, SetEffort);
-
-    private void SetEffort(ResponseEffort effort)
-    {
-        _settings.Current.ResponseEffort = effort;
-        _settings.Save();
-        UpdateEffortButton();
-        SetStatus($"Response effort: {EffortText.Text} — applies to the next message");
-    }
-
-    private void UpdateEffortButton()
-    {
-        var option = EffortOptions.First(option => option.Effort == _settings.Current.ResponseEffort);
-        EffortText.Text = option.Label;
-        EffortButton.ToolTip = $"Response effort: {option.Description}";
-    }
 }

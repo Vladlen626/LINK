@@ -254,11 +254,9 @@ public sealed class TelegramBot : IDisposable
     {
         if (await _api("getMe", new { }, token) is not { } me) return false;
         _topics = me.TryGetProperty("has_topics_enabled", out var topics) && topics.ValueKind == JsonValueKind.True;
-        // /team only while Settings offer the team: one agent that plans and delegates is the way now.
-        var teams = await _host.TeamsOfferedAsync();
         await _api("setMyCommands", new
         {
-            commands = Commands.Where(command => teams || command.Name != "team").Select(command => new { command = command.Name, description = command.Words })
+            commands = Commands.Select(command => new { command = command.Name, description = command.Words })
         }, token);
         return true;
     }
@@ -268,7 +266,6 @@ public sealed class TelegramBot : IDisposable
         ("tasks", "The tasks, newest first"),
         ("new", "A new task: /new and what to do"),
         ("plan", "A new task that plans first"),
-        ("team", "A new task the team plans and works"),
         ("auto", "A new task in No-stop"),
         ("spent", "What the agents spent"),
         ("account", "Which Claude account new runs use"),
@@ -355,7 +352,7 @@ public sealed class TelegramBot : IDisposable
                 var spent = await _host.UsageAsync();
                 await SendAsync(chat, topic, spent is null ? "Link has not counted yet: open the Studio on the computer." : $"{spent.Line}\n\n{spent.Hint}", null, token);
                 return;
-            case "/new" or "/plan" or "/auto" or "/team":
+            case "/new" or "/plan" or "/auto":
                 await DraftAsync(chat, topic, command, rest, pictures, token);
                 return;
             case "/account":
@@ -432,7 +429,7 @@ public sealed class TelegramBot : IDisposable
         }
     }
 
-    /// <summary>/new, /plan, /team or /auto: the project to start in when there is a choice, then the agent.</summary>
+    /// <summary>/new, /plan or /auto: the project to start in when there is a choice, then the agent.</summary>
     private async Task DraftAsync(long chat, long? topic, string command, string goal, IReadOnlyList<string> pictures, CancellationToken token)
     {
         if (goal.Length == 0)
@@ -448,16 +445,9 @@ public sealed class TelegramBot : IDisposable
             return;
         }
 
-        var teams = await _host.TeamsOfferedAsync();
-        if (command == "/team" && !teams)
-        {
-            await SendAsync(chat, topic, "Teams are off in Link's Settings (Offer the team): /new starts one agent that plans the task and hands parts to helpers.", null, token);
-            return;
-        }
-
         var draft = new Draft(goal, command == "/plan", command == "/auto", pictures, projects)
         {
-            Project = projects.Length == 1 ? projects[0] : null, Team = command == "/team", TeamsOffered = teams
+            Project = projects.Length == 1 ? projects[0] : null
         };
         var (text, rows) = Picker(draft);
         draft.Message = await SendAsync(chat, topic, text, rows, token) ?? 0;
@@ -474,24 +464,19 @@ public sealed class TelegramBot : IDisposable
                 [.. draft.Projects.Select((each, index) => new[] { Button(each.Active ? each.Name + " ✓" : each.Name, $"np:{index}") })]);
         }
 
-        // A team's lead and workers are Settings' own, so a team has no agent to pick.
-        if (draft.Team) return ($"{goal} in {project.Name}\n\nThe team plans it: its lead writes the plan, you run it.", [[Button("👥 Team ✓", "nt")], [Button("Plan the team", "na")]]);
         var rows = new List<object[]> { new[] { Button("As Settings say", "na") } };
         rows.AddRange(Enum.GetValues<AgentLevel>().Select(level => Enum.GetValues<AgentProviderKind>()
             .Select(agent => Button($"{(agent == AgentProviderKind.ClaudeCode ? "Claude" : "Codex")} · {level}", $"na:{agent}:{level}")).ToArray()));
-        if (!draft.TeamsOffered) return ($"{goal} in {project.Name}\n\nWhich agent, and how strong?", rows);
-        rows.Add([Button("👥 Team", "nt")]);
-        return ($"{goal} in {project.Name}\n\nWhich agent, and how strong? Or the team.", rows);
+        return ($"{goal} in {project.Name}\n\nWhich agent, and how strong?", rows);
     }
 
     /// <summary>A picker's button: the project is taken, or the agent, and then the task starts.</summary>
     private async Task<string?> PickedAsync(long chat, long message, string[] parts, CancellationToken token)
     {
         if (_draft is not { } draft || draft.Message != message) return "This one is over: write /new again";
-        if (parts[0] is "np" or "nt")
+        if (parts[0] == "np")
         {
-            if (parts[0] == "nt") draft.Team = !draft.Team;
-            else if (int.TryParse(parts.ElementAtOrDefault(1), out var index) && draft.Projects.ElementAtOrDefault(index) is { } project) draft.Project = project;
+            if (int.TryParse(parts.ElementAtOrDefault(1), out var index) && draft.Projects.ElementAtOrDefault(index) is { } project) draft.Project = project;
             else return "Unknown button";
             var (text, rows) = Picker(draft);
             await _api("editMessageText", new { chat_id = chat, message_id = message, text, reply_markup = Keyboard(rows) }, token);
@@ -502,7 +487,7 @@ public sealed class TelegramBot : IDisposable
         AgentProviderKind? agent = parts.Length == 3 && Enum.TryParse<AgentProviderKind>(parts[1], out var named) ? named : null;
         AgentLevel? level = parts.Length == 3 && Enum.TryParse<AgentLevel>(parts[2], out var strength) ? strength : null;
         var at = DateTimeOffset.Now;
-        var error = await _host.StartAsync(new RemoteNewTask(draft.Project?.Id, draft.Goal, draft.PlanFirst, draft.NoStop, agent, level, draft.Pictures, draft.Team), "Telegram");
+        var error = await _host.StartAsync(new RemoteNewTask(draft.Project?.Id, draft.Goal, draft.PlanFirst, draft.NoStop, agent, level, draft.Pictures), "Telegram");
         if (error is null) _starting = (draft.Goal.Split('\n')[0].Trim(), at);
         await _api("editMessageText", new
         {
@@ -525,7 +510,7 @@ public sealed class TelegramBot : IDisposable
         var chat = message.GetProperty("chat").GetProperty("id").GetInt64();
         var pressedOn = message.GetProperty("message_id").GetInt64();
         string? error;
-        if (parts[0] is "np" or "nt" or "na")
+        if (parts[0] is "np" or "na")
         {
             error = await PickedAsync(chat, pressedOn, parts, token);
         }
@@ -916,11 +901,6 @@ public sealed class TelegramBot : IDisposable
     private sealed record Draft(string Goal, bool PlanFirst, bool NoStop, IReadOnlyList<string> Pictures, IReadOnlyList<RemoteProject> Projects)
     {
         public RemoteProject? Project { get; set; }
-
-        public bool Team { get; set; }
-
-        /// <summary>Settings offer the team: the picker has its button.</summary>
-        public bool TeamsOffered { get; init; }
 
         // The picker's message: a press on an older one starts nothing.
         public long Message { get; set; }

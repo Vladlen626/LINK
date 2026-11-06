@@ -318,29 +318,25 @@ internal static class EmbeddedChatTests
         Program.Equal("a conversation outside ChatGPT is not offered for linking", rig.Chat.GetAvailableConversations().Count, 0);
     }
 
-    /// <summary>Where a prompt stands is kept for the session; the chat modes LINK set survive a restart.</summary>
+    /// <summary>Where a prompt stands is kept for the session; nothing else is stored.</summary>
     private static async Task StorageAsync()
     {
         using var rig = new EmbeddedRig();
         await rig.Page.CallAsync(new { op = "set", items = new Dictionary<string, object>
         {
-            ["effort:chat-1"] = "fast",
-            ["mode:chat-1"] = "Высокий",
             ["request:0f1e"] = new { phase = "sent" },
+            ["request:2a3b"] = new { phase = "waiting" },
+            ["mode:chat-1"] = "dropped",
             ["anything"] = "dropped"
         } }, kind: "storage");
         var all = await rig.Page.CallAsync(new { op = "get", keys = (string[]?)null }, kind: "storage");
-        Program.Equal("the page gets back what it stored", string.Join(",", all.EnumerateObject().Select(item => item.Name).Order()),
-            "effort:chat-1,mode:chat-1,request:0f1e");
-        var mode = await rig.Page.CallAsync(new { op = "get", keys = new[] { "mode:chat-1", "effort:chat-2" } }, kind: "storage");
-        Program.Equal("a get returns what it names", mode.GetProperty("mode:chat-1").GetString(), "Высокий");
-        await rig.Page.CallAsync(new { op = "remove", keys = "mode:chat-1" }, kind: "storage");
-
-        await Program.EventuallyAsync("only the chat modes are kept on disk", () => rig.StoredKeys(), "effort:chat-1");
-        using var restarted = new EmbeddedRig(rig.StateFile);
-        var kept = await restarted.Page.CallAsync(new { op = "get", keys = (string[]?)null }, kind: "storage");
-        Program.Equal("after a restart the page finds the modes", string.Join(",", kept.EnumerateObject().Select(item => item.Name)),
-            "effort:chat-1");
+        Program.Equal("the page gets back where its prompts stand", string.Join(",", all.EnumerateObject().Select(item => item.Name).Order()),
+            "request:0f1e,request:2a3b");
+        var named = await rig.Page.CallAsync(new { op = "get", keys = new[] { "request:0f1e", "request:ffff" } }, kind: "storage");
+        Program.Equal("a get returns what it names", named.GetProperty("request:0f1e").GetProperty("phase").GetString(), "sent");
+        await rig.Page.CallAsync(new { op = "remove", keys = "request:0f1e" }, kind: "storage");
+        var left = await rig.Page.CallAsync(new { op = "get", keys = (string[]?)null }, kind: "storage");
+        Program.Equal("a removed key is gone", string.Join(",", left.EnumerateObject().Select(item => item.Name)), "request:2a3b");
     }
 
     private static async Task SignInAsync()
@@ -440,21 +436,17 @@ internal static class EmbeddedChatTests
             Url = "https://chatgpt.com/g/g-p-0123456789abcdef0123456789abcdef-link/c/chat-1"
         };
 
-        private readonly bool _ownsState;
         private readonly List<string> _screenshots = [];
 
-        public EmbeddedRig(string? stateFile = null, PageTimings? pageTimings = null)
+        public EmbeddedRig(PageTimings? pageTimings = null)
         {
-            _ownsState = stateFile is null;
-            StateFile = stateFile ?? Path.Combine(Path.GetTempPath(), $"link-companion-state-{Guid.NewGuid():N}.json");
-            Chat = new EmbeddedChatIntegration(StateFile, Timings, pageTimings ?? PageTimingsForTests, FakeChatPage.Token);
+            Chat = new EmbeddedChatIntegration(Timings, pageTimings ?? PageTimingsForTests, FakeChatPage.Token);
             Chat.Attach(Page);
         }
 
         public EmbeddedChatIntegration Chat { get; }
         public FakeChatPage Page { get; } = new();
         public ProgressLog Progress { get; } = new();
-        public string StateFile { get; }
         public ChatConnectionState State => Chat.GetConnectionState(Link);
 
         public Task<ChatResponse> SendAsync(
@@ -475,25 +467,10 @@ internal static class EmbeddedChatTests
                 progress ?? Progress,
                 cancellation);
 
-        /// <summary>The keys of the companion's storage kept on disk.</summary>
-        public string StoredKeys()
-        {
-            try
-            {
-                using var saved = JsonDocument.Parse(File.ReadAllText(StateFile));
-                return string.Join(",", saved.RootElement.EnumerateObject().Select(item => item.Name));
-            }
-            catch (IOException)
-            {
-                return "not written yet";
-            }
-        }
-
         public void Dispose()
         {
             Chat.Dispose();
-            var files = _ownsState ? [StateFile, $"{StateFile}.bak", .. _screenshots] : _screenshots;
-            foreach (var file in files)
+            foreach (var file in _screenshots)
             {
                 if (File.Exists(file)) File.Delete(file);
             }

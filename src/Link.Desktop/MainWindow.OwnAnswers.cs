@@ -168,7 +168,6 @@ public partial class MainWindow
         panel.ShowFinish(false);
         panel.ShowNoStop(null);
         panel.ShowPlanMode(false);
-        panel.ShowReplan(false);
         panel.SetRunning(live is not null);
         // Link's own answer takes no words.
         panel.ShowReply(false, live is not null ? null : "Link's own answer: the file is written. The tasks are on the left.");
@@ -179,9 +178,9 @@ public partial class MainWindow
     private static string OwnWhat(AgentTask task) =>
         task.AnswerFile is { } file ? file.Replace('\\', '/') : Shorten(task.Prompt.Split('\n')[0], 80);
 
-    /// <summary>The ⋯ menu of Link's own run: undo what it wrote, and the console.</summary>
+    /// <summary>The ⋯ menu of Link's own run: undo what it wrote.</summary>
     private IReadOnlyList<PanelAction> OwnActions(OwnRun own) =>
-        own.Run is { } run && UndoAction(null, run) is { } undo ? [undo, ConsoleAction()] : [ConsoleAction()];
+        own.Run is { } run && UndoAction(null, run) is { } undo ? [undo] : [];
 
     /// <summary>Link's own run ended: its answer in its turn, its file listed; the tasks stay as they were.</summary>
     private void ShowOwnResult(OwnRun own, LiveRun live, AgentRun run)

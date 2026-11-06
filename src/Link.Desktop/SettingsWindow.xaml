@@ -142,20 +142,17 @@
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
-                                        <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
+                                        <RowDefinition Height="44" /><RowDefinition Height="36" />
                                         <RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="Auto" />
                                     </Grid.RowDefinitions>
                                     <TextBlock VerticalAlignment="Center" Text="Voice language" />
                                     <ComboBox x:Name="VoiceLanguageCombo" Grid.Column="1" Width="220" HorizontalAlignment="Left" />
                                     <CheckBox x:Name="LiveTranscriptionBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                               Content="Show my words while I speak (live draft, recognized locally)" />
-                                    <CheckBox x:Name="ConversationModeBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center"
-                                              Content="Conversation: listen by itself, send after a pause, answer aloud, listen again"
-                                              ToolTip="The microphone stays open while Link is free; typing in the prompt pauses it" />
-                                    <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Input device" />
-                                    <ComboBox x:Name="MicrophoneCombo" Grid.Row="3" Grid.Column="1" />
-                                    <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Check" />
-                                    <Grid Grid.Row="4" Grid.Column="1" VerticalAlignment="Center">
+                                    <TextBlock Grid.Row="2" VerticalAlignment="Center" Text="Input device" />
+                                    <ComboBox x:Name="MicrophoneCombo" Grid.Row="2" Grid.Column="1" />
+                                    <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Check" />
+                                    <Grid Grid.Row="3" Grid.Column="1" VerticalAlignment="Center">
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                         <Button x:Name="MicrophoneTestButton" Style="{StaticResource ChipButtonStyle}" Click="MicrophoneTest_OnClick"
                                                 Content="Test microphone" />
@@ -167,7 +164,7 @@
                                             </Border>
                                         </Border>
                                     </Grid>
-                                    <TextBlock x:Name="MicrophoneTestText" Grid.Row="5" Grid.ColumnSpan="2" Margin="0,0,0,6"
+                                    <TextBlock x:Name="MicrophoneTestText" Grid.Row="4" Grid.ColumnSpan="2" Margin="0,0,0,6"
                                                Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
                                                Text="Test records three seconds and shows whether this microphone hears you." />
                                 </Grid>
@@ -239,7 +236,7 @@
                                        Text="Claude Code and Codex on your own subscription: Link does not install them.">
                                 <TextBlock.ToolTip>
                                     <TextBlock MaxWidth="420" TextWrapping="Wrap"
-                                               Text="Each signs in once: Claude Code with Sign in below, Codex with 'codex login'. They spend your Claude or ChatGPT subscription. The task card offers each agent's own models and efforts and starts from Default. Plan first makes the plan on Strong and carries it out on the card's choice in the same session; Escalate goes on with Strong; Link's own answers (map, skill, note) run on Quick; Hand off ▾ offers all three for the same session. Default leaves the model or the effort to the agent's own settings. Claude's own subagents are Link's two helpers (below); Codex's Ultra and Claude's ultracode, whole workflows of subagents, are not offered." />
+                                               Text="Each signs in once: Claude Code with Sign in below, Codex with 'codex login'. They spend your Claude or ChatGPT subscription. The task card offers each agent's own models and efforts and starts from Default. Plan first makes the plan on Strong and carries it out on the card's choice in the same session; Link's own answers (map, skill) run on Quick; Hand off ▾ offers all three for the same session. Default leaves the model or the effort to the agent's own settings. Claude's own subagents are Link's two helpers (below); Codex's Ultra and Claude's ultracode, whole workflows of subagents, are not offered." />
                                 </TextBlock.ToolTip>
                             </TextBlock>
 
@@ -268,16 +265,6 @@
                                                   ToolTip="Claude Code's session can hand a clear mechanical edit to 'mechanic' (Haiku) and a search to 'scout', which answer it in short: the main session keeps its context and its plan. Their steps show in the task's thread." />
                                         <CheckBox x:Name="CodexHelperBox" Margin="0,4" Content="Codex as Claude's tool"
                                                   ToolTip="Claude Code's session can give a clearly described piece of code to Codex (codex exec, through Link's link-codex), which spends your ChatGPT subscription instead of Claude's window, and checks what it got. Only where Codex is found." />
-                                        <CheckBox x:Name="TeamOfferedBox" Margin="0,4" Content="Offer the team (old way, to compare)"
-                                                  ToolTip="The card offers Team again: a lead plans, each step goes to a worker in a new session. One session that plans and delegates by itself does better on most tasks; turn this on to compare them (with Measure team vs solo)." />
-                                        <CheckBox x:Name="LeadReviewBox" Margin="0,4" Content="Team lead reviews each step"
-                                                  ToolTip="In a team, the lead reads the diff of each step Codex or Haiku did and accepts it, sends it back with notes (twice at most) or gives it to a stronger worker. A short turn of the lead's own session, which changes nothing." />
-                                        <CheckBox x:Name="ArtReviewBox" Margin="0,4" Content="Art critic"
-                                                  ToolTip="An art critic, another agent than the artist's where one can, judges the frames of each art step of a team before you do: a ledger, the worst defects, a score 1-5. It changes nothing and is blind to the artist's account; it sends a step back twice at most." />
-                                        <CheckBox x:Name="AlternateBox" Margin="0,4" Content="Measure team vs solo"
-                                                  ToolTip="A task that would go to the team goes, by turns for each kind of work, to the team or to the strong agent alone. The Harness inspector's Stats then compare their tokens per task." />
-                                        <CheckBox x:Name="AutoLowerBox" Margin="0,4" Content="Cheaper proven worker"
-                                                  ToolTip="A team step goes a tier down by itself where the cheaper worker has proven itself on that kind of step in this project (3 done or more, at most 20% failed). Off: Link only suggests it in the step's reason." />
                                     </StackPanel>
                                 </Grid>
                             </Border>
@@ -310,7 +297,7 @@
                                         <Grid.ColumnDefinitions><ColumnDefinition Width="64" /><ColumnDefinition Width="*" /><ColumnDefinition Width="170" /></Grid.ColumnDefinitions>
                                         <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
                                         <TextBlock VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Quick"
-                                                   ToolTip="Quick, cheaper work, and Link's own answers: a map, a skill, a note for Start over" />
+                                                   ToolTip="Quick, cheaper work, and Link's own answers: a map, a skill" />
                                         <ComboBox x:Name="ClaudeLightModelCombo" Grid.Column="1" />
                                         <ComboBox x:Name="ClaudeLightEffortCombo" Grid.Column="2" Margin="6,0,0,0" />
                                         <TextBlock Grid.Row="1" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Default"
@@ -318,7 +305,7 @@
                                         <ComboBox x:Name="ClaudeModelCombo" Grid.Row="1" Grid.Column="1" Margin="0,6,0,0" />
                                         <ComboBox x:Name="ClaudeEffortCombo" Grid.Row="1" Grid.Column="2" Margin="6,6,0,0" />
                                         <TextBlock Grid.Row="2" Margin="0,6,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" Text="Strong"
-                                                   ToolTip="Plans of Plan first, hard problems, and Escalate after a task failed" />
+                                                   ToolTip="Plans of Plan first and hard problems" />
                                         <ComboBox x:Name="ClaudeDeepModelCombo" Grid.Row="2" Grid.Column="1" Margin="0,6,0,0" />
                                         <ComboBox x:Name="ClaudeDeepEffortCombo" Grid.Row="2" Grid.Column="2" Margin="6,6,0,0" />
                                     </Grid>
@@ -387,7 +374,6 @@
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
                                         <RowDefinition Height="42" /><RowDefinition Height="42" /><RowDefinition Height="42" />
-                                        <RowDefinition Height="42" /><RowDefinition Height="42" />
                                     </Grid.RowDefinitions>
                                     <TextBlock VerticalAlignment="Center" Text="Show / hide" />
                                     <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Push to talk" />
@@ -395,9 +381,6 @@
                                     <TextBlock Grid.Row="3" VerticalAlignment="Center" Text="Capture desktop" />
                                     <TextBlock Grid.Row="4" VerticalAlignment="Center" Text="Capture active window" />
                                     <TextBlock Grid.Row="5" VerticalAlignment="Center" Text="Select region" />
-                                    <TextBlock Grid.Row="6" VerticalAlignment="Center" Text="Conversation on / off" />
-                                    <TextBlock Grid.Row="7" VerticalAlignment="Center" Text="Ask about the screen (hold)"
-                                               ToolTip="Hold, ask, let go: the question goes at once with a fresh frame of the window you work in, and the answer is read aloud" />
                                     <Button x:Name="ShowHideHotkey" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
                                         <TextBlock Text="Ctrl+Alt+Space" />
                                     </Button>
@@ -415,12 +398,6 @@
                                     </Button>
                                     <Button x:Name="RegionHotkey" Grid.Row="5" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
                                         <TextBlock Text="Ctrl+Alt+Shift+R" />
-                                    </Button>
-                                    <Button x:Name="ConversationHotkey" Grid.Row="6" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
-                                        <TextBlock Text="Ctrl+Alt+Shift+Space" />
-                                    </Button>
-                                    <Button x:Name="AskAboutScreenHotkey" Grid.Row="7" Grid.Column="1" Style="{StaticResource ShortcutRecorderStyle}" Click="HotkeyButton_OnClick">
-                                        <TextBlock Text="Ctrl+Alt+Shift+V" />
                                     </Button>
                                 </Grid>
                             </Border>

@@ -18,12 +18,12 @@ public static partial class FinalCheck
 
     /// <summary>
     /// Whether a run's end is the moment for the check: it carried out the task's own plan of three steps or more to the
-    /// end, changed files and was not refused by the project's check. A team, a plan first and a judge are not.
+    /// end, changed files and was not refused by the project's check. A plan first and a judge are not.
     /// </summary>
     public static bool Due(AgentTaskRecord record, AgentRun run) =>
         run.Task is { Judge: false, PlanOnly: false, AnswerFile: null } && run.Result is { Succeeded: true, Stopped: false } &&
-        run.Changes.Count > 0 && run.Check is not { Passed: false } && record.Team.Count == 0 &&
-        record.Plan.Count >= PlanSteps && record.Plan.All(item => item.Done && item.Worker is null);
+        run.Changes.Count > 0 && run.Check is not { Passed: false } &&
+        record.Plan.Count >= PlanSteps && record.Plan.All(item => item.Done);
 
     /// <summary>A plan by its steps' words: the same plan is checked once.</summary>
     public static string Key(IReadOnlyList<AgentPlanItem> plan) => string.Join('\n', plan.Select(item => item.Text));

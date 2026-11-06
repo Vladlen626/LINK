@@ -46,7 +46,7 @@ kind, and say in the answer that a profile is missing.
   assets of the class, in one sheet (`sheet.py`).
 - Colour by zones on faces from the palette (skill `blender-model`, Palette), not by noise; the look `flat` shows
   whether the zones alone carry the form.
-- Name the full paths of the frames and the sheet in the answer: a critic judges from them, without your account.
+- Name the full paths of the frames and the sheet in the answer: the user judges from them.
   Name the approved assets you compared with, and where yours differs on purpose.
 
 ## A new profile

@@ -39,10 +39,6 @@ public sealed record VoiceTranscript(string Text, bool SendRequested);
 public sealed class VoiceSession
 {
     private static readonly TimeSpan MinimumSpeechDuration = TimeSpan.FromMilliseconds(300);
-    // Detection notices speech a little late, so a hands-free phrase is transcribed from a moment before it.
-    private static readonly TimeSpan PhrasePreroll = TimeSpan.FromSeconds(1);
-    // Hands-free listening that hears nothing starts afresh now and then: the recording stays short.
-    private static readonly TimeSpan QuietRestart = TimeSpan.FromMinutes(2);
     // Quick answers start within a few seconds; a cue before that would only talk over them.
     private static readonly TimeSpan WaitingCueDelay = TimeSpan.FromSeconds(6);
     private static readonly string[] RussianCues = ["Секунду.", "Думаю над ответом.", "Ещё немного."];
@@ -55,16 +51,11 @@ public sealed class VoiceSession
     private readonly TimeProvider _time;
     private readonly Action<string> _log;
     private IStreamingTranscription? _live;
-    // The thread listening started on: drafts, phrase ends and timers come back to it.
+    // The thread listening started on: drafts come back to it.
     private SynchronizationContext? _context;
-    // Hands-free the utterance ends at a pause; push-to-talk ends it with the key.
-    private bool _handsFree;
     private long _openedAt;
     // Link's processor time when the microphone opened, for link.log.
     private TimeSpan _processorAtOpen;
-    // How much of the recording before the phrase is left out.
-    private TimeSpan _skip;
-    private ITimer? _quiet;
     private VoiceTextChunker? _answer;
     // Everything said of the current answer shares this token, so one cancel silences all of it.
     private CancellationTokenSource? _speaking;
@@ -115,32 +106,13 @@ public sealed class VoiceSession
     /// </summary>
     public event Action<string>? DraftChanged;
 
-    /// <summary>
-    /// Hands-free: the user paused after a phrase, and <see cref="FinishListeningAsync"/> turns it into text. Raised
-    /// on the thread that started listening.
-    /// </summary>
-    public event Action? PhraseEnded;
-
     public VoicePhase Phase { get; private set; }
 
-    /// <summary>
-    /// Why the current utterance misses something that is on, e.g. the live draft or the pause detection while its
-    /// model downloads.
-    /// </summary>
+    /// <summary>Why the current utterance misses the live draft that is on, e.g. while its model downloads.</summary>
     public string? DraftNote { get; private set; }
 
-    /// <summary>
-    /// Push-to-talk starts when nothing else is going on, and interrupts Link while it talks. In conversation it also
-    /// works while the chat thinks: the answer then stays on screen only, and the new words follow it.
-    /// </summary>
-    public bool CanStartListening => Phase is VoicePhase.Idle or VoicePhase.Speaking ||
-                                     _settings.ConversationMode && Phase is VoicePhase.Sending or VoicePhase.Waiting;
-
-    /// <summary>The microphone listens hands-free: the phrase ends at a pause, not with a key.</summary>
-    public bool IsHandsFree => Phase == VoicePhase.Listening && _handsFree;
-
-    /// <summary>Hands-free, the user has begun a phrase that has not ended yet.</summary>
-    public bool IsPhraseUnderWay => IsHandsFree && _live?.HeardSpeech == true;
+    /// <summary>Push-to-talk starts when nothing else is going on, and interrupts Link while it talks.</summary>
+    public bool CanStartListening => Phase is VoicePhase.Idle or VoicePhase.Speaking;
 
     public bool IsSpeechModelReady => _speechToText.IsModelReady;
 
@@ -155,37 +127,7 @@ public sealed class VoiceSession
     {
         if (!CanStartListening) throw new InvalidOperationException("Voice input is busy.");
         SilenceAnswer();
-        return Open(handsFree: false);
-    }
-
-    /// <summary>
-    /// Conversation: opens the microphone while nothing else goes on; the phrase ends at a pause and raises
-    /// <see cref="PhraseEnded"/>. False: the selected microphone is not connected, so the Windows default one listens.
-    /// </summary>
-    public bool StartHandsFree()
-    {
-        if (Phase != VoicePhase.Idle) throw new InvalidOperationException("Voice input is busy.");
-        return Open(handsFree: true);
-    }
-
-    /// <summary>Push-to-talk while listening hands-free: the phrase now ends when the key is let go.</summary>
-    public void HoldListening()
-    {
-        if (!IsHandsFree) return;
-        _handsFree = false;
-        StopQuietTimer();
-        // Before the key there was only the wait, unless a phrase has begun.
-        if (_live?.HeardSpeech != true) _skip = Before(_time.GetElapsedTime(_openedAt));
-    }
-
-    /// <summary>Closes the microphone without a transcript, e.g. when conversation mode goes off; the live words go too.</summary>
-    public void CancelListening()
-    {
-        if (Phase != VoicePhase.Listening) return;
-        _log($"[Voice] {DescribeListening()}, closed without a phrase");
-        DraftChanged?.Invoke(string.Empty);
-        CloseMicrophone();
-        SetPhase(VoicePhase.Idle);
+        return Open();
     }
 
     /// <summary>
@@ -194,7 +136,6 @@ public sealed class VoiceSession
     public async Task<VoiceTranscript?> FinishListeningAsync()
     {
         if (Phase != VoicePhase.Listening) throw new InvalidOperationException("Voice input is not listening.");
-        StopQuietTimer();
         var listening = DescribeListening();
         var finishing = _time.GetTimestamp();
         SetPhase(VoicePhase.Finalizing);
@@ -206,8 +147,7 @@ public sealed class VoiceSession
             AudioRecording recording;
             try
             {
-                // Whisper hears the phrase without the wait before it: quicker, and nothing to invent words from.
-                recording = _recorder.Stop(skip: _skip);
+                recording = _recorder.Stop();
             }
             finally
             {
@@ -233,7 +173,6 @@ public sealed class VoiceSession
             }
 
             var text = await _speechToText.TranscribeAsync(audioPath, _settings.VoiceLanguage);
-            // With the pause before it, this is how long a hands-free phrase waited to go out.
             _log($"[Voice] {listening}, {recording.Duration.TotalSeconds:0.0} s of it transcribed " +
                  $"{_time.GetElapsedTime(finishing).TotalMilliseconds:0} ms after listening ended");
             // The transcript has one canonical home, the prompt: raw audio is never sent.
@@ -268,18 +207,17 @@ public sealed class VoiceSession
 
     /// <summary>
     /// A request goes out. With Voice replies on, the answer to a dictated prompt is read aloud, and so is the answer
-    /// to a typed one when the user asked for that too. In conversation every answer is.
+    /// to a typed one when the user asked for that too.
     /// </summary>
     public void BeginRequest(string prompt)
     {
         SilenceAnswer();
         // A typed question speaks its own language; a dictated one was judged on its transcript.
         var language = _voicePrompt ? _promptLanguage : SpeechTextSanitizer.SpeaksRussian(prompt) ? "ru" : "en";
-        var conversation = _settings.ConversationMode;
-        _answer = conversation || _settings.VoiceReplies && (_voicePrompt || _settings.ReadTypedAnswers)
+        _answer = _settings.VoiceReplies && (_voicePrompt || _settings.ReadTypedAnswers)
             ? new VoiceTextChunker(language)
             : null;
-        _cuesAllowed = _voicePrompt || conversation;
+        _cuesAllowed = _voicePrompt;
         _requestedAt = Environment.TickCount64;
         _answerArrivedAt = null;
         _answerHeard = false;
@@ -291,12 +229,8 @@ public sealed class VoiceSession
         SetPhase(VoicePhase.Sending);
     }
 
-    /// <summary>
-    /// Whether <see cref="ReadAloudAsync"/> can start now: not while the user speaks or a request is under way.
-    /// Listening hands-free for the next phrase gives way to it.
-    /// </summary>
-    public bool CanReadAloud => (_settings.VoiceReplies || _settings.ConversationMode) &&
-                                (Phase is VoicePhase.Idle or VoicePhase.Speaking || IsHandsFree && !IsPhraseUnderWay);
+    /// <summary>Whether <see cref="ReadAloudAsync"/> can start now: not while the user speaks or a request is under way.</summary>
+    public bool CanReadAloud => _settings.VoiceReplies && Phase is VoicePhase.Idle or VoicePhase.Speaking;
 
     /// <summary>
     /// The Listen button: reads an answer on screen from its start, like a reply that has just arrived. Completes
@@ -305,7 +239,6 @@ public sealed class VoiceSession
     public async Task ReadAloudAsync(string answer)
     {
         if (!CanReadAloud) return;
-        CancelListening();
         SilenceAnswer();
         _speech = Task.CompletedTask;
         _voiceFailure = null;
@@ -376,7 +309,7 @@ public sealed class VoiceSession
     /// </summary>
     public void Announce(string russian, string english)
     {
-        if (!(_settings.VoiceReplies || _settings.ConversationMode) || Phase != VoicePhase.Idle || _announcing is not null) return;
+        if (!_settings.VoiceReplies || Phase != VoicePhase.Idle || _announcing is not null) return;
         var announcing = new CancellationTokenSource();
         _announcing = announcing;
         _ = AnnounceAsync(DraftLanguage() == VoiceLanguage.Russian ? (russian, "ru") : (english, "en"), announcing);
@@ -412,25 +345,17 @@ public sealed class VoiceSession
     }
 
     /// <summary>Opens the microphone with recognition listening along; the phase says Listening once it is open.</summary>
-    private bool Open(bool handsFree)
+    private bool Open()
     {
         IStreamingTranscription? live = null;
         try
         {
-            // Drafts, phrase ends and timers come from other threads; this session belongs to the one it runs on.
+            // Drafts come from another thread; this session belongs to the one it runs on.
             _context = SynchronizationContext.Current;
-            live = StartLive(handsFree);
+            live = StartLive();
             var usedSelectedMicrophone = _recorder.Start(_settings.MicrophoneDeviceId);
-            _handsFree = handsFree;
             _openedAt = _time.GetTimestamp();
             _processorAtOpen = ProcessorTime();
-            _skip = TimeSpan.Zero;
-            if (handsFree)
-            {
-                var quiet = live;
-                _quiet = _time.CreateTimer(_ => Post(() => RestartQuiet(quiet)), null, QuietRestart, Timeout.InfiniteTimeSpan);
-            }
-
             SetPhase(VoicePhase.Listening);
             return usedSelectedMicrophone;
         }
@@ -449,60 +374,15 @@ public sealed class VoiceSession
     }
 
     /// <summary>Starts recognition that listens along with the microphone and hands its drafts to this thread.</summary>
-    private IStreamingTranscription StartLive(bool handsFree)
+    private IStreamingTranscription StartLive()
     {
-        var live = _streaming.Start(DraftLanguage(), _settings.LiveTranscription, handsFree);
+        var live = _streaming.Start(DraftLanguage(), _settings.LiveTranscription);
         live.DraftChanged += draft => Post(() => ShowDraft(live, draft));
-        live.PhraseEnded += start => Post(() => EndPhrase(live, start));
         _live = live;
         DraftNote = live.Note;
         // The one microphone session feeds the recording and the live recognition alike.
         _recorder.SamplesCaptured += live.Accept;
         return live;
-    }
-
-    private void EndPhrase(IStreamingTranscription live, TimeSpan start)
-    {
-        // The key may have taken the phrase over, or the microphone closed meanwhile.
-        if (live != _live || !IsHandsFree) return;
-        _skip = Before(start);
-        PhraseEnded?.Invoke();
-    }
-
-    /// <summary>Hands-free listening that has heard nothing for a while starts afresh; a phrase under way ends first.</summary>
-    private void RestartQuiet(IStreamingTranscription live)
-    {
-        if (live != _live || !IsHandsFree || live.HeardSpeech) return;
-        _log($"[Voice] {DescribeListening()}, nothing heard: listening afresh");
-        // Words the draft made of the noise go with it.
-        DraftChanged?.Invoke(string.Empty);
-        CloseMicrophone();
-        try
-        {
-            Open(handsFree: true);
-        }
-        catch (Exception exception)
-        {
-            // Idle now: the conversation's next attempt to listen reports the microphone.
-            _log($"[Voice] hands-free listening could not start afresh: {exception.Message}");
-        }
-    }
-
-    /// <summary>Closes the microphone and the recognition listening along, keeping nothing.</summary>
-    private void CloseMicrophone()
-    {
-        StopQuietTimer();
-        var live = _live!;
-        _live = null;
-        _recorder.SamplesCaptured -= live.Accept;
-        _recorder.Cancel();
-        live.Dispose();
-    }
-
-    private void StopQuietTimer()
-    {
-        _quiet?.Dispose();
-        _quiet = null;
     }
 
     private void Post(Action action)
@@ -511,17 +391,14 @@ public sealed class VoiceSession
         else _context.Post(_ => action(), null);
     }
 
-    /// <summary>Where the recording is kept from for speech that begins at <paramref name="speech"/>.</summary>
-    private static TimeSpan Before(TimeSpan speech) => speech > PhrasePreroll ? speech - PhrasePreroll : TimeSpan.Zero;
-
     /// <summary>
-    /// For link.log: how long the microphone listened and how busy Link was meanwhile, so that listening hands-free
-    /// can be compared with holding the key, e.g. "listened 42.0 s hands-free, Link CPU 1.9% of one core".
+    /// For link.log: how long the microphone listened and how busy Link was meanwhile, e.g. "listened 42.0 s,
+    /// Link CPU 1.9% of one core".
     /// </summary>
     private string DescribeListening()
     {
         var listened = _time.GetElapsedTime(_openedAt);
-        var how = $"listened {listened.TotalSeconds:0.0} s {(_handsFree ? "hands-free" : "with the key")}";
+        var how = $"listened {listened.TotalSeconds:0.0} s";
         // Over a moment the CPU says more about what happened just before than about listening.
         if (listened < TimeSpan.FromSeconds(2)) return how;
         return $"{how}, Link CPU {(ProcessorTime() - _processorAtOpen) / listened * 100:0.0}% of one core";

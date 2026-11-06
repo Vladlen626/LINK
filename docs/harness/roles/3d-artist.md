@@ -22,7 +22,7 @@ color: #A78BFA
 ## Done when
 - Imported in the editor: size checked against a reference character, materials assigned, collision shown, no import warnings left unexplained.
 - The review sheet: front, side, rear, both 3/4 and top, lit, wireframe and UV checker (and the moving parts' poses); triangle count and texture sizes reported against the budget from the spec or the map.
-- With an art profile: the gameplay camera, thumbnail and lineup frames, named by full path in the answer: the critic judges from them.
+- With an art profile: the gameplay camera, thumbnail and lineup frames, named by full path in the answer: the user judges from them.
 - The source file and the export script are saved in the project, not in a temp folder.
 ## Rubric
 - Silhouette: reads at a glance from front, side, rear and 3/4, with the references' character.
@@ -33,6 +33,5 @@ color: #A78BFA
 - Style: the project's art profile - finish, palette, proportions, detail density - and it sits with the approved assets.
 - Game-ready: topology, UVs, normals, pivots, materials and the engine import as the skills ask.
 ## Hand over
-- With an art profile, the art critic judges your frames first: its defects come back to you, worst first; fix them in the source and render the same frames.
 - Next: Rigger / Animator if the mesh deforms; Level Artist for placement; Gameplay Developer for gameplay hookup. Give asset paths and the export settings used.
 - An asset the user approved goes into its class's lineup, `Art/Approved/<asset>/` (skill `art-style`): the next of its class is judged against it.

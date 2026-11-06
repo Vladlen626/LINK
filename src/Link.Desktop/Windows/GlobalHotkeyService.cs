@@ -34,7 +34,7 @@ public sealed class GlobalHotkeyService : IDisposable
 
     public event Action<HotkeyAction>? Pressed;
 
-    /// <summary>A held hotkey went down: push-to-talk or ask about the screen. <see cref="Released"/> follows.</summary>
+    /// <summary>A held hotkey went down: push-to-talk. <see cref="Released"/> follows.</summary>
     public event Action<HotkeyAction>? Held;
 
     public event Action<HotkeyAction>? Released;
@@ -60,9 +60,7 @@ public sealed class GlobalHotkeyService : IDisposable
             [HotkeyAction.Send] = HotkeyGesture.Parse(settings.Send),
             [HotkeyAction.CaptureDesktop] = HotkeyGesture.Parse(settings.CaptureDesktop),
             [HotkeyAction.CaptureActiveWindow] = HotkeyGesture.Parse(settings.CaptureActiveWindow),
-            [HotkeyAction.CaptureRegion] = HotkeyGesture.Parse(settings.CaptureRegion),
-            [HotkeyAction.Conversation] = HotkeyGesture.Parse(settings.Conversation),
-            [HotkeyAction.AskAboutScreen] = HotkeyGesture.Parse(settings.AskAboutScreen)
+            [HotkeyAction.CaptureRegion] = HotkeyGesture.Parse(settings.CaptureRegion)
         };
 
         if (gestures.Values.Any(gesture => !gesture.IsSafeGlobalShortcut))
@@ -112,7 +110,7 @@ public sealed class GlobalHotkeyService : IDisposable
         }
     }
 
-    private static bool IsHeld(HotkeyAction action) => action is HotkeyAction.PushToTalk or HotkeyAction.AskAboutScreen;
+    private static bool IsHeld(HotkeyAction action) => action == HotkeyAction.PushToTalk;
 
     private static string GetActionName(HotkeyAction action) => action switch
     {
@@ -121,7 +119,6 @@ public sealed class GlobalHotkeyService : IDisposable
         HotkeyAction.CaptureDesktop => "Desktop capture",
         HotkeyAction.CaptureActiveWindow => "Window capture",
         HotkeyAction.CaptureRegion => "Region capture",
-        HotkeyAction.Conversation => "Conversation mode",
         _ => action.ToString()
     };
 
@@ -204,9 +201,7 @@ public enum HotkeyAction
     Send,
     CaptureDesktop,
     CaptureActiveWindow,
-    CaptureRegion,
-    Conversation,
-    AskAboutScreen
+    CaptureRegion
 }
 
 public sealed record HotkeyGesture(int VirtualKey, bool Control, bool Alt, bool Shift, bool Windows, string DisplayText)

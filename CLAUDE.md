@@ -47,18 +47,17 @@ The same harness Link gives its agents, for work on this repo.
   `EmbeddedChatIntegration` (`ChatPageHost` ↔ `IChatPage`, requests followed by `ChatRequestBroker`).
 - `Windows/` Win32 only: `NativeMethods`, hotkeys (RegisterHotKey, low-level hook for held keys), capture (WGC, GDI),
   waveIn audio, tray, window styles, `CurrentApplicationService` (latched work target).
-- Agents: `AgentCoordinator` runs a task (check after Do, an answer file such as the map, Start over);
+- Agents: `AgentCoordinator` runs a task (check after Do, an answer file such as the map);
   `CliAgentProvider` → `ClaudeCodeProvider` / `CodexProvider` over `AgentProcess`; `AgentChanges` finds and undoes
   changes; `AgentRules`, `ProjectMap`, `ProjectSkills`,
   `ProjectRoles` are the harness; rules a script can hold are code: `src/Link.Guard` (Claude Code's PreToolUse hook,
-  `docs/harness/guarded-rules.md` is their text for Codex) and `HarnessLint` (a run's map and skills); `AutoEffort`, `TaskState` (Compact), `HarnessView` (the inspector); `TeamRunner` (team
-  steps), its flow in `MainWindow.Team`. The agent's rules,
+  `docs/harness/guarded-rules.md` is their text for Codex) and `HarnessLint` (a run's map and skills); `AutoEffort`, `TaskState` (Compact), `HarnessView` (the inspector). The agent's rules,
   tasks and roles are `docs/harness/**/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel`
   (the sidebar; partials Card, Roles, Task with its cards, Composer) in `StudioWindow`, beside `HarnessInspector`.
-- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat (Send, one attempt), AskAgain, Route (where Send
-  goes, effort), ChatLink (the project's chat, its connection, check), Response (the answer), Capture, Voice, Sizing,
+- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat (Send, one attempt), Route (where Send
+  goes), ChatLink (the project's chat, its connection, check), Response (the answer), Capture, Voice, Sizing,
   Panel, Agent (starting and running tasks), AgentCard (the card, setups), Thread (the task's thread, live runs), HandOff
-  (compact, start over, hand over), Limits, Changes (undo, changelist), OwnAnswers (the map), Works (the tasks at work
+  (compact, hand over), Limits, Changes (undo), OwnAnswers (the map), Works (the tasks at work
   side by side; edits go one run at a time per folder), Studio.
 - `ChatPageWindow` the embedded ChatGPT page (WebView2). Never hide or minimize the window — it waits off screen, or
   ChatGPT is throttled to a few characters a second. Only the page inside rests, out of its engine's sight, while
@@ -69,7 +68,7 @@ The same harness Link gives its agents, for work on this repo.
   `/view/<ticket>/`) and `RemoteTunnel` (cloudflared).
   No-stop is `MainWindow.NoStop` + `Services/NoStop`; spending is `UsageReport` (ccusage).
 - User data: `%LocalAppData%\Link` — settings.json, projects.json, Screenshots, Recordings, Models, link.log,
-  WebView2 (the ChatGPT session: never log or copy it), companion-state.json.
+  WebView2 (the ChatGPT session: never log or copy it).
 
 ## Rules
 - Simple, readable code; the smallest change that works and is easy to extend. No speculative abstractions,

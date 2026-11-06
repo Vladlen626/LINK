@@ -37,15 +37,8 @@ public sealed class AppSettings
 
     public double VoiceReplySpeed { get; set; } = DefaultVoiceReplySpeed;
 
-    /// <summary>
-    /// Hands-free: Link listens by itself whenever it is free, sends the phrase after a pause, answers aloud and
-    /// listens again. Off, the microphone opens only with push-to-talk.
-    /// </summary>
-    public bool ConversationMode { get; set; }
-
-    /// <summary>Short sounds for listening, a phrase heard, sent, an answer ready, a question for the user and an error.</summary>
+    /// <summary>Short sounds for listening, sent, an answer ready, a question for the user and an error.</summary>
     public bool SoundCues { get; set; } = true;
-    public ResponseEffort ResponseEffort { get; set; } = ResponseEffort.Normal;
 
     /// <summary>Where Send sends: to ChatGPT, or to the project's agent through its task card.</summary>
     public RequestRoute Route { get; set; } = RequestRoute.Chat;
@@ -97,9 +90,8 @@ public sealed class AppSettings
         Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.2, 1.0) : DefaultGlassTint;
         if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);
-        if (!Enum.IsDefined(ResponseEffort)) ResponseEffort = ResponseEffort.Normal;
-        // Direct is no route to choose any more: "only my text" is a toggle of one question.
-        if (!Enum.IsDefined(Route) || Route == RequestRoute.Direct) Route = RequestRoute.Chat;
+        // 1, "only my text", is gone with the other values a newer Link may save.
+        if (!Enum.IsDefined(Route)) Route = RequestRoute.Chat;
         if (string.IsNullOrWhiteSpace(MicrophoneDeviceId))
         {
             MicrophoneDeviceId = null;
@@ -231,12 +223,6 @@ public sealed class HotkeySettings
     public string CaptureActiveWindow { get; set; } = "Ctrl+Alt+W";
     public string CaptureRegion { get; set; } = "Ctrl+Alt+Shift+R";
 
-    // A registered hotkey takes its chord from every app, and IDEs use many Ctrl+Alt+letter ones.
-    public string Conversation { get; set; } = "Ctrl+Alt+Shift+Space";
-
-    /// <summary>Held like push-to-talk: the question goes at once, with a fresh frame of the work window, and is answered aloud.</summary>
-    public string AskAboutScreen { get; set; } = "Ctrl+Alt+Shift+V";
-
     public void Normalize()
     {
         ShowHide = DefaultIfEmpty(ShowHide, "Ctrl+Alt+Space");
@@ -245,8 +231,6 @@ public sealed class HotkeySettings
         CaptureDesktop = DefaultIfEmpty(CaptureDesktop, "Ctrl+Alt+D");
         CaptureActiveWindow = DefaultIfEmpty(CaptureActiveWindow, "Ctrl+Alt+W");
         CaptureRegion = DefaultIfEmpty(CaptureRegion, "Ctrl+Alt+Shift+R");
-        Conversation = DefaultIfEmpty(Conversation, "Ctrl+Alt+Shift+Space");
-        AskAboutScreen = DefaultIfEmpty(AskAboutScreen, "Ctrl+Alt+Shift+V");
     }
 
     public HotkeySettings Clone() => new()
@@ -256,9 +240,7 @@ public sealed class HotkeySettings
         Send = Send,
         CaptureDesktop = CaptureDesktop,
         CaptureActiveWindow = CaptureActiveWindow,
-        CaptureRegion = CaptureRegion,
-        Conversation = Conversation,
-        AskAboutScreen = AskAboutScreen
+        CaptureRegion = CaptureRegion
     };
 
     private static string DefaultIfEmpty(string? value, string fallback) =>

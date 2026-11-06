@@ -34,9 +34,6 @@ public sealed class StoragePaths
     /// <summary>The embedded ChatGPT page's browser profile, with its session cookies.</summary>
     public string ChatPageProfile => Path.Combine(Root, "WebView2");
 
-    /// <summary>What the embedded page's companion keeps across restarts: the chat modes it set.</summary>
-    public string CompanionStateFile => Path.Combine(Root, "companion-state.json");
-
     /// <summary>The agents' subscription windows as their CLIs last reported them.</summary>
     public string AgentLimitsFile => Path.Combine(Root, "agent-limits.json");
 

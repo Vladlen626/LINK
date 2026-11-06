@@ -75,7 +75,7 @@ public partial class App : System.Windows.Application
         var capture = new ScreenCaptureService(history, Log);
         _currentApplication = new CurrentApplicationService();
         var clipboard = new ClipboardContextService(history);
-        var chat = new EmbeddedChatIntegration(paths.CompanionStateFile);
+        var chat = new EmbeddedChatIntegration();
         _chat = chat;
         var attempts = new AttemptCoordinator(chat, _projects, new RequestService(paths, _settings.Current), history, Log);
         _audio = new AudioRecorderService(paths);
@@ -103,15 +103,13 @@ public partial class App : System.Windows.Application
         _ = Task.Run(() => ToolPacks.Seed(ToolPacks.BuiltInFolder, ToolPacks.Folder));
         // The agents' CLIs start only for a task or a check in Settings, never with Link.
         var settings = _settings;
-        var console = new AgentConsole();
         _agents = new AgentCoordinator(
             [
-                new ClaudeCodeProvider(() => settings.Current.Agent, Log, console),
-                new CodexProvider(() => settings.Current.Agent, Log, console)
+                new ClaudeCodeProvider(() => settings.Current.Agent, Log),
+                new CodexProvider(() => settings.Current.Agent, Log)
             ],
             new AgentChanges(),
-            Log,
-            console);
+            Log);
 
         _mainWindow = new MainWindow(
             _settings,
@@ -145,11 +143,10 @@ public partial class App : System.Windows.Application
 
         _hotkeys = new GlobalHotkeyService(_mainWindow, Dispatcher);
         _hotkeys.Pressed += OnHotkeyPressed;
-        _hotkeys.Held += action =>
+        _hotkeys.Held += _ =>
         {
             _currentApplication.LatchForeground();
-            if (action == HotkeyAction.AskAboutScreen) _mainWindow.StartAskingAboutScreen();
-            else _mainWindow.StartPushToTalk();
+            _mainWindow.StartPushToTalk();
         };
         _hotkeys.Released += async _ => await _mainWindow.StopPushToTalkAsync();
         TryStartHotkeys();
@@ -262,9 +259,6 @@ public partial class App : System.Windows.Application
             case HotkeyAction.CaptureRegion:
                 await _mainWindow.CaptureRegionAsync();
                 break;
-            case HotkeyAction.Conversation:
-                _mainWindow.ToggleConversation();
-                break;
         }
     }
 
@@ -299,7 +293,6 @@ public partial class App : System.Windows.Application
         var claudeAccount = _settings.Current.Agent.ClaudeAccount;
         var hotkeysRestarted = false;
         _hotkeys.Stop();
-        _mainWindow.PauseConversation(true);
         try
         {
             var window = new SettingsWindow(_settings, _audio, _textToSpeech, _geminiKey, _speechModels, _agents.Providers, _remote);
@@ -346,7 +339,6 @@ public partial class App : System.Windows.Application
         }
         finally
         {
-            _mainWindow.PauseConversation(false);
             if (!hotkeysRestarted)
             {
                 try

@@ -127,7 +127,6 @@ internal sealed class ChatRequestBroker : IDisposable
                 pending.ConversationId,
                 request.Kind,
                 request.Prompt,
-                request.Effort,
                 pending.Sent ? [] : request.Attachments,
                 pending.Offers,
                 pending.Sent);
@@ -504,7 +503,6 @@ internal sealed class ChatPageRequest
     public required string ConversationId { get; init; }
     public string Kind { get; init; } = "prompt";
     public required string Prompt { get; init; }
-    public string Effort { get; init; } = "normal";
     public IReadOnlyList<ChatPageAttachment> Attachments { get; init; } = [];
 }
 
@@ -521,7 +519,6 @@ internal sealed record ChatPageDelivery(
     string ConversationId,
     string Kind,
     string Prompt,
-    string Effort,
     IReadOnlyList<ChatPageAttachment> Attachments,
     int Attempt,
     bool Sent);

@@ -23,12 +23,6 @@ public partial class MainWindow
         "Summarize this conversation so that the work can continue in a new chat: the goal, key decisions and facts, " +
         "the current state, the next step and open questions. At most 120 words, only the summary, no preamble. " +
         "Write it in the language of this conversation.";
-    private static readonly (ResponseEffort Effort, string Label, string Description)[] EffortOptions =
-    [
-        (ResponseEffort.Fast, "Fast", "Fast — short answer, no long thinking"),
-        (ResponseEffort.Normal, "Normal", "Normal — the chat's usual answer"),
-        (ResponseEffort.Deep, "Deep", "Deep — thinks longer, more thorough")
-    ];
     private readonly IChatIntegration _chat;
     private readonly AttemptCoordinator _attempts;
     private readonly DispatcherTimer _connectionTimer;
@@ -47,10 +41,8 @@ public partial class MainWindow
     // When the answer began to arrive and how much of it came at once, for the slow-chat hint.
     private DateTime? _receivingSince;
     private int _receivingFrom;
-    // The attempt whose answer, error or Stop is on screen: the redirect buttons send its snapshot again.
-    private (InputSnapshot Snapshot, RequestRoute Route, ResponseEffort Effort)? _attemptOnScreen;
-    // Its question back in the prompt to be corrected: Send asks it again from the same snapshot.
-    private (InputSnapshot Snapshot, RequestRoute Route, ResponseEffort Effort)? _editing;
+    // The snapshot whose answer, error or Stop is on screen: → Agent task gives it to the agent.
+    private InputSnapshot? _attemptOnScreen;
 
     /// <summary>What a check of the chat saw on the page, for link.log.</summary>
     public event Action<string>? DiagnosticsReported;
@@ -95,13 +87,6 @@ public partial class MainWindow
 
     private async Task SendOrQueueAsync()
     {
-        // Hands-free, Send ends the phrase now instead of at its pause; the prompt goes out with or without one.
-        if (_voice.IsHandsFree)
-        {
-            await FinishPhraseAsync(send: true);
-            return;
-        }
-
         if (_voice.Phase is VoicePhase.Listening or VoicePhase.Finalizing)
         {
             // Push-to-talk was just released: send as soon as the transcript is in the prompt.
@@ -123,12 +108,6 @@ public partial class MainWindow
     private async Task SendAsync()
     {
         if (_sending) return;
-        if (_editing is { } edited && !string.IsNullOrWhiteSpace(PromptBox.Text))
-        {
-            await SendCorrectedAsync(edited);
-            return;
-        }
-
         if (_settings.Current.Route == RequestRoute.Agent)
         {
             await SendToAgentAsync(newTask: false);
@@ -152,48 +131,16 @@ public partial class MainWindow
         }
 
         var prompt = PromptBox.Text;
-        var route = _onlyMyText ? RequestRoute.Direct : RequestRoute.Chat;
-        var answered = await AttemptAsync(
-            prompt,
-            route,
-            _settings.Current.ResponseEffort,
-            () => TakeSnapshotAsync(project, prompt, route, AutoFrameOn));
+        var answered = await AttemptAsync(prompt, () => TakeSnapshotAsync(project, prompt));
         if (answered) ClearSentInput(prompt);
     }
 
-    /// <summary>
-    /// The held "ask about the screen" hotkey let go: the words go by Chat at once, with a fresh frame of the work window
-    /// whatever Auto says, and the answer is read aloud like any dictated one.
-    /// </summary>
-    private async Task AskAboutScreenAsync()
-    {
-        if (_sending) return;
-        var project = _projects.ActiveProject;
-        if (project.LinkedConversation is null)
-        {
-            SetError("Link this project to a ChatGPT conversation first.");
-            return;
-        }
-
-        var prompt = PromptBox.Text;
-        var answered = await AttemptAsync(
-            prompt,
-            RequestRoute.Chat,
-            _settings.Current.ResponseEffort,
-            () => TakeSnapshotAsync(project, prompt, RequestRoute.Chat, freshFrame: true));
-        if (answered) ClearSentInput(prompt);
-    }
-
-    /// <summary>
-    /// The answered input leaves the prompt and the context stack. Link's own chips come back, and "only my text" was
-    /// for that question only.
-    /// </summary>
+    /// <summary>The answered input leaves the prompt and the context stack. Link's own chips come back.</summary>
     private void ClearSentInput(string prompt)
     {
         ClearSentPrompt(prompt);
         ClearContext(prune: true);
         _noteLeftOut = false;
-        SetOnlyMyText(false);
     }
 
     private void ClearSentPrompt(string prompt)
@@ -206,10 +153,10 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The input as it is now: the prompt, the context stack, the work target while its chip stands, and with
-    /// <paramref name="freshFrame"/> a screenshot of the work window. Direct sends no screenshot of its own.
+    /// The input as it is now: the prompt, the context stack, the work target while its chip stands, and with Auto
+    /// on a screenshot of the work window.
     /// </summary>
-    private async Task<InputSnapshot> TakeSnapshotAsync(LinkProject project, string prompt, RequestRoute route, bool freshFrame)
+    private async Task<InputSnapshot> TakeSnapshotAsync(LinkProject project, string prompt)
     {
         // The app Link was invoked from, not whatever took the focus since (the browser, Link's own captures).
         var workTarget = _currentApplication.WorkTarget;
@@ -227,7 +174,7 @@ public partial class MainWindow
             WorkTarget = named ? _currentApplication.GetContext(workWindow) : null,
             WorkWindow = workWindow
         };
-        if (!freshFrame || route == RequestRoute.Direct || workWindow == IntPtr.Zero)
+        if (!AutoFrameOn || workWindow == IntPtr.Zero)
         {
             return snapshot;
         }
@@ -249,11 +196,7 @@ public partial class MainWindow
     /// Stop is shown too; the input stays where it is. Whatever the end, the redirect buttons can send the snapshot
     /// again. Returns whether the answer came.
     /// </summary>
-    private async Task<bool> AttemptAsync(
-        string prompt,
-        RequestRoute route,
-        ResponseEffort effort,
-        Func<Task<InputSnapshot>> takeSnapshot)
+    private async Task<bool> AttemptAsync(string prompt, Func<Task<InputSnapshot>> takeSnapshot)
     {
         var project = _projects.ActiveProject;
         // A fresh screenshot that cannot be taken leaves the buttons with the attempt they were for.
@@ -264,11 +207,6 @@ public partial class MainWindow
         _chatNotice = null;
         _receivingSince = null;
         var latency = new RequestLatency();
-        // A correction or typed words end with any new attempt.
-        _editing = null;
-        _typing = false;
-        // The microphone waits while the chat answers and Link speaks.
-        StopHandsFree();
         _voice.BeginRequest(prompt);
         SetSending(true);
         _chatHeardAt = DateTime.UtcNow;
@@ -279,14 +217,11 @@ public partial class MainWindow
         try
         {
             snapshot = await takeSnapshot();
-            ShowSaw(RequestService.Build(snapshot, route, effort, _settings.Current.ConversationMode));
+            ShowSaw(RequestService.Build(snapshot));
             _attempts.Keep(snapshot);
             _cues.Play(SoundCue.Sent);
             var response = await _attempts.SendAsync(
                 snapshot,
-                route,
-                effort,
-                _settings.Current.ConversationMode,
                 latency,
                 OnChatProgress,
                 cancellation.Token);
@@ -327,7 +262,7 @@ public partial class MainWindow
             cancellation.Dispose();
             SetSending(false);
             UpdateConnectionState();
-            _attemptOnScreen = snapshot is null ? previous : (snapshot, route, effort);
+            _attemptOnScreen = snapshot ?? previous;
             UpdateRedirectButtons();
         }
     }
@@ -391,10 +326,6 @@ public partial class MainWindow
         SeesRow.IsEnabled = !sending;
         ClipboardButton.IsEnabled = !sending;
         ReportState();
-        if (sending) return;
-        // After the request's own ending (the sent prompt leaves the prompt), before the microphone opens again.
-        Dispatcher.InvokeAsync(SendWaitingPhrase);
-        ScheduleListening();
     }
 
     private void UpdateSendButton()

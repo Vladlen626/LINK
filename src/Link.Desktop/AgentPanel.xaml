@@ -483,9 +483,6 @@
                     <CheckBox x:Name="PlanFirstBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Content="Plan first" />
                     <CheckBox x:Name="NoStopBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Content="No-stop"
                               ToolTip="It takes the choices it recommends and asks for nothing. Every stop (a question, the plan, a refused tool, the next step) is taken after 10 s; only the deny list of Settings stays refused. It waits for you after the turns of Settings in a row; untick it on the task to step in" />
-                    <CheckBox x:Name="TeamBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Click="TeamBox_OnClick"
-                              Content="Team" Visibility="Collapsed"
-                              ToolTip="The lead plans the steps, Link gives each to its worker; pays off from about 4 steps. Strong plans first; you see each step with its worker and why, then run the team. Steps run one after another. With fewer steps the plan, briefs and reviews cost more than the cheaper workers save: one agent does it for less" />
                 </WrapPanel>
                 <ItemsControl x:Name="CardLimitsList" Margin="0,4,0,0" ItemTemplate="{StaticResource LimitRowTemplate}" />
 
@@ -573,7 +570,7 @@
                 <!-- Who works, on what, with what access and for how long; and where. -->
                 <TextBlock x:Name="HeaderText" Margin="0,4,0,0" FontSize="12" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
                 <TextBlock x:Name="WhereText" Margin="0,1,0,0" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
-                <!-- The agent's own plan, or the team's, as it last stood. -->
+                <!-- The agent's own plan, as it last stood. -->
                 <Border x:Name="PlanCard" Margin="0,12,0,0" Padding="12,5,12,8" CornerRadius="10" Background="{StaticResource CardBrush}"
                         BorderBrush="{StaticResource GlassBorderSoftBrush}" BorderThickness="1" Visibility="Collapsed">
                     <StackPanel>
@@ -591,28 +588,12 @@
                                                     Click="PlanRow_OnClick">
                                                 <Grid>
                                                     <Grid.ColumnDefinitions>
-                                                        <ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="14" />
+                                                        <ColumnDefinition Width="20" /><ColumnDefinition Width="*" /><ColumnDefinition Width="14" />
                                                     </Grid.ColumnDefinitions>
                                                     <TextBlock FontSize="13" Foreground="{Binding MarkBrush}" Text="{Binding Mark}" />
                                                     <TextBlock Grid.Column="1" FontSize="13" Foreground="{Binding Brush}" Text="{Binding Title}"
                                                                TextTrimming="CharacterEllipsis" />
-                                                    <!-- A team's step: who does it, and as which specialist. -->
-                                                    <StackPanel Grid.Column="2" Margin="10,0,0,0" VerticalAlignment="Center" Orientation="Horizontal">
-                                                        <!-- The worker chip opens the step's menu: another worker, again, skip, back, re-plan. -->
-                                                        <Button Margin="0,0,8,0" Padding="0" VerticalAlignment="Center" Style="{StaticResource GhostButtonStyle}"
-                                                                Visibility="{Binding WorkerVisibility}" Click="PlanWorker_OnClick"
-                                                                ToolTip="Change who does this step, run it again, skip it, go back to it, or re-plan the steps left">
-                                                            <Border Padding="6,1" CornerRadius="6" Background="{StaticResource SubtleGlassBrush}">
-                                                                <TextBlock FontSize="11" Foreground="{StaticResource MutedBrush}" Text="{Binding Worker}" />
-                                                            </Border>
-                                                        </Button>
-                                                        <StackPanel Orientation="Horizontal" Visibility="{Binding RoleVisibility}">
-                                                            <Control Width="12" Height="12" Margin="0,0,5,0" VerticalAlignment="Center" Focusable="False"
-                                                                     Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" />
-                                                            <TextBlock VerticalAlignment="Center" FontSize="12" Foreground="{Binding RoleBrush}" Text="{Binding RoleName}" />
-                                                        </StackPanel>
-                                                    </StackPanel>
-                                                    <TextBlock Grid.Column="3" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11"
+                                                    <TextBlock Grid.Column="2" HorizontalAlignment="Right" VerticalAlignment="Center" FontSize="11"
                                                                Foreground="{StaticResource MutedBrush}" Text="{Binding Chevron}" />
                                                 </Grid>
                                             </Button>
@@ -670,21 +651,6 @@
                         </StackPanel>
                     </Border>
 
-                    <!-- After a failed run or a Stop on a loop: start over with a note, or the same session on Deep. -->
-                    <Border x:Name="RestartCard" Style="{StaticResource NoticeCardStyle}" Visibility="Collapsed">
-                        <StackPanel>
-                            <TextBlock Style="{StaticResource RowTextStyle}" FontSize="13" Foreground="{StaticResource MutedBrush}"
-                                       Text="Start over: the agent writes in five lines what it tried and why it did not work, and a new session takes the task with that note. Escalate: the same session goes on with the strongest model of Settings." />
-                            <WrapPanel Margin="0,2,0,0">
-                                <Button Style="{StaticResource PrimaryButtonStyle}" Height="28" Margin="0,6,6,0" Padding="14,0"
-                                        Click="Restart_OnClick" Content="Start over with a note" />
-                                <Button x:Name="EscalateButton" Style="{StaticResource SmallChipStyle}" Height="28" Click="Escalate_OnClick" Content="Escalate" />
-                                <Button Style="{StaticResource SmallChipStyle}" Height="28" Click="RestartNotNow_OnClick" Content="Not now"
-                                        ToolTip="The agent goes on as it is; both stay possible after the run" />
-                            </WrapPanel>
-                        </StackPanel>
-                    </Border>
-
                     <TextBlock x:Name="UsageText" Margin="0,16,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
                                Visibility="Collapsed" />
                 </StackPanel>
@@ -712,9 +678,6 @@
                             <Button x:Name="PlanModeButton" Style="{StaticResource GhostChipStyle}" Click="PlanMode_OnClick" Content="Plan mode ✕"
                                     Visibility="Collapsed"
                                     ToolTip="The session only reads and plans: edits, editor calls and commands are refused in it, whatever is allowed. Turn it off: your next words go on with edits, in the same session" />
-                            <Button x:Name="ReplanButton" Style="{StaticResource GhostChipStyle}" Click="Replan_OnClick" Content="Re-plan ✕"
-                                    Visibility="Collapsed"
-                                    ToolTip="Your next words go to the team's lead: the steps done stay, it plans the rest anew. Click to send words as usual" />
                             <Button x:Name="HandOffButton" Style="{StaticResource GhostChipStyle}" Click="HandOff_OnClick" Content="Hand off ▾"
                                     ToolTip="The other agent in a new session with a brief you see first, or the first agent back in its own session" />
                             <Button x:Name="FinishButton" Style="{StaticResource GhostChipStyle}" Click="Finish_OnClick" Content="Finish"

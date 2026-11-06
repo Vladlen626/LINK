@@ -27,8 +27,8 @@ public partial class MainWindow
     // While the region selector is open another capture would photograph its dimmed overlay.
     private bool CanCapture => !_sending && !_selectingRegion;
 
-    // Auto active window: a fresh frame of the work window goes with each question; "only my text" sends none.
-    private bool AutoFrameOn => _settings.Current.AutoCaptureActiveWindowOnSend && !_onlyMyText;
+    // Auto active window: a fresh frame of the work window goes with each question.
+    private bool AutoFrameOn => _settings.Current.AutoCaptureActiveWindowOnSend;
 
     public async Task CaptureCurrentMonitorAsync()
     {
@@ -236,7 +236,7 @@ public partial class MainWindow
 
         var hotkeys = _settings.Current.Hotkeys;
         SeesButton.ToolTip = $"What the model sees of the screen · window {hotkeys.CaptureActiveWindow}, desktop " +
-                             $"{hotkeys.CaptureDesktop}, region {hotkeys.CaptureRegion}, ask about it {hotkeys.AskAboutScreen}";
+                             $"{hotkeys.CaptureDesktop}, region {hotkeys.CaptureRegion}";
     }
 
     private void ShowSeesPicture(ImageSource? picture)
@@ -344,13 +344,13 @@ public partial class MainWindow
     /// <summary>
     /// The app the user works in stands in the context stack as a chip: its name and window title go with a Chat
     /// question. Removed, they stay out of the next question only: the chip is back once it is answered or Link means
-    /// another window. "Only my text" does not send them, and an agent's task does not carry them.
+    /// another window. An agent's task does not carry them.
     /// </summary>
     private void ShowApplicationContext()
     {
         foreach (var old in _context.Where(item => item.Type == ContextItemType.Application).ToArray()) _context.Remove(old);
         if (_currentApplication.GetContext(_currentApplication.WorkTarget) is not { } target ||
-            _onlyMyText || _settings.Current.Route == RequestRoute.Agent)
+            _settings.Current.Route == RequestRoute.Agent)
         {
             return;
         }

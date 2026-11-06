@@ -41,10 +41,10 @@ public partial class MainWindow
 
     /// <summary>
     /// The project note as it goes with the next question: first in its context, unless the user left it out of this
-    /// question or sends only their own text. Null when it does not go.
+    /// question. Null when it does not go.
     /// </summary>
     private ContextItem? ProjectNote(LinkProject project) =>
-        project.State is { } note && !_noteLeftOut && !_onlyMyText
+        project.State is { } note && !_noteLeftOut
             ? new ContextItem
             {
                 Type = ContextItemType.ProjectState,

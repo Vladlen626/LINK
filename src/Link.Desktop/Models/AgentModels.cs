@@ -66,9 +66,6 @@ public sealed class AgentTaskRecord
     /// <summary>The project's check as it last ran: command, outcome and the end of its output.</summary>
     public string? LastCheck { get; set; }
 
-    /// <summary>In Perforce: the pending changelist Link keeps the task's files in, as P4V shows it; null elsewhere.</summary>
-    public int? Changelist { get; set; }
-
     /// <summary>
     /// When the task goes on by itself after its agent's usage limit (Continue at…); null when it waits for nothing. Kept
     /// with the task, so that a restart of Link before then does not lose it; cleared when it fires or is cancelled.
@@ -96,22 +93,7 @@ public sealed class AgentTaskRecord
     /// <summary>The names of the skills the agent is told to read first, as the card or the last change of specialist picked them.</summary>
     public List<string> Skills { get; set; } = [];
 
-    /// <summary>Who did the task: one agent, a team plan or one routed worker. A task of an older Link is Solo.</summary>
-    public TaskMode Mode { get; set; } = TaskMode.Solo;
-
-    /// <summary>A team task, or one given to the strong agent alone in its place, while Settings measure team against solo.</summary>
-    public bool Measured { get; set; }
-
-    /// <summary>The team plan as Link routed it, step by step; empty unless <see cref="Mode"/> is Team.</summary>
-    public List<TeamStep> Team { get; set; } = [];
-
-    /// <summary>The team lead's session: it planned the steps and reviews what the workers did; null for no team.</summary>
-    public string? LeadSession { get; set; }
-
-    /// <summary>The lead's session that has given a review's verdict: the next review in it is told the step alone.</summary>
-    public string? ReviewSession { get; set; }
-
-    /// <summary>The images the task began with (the user's references, a screenshot), by path: a team's art steps and the art critic see them too.</summary>
+    /// <summary>The images the task began with (the user's references, a screenshot), by path.</summary>
     public List<string> Images { get; set; } = [];
 
     [JsonIgnore]
@@ -181,13 +163,7 @@ public sealed record AgentRunRecord
     /// <summary>The specialist this run worked as; null: General.</summary>
     public string? RoleId { get; init; }
 
-    /// <summary>The number of the team plan's step this run carried out (the first of them for a run of several); null outside a team.</summary>
-    public int? Step { get; init; }
-
-    public StepKind? Kind { get; init; }
-    public WorkerTier? Tier { get; init; }
-
-    /// <summary>The run judged another's work (the art critic, the lead's review): the user's words never go on in it.</summary>
+    /// <summary>The run judged another's work (the final check): the user's words never go on in it.</summary>
     public bool Judge { get; init; }
 
     public bool AutoApprove { get; init; }
@@ -301,20 +277,16 @@ public enum AgentEntryKind
     /// <summary>The agent could not start: no run, no session.</summary>
     NoStart,
 
-    /// <summary>A change the user made with Link's controls (a mode, the team's plan): a line of the thread, not their words to the agent.</summary>
+    /// <summary>A change the user made with Link's controls (a mode): a line of the thread, not their words to the agent.</summary>
     Note
 }
 
 /// <summary>
 /// A step of the agent's own plan (Claude Code's tasks, Codex's plan). <see cref="Doing"/> is what the agent says while
 /// it works on the step ("Fixing the jump"); <see cref="Number"/> is the task's number in Claude Code, by which its
-/// TaskUpdate names it. Plans of an earlier Link have neither. <see cref="Worker"/> names who does the step when the
-/// plan is a team's ("Codex", "Codex → Claude" after an escalation); null for the agent's own plan. <see cref="Role"/> is the
-/// name of the specialist of a team's step ("3D Artist"), shown beside the worker, and <see cref="Why"/> why Link gave the
-/// step to that worker.
+/// TaskUpdate names it. Plans of an earlier Link have neither.
 /// </summary>
-public sealed record AgentPlanItem(
-    string Text, bool Done, bool Active, string? Doing = null, int? Number = null, string? Worker = null, string? Role = null, string? Why = null);
+public sealed record AgentPlanItem(string Text, bool Done, bool Active, string? Doing = null, int? Number = null);
 
 /// <summary>
 /// A usage window of an agent's subscription as the CLI last reported it: "5 h" or "week", how much of it is used and
@@ -414,7 +386,7 @@ public sealed record AgentTask
     public bool PlanOnly { get; init; }
 
     /// <summary>
-    /// Link's judge of another's work (the art critic, the lead's review): told to change nothing, and the user's words
+    /// Link's judge of another's work (the final check): told to change nothing, and the user's words
     /// after it go on with the work it judged, never in its session.
     /// </summary>
     public bool Judge { get; init; }
@@ -498,7 +470,7 @@ public sealed record AgentTask
     public string? CheckCommand { get; init; }
 
     /// <summary>
-    /// Link's own answer (the map, a note for Start over): no MCP servers at all. It needs no editor tools, and their
+    /// Link's own answer (the map, a skill): no MCP servers at all. It needs no editor tools, and their
     /// schemas would be sent again on every call.
     /// </summary>
     public bool WithoutMcp { get; init; }
@@ -747,7 +719,7 @@ public sealed class AgentSettings
     public string? CodexEffort { get; set; }
 
     // The Light and Deep levels; Standard is the model and effort above, the user's everyday choice. Light is the cheap
-    // worker of a team: Haiku, and Codex's lightest model when Claude's limit is reached.
+    // level (Link's own answers, such as the map): Haiku, and Codex's lightest model.
     public AgentLevelChoice ClaudeLight { get; set; } = new() { Model = LightClaudeModel, Effort = "low" };
     public AgentLevelChoice ClaudeDeep { get; set; } = new() { Model = "claude-opus-5-5", Effort = "xhigh" };
     public AgentLevelChoice CodexLight { get; set; } = new() { Model = LightCodexModel, Effort = "low" };
@@ -765,7 +737,7 @@ public sealed class AgentSettings
     /// <summary>Plan first runs on Deep, and the plan is carried out on Standard in the same session.</summary>
     public bool PlanOnDeep { get; set; } = true;
 
-    /// <summary>Link's own answers (a map, a note for Start over) run on Light.</summary>
+    /// <summary>Link's own answers (a map, a skill) run on Light.</summary>
     public bool OwnAnswersOnLight { get; set; } = true;
 
     /// <summary>Link picks each run's effort for the tasks that start on Auto; the model and the agent stay the user's.</summary>
@@ -818,9 +790,6 @@ public sealed class AgentSettings
     public static readonly IReadOnlyList<string> DefaultNoStopDeny =
         ["Bash(git push:*)", "Bash(git push)", "Bash(p4 submit:*)", "Bash(p4 submit)", "Bash(gh pr merge:*)", "Bash(gh release:*)"];
 
-    /// <summary>Who serves the tiers of a team plan, and whether the steps go to workers.</summary>
-    public TeamSettings Team { get; set; } = new();
-
     public void Normalize()
     {
         if (!Enum.IsDefined(DefaultProvider)) DefaultProvider = AgentProviderKind.ClaudeCode;
@@ -845,9 +814,6 @@ public sealed class AgentSettings
         LatestModels ??= [];
         if (NoStopTurns is < 1 or > 200) NoStopTurns = DefaultNoStopTurns;
         NoStopDeny = NoStopDeny is null ? [.. DefaultNoStopDeny] : [.. NoStopDeny.Select(Trimmed).OfType<string>().Distinct(StringComparer.Ordinal)];
-
-        Team ??= new();
-        Team.Normalize();
     }
 
     /// <summary>A level's model and effort for an agent; null parts are left to the CLI.</summary>
@@ -904,7 +870,6 @@ public sealed class AgentSettings
         ContinueAfterLimit = ContinueAfterLimit,
         NoStopTurns = NoStopTurns,
         NoStopDeny = [.. NoStopDeny],
-        Team = Team.Clone(),
         LatestModels = new Dictionary<string, string>(LatestModels)
     };
 
@@ -922,7 +887,7 @@ public sealed class AgentSettings
         return (before is null ? null : $"{asked}: {before} → {ran}", ran);
     }
 
-    /// <summary>The Light levels an older Link saved by default (Sonnet; Codex's own model) become the team's cheap workers; chosen ones stay.</summary>
+    /// <summary>The Light levels an older Link saved by default (Sonnet; Codex's own model) become the cheap ones; chosen ones stay.</summary>
     public void MoveOldLightDefaults()
     {
         if (ClaudeLight is { Model: "claude-sonnet-5-5", Effort: "medium" }) ClaudeLight = new() { Model = LightClaudeModel, Effort = "low" };

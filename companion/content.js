@@ -28,8 +28,6 @@ const SEND_CONFIRM_MS = 20 * 1000;
 const RESUME_TIMEOUT_MS = 20 * 1000;
 // The chat shows a sent prompt at once; an answer is taken without the prompt in sight only after this long.
 const PROMPT_GRACE_MS = 5000;
-// A new chat's page shows its composer a moment before the buttons around it, the mode picker among them.
-const PICKER_WAIT_MS = 3000;
 // LINK counts as gone when no event of a prompt has reached it for this long.
 const BRIDGE_TIMEOUT_MS = 30 * 1000;
 const REQUEST_STATE_TTL_MS = 60 * 60 * 1000;
@@ -60,28 +58,6 @@ const STATUS_LINE = /^(thinking|thought|reasoning|searching|analy[sz]|creating i
 const IMAGE_STATUS = /^(creating image|generating image|создаю изображени|создание изображени)/i;
 // A picture of the answer is at least this large on either side; avatars and icons are smaller.
 const IMAGE_MIN_SIDE = 200;
-// ChatGPT's answer modes as its picker names them. Since June 2026 the picker sits in the composer (Instant, Medium,
-// High, Extra High; "Мгновенный", "Средний", "Высокий", "Очень высокий"); the older header picker offered Instant,
-// Auto and Thinking. Extra High is tried first, so it never passes for High.
-const MODES = [
-  ["extra", /^(extra[\s-]*high|очень\s+высок|максимал)/i],
-  ["instant", /^(instant|мгновен|быстр)/i],
-  ["medium", /^(medium|средн|standard|стандарт)/i],
-  ["high", /^(high|высок)/i],
-  ["auto", /^(auto|авто)/i],
-  ["thinking", /^(thinking|думающ|рассужд)/i]
-];
-const MODE_NAMES = { extra: "Extra High", instant: "Instant", medium: "Medium", high: "High", auto: "Auto", thinking: "Thinking" };
-// LINK's Fast / Normal / Deep: the chat's modes to use, the first one it offers.
-const EFFORT_MODES = { fast: ["instant"], normal: ["medium", "auto"], deep: ["high", "thinking"] };
-const EXCLUDED_MODES = /\bpro\b|upgrade|legacy|улучш|устаревш/i;
-// The composer of the new UI ("octane") opens its menus as native popovers (popovertarget), not Radix menus.
-const PICKER_BUTTONS = 'button[aria-haspopup], button[popovertarget], [role="combobox"]';
-const MENUS = '[role="menu"], [role="listbox"], [data-radix-popper-content-wrapper]';
-// Since September 2026 the picker's menu sets the effort on a slider ("Мощность"), a level per arrow key, and
-// announces the level it is at ("Высокий, 3 из 3."). Its levels from the lightest:
-const EFFORT_SLIDERS = '[data-reasoning-slider], [role="menuitem"][aria-keyshortcuts~="ArrowRight"]';
-const SLIDER_ORDER = ["instant", "medium", "high", "extra"];
 const SKIPPED_NODES = 'button, svg, style, script, [hidden], [aria-hidden="true"], .sr-only, [class*="shimmer"], ' +
   "[data-message-content-controls], [data-message-actions], [data-message-attribution], [data-assistant-placeholder-slot]";
 const INLINE_TAGS = new Set(["A", "ABBR", "B", "BR", "CODE", "DEL", "EM", "I", "IMG", "KBD", "MARK", "S", "SMALL", "SPAN", "STRONG", "SUB", "SUP", "U"]);
@@ -155,8 +131,6 @@ async function handlePrompt(request) {
     wake: null,
     resumed: false,
     sentAt: 0,
-    // What became of the answer mode, for the diagnostics.
-    mode: null,
     baseline: null,
     lastUserKey: null,
     prompt: null,
@@ -232,7 +206,6 @@ async function runPrompt(request, job) {
 async function sendPrompt(request, job) {
   await report(request.requestId, "sending");
   const composer = await waitFor(findComposer, 15000, "ChatGPT message composer was not found.");
-  job.mode = await applyEffort(request, composer.closest("form"));
   if (request.attachments?.length) await attachImages(composer, request.attachments);
   setComposerText(composer, request.prompt);
   job.baseline = takeBaseline();
@@ -320,7 +293,6 @@ function diagnose(job, response = job?.response, prompt = job?.prompt) {
     version: VERSION,
     busy: current?.requestId ?? null,
     resumed: job?.resumed ?? null,
-    mode: job?.mode ?? null,
     prompt: job ? (found ? messageKey(prompt) ?? "found" : "not found") : null,
     // What the page offers as messages when the prompt or the answer is not among them, and how it marks them when
     // the selectors find none at all: how to tell them next time.
@@ -339,8 +311,7 @@ function diagnose(job, response = job?.response, prompt = job?.prompt) {
     stopButtons: [...(form ?? document).querySelectorAll(STOP_BUTTONS)].slice(0, 6).map(button =>
       `${button.dataset.testid ?? ""}|${button.getAttribute("aria-label") ?? ""}|${isShown(button) ? "shown" : "hidden"}`),
     // The composer's buttons by label: a Stop or Send the selectors miss shows up here.
-    composerButtons: [...(form?.querySelectorAll("button[aria-label]") ?? [])].map(button => button.getAttribute("aria-label")),
-    picker: describeElement(findModePicker(form))
+    composerButtons: [...(form?.querySelectorAll("button[aria-label]") ?? [])].map(button => button.getAttribute("aria-label"))
   };
 }
 
@@ -388,236 +359,6 @@ function describeElement(element) {
     .filter(attribute => attribute.name !== "class" && attribute.name !== "style")
     .map(attribute => attribute.value ? `${attribute.name}=${attribute.value.slice(0, 40)}` : attribute.name);
   return `${element.tagName.toLowerCase()}[${attributes.join(" ")}] "${firstLine(element.textContent).slice(0, 30)}"`;
-}
-
-/** Puts the chat into the mode for LINK's effort; what became of it, in a few words. */
-async function applyEffort(request, form) {
-  const effort = EFFORT_MODES[request.effort] ? request.effort : "normal";
-  const appliedKey = `effort:${request.conversationId}`;
-  const ownKey = `mode:${request.conversationId}`;
-  let saved = {};
-  try {
-    saved = await host.storage.get([appliedKey, ownKey]);
-  } catch {
-    // Without storage the chat's mode is simply checked again.
-  }
-  const applied = saved[appliedKey] ?? "normal";
-  // Normal leaves the user's own mode alone until LINK has changed it, and then gives that mode back.
-  if (effort === "normal" && applied === "normal") return "normal: the user's own mode";
-
-  const own = effort === "normal" ? saved[ownKey] : null;
-  const targets = own ? [modeOf(own) ?? own, ...EFFORT_MODES.normal] : EFFORT_MODES[effort];
-  const result = await switchChatMode(form, targets);
-  if (!result.ok) {
-    await report(request.requestId, "notice", { notice: `ChatGPT mode not switched (${result.reason}); the answer hint was still sent` });
-    return `${effort}: not switched (${result.reason})`;
-  }
-
-  try {
-    const update = { [appliedKey]: effort };
-    // Only a picker that names the mode tells which one was the user's.
-    if (applied === "normal" && modeOf(result.previous)) update[ownKey] = result.previous;
-    await host.storage.set(update);
-  } catch {
-    // The chat is in the right mode anyway; the next request checks it again.
-  }
-  if (result.changed) await report(request.requestId, "notice", { notice: `ChatGPT mode: ${result.label}` });
-  return `${effort}: ${result.changed ? `switched from "${result.previous}" to` : "already"} "${result.label}"`;
-}
-
-/**
- * Puts the chat into the first of `targets` it offers (mode ids, or a mode's own label) and checks that the picker
- * shows it then. The picker shows the current mode, so a chat already in it is left alone; the user may have changed
- * it by hand since LINK last did.
- */
-async function switchChatMode(form, targets) {
-  const picker = findModePicker(form) ??
-    (hasComposerButtons(form) ? null : await waitFor(() => findModePicker(composerForm()), PICKER_WAIT_MS, null));
-  if (!picker) return { ok: false, reason: "mode picker not found" };
-  const previous = pickerLabel(picker);
-  if (matchesMode(previous, targets[0])) return { ok: true, changed: false, label: previous, previous };
-
-  const menu = await openMenu(picker);
-  if (!menu) return { ok: false, reason: `the "${previous}" picker did not open` };
-  const slider = menu.querySelector(EFFORT_SLIDERS);
-  if (slider) return slideToMode(menu, slider, targets, previous);
-  const offered = menuItems(menu);
-  const choice = targets
-    .map(target => [target, offered.find(item => matchesMode(firstLine(item.innerText), target) && !isDisabled(item))])
-    .find(([, item]) => item);
-  if (!choice) {
-    closeMenu(menu);
-    // The labels on offer tell what a changed picker calls its modes now.
-    const labels = offered.map(item => firstLine(item.innerText)).filter(Boolean).join(", ");
-    return { ok: false, reason: `${MODE_NAMES[targets[0]] ?? targets[0]} is not offered${labels ? `: ${labels}` : ""}` };
-  }
-
-  const [target, item] = choice;
-  // The picker may name the chat's mode differently from the menu: the first mode on offer may be the current one.
-  if (matchesMode(previous, target)) {
-    closeMenu(menu);
-    return { ok: true, changed: false, label: previous, previous };
-  }
-  const label = await chooseMode(picker, menu, item, target);
-  if (!label) {
-    closeMenu(menu);
-    return { ok: false, reason: `the picker still shows "${pickerLabel(findModePicker(composerForm())) || previous}"` };
-  }
-  return { ok: true, changed: true, label, previous };
-}
-
-/**
- * Moves the menu's effort slider towards the first target it can hold, a level per arrow key, as far as the target or
- * the slider's end (for Fast, the lightest level there is), and checks that the picker shows the level then.
- */
-async function slideToMode(menu, slider, targets, previous) {
-  const target = targets.find(mode => SLIDER_ORDER.includes(mode));
-  const level = () => [...menu.querySelectorAll('[role="status"]')]
-    .map(status => firstLine(status.textContent).split(",")[0].trim())
-    .find(modeOf) ?? "";
-  let label = level();
-  for (let step = 0; target && modeOf(label) !== target && step < SLIDER_ORDER.length; step++) {
-    const at = SLIDER_ORDER.indexOf(modeOf(label));
-    if (at < 0) break;
-    const key = at > SLIDER_ORDER.indexOf(target) ? "ArrowLeft" : "ArrowRight";
-    slider.focus();
-    slider.dispatchEvent(new KeyboardEvent("keydown", { key, code: key, bubbles: true, cancelable: true }));
-    const moved = await waitFor(() => level() !== label ? level() : null, 1500, null);
-    if (!moved) break;
-    label = moved;
-  }
-  closeMenu(menu);
-  const reached = modeOf(label);
-  if (!reached || reached === modeOf(previous) && reached !== target) {
-    return { ok: false, reason: `the effort slider stays at "${label || previous}"` };
-  }
-  const shown = await waitFor(() => {
-    const now = pickerLabel(findModePicker(composerForm()));
-    return modeOf(now) === modeOf(label) ? now : null;
-  }, 2000, null);
-  if (!shown) return { ok: false, reason: `the picker still shows "${pickerLabel(findModePicker(composerForm())) || previous}"` };
-  return { ok: true, changed: modeOf(shown) !== modeOf(previous), label: shown, previous };
-}
-
-/**
- * Chooses a menu item; the mode's label once the picker shows it, or null when it never does. A picker that does
- * not show the mode (the header's "ChatGPT") only tells that it took the choice by closing its menu.
- */
-async function chooseMode(picker, menu, item, target) {
-  const labelled = Boolean(modeOf(pickerLabel(picker)));
-  // Read while the menu is open: a closed menu's item has no lines any more.
-  const itemLabel = firstLine(item.innerText);
-  const shown = () => {
-    if (!labelled) return !menu.isConnected || picker.getAttribute("aria-expanded") === "false" ? itemLabel : null;
-    const label = pickerLabel(findModePicker(composerForm()));
-    return matchesMode(label, target) ? label : null;
-  };
-  item.click();
-  let label = await waitFor(shown, 2000, null);
-  if (!label && item.isConnected) {
-    // Some menus choose on Enter rather than on a click.
-    item.focus();
-    item.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
-    label = await waitFor(shown, 1500, null);
-  }
-  return label;
-}
-
-/**
- * The composer's mode picker, labelled with the current mode ("Высокий"); it may sit just outside the composer's
- * form. The header's model picker ("ChatGPT") only when the composer has none: it held the modes before June 2026.
- */
-function findModePicker(form) {
-  for (let root = form, level = 0; root && level < 3; root = root.parentElement, level++) {
-    const pickers = [...root.querySelectorAll(PICKER_BUTTONS)]
-      .filter(button => !button.closest(`${TURNS}, [data-message-author-role]`) && modeOf(pickerLabel(button)));
-    if (pickers.length) return pickers.find(isShown) ?? pickers[0];
-  }
-  return document.querySelector('[data-testid="model-switcher-dropdown-button"]');
-}
-
-/** Whether the buttons around the composer are there yet; the mode picker is one of them when the chat has one. */
-function hasComposerButtons(form) {
-  for (let root = form, level = 0; root && level < 3; root = root.parentElement, level++) {
-    if (root.querySelector(PICKER_BUTTONS)) return true;
-  }
-  return false;
-}
-
-function pickerLabel(picker) {
-  return firstLine(picker?.innerText) || picker?.getAttribute("aria-label")?.trim() || "";
-}
-
-/** The mode a label names, by its first word; a label may name its kind first ("Reasoning · High"). */
-function modeOf(label) {
-  const parts = firstLine(label).split(/\s*[·:|•—–]\s*/);
-  for (const part of [...parts.slice(1).reverse(), parts[0]]) {
-    const mode = MODES.find(([, pattern]) => pattern.test(part));
-    if (mode) return mode[0];
-  }
-  return null;
-}
-
-function matchesMode(label, target) {
-  return MODE_NAMES[target] ? modeOf(label) === target : firstLine(label).toLowerCase() === target.toLowerCase();
-}
-
-async function openMenu(picker) {
-  const before = new Set(document.querySelectorAll(MENUS));
-  // A native popover is the picker's own target and shows as :popover-open; it opens on a click.
-  const popover = picker.popoverTargetElement ?? null;
-  const opened = () => {
-    if (popover) return popover.matches(":popover-open") ? popover : null;
-    const id = picker.getAttribute("aria-controls");
-    const own = id ? document.getElementById(id) : null;
-    if (own) return own;
-    const menus = [...document.querySelectorAll(MENUS)];
-    return menus.find(menu => !before.has(menu)) ??
-      (picker.getAttribute("aria-expanded") === "true" ? menus.find(isShown) : null) ?? null;
-  };
-  // Radix menus open on pointerdown, and a synthetic click alone does not open them; other menus open on click or Enter.
-  const click = () => picker.click();
-  const ways = popover ? [click] : [
-    () => picker.dispatchEvent(new PointerEvent("pointerdown", {
-      bubbles: true, cancelable: true, button: 0, pointerType: "mouse", isPrimary: true
-    })),
-    click,
-    () => {
-      picker.focus();
-      picker.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", code: "Enter", bubbles: true, cancelable: true }));
-    }
-  ];
-  for (const open of ways) {
-    if (!picker.isConnected) return null;
-    open();
-    const menu = await waitFor(opened, 1500, null);
-    if (menu) return menu;
-  }
-  // A menu that opened where LINK could not see it must not stay open over the chat.
-  closeMenu(popover ?? picker);
-  return null;
-}
-
-function menuItems(menu) {
-  const items = [...menu.querySelectorAll('[role^="menuitem"], [role="option"], [role="radio"], [data-testid^="model-switcher-"]')];
-  return (items.length ? items : [...menu.querySelectorAll("button")])
-    .filter(item => item.getAttribute("aria-haspopup") !== "menu" &&
-      !EXCLUDED_MODES.test(`${item.getAttribute("data-testid") ?? ""} ${item.innerText ?? ""}`));
-}
-
-function isDisabled(item) {
-  return item.getAttribute("aria-disabled") === "true" || item.hasAttribute("data-disabled") || item.disabled === true;
-}
-
-/** Closes a menu: a native popover by its own call, since a synthetic Escape does not close one; others by Escape. */
-function closeMenu(menu) {
-  if (menu.matches?.(":popover-open")) {
-    menu.hidePopover();
-    return;
-  }
-  (menu.isConnected ? menu : document.activeElement ?? document.body).dispatchEvent(new KeyboardEvent("keydown", {
-    key: "Escape", code: "Escape", bubbles: true, cancelable: true
-  }));
 }
 
 function firstLine(text) {

@@ -31,9 +31,6 @@ public sealed record AgentPlan(
     /// <summary>The project the card was opened for: a new task belongs to it, whichever project is active when Run is pressed.</summary>
     public Guid ProjectId { get; init; }
 
-    /// <summary>A team does the task: the lead plans it first and Link gives each step to its worker.</summary>
-    public bool Team { get; init; }
-
     /// <summary>What the user pasted or dropped on the card: images and files, by path.</summary>
     public IReadOnlyList<string> Attached { get; init; } = [];
 
@@ -66,12 +63,11 @@ public sealed class AgentCoordinator
     private readonly AgentChanges _changes;
     private readonly Action<string> _log;
 
-    public AgentCoordinator(IEnumerable<IAgentProvider> providers, AgentChanges changes, Action<string> log, AgentConsole? console = null)
+    public AgentCoordinator(IEnumerable<IAgentProvider> providers, AgentChanges changes, Action<string> log)
     {
         _providers = providers.ToDictionary(provider => provider.Kind);
         _changes = changes;
         _log = log;
-        Console = console ?? new AgentConsole();
     }
 
     public IAgentProvider Provider(AgentProviderKind kind) => _providers[kind];
@@ -79,9 +75,6 @@ public sealed class AgentCoordinator
     public IEnumerable<IAgentProvider> Providers => _providers.Values;
 
     public AgentChanges Changes => _changes;
-
-    /// <summary>What the providers sent their CLIs and what these wrote back, for the Console window.</summary>
-    public AgentConsole Console { get; }
 
     /// <summary>
     /// The task the card describes: the goal first, then what Link knows of the project (task and state) and the
@@ -289,7 +282,7 @@ public sealed class AgentCoordinator
         }
         catch (IOException exception)
         {
-            // Perforce gone during the run (a ticket expired): the agent's answer stays, its files are not known.
+            // The workspace could not be read: the agent's answer stays, its files are not known.
             progress.Report(new AgentEvent(AgentEventKind.Error, $"{exception.Message} The files this run changed are not listed."));
             changes = [];
         }
@@ -304,52 +297,11 @@ public sealed class AgentCoordinator
     }
 
     /// <summary>
-    /// Start over with a note: the run's session is asked once, in three turns at most, what it tried and why it did not work; the
-    /// task returned is for a new session, with the original goal and images, that note, and the Auto, folder and
-    /// check of the run. Without a session to ask it goes without a note; null when Stop ended the asking.
-    /// </summary>
-    public async Task<(AgentTask Task, string Note)?> StartOverAsync(
-        AgentRun run,
-        AgentTask origin,
-        (string? Model, string? Effort) asking,
-        CancellationToken cancellationToken)
-    {
-        var note = string.Empty;
-        if (run.Result.SessionId is { } session)
-        {
-            var asked = await Provider(run.Task.Provider).RunAsync(run.Task with
-            {
-                ResumeSessionId = session,
-                PlanOnly = false,
-                Prompt = NoteRequest,
-                Images = [],
-                AllowedTools = [],
-                AnswerFile = null,
-                MaxTurns = 3,
-                Model = asking.Model,
-                Effort = asking.Effort,
-                WithoutMcp = true,
-                AskPermission = null
-            }, new Progress<AgentEvent>(), cancellationToken);
-            if (asked.Stopped) return null;
-            if (asked.Succeeded) note = asked.Summary.Trim();
-        }
-
-        var prompt = note.Length == 0 ? origin.Prompt : $"{origin.Prompt}\n\nA note from an earlier attempt at this task, which did not work out:\n{note}";
-        return (run.Task with { ResumeSessionId = null, Prompt = prompt, Images = origin.Images, Plan = [] }, note);
-    }
-
-    /// <summary>
     /// What the session goes on with when the user speaks up while the agent works: neither CLI takes words during a
     /// run, so Link stops it and the same session goes on with them.
     /// </summary>
     public static string Interrupted(string words) =>
         $"The user stopped you to say this:\n{words.Trim()}\nTake it into account and go on with the task.";
-
-    /// <summary>The one short request to a session that goes nowhere: its note for the clean session after it.</summary>
-    internal const string NoteRequest =
-        "Stop working on the task and change nothing. In five lines at most, write what you tried and why it did not work: " +
-        "a note for a new session that takes the task over from the start.";
 
     /// <summary>Runs the project's check and tells Activity and link.log how it went; the command and output stay out of the log.</summary>
     private async Task<AgentCheckResult> CheckAsync(string command, string workspace, int retry, IProgress<AgentEvent> progress, CancellationToken cancellationToken)

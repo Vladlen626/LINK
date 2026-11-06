@@ -151,13 +151,6 @@ public partial class MainWindow
         if (Shows(work)) _agentPanel!.ShowLimit(work.Limit?.Text, work.Limit?.Actions ?? [], work.Limit?.Toggle);
     }
 
-    /// <summary>Start over after a run that failed, with Escalate when it was not on the strongest model; kept with the task.</summary>
-    private void SetRestart(TaskWork work, bool show, bool escalate)
-    {
-        work.Restart = (show, escalate);
-        if (Shows(work)) _agentPanel!.ShowRestart(show, escalate);
-    }
-
     /// <summary>What a task's agent tells the status line; a task other than the open one is named first.</summary>
     private void AgentStatus(TaskWork work, string text) =>
         AgentStatus(work == _open ? text : $"«{Shorten(work.Record.Goal, 40)}»: {text}");
@@ -197,11 +190,7 @@ public partial class MainWindow
 
     private void StopAllRuns()
     {
-        foreach (var work in _works)
-        {
-            work.Run?.Stop.Cancel();
-            work.Asking?.Stop.Cancel();
-        }
+        foreach (var work in _works) work.Run?.Stop.Cancel();
 
         _own?.Live?.Stop.Cancel();
     }
@@ -220,17 +209,11 @@ public partial class MainWindow
 
         public LiveRun? Run { get; set; }
 
-        // Link's own step around a run, such as asking for a note before Start over: its Stop, and what it does.
-        public (CancellationTokenSource Stop, string Step)? Asking { get; set; }
-
         public WaitingRun? Waiting { get; set; }
         public AgentRun? LastRun { get; set; }
 
         // Another run edited the task's folder after its last run (see EditedBy).
         public bool OthersEdited { get; set; }
-
-        // The artist's run the art critic judges: after the verdict the user's words go on in its session, not the critic's.
-        public AgentRun? Critiqued { get; set; }
 
         // The run whose whole change the final check reads: after it the user's words go on in its session (FinalCheck).
         public AgentRun? Checked { get; set; }
@@ -238,7 +221,7 @@ public partial class MainWindow
         // The plan the final check was offered for: once per plan, not again after the fixes it asked for.
         public string? PlanChecked { get; set; }
 
-        // The task as the card or a hand-over started it: what Start over starts again.
+        // The task as the card or a hand-over started it.
         public AgentTask? Origin { get; set; }
 
         // A task taken up from the list: the next words take up its last session again.
@@ -252,9 +235,6 @@ public partial class MainWindow
 
         // The run whose plan mode was turned off: while it is the last run, the next words carry its plan out.
         public AgentRun? PlanLeft { get; set; }
-
-        // The user chose Re-plan in a team step's menu: the next words go to the lead for a new plan of the steps left.
-        public bool Replanning { get; set; }
 
         // The agent's question at the end of its last run: a choice until it is answered.
         public AgentQuestion? Question { get; set; }
@@ -271,11 +251,9 @@ public partial class MainWindow
         // Files the user attached: the next run of the task is told their paths and may read their folders.
         public List<string> AttachedFiles { get; } = [];
 
-        public bool RestartWhenStopped { get; set; }
         public AgentProviderKind? HandOffWhenStopped { get; set; }
         public TaskDecision? Decision { get; set; }
         public LimitCard? Limit { get; set; }
-        public (bool Show, bool Escalate) Restart { get; set; }
 
         // The ⋯ menu's choices after the last run: undo comes and goes with it.
         public IReadOnlyList<PanelAction> AfterRun { get; set; } = [];
@@ -292,7 +270,7 @@ public partial class MainWindow
         public string? NoStopLast { get; set; }
         public bool NoStopArming { get; set; }
 
-        public bool Busy => Run is not null || Asking is not null;
+        public bool Busy => Run is not null;
     }
 
     /// <summary>

@@ -60,7 +60,7 @@
                         Click="ChooseWorkspace_OnClick" Content="Choose…" ToolTip="The folder this project's work lives in" />
             </Grid>
             <StackPanel x:Name="WorkspaceTools">
-                <!-- How the agents' changes are kept and undone here: Git, Perforce or a copy. -->
+                <!-- How the agents' changes are told and undone here: Git, Perforce or neither. -->
                 <TextBlock x:Name="VcsText" Margin="0,4,0,0" Style="{StaticResource SecondaryTextStyle}" FontSize="11" TextWrapping="Wrap" />
                 <!-- The project map: what is where and how to check, read by agents instead of searching. -->
                 <Grid Margin="0,6,0,0">

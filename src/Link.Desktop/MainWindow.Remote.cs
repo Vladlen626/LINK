@@ -19,8 +19,6 @@ public partial class MainWindow : IRemoteHost
         _projects.Projects.Select(project => new RemoteProject(project.Id, project.Name, project.Id == _projects.ActiveProject.Id,
             project.WorkspaceRoot is { } root && Directory.Exists(root))).ToArray());
 
-    public Task<bool> TeamsOfferedAsync() => OnWindow(() => _settings.Current.Agent.Team.Offered);
-
     /// <summary>The tasks Link holds, of every project, and the active project's others: newest first.</summary>
     public Task<IReadOnlyList<RemoteTask>> TasksAsync() => OnWindow<IReadOnlyList<RemoteTask>>(() =>
     {
@@ -38,7 +36,7 @@ public partial class MainWindow : IRemoteHost
         var work = WorkOf(id);
         if ((work?.Record ?? ActiveRecord(id)) is not { } record) return null;
         var question = work?.Question;
-        var plan = PlanOf(record);
+        var plan = record.Plan;
         return new RemoteTaskView(
             RemoteRow(record, work?.Project ?? _projects.ActiveProject),
             [.. record.Entries.TakeLast(RemoteEntries).Select(entry => new RemoteEntry(entry.At, entry.Kind.ToString(), entry.Text))],
@@ -120,7 +118,7 @@ public partial class MainWindow : IRemoteHost
                 continue;
             }
 
-            var said = RunSaid(record, run).Said.Trim();
+            var said = RunSaid(run).Said.Trim();
             var last = !live && ReferenceEquals(run, record.LastRun);
             var head = $"{AgentName(run.Provider)}: {run.Outcome.ToLowerInvariant()}";
             lines.Add(said.Length == 0 ? head : last ? $"{head}\n{Shorten(said, 1500)}" : $"{head} — {Shorten(TaskExport.OneLine(ToPreviewText(said)), 200)}");
@@ -139,13 +137,10 @@ public partial class MainWindow : IRemoteHost
         if (project is null) return "No such project";
         if (project.WorkspaceRoot is not { } workspace || !Directory.Exists(workspace)) return $"{project.Name} has no workspace folder";
         var settings = _settings.Current.Agent;
-        if (task.Team && !settings.Team.Offered) return "Teams are off: turn them on in Link's Settings";
         var provider = task.Provider ?? StartProvider;
         var (model, effort) = settings.Level(provider, task.Level ?? AgentLevel.Standard);
-        // A team always plans first, on its lead.
-        var plan = new AgentPlan(provider, workspace, task.PlanFirst || task.Team, task.Goal)
+        var plan = new AgentPlan(provider, workspace, task.PlanFirst, task.Goal)
         {
-            Team = task.Team,
             Model = model,
             Effort = effort,
             AutoEffort = settings.AutoEffort,
@@ -190,7 +185,7 @@ public partial class MainWindow : IRemoteHost
     public Task<string?> StopAsync(Guid id, string device) => OnRemoteWork(id, device, "stop", work =>
     {
         if (work.Waiting is not null) StopWaiting(work);
-        else if ((work.Run?.Stop ?? work.Asking?.Stop) is { } stop) stop.Cancel();
+        else if (work.Run?.Stop is { } stop) stop.Cancel();
         else return "The task is not running";
         return null;
     });

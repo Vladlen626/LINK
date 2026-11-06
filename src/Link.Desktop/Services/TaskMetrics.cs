@@ -38,24 +38,20 @@ public sealed record AgentTokens(AgentProviderKind Provider, TokenCount Tokens, 
 /// <summary>
 /// One task measured: who did it, what it cost in tokens per agent, <see cref="Equivalent"/> over all agents and
 /// <see cref="StrongEquivalent"/> on the strong one (whose subscription is the scarce one), time, runs, the user's
-/// <see cref="Steers"/>, escalations to a stronger worker, whether it ended well, and whether Link's check passed
-/// (null: none ran). <see cref="Kind"/> is the kind of its goal.
+/// <see cref="Steers"/>, whether it ended well, and whether Link's check passed (null: none ran).
 /// </summary>
 public sealed record TaskMetric(
     Guid Id,
-    TaskMode Mode,
-    StepKind Kind,
     IReadOnlyList<AgentTokens> Agents,
     double Equivalent,
     double StrongEquivalent,
     TimeSpan Time,
     int Runs,
     int Steers,
-    int Escalations,
     bool Done,
     bool? CheckPassed);
 
-/// <summary>Measures a task from its record: the numbers that tell whether a team costs less than one agent.</summary>
+/// <summary>Measures a task from its record: what it cost and how it went.</summary>
 public static class TaskMetrics
 {
     /// <summary>
@@ -76,51 +72,13 @@ public static class TaskMetrics
         var last = task.LastRun;
         return new TaskMetric(
             task.Id,
-            task.Mode,
-            StepKinds.Of(task.Goal),
             agents,
             agents.Sum(agent => agent.Tokens.Equivalent),
             agents.Where(agent => agent.Provider == strong).Sum(agent => agent.Tokens.Equivalent),
             TimeSpan.FromTicks(task.Runs.Sum(run => run.Duration.Ticks)),
             task.Runs.Count,
             task.Entries.Count(entry => entry.Kind == AgentEntryKind.You && task.Runs.Any(run => entry.At >= run.StartedAt && entry.At <= run.StartedAt + run.Duration)),
-            task.Team.Count(step => step.EscalatedFrom is not null),
             last is not null && task.Status is (AgentTaskStatus.Done or AgentTaskStatus.Finished) && !last.Failed,
             task.LastCheck is null ? null : task.Status != AgentTaskStatus.CheckFailed && last?.Outcome.StartsWith("Check failed", StringComparison.Ordinal) != true);
-    }
-}
-
-/// <summary>Team against the strong agent alone, from the tasks Settings measured (<see cref="TeamSettings.Alternate"/>).</summary>
-public static class TeamVsSolo
-{
-    /// <summary>
-    /// Whether the team's turn has come for a measured task of <paramref name="kind"/>: yes unless the last measured one
-    /// of that kind went to the team. <paramref name="tasks"/> in any order.
-    /// </summary>
-    public static bool TeamsTurn(IEnumerable<AgentTaskRecord> tasks, StepKind kind) =>
-        tasks.Where(task => task.Measured && StepKinds.Of(task.Goal) == kind)
-            .MaxBy(task => task.CreatedAt)?.Mode != TaskMode.Team;
-
-    /// <summary>
-    /// One line per kind of work measured both ways, over the tasks that ended done: "Code — team 1.2M ≈ (strong 0.4M) a
-    /// task × 3, solo 0.9M ≈ × 4". Empty while no kind has both.
-    /// </summary>
-    public static IReadOnlyList<string> Lines(IEnumerable<AgentTaskRecord> tasks, AgentProviderKind strong)
-    {
-        var done = tasks.Where(task => task.Measured).Select(task => TaskMetrics.Of(task, strong)).Where(metric => metric.Done).ToArray();
-        return
-        [
-            .. done.GroupBy(metric => metric.Kind)
-                .Where(kind => kind.Any(metric => metric.Mode == TaskMode.Team) && kind.Any(metric => metric.Mode == TaskMode.Solo))
-                .OrderBy(kind => kind.Key)
-                .Select(kind => $"{kind.Key} — team {Average(kind, TaskMode.Team)}, solo {Average(kind, TaskMode.Solo)}")
-        ];
-    }
-
-    private static string Average(IEnumerable<TaskMetric> metrics, TaskMode mode)
-    {
-        var of = metrics.Where(metric => metric.Mode == mode).ToArray();
-        return $"{AgentContext.Tokens((long)of.Average(metric => metric.Equivalent))} ≈ " +
-               $"(strong {AgentContext.Tokens((long)of.Average(metric => metric.StrongEquivalent))}) a task × {of.Length}";
     }
 }

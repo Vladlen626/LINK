@@ -3,7 +3,7 @@ using Link.Desktop.Services;
 
 namespace Link.Desktop;
 
-// A task goes on in another session: compacted, started over with a note, escalated, handed to the other agent and back.
+// A task goes on in another session: compacted, handed to the other agent and back.
 public partial class MainWindow
 {
     /// <summary>
@@ -33,97 +33,12 @@ public partial class MainWindow
         _ = StartCompactedAsync(work, task, why, phase);
     }
 
-    /// <summary>A fresh session of the same agent starts from the task's state: the history says so, and Start over begins from it too.</summary>
+    /// <summary>A fresh session of the same agent starts from the task's state, and the history says so.</summary>
     private Task StartCompactedAsync(TaskWork work, AgentTask task, string? why, EffortPhase phase)
     {
         work.Record.Add(AgentEntryKind.HandOff, TaskState.Compacted(work.Record.LastRun?.ContextTokens) + (why is null ? string.Empty : " · " + why));
         work.Origin = task;
         return StartAgentAsync(work, task, work.LastRun, phase: phase);
-    }
-
-    /// <summary>Start over with a note on the open task; its running agent is stopped first, and its note is asked once it has ended.</summary>
-    private void RequestRestart()
-    {
-        if (_open is not { Waiting: null, Asking: null } work) return;
-        if (work.Run is not { } live)
-        {
-            _ = RestartWithNoteAsync(work);
-            return;
-        }
-
-        work.RestartWhenStopped = true;
-        live.Stop.Cancel();
-    }
-
-    /// <summary>
-    /// The last run's session writes a short note on what it tried and why it did not work (Stop ends the asking and
-    /// the new start); then a new session takes the original task with that note, the same access and folder, and undo
-    /// still covers both.
-    /// </summary>
-    private async Task RestartWithNoteAsync(TaskWork work)
-    {
-        if (work.LastRun is not { } run || work.Origin is not { } origin || work.Busy || work.Waiting is not null) return;
-        var asker = run.Task.Provider;
-        var (model, effort) = _settings.Current.Agent.OwnAnswers(asker);
-        var provider = _agents.Provider(asker);
-        var step = $"asking {provider.Name} for a note…";
-        var cancellation = new CancellationTokenSource();
-        work.Asking = (cancellation, step);
-        // What the last run left to choose is over: a new session follows the note.
-        work.Decision = null;
-        work.Limit = null;
-        work.Restart = default;
-        if (Shows(work)) _agentPanel!.ShowStep(step, running: true);
-        UpdateAgentPill();
-        AgentStatus(work, $"{provider.Name} writes a note for a new session · Stop is in the Studio");
-        (AgentTask Task, string Note)? next = null;
-        string? error = null;
-        try
-        {
-            next = await _agents.StartOverAsync(run, origin, (model, effort), cancellation.Token);
-        }
-        catch (Exception exception) when (exception is not OperationCanceledException)
-        {
-            error = exception.Message;
-        }
-        finally
-        {
-            work.Asking = null;
-            cancellation.Dispose();
-            ReportState();
-        }
-
-        if (next is not { } fresh)
-        {
-            ShowTask(work);
-            UpdateAgentPill();
-            if (error is not null) SetError(error);
-            else AgentStatus(work, "Start over stopped: the last run stays as it was");
-            return;
-        }
-
-        work.Record.Add(AgentEntryKind.You, "Start over with a note" + (fresh.Note.Length > 0 ? ": " + fresh.Note : string.Empty));
-        await StartAgentAsync(work, fresh.Task, run,
-            fresh.Note.Length > 0 ? "Note from the last attempt:\n" + fresh.Note : "No note came back: the new session starts with the task alone.",
-            phase: EffortPhase.Restart);
-    }
-
-    /// <summary>
-    /// Escalate: the same session goes on with the strongest model and effort of Settings, for a problem the task's model
-    /// did not solve. One cache miss: the model reads the session anew. Auto goes on after it.
-    /// </summary>
-    private void Escalate()
-    {
-        if (_open is not { Busy: false, Waiting: null } work || ResumableTask(work) is not { } resume) return;
-        var (model, effort) = _settings.Current.Agent.Level(resume.Task.Provider, AgentLevel.Deep);
-        work.Record.Add(AgentEntryKind.Model, $"{AgentName(resume.Task.Provider)} · {SetupWords(resume.Task.Provider, model, effort)}, escalated");
-        _ = StartAgentAsync(work, resume.Task with
-        {
-            Model = model,
-            Effort = effort,
-            Prompt = "The work is not done yet. Think it through again from what you know, find the cause and finish the task.",
-            Images = []
-        }, resume.Previous);
     }
 
     /// <summary>The task's last session as a run to continue, and the run it continues; null when there is none.</summary>
@@ -191,13 +106,13 @@ public partial class MainWindow
         record.Add(AgentEntryKind.HandOff,
             $"{AgentName(fromProvider)} → {AgentName(plan.Provider)} · {SetupWords(setup.Provider, setup.Model, setup.Effort)}, a new session{specialist}");
         record.Handovers.Add($"── Handed over to {AgentName(plan.Provider)} ──\n{plan.Goal}");
-        // Start over begins the new agent's brief again.
+        // The new agent's brief is where the task now starts from.
         work.Origin = task;
         await StartAgentAsync(work, task, work.LastRun, phase: EffortPhase.HandOff);
     }
 
     /// <summary>
-    /// The lines added and removed per file by the task's work, where git or Perforce tells them; null otherwise, and
+    /// The lines added and removed per file by the task's work, where git tells them; null otherwise, and
     /// the task's state then lists the files of its record.
     /// </summary>
     private async Task<string?> NumstatAsync(TaskWork work) =>
@@ -259,7 +174,7 @@ public partial class MainWindow
             AutoApprove = plan.AutoApprove,
             AllowedTools = AgentCoordinator.Tools(work.Project, template.Workspace)
         };
-        // Start over begins from the state, not from the session that has grown.
+        // The task goes on from the state, not from the session that has grown.
         await StartCompactedAsync(work, task, null, EffortPhase.Reply);
     }
 

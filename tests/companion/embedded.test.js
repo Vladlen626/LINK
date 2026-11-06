@@ -55,7 +55,7 @@ function fakeWebview(bridge, storage, token) {
 }
 
 check("embedded: the companion works over LINK's page channel, and the page never sees the token", async () => {
-  const page = await openChat({ ui: "shell", mode: "Высокий", tokenMs: 20 });
+  const page = await openChat({ ui: "shell", tokenMs: 20 });
   const bridge = fakeBridge();
   const storage = memoryStorage();
   const webview = fakeWebview(bridge, storage, "check-token");
@@ -82,12 +82,12 @@ check("embedded: the companion works over LINK's page channel, and the page neve
   expect("with its conversation, signed in",
     [announced?.message.conversation?.conversationId, announced?.message.signedIn], [page.conversationId, true]);
 
-  const request = promptRequest(page.conversationId, "Вопрос", { effort: "fast" });
+  const request = promptRequest(page.conversationId, "Вопрос");
   expect("the page takes LINK's request", await webview.ask({ type: "link-request", request }), { accepted: true, version: VERSION });
   const completed = await completedOf(bridge, request);
   expect("the answer comes back over the channel", completed?.text, ANSWER_MARKDOWN);
-  expect("Fast switched the chat's mode", page.chat.mode, "Instant");
-  expect("the mode LINK set is kept in LINK's storage", storage.data.get(`effort:${page.conversationId}`), "fast");
+  expect("where the prompt stood was kept in LINK's storage",
+    webview.posted.some(message => message.op === "set" && Object.keys(message.items).some(key => key.startsWith("request:"))), true);
   await until("where the prompt stood is forgotten once it is answered",
     () => ![...storage.data.keys()].some(key => key.startsWith("request:")));
   expect("every message to LINK carries the token", webview.posted.every(message => message.token === "check-token"), true);

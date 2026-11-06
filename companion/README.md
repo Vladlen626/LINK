@@ -5,7 +5,7 @@ builds `content.js` into itself together with `embedded-host.js`, the companion'
 (`chrome.webview.postMessage`). Every message carries a per-session token that only `embedded-host.js`'s closure
 holds; LINK drops anything else. The script runs in each new top-level `https://chatgpt.com` document before the
 page's own scripts and starts the companion at `DOMContentLoaded`. Its storage lives in LINK: where a prompt stands
-(`request:*`) for the session, the chat modes it set (`effort:*`, `mode:*`) in `%LocalAppData%\Link\companion-state.json`.
+(`request:*`), for the session.
 
 A change here needs a LINK rebuild; the companion's version is LINK's.
 
@@ -76,21 +76,6 @@ LINK's `ChatRequestBroker` follows every request; `ChatPageHost` hands it to the
 - **Long chats are slow on ChatGPT's side.** In a conversation with a long history ChatGPT starts later and types a
   few characters a second even in a normal browser tab; a new chat answers at hundreds. LINK suggests a new chat
   when an answer arrives that slowly.
-
-## Response effort
-
-LINK's Fast / Normal / Deep reaches the page as `effort`. The companion finds the mode picker in and around the
-composer (the header's model picker only when the composer has none) and switches only when the chat is in another
-mode:
-
-- menu items ("Instant / Medium / High", «Мгновенный / Средний / Высокий») in a Radix menu opened with `pointerdown`,
-  or in a native popover (`popovertarget`, closed with `hidePopover()`);
-- the logged-in effort slider ("Мощность", `[data-reasoning-slider]`): arrow keys move it one level at a time, read
-  from its announcement ("Высокий, 3 из 3."); Fast goes to the lightest level.
-
-It then waits until the picker shows the new mode. Normal gives back the mode the chat had before LINK changed it
-(`mode:<conversation>`). Extra High and Pro modes are never picked. If switching fails, the prompt still goes, and
-LINK's status says why.
 
 ## Diagnostics
 

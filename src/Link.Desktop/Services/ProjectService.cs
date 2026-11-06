@@ -115,17 +115,12 @@ public sealed class ProjectService
 
     /// <summary>
     /// The tasks this Link can open. A record a newer Link or a hand wrote, with something this Link does not know, is
-    /// skipped; so is one that ran or routed a step to the removed custom model. A training (a mode since removed) is an
-    /// ordinary task now; its course is not read.
+    /// skipped; so is one that ran on the removed custom model. A training or a team (modes since removed) is an ordinary
+    /// task now; its course or team plan is not read.
     /// </summary>
     public static IReadOnlyList<AgentTaskRecord> Readable(IEnumerable<AgentTaskRecord> tasks)
     {
-        var known = tasks.Where(task => Enum.IsDefined(task.Status) && task.Runs.All(run => Enum.IsDefined(run.Provider)) &&
-            task.Team.All(step => Known(step.Provider) && Known(step.Agent))).ToList();
-        foreach (var task in known.Where(task => !Enum.IsDefined(task.Mode))) task.Mode = TaskMode.Solo;
-        return known;
-
-        static bool Known(AgentProviderKind? provider) => provider is not { } kind || Enum.IsDefined(kind);
+        return [.. tasks.Where(task => Enum.IsDefined(task.Status) && task.Runs.All(run => Enum.IsDefined(run.Provider)))];
     }
 
     /// <summary>Puts a task at the top, in place of its older record, and keeps the last <see cref="TasksKept"/>; returns the list.</summary>
@@ -141,9 +136,6 @@ public sealed class ProjectService
 
     // The tasks of the project read last: one project's, so the memory stays that of the list Link shows.
     private (Guid Project, IReadOnlyList<AgentTaskRecord> Tasks)? _tasks;
-
-    /// <summary>What the project has learned of its workers, in its data folder; recording into it saves.</summary>
-    public WorkerEvidence ReadWorkerEvidence(LinkProject project) => WorkerEvidence.Load(Path.Combine(project.DataFolder, "workers.json"));
 
     private static string AgentTasksFile(LinkProject project) => Path.Combine(project.DataFolder, "agent-tasks.json");
 

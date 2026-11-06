@@ -30,7 +30,6 @@ public partial class AgentPanel
     {
         QuestionCard.Visibility = Visibility.Collapsed;
         DecisionCard.Visibility = Visibility.Collapsed;
-        RestartCard.Visibility = Visibility.Collapsed;
         LimitCard.Visibility = Visibility.Collapsed;
         UpdateReplyHint();
     }
@@ -72,38 +71,22 @@ public partial class AgentPanel
 
     /// <summary>
     /// The agent's plan as it last wrote it, as its own app shows it: ✓ done, ● under way (in the agent's words for it,
-    /// when it gave any), ○ to do; a step by its first sentence, the rest a click away. A team's step also names who does
-    /// it and as which specialist, in the colour of that specialist's jellyfish, found by name among
-    /// <paramref name="roles"/>, and why that worker under its words. Its worker chip opens <paramref name="stepMenu"/>
-    /// for the step, made when it is clicked.
+    /// when it gave any), ○ to do; a step by its first sentence, the rest a click away.
     /// </summary>
-    public void ShowPlan(IReadOnlyList<AgentPlanItem> plan, IReadOnlyList<AgentRole>? roles = null,
-        Func<int, IReadOnlyList<IReadOnlyList<PanelAction>>>? stepMenu = null)
+    public void ShowPlan(IReadOnlyList<AgentPlanItem> plan)
     {
-        _stepMenu = stepMenu;
         var done = (Brush)FindResource("SuccessBrush");
         var muted = (Brush)FindResource("MutedBrush");
         var accent = (Brush)FindResource("AccentBrush");
         var text = (Brush)FindResource("TextBrush");
-        PlanList.ItemsSource = plan.Select((item, index) =>
+        PlanList.ItemsSource = plan.Select(item =>
         {
             var (mark, markBrush, words, brush) = item.Done ? ("✓", done, item.Text, muted)
                 : item.Active ? ("●", accent, item.Doing ?? item.Text, text)
                 : ("○", muted, item.Text, text);
-            var (title, rest) = TeamPlan.Headline(words);
-            var detail = string.Join("\n\n", new[] { rest, item.Why is { Length: > 0 } why ? "Why this worker: " + why : string.Empty }.Where(part => part.Length > 0));
-            // The agent's own plan names neither.
-            var team = !string.IsNullOrEmpty(item.Worker) || !string.IsNullOrEmpty(item.Role);
-            var color = !team ? null
-                : roles?.FirstOrDefault(each => string.Equals(each.Name, item.Role, StringComparison.OrdinalIgnoreCase)) is { } role
-                    ? RoleBrushes.Of(ProjectRoles.ColorOf(role, roles))
-                    : RoleBrushes.Link;
-            // A step opened stays open while the plan is drawn again as the team moves on.
-            return new PlanRow(mark, markBrush, title, brush)
-            {
-                Detail = detail, Worker = item.Worker ?? string.Empty, RoleName = item.Role ?? string.Empty, RoleBrush = color, Index = index,
-                Open = _openSteps.Contains(title)
-            };
+            var (title, rest) = PlanRow.Headline(words);
+            // A step opened stays open while the plan is drawn again as the agent moves on.
+            return new PlanRow(mark, markBrush, title, brush) { Detail = rest, Open = _openSteps.Contains(title) };
         }).ToArray();
         _planDone = plan.Count(item => item.Done);
         _planCount = plan.Count;
@@ -227,24 +210,6 @@ public partial class AgentPanel
 
     public void HideDecision() => DecisionCard.Visibility = Visibility.Collapsed;
 
-    /// <summary>Start over, and Escalate when the task is not already on the strongest model.</summary>
-    public void ShowRestart(bool show, bool escalate = false)
-    {
-        RestartCard.Visibility = show ? Visibility.Visible : Visibility.Collapsed;
-        EscalateButton.Visibility = escalate ? Visibility.Visible : Visibility.Collapsed;
-    }
-
-    /// <summary>Link's own step around a run, such as asking for a note; while it runs, Stop shows and the choices hide.</summary>
-    public void ShowStep(string step, bool running)
-    {
-        StatusText.Text = step;
-        SetRunning(running);
-        if (!running) return;
-        ResetCards();
-        // Link's own step, such as asking for a note, takes no words for the agent.
-        ShowReply(false);
-    }
-
     private void Answer(string words)
     {
         QuestionCard.Visibility = Visibility.Collapsed;
@@ -269,13 +234,6 @@ public partial class AgentPanel
         _planOpen = !_planOpen;
         PlanList.Visibility = _planOpen ? Visibility.Visible : Visibility.Collapsed;
         ShowPlanLabel();
-    }
-
-    // The chip sits in the row's button: its click is the menu's alone, not the row's opening too.
-    private void PlanWorker_OnClick(object sender, RoutedEventArgs e)
-    {
-        e.Handled = true;
-        if (sender is Button { DataContext: PlanRow row } chip && _stepMenu is { } menu) ShowMenu(chip, menu(row.Index), PlacementMode.Bottom);
     }
 
     private void PlanRow_OnClick(object sender, RoutedEventArgs e)
@@ -315,9 +273,6 @@ public partial class AgentPanel
     private void Decision_OnClick(object sender, RoutedEventArgs e) => DecisionTaken?.Invoke(AlwaysBox.IsChecked == true);
 
     private void Deny_OnClick(object sender, RoutedEventArgs e) => DecisionRefused?.Invoke();
-    private void Restart_OnClick(object sender, RoutedEventArgs e) => RestartRequested?.Invoke();
-    private void Escalate_OnClick(object sender, RoutedEventArgs e) => EscalateRequested?.Invoke();
-    private void RestartNotNow_OnClick(object sender, RoutedEventArgs e) => ShowRestart(false);
 
     /// <summary>
     /// A page the agent opened opens in the browser, served again first by the skill's own command (a review window's

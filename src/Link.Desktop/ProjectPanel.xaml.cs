@@ -64,7 +64,7 @@ public partial class ProjectPanel : UserControl
         MapButton.Content = map is { Exists: true } ? "Update map" : "Write map";
         VcsText.Text = _workspace is null ? string.Empty
             : AgentChanges.IsGit(_workspace) ? "Git: undo puts back what an agent changed"
-            : AgentChanges.IsPerforce(_workspace) ? "Perforce: agents open files with p4 edit, and each task's files wait in its own pending changelist in P4V"
+            : AgentChanges.IsPerforce(_workspace) ? "Perforce: agents open files with p4 edit; Link lists what they changed but cannot undo it"
             : "No version control: Link lists what an agent changed but cannot undo it";
         var skills = ProjectSkills.In(_workspace);
         SkillsList.ItemsSource = skills;

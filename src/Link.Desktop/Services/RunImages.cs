@@ -25,7 +25,32 @@ public static partial class RunImages
     /// </summary>
     public static IReadOnlyList<string> Of(IEnumerable<string> named, IEnumerable<string> seen, string workspace, DateTimeOffset since,
         Func<string, DateTimeOffset?> written) =>
-        [.. ArtCritic.Frames([.. named, .. seen.Reverse()], workspace, path => written(path) >= since - Slack).Take(MostShown)];
+        [.. Frames([.. named, .. seen.Reverse()], workspace, path => written(path) >= since - Slack).Take(MostShown)];
+
+    /// <summary>The paths of the images an answer names, in backticks (where a path may hold spaces) or bare, in the order named.</summary>
+    public static IReadOnlyList<string> Named(string answer) =>
+        [.. ImagePath().Matches(answer).Select(match => (match.Groups[1].Success ? match.Groups[1] : match.Groups[2]).Value.Trim())];
+
+    /// <summary>
+    /// The frames among <paramref name="named"/> that are images and exist (<paramref name="exists"/>): full paths, a
+    /// relative one from the workspace, each once, in their order. A path that cannot be a file's is none.
+    /// </summary>
+    public static IReadOnlyList<string> Frames(IEnumerable<string> named, string workspace, Func<string, bool> exists)
+    {
+        var frames = new List<string>();
+        foreach (var path in named)
+        {
+            if (Full(path, workspace) is { } full && FrameTypes.Contains(Path.GetExtension(full), StringComparer.OrdinalIgnoreCase) &&
+                !frames.Contains(full, StringComparer.OrdinalIgnoreCase) && exists(full))
+            {
+                frames.Add(full);
+            }
+        }
+
+        return frames;
+    }
+
+    private static readonly string[] FrameTypes = [".png", ".jpg", ".jpeg"];
 
     /// <summary>
     /// A path in full: a relative one from the workspace, one an agent wrote as its shell does (<c>%TEMP%\…</c>,
@@ -69,4 +94,8 @@ public static partial class RunImages
 
     [GeneratedRegex("^/[A-Za-z]/")]
     private static partial Regex GitBashDrive();
+
+    // An image's path in backticks, which may hold spaces, or bare up to a space, a quote or a bracket.
+    [GeneratedRegex(@"`([^`\r\n]+?\.(?:png|jpe?g))`|([^\s`'""<>|*?()\[\]]+\.(?:png|jpe?g))(?!\w)", RegexOptions.IgnoreCase)]
+    private static partial Regex ImagePath();
 }

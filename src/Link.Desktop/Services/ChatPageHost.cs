@@ -25,7 +25,6 @@ internal sealed partial class ChatPageHost : IDisposable
     private const string SignInRequired = "ChatGPT is not signed in. Press Open chat, sign in there, then send again.";
     private readonly object _gate = new();
     private readonly ChatRequestBroker _broker;
-    private readonly string _stateFile;
     private readonly PageTimings _timings;
     private readonly byte[] _token;
     private readonly Timer _timer;
@@ -38,26 +37,17 @@ internal sealed partial class ChatPageHost : IDisposable
     private long _usedAt = Stopwatch.GetTimestamp();
     private string? _loadError;
     private TaskCompletionSource _heard = NewSignal();
-    private Task _saving = Task.CompletedTask;
     private long _nextMessageId;
     private bool _disposed;
 
     /// <param name="broker">Follows the requests the page works on.</param>
-    /// <param name="stateFile">Keeps the chat modes the companion set, across restarts.</param>
     /// <param name="timings">How often the page is looked after.</param>
     /// <param name="token">The session's secret that the page's messages carry.</param>
-    public ChatPageHost(ChatRequestBroker broker, string stateFile, PageTimings timings, string token)
+    public ChatPageHost(ChatRequestBroker broker, PageTimings timings, string token)
     {
         _broker = broker;
-        _stateFile = stateFile;
         _timings = timings;
         _token = Encoding.UTF8.GetBytes(token);
-        var saved = AtomicJsonFile.Read<Dictionary<string, JsonElement>>(stateFile, _json);
-        foreach (var (key, value) in saved ?? [])
-        {
-            if (IsKeptKey(key)) _storage[key] = value;
-        }
-
         _timer = new Timer(_ => OnTimer(), null, timings.Rest, Timeout.InfiniteTimeSpan);
         _broker.RequestQueued += OnRequestQueued;
     }
@@ -338,7 +328,7 @@ internal sealed partial class ChatPageHost : IDisposable
     private object Report(ChatPageEvent pageEvent) =>
         _broker.Report(pageEvent, out var reason) ? new { ok = true } : new { ok = false, status = 404, reason };
 
-    /// <summary>The companion's storage: where a prompt stands (kept for this session) and the chat modes it set (kept).</summary>
+    /// <summary>The companion's storage, for this session: where a prompt stands, so a reloaded page goes on with it.</summary>
     private object? Store(JsonElement root)
     {
         switch (TextOf(root, "op"))
@@ -355,7 +345,6 @@ internal sealed partial class ChatPageHost : IDisposable
             case "set":
                 var items = root.GetProperty("items");
                 if (items.ValueKind != JsonValueKind.Object) return null;
-                var keep = false;
                 lock (_gate)
                 {
                     foreach (var item in items.EnumerateObject())
@@ -363,52 +352,19 @@ internal sealed partial class ChatPageHost : IDisposable
                         if (!IsStorageKey(item.Name) || item.Value.GetRawText().Length > MaxStoredValueLength) continue;
                         if (!_storage.ContainsKey(item.Name) && _storage.Count >= MaxStoredEntries) continue;
                         _storage[item.Name] = item.Value.Clone();
-                        keep |= IsKeptKey(item.Name);
                     }
                 }
 
-                if (keep) Save();
                 return null;
             case "remove":
-                var removed = false;
                 lock (_gate)
                 {
-                    foreach (var key in KeysOf(root.GetProperty("keys")) ?? [])
-                    {
-                        removed |= _storage.Remove(key) && IsKeptKey(key);
-                    }
+                    foreach (var key in KeysOf(root.GetProperty("keys")) ?? []) _storage.Remove(key);
                 }
 
-                if (removed) Save();
                 return null;
             default:
                 return null;
-        }
-    }
-
-    private void Save()
-    {
-        lock (_gate)
-        {
-            var kept = _storage.Where(pair => IsKeptKey(pair.Key)).ToDictionary();
-            // Written off the page's thread, one after another, so the file ends with the latest modes.
-            _saving = _saving.ContinueWith(_ => Write(kept), TaskScheduler.Default);
-        }
-    }
-
-    private void Write(Dictionary<string, JsonElement> kept)
-    {
-        try
-        {
-            AtomicJsonFile.Write(_stateFile, kept, _json);
-        }
-        catch (IOException)
-        {
-            // The modes are only a convenience: the companion checks the chat's mode anyway.
-        }
-        catch (UnauthorizedAccessException)
-        {
-            // The modes are only a convenience: the companion checks the chat's mode anyway.
         }
     }
 
@@ -564,15 +520,11 @@ internal sealed partial class ChatPageHost : IDisposable
 
     private static bool IsStorageKey(string key) => StorageKeyPattern().IsMatch(key);
 
-    /// <summary>The chat modes the companion set are kept across restarts; where a prompt stands only for the session.</summary>
-    private static bool IsKeptKey(string key) =>
-        IsStorageKey(key) && (key.StartsWith("effort:", StringComparison.Ordinal) || key.StartsWith("mode:", StringComparison.Ordinal));
-
     private static TimeSpan Since(long timestamp) => timestamp == 0 ? TimeSpan.MaxValue : Stopwatch.GetElapsedTime(timestamp);
 
     private static TaskCompletionSource NewSignal() => new(TaskCreationOptions.RunContinuationsAsynchronously);
 
-    [GeneratedRegex("^(request|effort|mode):[A-Za-z0-9_-]{1,128}$")]
+    [GeneratedRegex("^request:[A-Za-z0-9_-]{1,128}$")]
     private static partial Regex StorageKeyPattern();
 
     /// <summary>What the page's companion last said, and when.</summary>

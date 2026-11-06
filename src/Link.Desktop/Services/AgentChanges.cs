@@ -4,14 +4,11 @@ namespace Link.Desktop.Services;
 public sealed record AgentChange(string Path, string Kind, bool Undoable);
 
 /// <summary>
-/// What a workspace looked like before a task: in git or Perforce, its pending files with a fingerprint each;
-/// without version control, every file with its fingerprint.
+/// What a workspace looked like before a task: in git, its pending files with a fingerprint each; without it, every
+/// file with its fingerprint.
 /// </summary>
-public sealed record WorkspaceBefore(string Workspace, bool IsGit, IReadOnlyDictionary<string, string> Dirty,
-    DateTime StartedUtc, bool IsPerforce = false)
+public sealed record WorkspaceBefore(string Workspace, bool IsGit, IReadOnlyDictionary<string, string> Dirty, DateTime StartedUtc)
 {
-    public bool IsVersioned => IsGit || IsPerforce;
-
     /// <summary>In git: the commit a diff of the run is taken from, so that it shows the run's own work; null: HEAD.</summary>
     public string? Snapshot { get; init; }
 
@@ -20,11 +17,11 @@ public sealed record WorkspaceBefore(string Workspace, bool IsGit, IReadOnlyDict
 }
 
 /// <summary>
-/// Finds what an agent changed and puts it back. In git or Perforce: status before and after, and undo only files that
-/// were clean before. Without version control: the files' sizes and times tell what changed, and nothing is undone.
+/// Finds what an agent changed and puts it back. In git: status before and after, and undo only files that were clean
+/// before. Without git: the files' sizes and times tell what changed, and nothing is undone.
 /// Nothing is undone without the user's yes, asked by the caller.
 /// </summary>
-public sealed partial class AgentChanges
+public sealed class AgentChanges
 {
     // Pending files are copied into the repository for a diff of the run only up to these (see SnapshotAsync): an asset
     // would take disk, and so many paths would not fit in a command line.
@@ -50,20 +47,11 @@ public sealed partial class AgentChanges
             return new WorkspaceBefore(workspace, true, dirty, started) { Snapshot = await SnapshotAsync(workspace, status, cancellationToken) };
         }
 
-        if (IsPerforce(workspace))
-        {
-            var perforce = await P4StatusAsync(workspace, cancellationToken)
-                           ?? throw new IOException("Perforce is configured but unavailable. Sign in with P4V or run p4 login.");
-            var dirty = perforce.ToDictionary(entry => entry.Path, entry => Fingerprint(entry.Path), StringComparer.OrdinalIgnoreCase);
-            return new WorkspaceBefore(workspace, false, dirty, started, IsPerforce: true);
-        }
-
         return new WorkspaceBefore(workspace, false, await Task.Run(() => Prints(workspace), cancellationToken), started);
     }
 
     /// <summary>
-    /// The files changed since <paramref name="before"/>. Without version control: by size and time, and none can be
-    /// undone.
+    /// The files changed since <paramref name="before"/>. Without git: by size and time, and none can be undone.
     /// </summary>
     public async Task<IReadOnlyList<AgentChange>> CompareAsync(WorkspaceBefore before, CancellationToken cancellationToken)
     {
@@ -73,29 +61,12 @@ public sealed partial class AgentChanges
             return ChangedSince(before, after);
         }
 
-        if (before.IsPerforce)
-        {
-            var after = await P4StatusAsync(before.Workspace, cancellationToken)
-                        ?? throw new IOException("Perforce became unavailable. Sign in with P4V or run p4 login.");
-            return ChangedSince(before, after);
-        }
-
         return await Task.Run(() => CompareWithPrints(before), cancellationToken);
     }
 
     /// <summary>Puts back the undoable changes: a new file is deleted, a changed or deleted one comes back from HEAD.</summary>
     public async Task UndoAsync(WorkspaceBefore before, IEnumerable<AgentChange> changes, CancellationToken cancellationToken)
     {
-        if (before.IsPerforce)
-        {
-            foreach (var change in changes.Where(change => change.Undoable))
-            {
-                await P4UndoAsync(before.Workspace, change, cancellationToken);
-            }
-
-            return;
-        }
-
         foreach (var change in changes.Where(change => change.Undoable))
         {
             if (change.Kind == "??")
@@ -235,7 +206,6 @@ public sealed partial class AgentChanges
     public async Task<string?> DiffAsync(WorkspaceBefore before, IEnumerable<AgentChange> changes, bool stat, int limit,
         CancellationToken cancellationToken)
     {
-        if (before.IsPerforce) return await P4DiffAsync(before, changes, stat, limit, cancellationToken);
         if (!before.IsGit) return null;
         var paths = changes.Select(change => Path.GetRelativePath(before.Workspace, change.Path)).ToArray();
         if (paths.Length == 0) return null;
@@ -265,214 +235,6 @@ public sealed partial class AgentChanges
             .Select(entry => new AgentChange(entry.Path, entry.Code, !before.Dirty.ContainsKey(entry.Path)))
             .ToArray();
 
-    private static async Task<IReadOnlyList<(string Path, string Code)>?> P4StatusAsync(string workspace,
-        CancellationToken cancellationToken)
-    {
-        var info = await P4Async(workspace, ["-ztag", "info"], cancellationToken);
-        if (info is not { ExitCode: 0 } || !info.Output.Contains("... clientName ", StringComparison.Ordinal) ||
-            info.Output.Contains("... clientName *unknown*", StringComparison.Ordinal)) return null;
-
-        // fstat names opened files by their local path (opened would give the client's syntax); reconcile previews
-        // what changed without being opened, judged by the files' times first (-m): a full digest pass takes seconds.
-        var opened = await P4Async(workspace, ["-ztag", "fstat", "-Ro", "-T", "clientFile,action", "..."], cancellationToken);
-        var reconcile = await P4Async(workspace, ["-ztag", "reconcile", "-n", "-e", "-a", "-d", "-m", "..."], cancellationToken);
-        // p4 info answers without a ticket; with an expired one the rest fail, and their empty output would read as
-        // "nothing changed".
-        if (SignedOut(opened?.Error ?? string.Empty) || SignedOut(reconcile?.Error ?? string.Empty)) return null;
-        return ParseP4Status(opened?.Output ?? string.Empty, reconcile?.Output ?? string.Empty);
-    }
-
-    /// <summary>Whether p4 refused for want of a valid ticket ("Your session has expired, please login again").</summary>
-    internal static bool SignedOut(string error) =>
-        error.Contains("please login", StringComparison.OrdinalIgnoreCase) || error.Contains("P4PASSWD", StringComparison.Ordinal);
-
-    /// <summary>
-    /// In Perforce: the files the agent changed, those that were clean before the task, go into the task's pending
-    /// changelist, so P4V shows the task's work together and the user submits it there. A file the agent changed
-    /// without opening it is opened there too. The changelist is made the first time with
-    /// <paramref name="description"/>, and an existing one takes a description the agent gave anew
-    /// (<paramref name="described"/>). Returns the changelist; null when Perforce made none.
-    /// </summary>
-    public async Task<int?> KeepInChangelistAsync(WorkspaceBefore before, IEnumerable<AgentChange> changes, string description,
-        bool described, int? changelist, CancellationToken cancellationToken)
-    {
-        var files = changes.Where(change => change.Undoable).Select(change => P4File(change.Path)).ToArray();
-        if (!before.IsPerforce || files.Length == 0) return changelist;
-        if (changelist is { } existing && described) await DescribeChangelistAsync(before.Workspace, existing, description, cancellationToken);
-        var number = changelist ?? await NewChangelistAsync(before.Workspace, description, cancellationToken);
-        if (number is not { } change) return null;
-        var target = change.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        var opened = await P4Async(before.Workspace, ["-ztag", "fstat", "-Ro", "-T", "clientFile", .. files], cancellationToken);
-        var open = ParseP4Paths(opened?.Output ?? string.Empty);
-        var reopen = files.Where(file => open.Contains(Path.GetFullPath(P4Path(file)))).ToArray();
-        var reconcile = files.Except(reopen).ToArray();
-        if (reopen.Length > 0) await P4Async(before.Workspace, ["reopen", "-c", target, .. reopen], cancellationToken);
-        if (reconcile.Length > 0) await P4Async(before.Workspace, ["reconcile", "-c", target, "-e", "-a", "-d", .. reconcile], cancellationToken);
-        return change;
-    }
-
-    /// <summary>A task's changelist with no files left, after an undo, is deleted; one that still holds files stays.</summary>
-    public static async Task DropChangelistIfEmptyAsync(string workspace, int changelist, CancellationToken cancellationToken)
-    {
-        // Perforce refuses to delete a changelist that holds files, which is what is wanted here.
-        await P4Async(workspace, ["change", "-d", changelist.ToString(System.Globalization.CultureInfo.InvariantCulture)], cancellationToken);
-    }
-
-    /// <summary>
-    /// The description of the task's changelist as the agent ends its answer: a last line <c>Changelist: …</c> in
-    /// English, as its Perforce rules ask; the answer without that line, and the description, null when there is none.
-    /// </summary>
-    public static (string Text, string? Description) SplitChangelistLine(string answer)
-    {
-        var match = ChangelistLine().Matches(answer).LastOrDefault();
-        if (match is null) return (answer, null);
-        var description = match.Groups[1].Value.Replace("`", string.Empty, StringComparison.Ordinal).Trim();
-        if (description.Length > ChangelistDescriptionLimit) description = description[..ChangelistDescriptionLimit];
-        var text = (answer[..match.Index] + answer[(match.Index + match.Length)..]).Trim();
-        return (text, description.Length > 0 ? description : null);
-    }
-
-    // P4V shows the first line; a description longer than a sentence or two was not meant for it.
-    private const int ChangelistDescriptionLimit = 300;
-
-    /// <summary>A pending changelist takes a new description; its files stay.</summary>
-    private static async Task DescribeChangelistAsync(string workspace, int changelist, string description, CancellationToken cancellationToken)
-    {
-        var number = changelist.ToString(System.Globalization.CultureInfo.InvariantCulture);
-        var form = await P4Async(workspace, ["--field", $"Description={description}", "change", "-o", number], cancellationToken);
-        if (form is { ExitCode: 0 }) await P4Async(workspace, ["change", "-i"], cancellationToken, form.Output);
-    }
-
-    private static async Task<int?> NewChangelistAsync(string workspace, string description, CancellationToken cancellationToken)
-    {
-        // A new change's form lists the default changelist's files: emptied, the user's own files stay where they are.
-        var form = await P4Async(workspace, ["--field", $"Description={description}", "--field", "Files=", "change", "-o"], cancellationToken);
-        if (form is not { ExitCode: 0 }) return null;
-        var created = await P4Async(workspace, ["change", "-i"], cancellationToken, form.Output);
-        return created is { ExitCode: 0 } && ChangeCreated().Match(created.Output) is { Success: true } match
-            ? int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture)
-            : null;
-    }
-
-    private static HashSet<string> ParseP4Paths(string output) => output.Split('\n')
-        .Select(line => line.TrimEnd('\r'))
-        .Where(line => line.StartsWith("... clientFile ", StringComparison.Ordinal))
-        .Select(line => Path.GetFullPath(line[15..]))
-        .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-    // P4File's escapes, undone: the path as the disk names it.
-    private static string P4Path(string file) => file
-        .Replace("%2A", "*", StringComparison.Ordinal)
-        .Replace("%40", "@", StringComparison.Ordinal)
-        .Replace("%23", "#", StringComparison.Ordinal)
-        .Replace("%25", "%", StringComparison.Ordinal);
-
-    [System.Text.RegularExpressions.GeneratedRegex(@"Change (\d+) created")]
-    private static partial System.Text.RegularExpressions.Regex ChangeCreated();
-
-    // "Changelist: Nori lands into the run blend", maybe in bold or a list item, alone on its line.
-    [System.Text.RegularExpressions.GeneratedRegex(@"^[ \t>*_-]*Changelist[*_]*:[*_]*[ \t]*(.+?)[ \t*_]*\r?$",
-        System.Text.RegularExpressions.RegexOptions.Multiline | System.Text.RegularExpressions.RegexOptions.IgnoreCase)]
-    private static partial System.Text.RegularExpressions.Regex ChangelistLine();
-
-    internal static IReadOnlyList<(string Path, string Code)> ParseP4Status(params string[] outputs)
-    {
-        var entries = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
-        foreach (var output in outputs)
-        {
-            string? path = null;
-            string? action = null;
-            void Add()
-            {
-                if (path is not null && action is not null) entries[Path.GetFullPath(path)] = P4Code(action);
-                path = null;
-                action = null;
-            }
-
-            foreach (var raw in output.Split('\n'))
-            {
-                var line = raw.TrimEnd('\r');
-                if (line.StartsWith("... clientFile ", StringComparison.Ordinal))
-                {
-                    Add();
-                    path = line[15..];
-                }
-                else if (line.StartsWith("... action ", StringComparison.Ordinal))
-                {
-                    action = line[11..];
-                }
-                else if (line.Length == 0)
-                {
-                    Add();
-                }
-            }
-
-            Add();
-        }
-
-        return entries.Select(entry => (entry.Key, entry.Value)).ToArray();
-    }
-
-    private static string P4Code(string action) => action switch
-    {
-        "add" or "move/add" or "branch" => "??",
-        "delete" or "move/delete" => "D",
-        _ => "M"
-    };
-
-    private static async Task P4UndoAsync(string workspace, AgentChange change, CancellationToken cancellationToken)
-    {
-        var file = P4File(change.Path);
-        var revert = await P4Async(workspace, ["revert", file], cancellationToken)
-                     ?? throw new IOException("Could not start p4 revert.");
-        if (revert.ExitCode != 0 && !revert.Output.Contains("not opened", StringComparison.OrdinalIgnoreCase) &&
-            !revert.Error.Contains("not opened", StringComparison.OrdinalIgnoreCase))
-        {
-            throw new IOException(ShortError("p4 revert", revert));
-        }
-
-        if (change.Kind == "??")
-        {
-            if (File.Exists(change.Path)) File.Delete(change.Path);
-            return;
-        }
-
-        var sync = await P4Async(workspace, ["sync", "-f", file + "#have"], cancellationToken);
-        if (sync is not { ExitCode: 0 }) throw new IOException(ShortError("p4 sync", sync));
-    }
-
-    private static async Task<string?> P4DiffAsync(WorkspaceBefore before, IEnumerable<AgentChange> changes, bool stat,
-        int limit, CancellationToken cancellationToken)
-    {
-        var files = changes.ToArray();
-        if (files.Length == 0) return null;
-        if (stat)
-        {
-            return string.Join('\n', files.Select(change =>
-                $"{change.Kind}\t{Path.GetRelativePath(before.Workspace, change.Path)}"));
-        }
-
-        var text = new System.Text.StringBuilder();
-        foreach (var change in files)
-        {
-            var relative = Path.GetRelativePath(before.Workspace, change.Path);
-            if (change.Kind == "??")
-            {
-                text.Append("?? ").AppendLine(relative);
-                continue;
-            }
-
-            var diff = await P4Async(before.Workspace, ["diff", "-du", "-f", P4File(change.Path)], cancellationToken);
-            if (!string.IsNullOrWhiteSpace(diff?.Output)) text.AppendLine(diff.Output.TrimEnd());
-            else text.Append(change.Kind).Append(' ').Append(relative).AppendLine(" (binary or metadata change)");
-            if (text.Length > limit) break;
-        }
-
-        var result = text.ToString().Trim();
-        if (result.Length == 0) return null;
-        return result.Length <= limit ? result : result[..limit] + $"\n… cut at {limit / 1000} KB of {result.Length / 1000} KB";
-    }
-
     /// <summary>Whether the folder is in a git repository: a .git in it or above.</summary>
     public static bool IsGit(string folder)
     {
@@ -500,7 +262,10 @@ public sealed partial class AgentChanges
         }
     }
 
-    /// <summary>Whether the folder is in a Perforce workspace: a .p4config in it or above, as P4V and p4 find it.</summary>
+    /// <summary>
+    /// Whether the folder is in a Perforce workspace: a .p4config in it or above, as P4V and p4 find it. The agent is
+    /// told how to open files there; Link lists its changes as in a folder without git.
+    /// </summary>
     public static bool IsPerforce(string folder)
     {
         for (var directory = new DirectoryInfo(folder); directory is not null; directory = directory.Parent)
@@ -509,48 +274,6 @@ public sealed partial class AgentChanges
         }
 
         return false;
-    }
-
-    private static string P4File(string path) => path
-        .Replace("%", "%25", StringComparison.Ordinal)
-        .Replace("#", "%23", StringComparison.Ordinal)
-        .Replace("@", "%40", StringComparison.Ordinal)
-        .Replace("*", "%2A", StringComparison.Ordinal);
-
-    private static string P4Executable()
-    {
-        var installed = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles), "Perforce", "p4.exe");
-        return File.Exists(installed) ? installed : "p4";
-    }
-
-    private sealed record CommandOutput(int ExitCode, string Output, string Error);
-
-    private static async Task<CommandOutput?> P4Async(string workspace, IReadOnlyList<string> arguments,
-        CancellationToken cancellationToken, string input = "")
-    {
-        var output = new System.Text.StringBuilder();
-        var errors = new System.Text.StringBuilder();
-        try
-        {
-            var command = new AgentCommand(P4Executable(), arguments, workspace, input)
-            {
-                EnvironmentVariables = new Dictionary<string, string> { ["P4CONFIG"] = ".p4config" }
-            };
-            var result = await AgentProcess.RunAsync(command, line => output.AppendLine(line), line => errors.AppendLine(line),
-                cancellationToken);
-            return new CommandOutput(result.ExitCode, output.ToString(), errors.ToString());
-        }
-        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
-        {
-            return null;
-        }
-    }
-
-    private static string ShortError(string operation, CommandOutput? result)
-    {
-        if (result is null) return $"Could not start {operation}.";
-        var text = (result.Error + result.Output).Trim();
-        return text.Length == 0 ? $"{operation} failed with exit code {result.ExitCode}." : text.Split('\n')[^1].Trim();
     }
 
     /// <summary>Runs git in the workspace; its output, or null when git is missing or the command failed.</summary>

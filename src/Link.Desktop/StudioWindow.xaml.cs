@@ -38,7 +38,6 @@ public partial class StudioWindow : Window
         ChatHost.Child = chats;
         ProjectHost.Child = project;
         Inspector.OpenFileRequested += path => OpenFileRequested?.Invoke(path);
-        Inspector.ConsoleRequested += () => ConsoleRequested?.Invoke();
         Inspector.TeamPackExportRequested += () => TeamPackExportRequested?.Invoke();
         Inspector.TeamPackImportRequested += () => TeamPackImportRequested?.Invoke();
         Spend.Start(settings.SpendDays, settings.SpendAllProjects);
@@ -90,9 +89,6 @@ public partial class StudioWindow : Window
 
     /// <summary>A file of the harness is to be shown in Explorer.</summary>
     public event Action<string>? OpenFileRequested;
-
-    /// <summary>The Console is to be opened.</summary>
-    public event Action? ConsoleRequested;
 
     /// <summary>The inspector's Export team pack…</summary>
     public event Action? TeamPackExportRequested;

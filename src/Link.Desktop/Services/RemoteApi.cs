@@ -17,8 +17,6 @@ public interface IRemoteHost
 
     Task<IReadOnlyList<RemoteProject>> ProjectsAsync();
 
-    /// <summary>Whether Settings offer the team (the old way); off, a task is one agent that plans and delegates.</summary>
-    Task<bool> TeamsOfferedAsync();
 
     Task<IReadOnlyList<RemoteTask>> TasksAsync();
     Task<RemoteTaskView?> TaskAsync(Guid id);
@@ -102,8 +100,8 @@ public sealed record RemoteDecision(string Text, string Button, bool CanRemember
 
 /// <summary>
 /// A new task: its project (null: the active one), its words, and the card's two boxes; the bot may also choose the agent
-/// and its level (null: as Settings say), give pictures the user sent, and hand it to the team.
+/// and its level (null: as Settings say) and give pictures the user sent.
 /// </summary>
 public sealed record RemoteNewTask(
     Guid? ProjectId, string Goal, bool PlanFirst, bool NoStop, AgentProviderKind? Provider = null, AgentLevel? Level = null,
-    IReadOnlyList<string>? Attached = null, bool Team = false);
+    IReadOnlyList<string>? Attached = null);

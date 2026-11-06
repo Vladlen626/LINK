@@ -108,7 +108,6 @@ public partial class MainWindow
     /// <summary>The current chat's summary of itself, or null when it could not be written (the reason is shown).</summary>
     private async Task<string?> WriteSummaryAsync(LinkProject project)
     {
-        StopHandsFree();
         var cancellation = new CancellationTokenSource();
         _sendCancellation = cancellation;
         _chatNotice = null;
@@ -126,12 +125,8 @@ public partial class MainWindow
                 ProjectName = project.Name,
                 Text = SummaryPrompt
             };
-            // Fast: a summary needs no long thinking, and a long chat writes slowly as it is.
             var response = await _attempts.SendAsync(
                 snapshot,
-                RequestRoute.Chat,
-                ResponseEffort.Fast,
-                spoken: false,
                 new RequestLatency(),
                 OnChatProgress,
                 cancellation.Token);

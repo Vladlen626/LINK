@@ -69,16 +69,6 @@ public partial class AgentPanel
         UpdateComposer();
     }
 
-    /// <summary>Whether the next words re-plan the team's steps left with its lead: its chip calls that off.</summary>
-    public void ShowReplan(bool replanning)
-    {
-        _replanning = replanning;
-        ReplanButton.Visibility = replanning ? Visibility.Visible : Visibility.Collapsed;
-        UpdateReplyHint();
-        UpdateComposer();
-        if (replanning) ReplyBox.Focus();
-    }
-
     /// <summary>Who the words in the box go to, and what happens to them.</summary>
     public void SetReplyTarget(string agentName)
     {
@@ -93,8 +83,6 @@ public partial class AgentPanel
             ? $"Steer {_replyTarget} now: Enter stops the step and goes on with your words · Tab: after this step"
             : answering
                 ? $"Answer {_replyTarget} in your own words"
-                : _replanning
-                ? "Tell the team's lead what to change: the steps done stay, it plans the rest anew"
                 : _planning
                     ? $"Reply to {_replyTarget}: the session stays in plan mode, reading and planning only"
                     : $"Reply to {_replyTarget}: the same session goes on with your words";
@@ -115,7 +103,6 @@ public partial class AgentPanel
     private void UpdateComposer()
     {
         var chips = NoStopLiveBox.Visibility == Visibility.Visible || !_running && (PlanModeButton.Visibility == Visibility.Visible
-            || ReplanButton.Visibility == Visibility.Visible
             || HandOffButton.Visibility == Visibility.Visible || FinishButton.Visibility == Visibility.Visible);
         ReplyEditor.Visibility = _replyShown ? Visibility.Visible : Visibility.Collapsed;
         ContinueButton.Visibility = _replyShown ? Visibility.Visible : Visibility.Collapsed;
@@ -291,6 +278,4 @@ public partial class AgentPanel
     private void Finish_OnClick(object sender, RoutedEventArgs e) => FinishRequested?.Invoke();
 
     private void PlanMode_OnClick(object sender, RoutedEventArgs e) => PlanModeOffRequested?.Invoke();
-
-    private void Replan_OnClick(object sender, RoutedEventArgs e) => ReplanOffRequested?.Invoke();
 }

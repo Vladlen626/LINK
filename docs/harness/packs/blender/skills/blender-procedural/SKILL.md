@@ -42,7 +42,7 @@ format is in `gen.py`'s header). The contract matters, not how the geometry is m
    `gen.py <generator> 1-12 <preset> "views=game,thumb;cam=<camera of STYLE.md>;palette=docs/art/STYLE.md"`. Put
    the gamecam frames of approved assets of the class (`Art/Approved/`) into the sheet command too: the lineup shows
    whether the new ones belong.
-3. Pick the seeds that belong by the lineup, not each alone (a critic judges your picks), then build each:
+3. Pick the seeds that belong by the lineup, not each alone, then build each:
    `gen.py <generator> <seed> <preset> "out=<asset>.gen.json;palette=docs/art/STYLE.md;atlas=<engine folder>/<atlas>.png"`,
    and export it as `blender-model` says.
 4. Settings that proved good become a preset in `PRESETS`. An approved asset keeps its record (`.gen.json`: generator,

@@ -51,7 +51,6 @@ public partial class MainWindow
         };
         studio.SpendHistoryChanged += () => studio.ShowSpendHistory(SpendDays(studio));
         studio.OpenFileRequested += ShowFile;
-        studio.ConsoleRequested += ShowAgentConsole;
         studio.TeamPackExportRequested += ExportTeamPack;
         studio.TeamPackImportRequested += ImportTeamPack;
         // Back from editing a rules, role or skill file: the inspector reads it again.

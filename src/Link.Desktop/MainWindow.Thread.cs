@@ -45,7 +45,6 @@ public partial class MainWindow
             panel.ShowQuestion(work.Question);
             // A task that waits for its agent's limit to reset keeps the card, with the box that ends the wait.
             if (work.Limit is null && record.ContinueAt is { } continueAt && record.LastRun is { } stopped) ShowLimitReached(work, stopped.Provider, continueAt.AddMinutes(-1));
-            panel.ShowRestart(work.Restart.Show, work.Restart.Escalate);
         }
         else
         {
@@ -60,10 +59,8 @@ public partial class MainWindow
         panel.ShowMenus(work.Busy || waiting is not null ? [] : HandOffActions(work), MoreActions(work));
         panel.ShowFinish(true);
         panel.ShowNoStop(NoStopToggle(work));
-        panel.ShowPlanMode(!work.Busy && waiting is null && work.LastRun is { Task.PlanOnly: true } && !work.Replanning);
-        panel.ShowReplan(!work.Busy && waiting is null && work.Replanning);
-        if (work.Asking is { } asking) panel.ShowStep(asking.Step, running: true);
-        else if (live is not null) panel.ShowReply(true);
+        panel.ShowPlanMode(!work.Busy && waiting is null && work.LastRun is { Task.PlanOnly: true });
+        if (live is not null) panel.ShowReply(true);
         else if (waiting is not null) panel.ShowReply(false, $"This task waits: {waiting.Why}. Its run starts by itself once that one ends; Stop calls it off.");
         else if (TakesWords(work)) panel.ShowReply(true);
         else panel.ShowReply(false, "This task has no session to go on with: hand it to an agent, or start it anew from its card.");
@@ -128,7 +125,7 @@ public partial class MainWindow
         if (run is null) return turn;
         // A run an earlier Link kept has its rows untidied.
         turn.AddSteps(run.Steps.Select(step => StepRow(StepGroups.Tidy(step, record.Workspace))));
-        var (said, pages, next) = RunSaid(record, run);
+        var (said, pages, next) = RunSaid(run);
         turn.Said = said;
         turn.Pages = pages.Count == 0 && ReferenceEquals(run, record.LastRun) ? LatestPages(record) : pages;
         if (showNext && next is not null) turn.Next = next.Line;
@@ -149,25 +146,23 @@ public partial class MainWindow
     {
         for (var index = record.Runs.Count - 1; index >= 0; index--)
         {
-            if (RunSaid(record, record.Runs[index]).Pages is { Count: > 0 } pages) return pages;
+            if (RunSaid(record.Runs[index]).Pages is { Count: > 0 } pages) return pages;
         }
 
         return [];
     }
 
     /// <summary>
-    /// A run's answer as the thread shows it: without the question, the next step, its local pages and the changelist line.
+    /// A run's answer as the thread shows it: without the question, the next step and its local pages.
     /// </summary>
-    private static (string Said, IReadOnlyList<LocalPages.Page> Pages, AgentNext? Next) RunSaid(AgentTaskRecord record, AgentRunRecord run)
+    private static (string Said, IReadOnlyList<LocalPages.Page> Pages, AgentNext? Next) RunSaid(AgentRunRecord run)
     {
-        // A team's answers were kept with the lead's plan before Link took it out.
-        var words = record.Mode == TaskMode.Team ? TeamPlan.WithoutBlocks(run.Words) : run.Words;
-        var (said, next) = AgentNext.Split(AgentQuestion.Split(words).Text);
-        var (unpaged, pages) = LocalPages.Split(said);
-        return (AgentChanges.SplitChangelistLine(unpaged).Text, pages, next);
+        var (said, next) = AgentNext.Split(AgentQuestion.Split(run.Words).Text);
+        var (text, pages) = LocalPages.Split(said);
+        return (text, pages, next);
     }
 
-    // Link's own notes (a hand-over, a team's step, a plan) say what they are in their words: they go without a prefix.
+    // Link's own notes (a hand-over, a plan) say what they are in their words: they go without a prefix.
     private static string EntryPrefix(AgentEntryKind kind) => kind switch
     {
         AgentEntryKind.Check => "Check: ",
@@ -358,18 +353,8 @@ public partial class MainWindow
     /// <summary>The workspace's specialists, read when the first one is wanted: for the colours of their jellyfish.</summary>
     private static Lazy<IReadOnlyList<AgentRole>> WorkspaceRoles(string workspace) => new(() => ProjectRoles.In(workspace));
 
-    /// <summary>The roles that colour a plan's jellyfish: read only when a step of the plan names its specialist.</summary>
-    /// <summary>The task's plan card: a team's steps with their workers, else the agent's own plan.</summary>
-    private void ShowPlanOf(AgentTaskRecord record)
-    {
-        var plan = PlanOf(record);
-        _agentPanel?.ShowPlan(plan, PlanRoles(plan, record.Workspace), stepMenu: record.Team.Count > 0 ? index => TeamStepMenu(record, index) : null);
-    }
-
-    private IReadOnlyList<AgentPlanItem> PlanOf(AgentTaskRecord record) => record.Team.Count > 0 ? TeamPlanItems(record) : record.Plan;
-
-    private static IReadOnlyList<AgentRole>? PlanRoles(IReadOnlyList<AgentPlanItem> plan, string workspace) =>
-        plan.Any(item => !string.IsNullOrEmpty(item.Role)) ? ProjectRoles.In(workspace) : null;
+    /// <summary>The task's plan card: the agent's own plan.</summary>
+    private void ShowPlanOf(AgentTaskRecord record) => _agentPanel?.ShowPlan(record.Plan);
 
     /// <summary>The specialist's name for a header; null for General. A role whose file is gone shows its file name.</summary>
     private string? RoleName(string? id, string workspace)
@@ -386,10 +371,8 @@ public partial class MainWindow
         $"{RoleWords(run.RoleId, workspace)}{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason, run.RanModel)} · " +
         $"{(run.Judge ? "judge" : run.AutoApprove ? "auto" : "edits")}";
 
-    /// <summary>Where the task works: its project, the folder and, in Perforce, its changelist.</summary>
-    private static string WhereLine(TaskWork work) =>
-        $"{work.Project.Name}{Stack(work.Record.Workspace)} · {work.Record.Workspace}" +
-        (work.Record.Changelist is { } changelist ? $" · P4 changelist {changelist}" : string.Empty);
+    /// <summary>Where the task works: its project and the folder.</summary>
+    private static string WhereLine(TaskWork work) => $"{work.Project.Name}{Stack(work.Record.Workspace)} · {work.Record.Workspace}";
 
     private Brush OutcomeBrush(string outcome) => (Brush)FindResource(
         outcome.StartsWith("Done", StringComparison.OrdinalIgnoreCase) ? "SuccessBrush"

@@ -5,17 +5,13 @@ using SherpaOnnx;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// sherpa-onnx on the CPU: Silero VAD tells whether an utterance holds speech and, hands-free, where a phrase ends;
-/// a streaming Zipformer writes the live draft. The recognizer takes about two seconds to load, so it stays loaded between utterances and goes after
+/// sherpa-onnx on the CPU: Silero VAD tells whether an utterance holds speech; a streaming Zipformer writes the live draft. The recognizer takes about two seconds to load, so it stays loaded between utterances and goes after
 /// a while without voice input; audio that arrives while it loads waits and is caught up at once.
 /// </summary>
 public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDisposable
 {
     private const int SampleRate = 16000;
     private static readonly TimeSpan IdleRelease = TimeSpan.FromMinutes(10);
-    // The fading end of the speech still counts as speech, and blocks come every 50 ms: a phrase is heard to end
-    // about 0.1 s after this, 0.65 s after the last sound (measured on Link's local voice).
-    private static readonly TimeSpan PhrasePause = TimeSpan.FromMilliseconds(550);
     private readonly SpeechModelManager _models;
     private readonly object _gate = new();
     private readonly Timer _idle;
@@ -30,19 +26,18 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
         _idle = new Timer(_ => ReleaseIdleRecognizer());
     }
 
-    public IStreamingTranscription Start(VoiceLanguage language, bool draft, bool handsFree)
+    public IStreamingTranscription Start(VoiceLanguage language, bool draft)
     {
-        // Speech detection works unseen, so while its small model downloads nothing needs saying, unless hands-free
-        // listening needs it to hear where a phrase ends.
-        var detectorStatus = _models.Prepare(SpeechModel.SileroVad);
-        var detector = detectorStatus is null ? _models.PathOf(SpeechModel.SileroVad, "silero_vad.onnx") : null;
-        var detectorNote = handsFree && detectorStatus is not null ? $"pause detection {detectorStatus}" : null;
-        if (!draft) return new Transcription(this, detector, handsFree, null, detectorNote);
+        // Speech detection works unseen, so while its small model downloads nothing needs saying.
+        var detector = _models.Prepare(SpeechModel.SileroVad) is null
+            ? _models.PathOf(SpeechModel.SileroVad, "silero_vad.onnx")
+            : null;
+        if (!draft) return new Transcription(this, detector, null, null);
 
         var model = language == VoiceLanguage.Russian ? SpeechModel.StreamingRussian : SpeechModel.StreamingEnglish;
         return _models.Prepare(model) is { } status
-            ? new Transcription(this, detector, handsFree, null, detectorNote ?? $"live text {status}")
-            : new Transcription(this, detector, handsFree, AcquireRecognizer(model), detectorNote);
+            ? new Transcription(this, detector, null, $"live text {status}")
+            : new Transcription(this, detector, AcquireRecognizer(model), null);
     }
 
     public void Dispose()
@@ -122,25 +117,12 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
         return new OnlineRecognizer(config);
     }
 
-    private static VoiceActivityDetector CreateDetector(string model, bool handsFree)
+    private static VoiceActivityDetector CreateDetector(string model)
     {
         var config = new VadModelConfig();
         config.SileroVad.Model = model;
-        if (handsFree)
-        {
-            // An open microphone acts on clear speech only. A pause ends the phrase: it adds straight to the wait
-            // for the answer, and pauses longer than about 0.8 s are already felt.
-            config.SileroVad.Threshold = 0.5F;
-            config.SileroVad.MinSilenceDuration = (float)PhrasePause.TotalSeconds;
-            // By default a phrase longer than five seconds is cut at its next short breath.
-            config.SileroVad.MaxSpeechDuration = 60F;
-        }
-        else
-        {
-            // It only decides whether Whisper runs at all, so doubtful audio counts as speech.
-            config.SileroVad.Threshold = 0.3F;
-        }
-
+        // It only decides whether Whisper runs at all, so doubtful audio counts as speech.
+        config.SileroVad.Threshold = 0.3F;
         return new VoiceActivityDetector(config, bufferSizeInSeconds: 10);
     }
 
@@ -149,15 +131,12 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
     {
         private readonly SherpaStreamingSpeechToText _owner;
         private readonly string? _detectorModel;
-        private readonly bool _handsFree;
         private readonly Task<OnlineRecognizer>? _recognizer;
         private readonly Channel<float[]> _samples =
             Channel.CreateUnbounded<float[]>(new UnboundedChannelOptions { SingleReader = true, SingleWriter = true });
         private readonly CancellationTokenSource _abandoned = new();
         private readonly Task<bool?> _work;
         private volatile bool _finishing;
-        private volatile bool _heardSpeech;
-        private bool _phraseEnded;
         // Words of the segments the recognizer has closed, and the whole draft last raised.
         private string _closed = string.Empty;
         private string _draft = string.Empty;
@@ -165,13 +144,11 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
         public Transcription(
             SherpaStreamingSpeechToText owner,
             string? detectorModel,
-            bool handsFree,
             Task<OnlineRecognizer>? recognizer,
             string? note)
         {
             _owner = owner;
             _detectorModel = detectorModel;
-            _handsFree = handsFree;
             _recognizer = recognizer;
             Note = note;
             _work = Task.Run(ListenAsync);
@@ -179,11 +156,7 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
 
         public event Action<string>? DraftChanged;
 
-        public event Action<TimeSpan>? PhraseEnded;
-
         public string? Note { get; }
-
-        public bool HeardSpeech => _heardSpeech;
 
         public void Accept(float[] samples) => _samples.Writer.TryWrite(samples);
 
@@ -212,7 +185,7 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
                 bool? heard = null;
                 if (_detectorModel is not null)
                 {
-                    detector = CreateDetector(_detectorModel, _handsFree);
+                    detector = CreateDetector(_detectorModel);
                     heard = false;
                 }
 
@@ -222,21 +195,11 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
                     {
                         detector.AcceptWaveform(samples);
                         if (detector.IsSpeechDetected()) heard = true;
-                        // Only whether there was speech matters, and hands-free where the first phrase began.
-                        int? phraseStart = null;
+                        // Only whether there was speech matters.
                         while (!detector.IsEmpty())
                         {
                             heard = true;
-                            if (_handsFree && !_phraseEnded) phraseStart ??= detector.Front().Start;
                             detector.Pop();
-                        }
-
-                        if (heard == true) _heardSpeech = true;
-                        // A closed segment is speech followed by the pause: the phrase is over.
-                        if (phraseStart is { } start)
-                        {
-                            _phraseEnded = true;
-                            PhraseEnded?.Invoke(TimeSpan.FromSeconds(start / (double)SampleRate));
                         }
                     }
 

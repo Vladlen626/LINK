@@ -104,7 +104,6 @@ public static class SpendReport
         // A review runs in a session of its own: the task goes on in the last worker's.
         var last = task.Runs.LastOrDefault(run => !run.Judge);
         var minutes = last?.CacheMinutes ?? (last?.Provider == AgentProviderKind.ClaudeCode ? 5 : null);
-        var team = task.Runs.Any(run => run.Step is not null);
         return new SpendTask
         {
             Goal = task.Goal,
@@ -117,10 +116,10 @@ public static class SpendReport
             ToolCalls = task.Runs.Sum(run => run.ToolCalls),
             ToolErrors = task.Runs.Sum(run => run.ToolErrors),
             Curve = curved?.ContextCurve ?? [],
-            CurveLabel = curved is null ? string.Empty : $"{(team && curved.Step is { } step ? $"Step {step}" : "Last run")} · {Count(curved.ContextCurve.Count, "request")}",
+            CurveLabel = curved is null ? string.Empty : $"Last run · {Count(curved.ContextCurve.Count, "request")}",
             Budget = budget > 0 ? budget / 1000 : null,
             Window = curved?.ContextWindow is { } window ? (int)(window / 1000) : null,
-            Runs = [.. task.Runs.Select((run, index) => new SpendRun(RunName(run, index, team), who(run), run.Spend ?? SpendMeter.Split(null, TokenCount.Of(run)), run.CostUsd))],
+            Runs = [.. task.Runs.Select((run, index) => new SpendRun(RunName(run, index), who(run), run.Spend ?? SpendMeter.Split(null, TokenCount.Of(run)), run.CostUsd))],
             Tips = Tips(task, parts, budget, hasMap, canCompact, ownMap),
             HasMap = hasMap,
             CacheWarmUntil = last is null || minutes is null ? null : last.StartedAt + last.Duration + TimeSpan.FromMinutes(minutes.Value),
@@ -128,8 +127,9 @@ public static class SpendReport
         };
     }
 
-    private static string RunName(AgentRunRecord run, int index, bool team) =>
-        run.Judge ? "Review" : team && run.Step is { } step ? $"Step {step}{(run.Kind is { } kind ? " · " + kind : string.Empty)}" : $"Run {index + 1}";
+    private static string RunName(AgentRunRecord run, int index) => run.Judge ? "Review" : $"Run {index + 1}";
+
+    private static string ShortName(AgentProviderKind provider) => provider == AgentProviderKind.ClaudeCode ? "Claude" : "Codex";
 
     /// <summary>
     /// What stands out in a task's spend, the largest first, at most four: files read again and searching before the first
@@ -231,7 +231,7 @@ public static class SpendReport
                 : task.Runs.Where(run => run.Provider == limit.Provider && (start is null || run.StartedAt >= start))
                     .SelectMany(run => run.Spent).Where(spent => spent.Window == limit.Window).Sum(spent => spent.Percent);
             var label = limit.Window == "5 h" ? "5-hour window" : limit.Window.StartsWith("week", StringComparison.Ordinal) ? "Week" : limit.Window;
-            if (both) label = $"{WorkerRouting.ShortName(limit.Provider)} · {label}";
+            if (both) label = $"{ShortName(limit.Provider)} · {label}";
             var note = limit.ResetsAt is { } at ? $"resets {When(at, now)}" : string.Empty;
             var warn = limit.Reached;
             if (limit.Reached)

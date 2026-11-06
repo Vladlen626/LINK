@@ -15,27 +15,15 @@ public sealed class RequestService
         _settings = settings;
     }
 
-    /// <summary>
-    /// The request of one attempt at a snapshot: every attempt is a new request from the same input. Direct carries
-    /// only the text and the context the user attached; the chat's mode still follows the depth.
-    /// </summary>
-    public static PromptRequest Build(InputSnapshot snapshot, RequestRoute route, ResponseEffort effort, bool conversation)
+    /// <summary>The request of one attempt at a snapshot: every attempt is a new request from the same input.</summary>
+    public static PromptRequest Build(InputSnapshot snapshot) => new()
     {
-        var direct = route == RequestRoute.Direct;
-        return new PromptRequest
-        {
-            ProjectId = snapshot.ProjectId,
-            ProjectName = snapshot.ProjectName,
-            Route = route,
-            Text = snapshot.Text.Trim(),
-            Effort = effort,
-            Conversation = conversation && !direct,
-            CurrentApplication = direct ? null : snapshot.WorkTarget,
-            Context = direct ? [.. snapshot.Context.Where(item => item.Type != ContextItemType.ProjectState)]
-                : snapshot.Screen is { } screen ? [.. snapshot.Context, screen]
-                : [.. snapshot.Context]
-        };
-    }
+        ProjectId = snapshot.ProjectId,
+        ProjectName = snapshot.ProjectName,
+        Text = snapshot.Text.Trim(),
+        CurrentApplication = snapshot.WorkTarget,
+        Context = snapshot.Screen is { } screen ? [.. snapshot.Context, screen] : [.. snapshot.Context]
+    };
 
     /// <summary>
     /// With diagnostics on, the request is kept in last-request.json: its prompt, file paths and window title.

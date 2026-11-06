@@ -14,9 +14,8 @@ function completedOf(bridge, request, timeout = 20000) {
   return until("the answer completes", () => bridge.of(request.requestId, "completed")[0], timeout);
 }
 
-// A prompt as LINK formats it: the user's words, the effort hint, the context block.
-const LINK_PROMPT = "- Ты работаешь? - Ты работаешь?\n\n[Fast answer: reply briefly and directly — the answer first, " +
-  "a few sentences or a short list at most, no preamble or recap, no extended reasoning.]\n\n---\nContext\n" +
+// A prompt as LINK formats it: the user's words, the context block.
+const LINK_PROMPT = "- Ты работаешь? - Ты работаешь?\n\n---\nContext\n" +
   "Application: explorer\n\nWindow: net10.0-windows — проводник";
 
 /** Sends LINK's prompt and waits for its answer, which must be the new one, whole. */
@@ -28,14 +27,6 @@ async function expectAnswer(page, what) {
   expect(what, completed?.text, ANSWER_MARKDOWN);
   expect("the prompt is sent once", page.chat.sent, [LINK_PROMPT]);
   return { bridge, request, completed };
-}
-
-/** Sends a prompt with a response effort and waits for its answer; the mode notices LINK got on the way. */
-async function askWithEffort({ page, api, bridge }, effort, prompt = `Вопрос ${effort}`) {
-  const request = promptRequest(page.conversationId, prompt, { effort });
-  await ask(api, request);
-  await completedOf(bridge, request);
-  return bridge.of(request.requestId, "notice").map(event => event.notice);
 }
 
 check("streams the answer and completes it", async () => {
@@ -204,56 +195,6 @@ check("a prompt that reached the chat just before its page went is not sent agai
   expect("an unsent prompt is sent once", page.chat.sent, ["Ещё не отправлено"]);
 });
 
-check("Fast switches the composer's picker from Высокий to Мгновенный", async () => {
-  const page = await openChat({ mode: "Высокий" });
-  const companion = await startCompanion(page);
-  expect("LINK is told the mode", await askWithEffort(companion, "fast", "Быстрый вопрос"), ["ChatGPT mode: Мгновенный"]);
-  expect("the picker shows Мгновенный", page.chat.mode, "Мгновенный");
-  expect("the header's model picker is left alone", page.chat.headerOpens, 0);
-  expect("the menu is closed", page.chat.menu, null);
-  expect("the prompt is sent", page.chat.sent, ["Быстрый вопрос"]);
-});
-
-check("Fast, Deep and Normal follow the picker; Normal gives the user's mode back", async () => {
-  const page = await openChat({ mode: "Средний", tokenMs: 20 });
-  const companion = await startCompanion(page);
-  const run = async effort => [await askWithEffort(companion, effort), page.chat.mode];
-  expect("Fast", await run("fast"), [["ChatGPT mode: Мгновенный"], "Мгновенный"]);
-  expect("the user's own mode is kept", companion.storage.data.get(`mode:${page.conversationId}`), "Средний");
-  // The user picks High by hand; Fast puts Instant back.
-  page.chat.mode = "Высокий";
-  expect("Fast again", await run("fast"), [["ChatGPT mode: Мгновенный"], "Мгновенный"]);
-  expect("Deep", await run("deep"), [["ChatGPT mode: Высокий"], "Высокий"]);
-  expect("Deep again changes nothing", await run("deep"), [[], "Высокий"]);
-  expect("Normal", await run("normal"), [["ChatGPT mode: Средний"], "Средний"]);
-  expect("Normal again leaves it alone", await run("normal"), [[], "Средний"]);
-});
-
-check("a picker that names its kind before the mode is read by the mode", async () => {
-  const page = await openChat({ mode: "Высокий", pickerPrefix: "Рассуждение · " });
-  const companion = await startCompanion(page);
-  expect("LINK is told the mode", await askWithEffort(companion, "fast"), ["ChatGPT mode: Рассуждение · Мгновенный"]);
-  expect("the picker shows Мгновенный", page.chat.mode, "Мгновенный");
-});
-
-check("the older header picker is used when the composer has none", async () => {
-  const page = await openChat({ composerPicker: false, tokenMs: 20 });
-  const companion = await startCompanion(page);
-  const run = async effort => [await askWithEffort(companion, effort), page.chat.headerMode];
-  expect("Fast picks Instant there", await run("fast"), [["ChatGPT mode: Instant"], "Instant"]);
-  expect("its label names no mode to keep", companion.storage.data.has(`mode:${page.conversationId}`), false);
-  expect("Normal picks Auto", await run("normal"), [["ChatGPT mode: Auto"], "Auto"]);
-});
-
-check("a mode the picker does not take is reported, and the prompt still goes", async () => {
-  const page = await openChat({ mode: "Высокий", itemsChoose: false });
-  const companion = await startCompanion(page);
-  expect("the notice says what the picker shows", await askWithEffort(companion, "fast", "Вопрос"),
-    ['ChatGPT mode not switched (the picker still shows "Высокий"); the answer hint was still sent']);
-  expect("the menu is closed", page.chat.menu, null);
-  expect("the prompt is sent", page.chat.sent, ["Вопрос"]);
-});
-
 check("Stop in LINK stops ChatGPT; an answer LINK took elsewhere is left alone", async () => {
   let page = await openChat({ tokenMs: 400 });
   let { api, bridge } = await startCompanion(page);
@@ -317,18 +258,6 @@ check("octane: streams the answer and completes it on ChatGPT's completion flag"
   expect("the thinking status is never the answer", streamed.some(text => text.includes("Думаю")), false);
 });
 
-check("octane: Fast switches the composer's popover picker from Высокий to Мгновенный", async () => {
-  for (const pickerHaspopup of [true, false]) {
-    const page = await openChat({ ui: "octane", pickerHaspopup });
-    const companion = await startCompanion(page);
-    const kind = pickerHaspopup ? "a menu button" : "a plain popover button";
-    expect(`LINK is told the mode (${kind})`, await askWithEffort(companion, "fast"), ["ChatGPT mode: Мгновенный"]);
-    expect(`the picker shows Мгновенный (${kind})`, page.chat.mode, "Мгновенный");
-    expect(`the popover is closed (${kind})`, page.chat.menu, null);
-    page.frame.remove();
-  }
-});
-
 check("octane: a prompt the chat renders as Markdown is still found", async () => {
   await expectAnswer(await openChat({ ui: "octane", userMarkdown: true }), "its answer, not an older one");
 });
@@ -352,17 +281,6 @@ check("shell: the prompt and its answer are found in the newest UI, and the answ
 
 check("shell: an answer still being typed out when Stop has gone is taken whole", async () => {
   await expectAnswer(await openChat({ ui: "shell", typedAfterStop: true }), "the whole answer, not the part there when Stop went");
-});
-
-check("shell: Fast, Deep and Normal move the picker's effort slider", async () => {
-  const page = await openChat({ ui: "shell", mode: "Высокий", tokenMs: 20 });
-  const companion = await startCompanion(page);
-  const run = async effort => [await askWithEffort(companion, effort), page.chat.mode];
-  expect("Fast", await run("fast"), [["ChatGPT mode: Instant"], "Instant"]);
-  expect("the menu is closed", page.chat.menu, null);
-  expect("Deep", await run("deep"), [["ChatGPT mode: Высокий"], "Высокий"]);
-  expect("Fast again", await run("fast"), [["ChatGPT mode: Instant"], "Instant"]);
-  expect("Normal gives the user's mode back", await run("normal"), [["ChatGPT mode: Высокий"], "Высокий"]);
 });
 
 check("shell: Check chat sees ChatGPT writing, and Stop in LINK presses its Остановить", async () => {
@@ -389,13 +307,6 @@ check("shell: a new chat's page takes the prompt that starts it", async () => {
   const completed = await completedOf(bridge, request);
   expect("the answer completes", completed?.text, ANSWER_MARKDOWN);
   expect("the prompt is sent once", page.chat.sent, ["Первый вопрос нового чата"]);
-});
-
-check("shell: a new chat's picker is waited for while the composer's buttons are not there yet", async () => {
-  const page = await openChat({ ui: "shell", src: "new-chat.html", turns: 0, controlsMs: 600 });
-  const companion = await startCompanion(page);
-  expect("LINK is told the mode", await askWithEffort(companion, "fast"), ["ChatGPT mode: Instant"]);
-  expect("the picker shows Instant", page.chat.mode, "Instant");
 });
 
 check("a prompt for a linked chat is not sent on a new chat's page", async () => {

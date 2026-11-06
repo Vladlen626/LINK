@@ -132,8 +132,7 @@
                                 <Grid>
                                     <TextBox x:Name="PromptBox" Style="{StaticResource InputTextBoxStyle}" MinLines="2" MaxLines="6"
                                              AcceptsReturn="True" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
-                                             TextChanged="PromptBox_OnTextChanged" PreviewKeyDown="PromptBox_OnPreviewKeyDown"
-                                             LostKeyboardFocus="PromptBox_OnLostKeyboardFocus" />
+                                             TextChanged="PromptBox_OnTextChanged" PreviewKeyDown="PromptBox_OnPreviewKeyDown" />
                                     <TextBlock x:Name="PromptPlaceholder" Margin="12,9,42,0" VerticalAlignment="Top"
                                                Foreground="{StaticResource MutedBrush}" FontSize="13" IsHitTestVisible="False" Text="Ask Link…" />
                                     <Button x:Name="SendButton" Style="{StaticResource SendButtonStyle}" Margin="0,0,7,7"
@@ -173,34 +172,6 @@
                                     <Path Width="7" Margin="5,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
                                           Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
                                           StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                                </StackPanel>
-                            </Button>
-                            <Button x:Name="EffortButton" Style="{StaticResource GhostButtonStyle}" Height="24" Margin="2,0,0,0"
-                                    Padding="8,2,7,2" Click="Effort_OnClick" ToolTip="Response effort">
-                                <StackPanel Orientation="Horizontal">
-                                    <TextBlock x:Name="EffortText" VerticalAlignment="Center" FontSize="12"
-                                               Foreground="{StaticResource MutedBrush}" Text="Normal" />
-                                    <Path Width="7" Margin="5,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
-                                          Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
-                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
-                                </StackPanel>
-                            </Button>
-                            <Button x:Name="ConversationButton" Style="{StaticResource GhostButtonStyle}" Height="24" Margin="2,0,0,0"
-                                    Padding="8,2,8,2" Click="Conversation_OnClick">
-                                <StackPanel Orientation="Horizontal">
-                                    <Ellipse x:Name="ConversationDot" Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center"
-                                             Fill="{StaticResource IdleOrbBrush}" />
-                                    <TextBlock x:Name="ConversationText" VerticalAlignment="Center" FontSize="12"
-                                               Foreground="{StaticResource MutedBrush}" Text="Conversation" />
-                                </StackPanel>
-                            </Button>
-                            <Button x:Name="OnlyMyTextButton" Style="{StaticResource GhostButtonStyle}" Height="24" Margin="2,0,0,0"
-                                    Padding="8,2,8,2" Click="OnlyMyText_OnClick">
-                                <StackPanel Orientation="Horizontal">
-                                    <Ellipse x:Name="OnlyMyTextDot" Width="6" Height="6" Margin="0,1,6,0" VerticalAlignment="Center"
-                                             Fill="{StaticResource IdleOrbBrush}" />
-                                    <TextBlock x:Name="OnlyMyTextText" VerticalAlignment="Center" FontSize="12"
-                                               Foreground="{StaticResource MutedBrush}" Text="Only my text" />
                                 </StackPanel>
                             </Button>
                         </WrapPanel>
@@ -383,11 +354,8 @@
                                 <FlowDocument x:Name="ResponseDocument" PagePadding="0,0,4,0" FontFamily="Segoe UI"
                                               FontSize="13" LineHeight="20" Foreground="{StaticResource TextBrush}" />
                             </FlowDocumentScrollViewer>
-                            <!-- The same question again another way, or as a task: nothing is dictated or captured again. -->
+                            <!-- The question as a task: nothing is dictated or captured again. -->
                             <WrapPanel x:Name="RedirectPanel" Grid.Row="3" Margin="0,2,0,0" Visibility="Collapsed">
-                                <Button x:Name="AskAgainButton" Height="22" Margin="0,4,4,0" Padding="9,0" FontSize="11"
-                                        Click="AskAgain_OnClick" Content="Ask again ▾"
-                                        ToolTip="The same question again: deeper, with a fresh screen, with only its text, or corrected" />
                                 <Button x:Name="ToAgentButton" Height="22" Margin="0,4,0,0" Padding="9,0" FontSize="11"
                                         Click="ToAgent_OnClick" Content="→ Agent task"
                                         ToolTip="Make it a task for the project's agent: a card shows what goes and nothing runs before Run" />

@@ -26,7 +26,6 @@ public sealed class HarnessRow(HarnessSection section) : INotifyPropertyChanged
     public string? Detail => Section.Detail;
     public Visibility NoteVisibility => Section.Note is null ? Visibility.Collapsed : Visibility.Visible;
     public Visibility OpenVisibility => Section.FilePath is null ? Visibility.Collapsed : Visibility.Visible;
-    public Visibility ConsoleVisibility => Section.ShowsConsole ? Visibility.Visible : Visibility.Collapsed;
     public Visibility DetailToggleVisibility => Section.Detail is null ? Visibility.Collapsed : Visibility.Visible;
     public Visibility DetailVisibility => _detailOpen && Section.Detail is not null ? Visibility.Visible : Visibility.Collapsed;
     public string DetailLabel => _detailOpen ? "Hide ▾" : "View ▸";
@@ -57,7 +56,7 @@ public sealed class HarnessRow(HarnessSection section) : INotifyPropertyChanged
     {
         if (now == Section) return;
         Section = now;
-        Raise(nameof(Value), nameof(Note), nameof(Detail), nameof(NoteVisibility), nameof(OpenVisibility), nameof(ConsoleVisibility),
+        Raise(nameof(Value), nameof(Note), nameof(Detail), nameof(NoteVisibility), nameof(OpenVisibility),
             nameof(DetailToggleVisibility), nameof(DetailVisibility), nameof(MeterPercent), nameof(MeterVisibility), nameof(MeterHigh),
             nameof(RoleBrush), nameof(RoleVisibility));
     }
@@ -71,7 +70,7 @@ public sealed class HarnessRow(HarnessSection section) : INotifyPropertyChanged
 /// <summary>
 /// The Harness Inspector: what the agent really gets for the task (setup, context, rules, role, project memory, task
 /// state, skills, the brief, tools, the check and the project's stats), one card each. It only shows; the window builds
-/// the view (<see cref="HarnessView"/>) and does the work behind Open and Console. It has no timer: it draws when it is
+/// the view (<see cref="HarnessView"/>) and does the work behind Open. It has no timer: it draws when it is
 /// shown a view.
 /// </summary>
 public partial class HarnessInspector : UserControl
@@ -86,9 +85,6 @@ public partial class HarnessInspector : UserControl
 
     /// <summary>A file of the harness (the rules, a role, the map, .mcp.json) is to be shown in Explorer.</summary>
     public event Action<string>? OpenFileRequested;
-
-    /// <summary>The Console, the raw view of what the agent's CLI got and wrote back, is to be opened.</summary>
-    public event Action? ConsoleRequested;
 
     /// <summary>Export team pack…: the window asks for a file and writes the workspace's roles and skills to it.</summary>
     public event Action? TeamPackExportRequested;
@@ -121,8 +117,6 @@ public partial class HarnessInspector : UserControl
     {
         if (sender is FrameworkElement { DataContext: HarnessRow { Section.FilePath: { } path } }) OpenFileRequested?.Invoke(path);
     }
-
-    private void Console_OnClick(object sender, RoutedEventArgs e) => ConsoleRequested?.Invoke();
 
     private void ExportPack_OnClick(object sender, RoutedEventArgs e) => TeamPackExportRequested?.Invoke();
 

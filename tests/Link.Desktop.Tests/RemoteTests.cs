@@ -148,17 +148,7 @@ internal static class RemoteTests
                     (Count("answerCallbackQuery", "This one is over"), Count("editMessageText", "Starting")), (1, 1));
                 await bot.HandleAsync(Update(Text(42, "/new Build the station")), default);
                 var station = Last("sendMessage");
-                await bot.HandleAsync(Update(Press(42, "nt", station)), default);
-                Program.Equal("Telegram: the picker's Team button hands the task to the team, which has no agent to pick",
-                    (Count("editMessageText", "Plan the team"), Count("editMessageText", "na:ClaudeCode:Light")), (1, 0));
                 await bot.HandleAsync(Update(Press(42, "na", station)), default);
-                host.Teams = false;
-                await bot.HandleAsync(Update(Text(42, "/new Fix the menu")), default);
-                var lone = calls.Last(call => call.Method == "sendMessage").Body;
-                await bot.HandleAsync(Update(Text(42, "/team Fix the menu")), default);
-                Program.Equal("Telegram: with teams off in Settings the picker has no Team button and /team says how to start instead",
-                    (lone.Contains("\"nt\""), calls.Last(call => call.Method == "sendMessage").Body.Contains("Teams are off")), (false, true));
-                host.Teams = true;
                 await bot.HandleAsync(Update(Text(42, "Words before any task")), default);
                 await bot.HandleAsync(Update(Press(42, $"q:{FakeHost.Task:N}:0")), default);
                 await bot.HandleAsync(Update(Text(42, "Only one jump")), default);
@@ -167,12 +157,12 @@ internal static class RemoteTests
                 await bot.HandleAsync(Update(Press(13, $"s:{FakeHost.Task:N}")), default);
                 Program.Equal("Telegram: the picked agent, the option's button, words, the decision and Deny reach the task; another chat's button does not",
                     string.Join(" | ", host.Done),
-                    "start Add a roll False True Codex Deep 0 by Telegram | start Build the station False False - - 0 team by Telegram | reply Keep the double jump by Telegram | " +
+                    "start Add a roll False True Codex Deep 0 by Telegram | start Build the station False False - - 0 by Telegram | reply Keep the double jump by Telegram | " +
                     "reply Only one jump by Telegram | decide True by Telegram | refuse by Telegram");
                 Program.Equal("Telegram: words without a task ask which one; words that went get no reaction or message",
                     (Count("sendMessage", "Which task?"), Count("setMessageReaction"), Count("sendMessage", "Sent.")), (1, 0, 0));
                 Program.Equal("Telegram: a pressed button answers and leaves a message that is no card without buttons",
-                    (Count("answerCallbackQuery"), Count("editMessageReplyMarkup")), (7, 3));
+                    (Count("answerCallbackQuery"), Count("editMessageReplyMarkup")), (6, 3));
 
                 await bot.HandleAsync(Update("""
                     { "update_id": 3, "message": { "message_id": 8, "chat": { "id": 42 }, "caption": "Like this",
@@ -287,7 +277,6 @@ internal static class RemoteTests
         public string Words { get; set; } = "Which jump?";
         public DateTimeOffset Updated { get; set; } = DateTimeOffset.Now;
         public IReadOnlyList<string> Pictures { get; set; } = [];
-        public bool Teams { get; set; } = true;
 
         public event Action? RemoteChanged;
 
@@ -300,7 +289,6 @@ internal static class RemoteTests
         public Task<IReadOnlyList<RemoteProject>> ProjectsAsync() =>
             System.Threading.Tasks.Task.FromResult<IReadOnlyList<RemoteProject>>([new RemoteProject(Guid.NewGuid(), "Game", true, true)]);
 
-        public Task<bool> TeamsOfferedAsync() => System.Threading.Tasks.Task.FromResult(Teams);
 
         public Task<IReadOnlyList<RemoteTask>> TasksAsync() => System.Threading.Tasks.Task.FromResult<IReadOnlyList<RemoteTask>>([Row]);
 
@@ -329,7 +317,7 @@ internal static class RemoteTests
         }
 
         public Task<string?> StartAsync(RemoteNewTask task, string device) =>
-            Did($"start {task.Goal} {task.PlanFirst} {task.NoStop} {task.Provider?.ToString() ?? "-"} {task.Level?.ToString() ?? "-"} {task.Attached?.Count ?? 0}{(task.Team ? " team" : string.Empty)} by {device}");
+            Did($"start {task.Goal} {task.PlanFirst} {task.NoStop} {task.Provider?.ToString() ?? "-"} {task.Level?.ToString() ?? "-"} {task.Attached?.Count ?? 0} by {device}");
 
         public Task<string?> ReplyAsync(Guid id, string words, string device, IReadOnlyList<string>? images = null) =>
             Did($"reply {words}{(images is { Count: > 0 } ? $" +{images.Count} picture" : "")} by {device}");

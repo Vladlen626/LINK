@@ -68,9 +68,6 @@ public sealed record AgentCardModel(
 
     /// <summary>Makes the card anew from Settings as they stand, for when they are saved while it is open; see <see cref="AgentPanel.RefreshSetup"/>.</summary>
     public Func<AgentCardModel>? Renew { get; init; }
-
-    /// <summary>The card offers a team (Settings allow it); the box is ticked while the goal reads as team work (<see cref="TeamRunner.Suggests"/>).</summary>
-    public bool TeamOffered { get; init; }
 }
 
 // The card before a run: the agent, model, effort and access, the goal, its images, and Run.
@@ -89,9 +86,6 @@ public partial class AgentPanel
         PlanFirstBox.Visibility = card.FixedProvider ? Visibility.Collapsed : Visibility.Visible;
         NoStopBox.IsChecked = false;
         NoStopBox.Visibility = PlanFirstBox.Visibility;
-        _teamChosen = false;
-        TeamBox.Visibility = card.TeamOffered && !card.FixedProvider ? Visibility.Visible : Visibility.Collapsed;
-        TeamBox.IsChecked = TeamBox.Visibility == Visibility.Visible && TeamRunner.Suggests(card.Goal, card.Roles);
         GoalBox.Text = card.Goal;
         ProjectText.Text = card.ProjectName;
         ShowWorkspace(card);
@@ -308,8 +302,6 @@ public partial class AgentPanel
         if (_card is not { FixedProvider: false } card) return false;
         var role = SelectedRoleId;
         if (!_roleChosen && card.Roles.Count > 0) SelectRole(ProjectRoles.Suggest(GoalBox.Text, card.Roles)?.Id);
-        // Team follows the goal until the user ticks or clears it.
-        if (!_teamChosen && TeamBox.Visibility == Visibility.Visible) TeamBox.IsChecked = TeamRunner.Suggests(GoalBox.Text, card.Roles);
         // The chips stay as they are unless the pick changed: a click on one lost the focus of the goal, and a chip
         // drawn anew under the mouse would take that click.
         var skills = PickedSkills();
@@ -339,16 +331,10 @@ public partial class AgentPanel
                          $"While it fails, the agent gets its output, {AgentCoordinator.CheckRetries} times at most.";
         CheckText.Visibility = card.CheckCommand is not null ? Visibility.Visible : Visibility.Collapsed;
         PlanFirstBox.ToolTip = "A plan, then you run it: the agent proposes a plan before the work, on Settings' Strong model; you run it, on the model chosen here, in the same session";
-        // A team always plans first, on the lead.
-        PlanFirstBox.IsEnabled = !Team;
         RunButton.IsEnabled = card.Workspace is not null;
         RunButton.ToolTip = card.Workspace is null ? "Choose the workspace folder first: Choose folder… below" : null;
-        RunButton.Content = card.RunLabel ?? (Team ? "Plan the team" : PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
+        RunButton.Content = card.RunLabel ?? (PlanFirstBox.IsChecked == true ? "Make a plan" : SelectedAuto ? "Run on auto" : "Run with edits");
     }
-
-    private bool Team => TeamBox.Visibility == Visibility.Visible && TeamBox.IsChecked == true;
-
-    private void TeamBox_OnClick(object sender, RoutedEventArgs e) => _teamChosen = true;
 
     private void Run_OnClick(object sender, RoutedEventArgs e)
     {
@@ -369,10 +355,9 @@ public partial class AgentPanel
         var plan = new AgentPlan(
             agent.Kind,
             workspace,
-            Team || (PlanFirstBox.Visibility == Visibility.Visible && PlanFirstBox.IsChecked == true),
+            PlanFirstBox.Visibility == Visibility.Visible && PlanFirstBox.IsChecked == true,
             GoalBox.Text.Trim())
         {
-            Team = Team,
             Model = SelectedModel,
             Effort = SelectedEffort,
             // A model with no effort levels leaves Auto as the card had it, for the agents the task may reach.

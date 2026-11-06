@@ -25,8 +25,6 @@ public partial class AgentPanel : UserControl
     private bool _fillingCard;
     // The specialist is the user's once they chose it (a hand-over starts so): the goal's words pick it no more.
     private bool _roleChosen;
-    // Team is the user's once they ticked or cleared it: the goal's words set it no more.
-    private bool _teamChosen;
     // The picked specialist (null: General) and its chips; a pick changes the chips in place, so that a click on one
     // that took the goal's focus is not lost to a chip drawn anew.
     private string? _roleId;
@@ -44,15 +42,12 @@ public partial class AgentPanel : UserControl
     private readonly HashSet<string> _skillsOn = new(StringComparer.OrdinalIgnoreCase);
     private bool _running;
     private bool _planning;
-    private bool _replanning;
     private bool _hasTask;
     private bool _replyShown;
     private bool _planOpen = true;
     private readonly HashSet<string> _openSteps = [];
     private readonly HashSet<string> _openWords = [];
 
-    // The menu of a team's step, by its place in the plan; null: the plan's chips open nothing.
-    private Func<int, IReadOnlyList<IReadOnlyList<PanelAction>>>? _stepMenu;
     private int _planDone;
     private int _planCount;
     private string _replyTarget = "the agent";
@@ -86,12 +81,6 @@ public partial class AgentPanel : UserControl
     /// <summary>The decision card's Deny.</summary>
     public event Action? DecisionRefused;
 
-    /// <summary>Start over in a clean session with the agent's note on what did not work.</summary>
-    public event Action? RestartRequested;
-
-    /// <summary>The same session goes on with the strongest model.</summary>
-    public event Action? EscalateRequested;
-
     /// <summary>The user's words: a reply after a run, words to steer it with while the agent works, or the answer to its question.</summary>
     public event Action<string, IReadOnlyList<string>>? ContinueRequested;
 
@@ -102,9 +91,6 @@ public partial class AgentPanel : UserControl
 
     /// <summary>Plan mode off: the session's next words go on with edits.</summary>
     public event Action? PlanModeOffRequested;
-
-    /// <summary>The user calls off re-planning: the next words go on as usual.</summary>
-    public event Action? ReplanOffRequested;
     public event Action<string>? OpenFileRequested;
 
     public event Action? NewTaskRequested;

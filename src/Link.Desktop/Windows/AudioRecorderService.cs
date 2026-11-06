@@ -46,18 +46,16 @@ public sealed class AudioRecorderService : IAudioRecorder
         return usedSelectedDevice;
     }
 
-    public AudioRecording Stop(bool save = true, TimeSpan skip = default)
+    public AudioRecording Stop(bool save = true)
     {
         var session = _session ?? throw new InvalidOperationException("Voice recording has not been started.");
         _session = null;
-        var recorded = session.Stop();
-        var start = Math.Clamp((long)(skip.TotalSeconds * SampleRate) * BytesPerSample, 0, recorded.Length);
-        var samples = recorded.AsMemory((int)start);
+        var samples = session.Stop();
         var duration = TimeSpan.FromSeconds(samples.Length / (double)(SampleRate * BytesPerSample));
         if (!save) return new AudioRecording(null, duration, session.PeakLevel);
 
         var path = Path.Combine(_paths.Recordings, $"{DateTime.Now:yyyyMMdd-HHmmss-fff}.wav");
-        WriteWave(path, samples.Span);
+        WriteWave(path, samples);
         PruneRecordings();
         return new AudioRecording(path, duration, session.PeakLevel);
     }

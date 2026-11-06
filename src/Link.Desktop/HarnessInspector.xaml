@@ -6,7 +6,7 @@
         <Style x:Key="SectionNoteStyle" TargetType="TextBlock" BasedOn="{StaticResource CardNoteStyle}">
             <Setter Property="Margin" Value="0,4,0,0" />
         </Style>
-        <!-- Open, View, Console and the team pack's two: text that looks like what it is, a link. -->
+        <!-- Open, View and the team pack's two: text that looks like what it is, a link. -->
         <Style x:Key="SectionButtonStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
             <Setter Property="Margin" Value="2,-3,-6,-3" />
             <Setter Property="Padding" Value="6,2" />
@@ -36,10 +36,6 @@
                             <Button Style="{StaticResource SectionButtonStyle}" Click="Open_OnClick" Visibility="{Binding OpenVisibility}"
                                     ToolTip="Show the file in Explorer">
                                 <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Open" />
-                            </Button>
-                            <Button Style="{StaticResource SectionButtonStyle}" Click="Console_OnClick" Visibility="{Binding ConsoleVisibility}"
-                                    ToolTip="What Link gave the agent's CLI and every line it wrote back">
-                                <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Console" />
                             </Button>
                             <Button Style="{StaticResource SectionButtonStyle}" Click="Detail_OnClick" Visibility="{Binding DetailToggleVisibility}"
                                     ToolTip="The whole text">
