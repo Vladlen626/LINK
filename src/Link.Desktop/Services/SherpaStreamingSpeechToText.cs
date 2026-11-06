@@ -13,7 +13,7 @@ public sealed class SherpaStreamingSpeechToText : IStreamingSpeechToText, IDispo
     private const int SampleRate = 16000;
     private static readonly TimeSpan IdleRelease = TimeSpan.FromMinutes(10);
     private readonly SpeechModelManager _models;
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly Timer _idle;
     private SpeechModel? _recognizerModel;
     private Task<OnlineRecognizer>? _recognizer;

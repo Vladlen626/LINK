@@ -122,7 +122,7 @@ public static partial class LocalPages
             RedirectStandardError = true,
             StandardOutputEncoding = Encoding.UTF8,
             StandardErrorEncoding = Encoding.UTF8,
-            WorkingDirectory = Path.GetDirectoryName(script)!
+            WorkingDirectory = Path.GetDirectoryName(script)
         };
         foreach (var argument in command.Skip(1)) start.ArgumentList.Add(argument);
         start.Environment["PYTHONIOENCODING"] = "utf-8";

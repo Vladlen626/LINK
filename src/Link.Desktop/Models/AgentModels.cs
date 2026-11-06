@@ -413,8 +413,8 @@ public sealed record AgentTask
     public bool AutoApprove { get; init; }
 
     /// <summary>
-    /// No-stop: nothing is asked or refused but <see cref="Deny"/> (Claude Code's <c>bypassPermissions</c>; Codex never asks
-    /// and its sandbox gets the network).
+    /// No-stop (Night mode): nothing is asked or refused, the user is asleep (Claude Code's <c>bypassPermissions</c>; Codex
+    /// never asks and runs without its sandbox).
     /// </summary>
     public bool NoStop { get; init; }
 
@@ -424,14 +424,17 @@ public sealed record AgentTask
     /// </summary>
     public bool ReadsWeb { get; init; }
 
-    /// <summary>Tool rules Claude Code may never use, such as <c>Bash(git push:*)</c>: a No-stop run's deny list.</summary>
-    public IReadOnlyList<string> Deny { get; init; } = [];
-
     /// <summary>
     /// The user is there to answer: Claude Code asks for a tool its rules do not allow while it works, and the run goes on
     /// with the answer. Null: such a tool is refused, and the result lists it (a run nobody watches must never wait).
     /// </summary>
     public Func<AgentPermissionAsk, CancellationToken, Task<AgentPermissionAnswer>>? AskPermission { get; init; }
+
+    /// <summary>
+    /// Where the user's words reach the session while it works, as in Claude Code's own app: the agent reads them at its
+    /// next step, nothing stopped. Null, or a CLI that takes no words mid-run (Codex): words wait or steer by a stop.
+    /// </summary>
+    public AgentInbox? Inbox { get; init; }
 
     /// <summary>The model to run, such as claude-opus-5-5; null leaves it to the CLI's own settings.</summary>
     public string? Model { get; init; }
@@ -781,15 +784,6 @@ public sealed class AgentSettings
     /// <summary>How many choices No-stop takes for a task in a row before it waits for the user again (see <see cref="Services.NoStop"/>).</summary>
     public int NoStopTurns { get; set; } = DefaultNoStopTurns;
 
-    /// <summary>
-    /// What a No-stop run of Claude Code may never do, as its deny rules: the outward steps that cannot be taken back.
-    /// Codex's sandbox keeps its runs in the workspace instead.
-    /// </summary>
-    public List<string> NoStopDeny { get; set; } = [.. DefaultNoStopDeny];
-
-    public static readonly IReadOnlyList<string> DefaultNoStopDeny =
-        ["Bash(git push:*)", "Bash(git push)", "Bash(p4 submit:*)", "Bash(p4 submit)", "Bash(gh pr merge:*)", "Bash(gh release:*)"];
-
     public void Normalize()
     {
         if (!Enum.IsDefined(DefaultProvider)) DefaultProvider = AgentProviderKind.ClaudeCode;
@@ -813,7 +807,6 @@ public sealed class AgentSettings
         ClaudeModel = Newer(ClaudeModel);
         LatestModels ??= [];
         if (NoStopTurns is < 1 or > 200) NoStopTurns = DefaultNoStopTurns;
-        NoStopDeny = NoStopDeny is null ? [.. DefaultNoStopDeny] : [.. NoStopDeny.Select(Trimmed).OfType<string>().Distinct(StringComparer.Ordinal)];
     }
 
     /// <summary>A level's model and effort for an agent; null parts are left to the CLI.</summary>
@@ -869,7 +862,6 @@ public sealed class AgentSettings
         CodexHelper = CodexHelper,
         ContinueAfterLimit = ContinueAfterLimit,
         NoStopTurns = NoStopTurns,
-        NoStopDeny = [.. NoStopDeny],
         LatestModels = new Dictionary<string, string>(LatestModels)
     };
 
@@ -898,4 +890,23 @@ public sealed class AgentSettings
     private static string? Newer(string? model) => model == "claude-haiku-4-5-20251001" ? LightClaudeModel : model;
 
     private static string? Trimmed(string? value) => string.IsNullOrWhiteSpace(value) ? null : value.Trim();
+}
+
+/// <summary>
+/// The user's way into a run while it works (<see cref="AgentTask.Inbox"/>): the provider opens it once the CLI reads
+/// words, and closes it when the run ends. Copies of the task share it, so a check's next run opens the same one.
+/// </summary>
+public sealed class AgentInbox
+{
+    private Func<string, IReadOnlyList<string>, Task<bool>>? _say;
+
+    /// <summary>Whether a session takes words now.</summary>
+    public bool IsOpen => _say is not null;
+
+    /// <summary>The words, and pictures for it to open, to the working session; false when none takes them now.</summary>
+    public Task<bool> SayAsync(string words, IReadOnlyList<string> images) => _say?.Invoke(words, images) ?? Task.FromResult(false);
+
+    internal void Open(Func<string, IReadOnlyList<string>, Task<bool>> say) => _say = say;
+
+    internal void Close() => _say = null;
 }

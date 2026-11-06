@@ -50,7 +50,9 @@ The same harness Link gives its agents, for work on this repo.
 - Agents: `AgentCoordinator` runs a task (check after Do, an answer file such as the map);
   `CliAgentProvider` → `ClaudeCodeProvider` / `CodexProvider` over `AgentProcess`; `AgentChanges` finds and undoes
   changes; `AgentRules`, `ProjectMap`, `ProjectSkills`,
-  `ProjectRoles` are the harness; rules a script can hold are code: `src/Link.Guard` (Claude Code's PreToolUse hook,
+  `ProjectRoles` are the harness, `ToolPacks` its packs shared by all projects; `KnowledgePack` puts what the agents
+  learned in the packs into a `.linkpack` for a friend and takes one in, `TeamPack` a workspace's roles and skills;
+  rules a script can hold are code: `src/Link.Guard` (Claude Code's PreToolUse hook,
   `docs/harness/guarded-rules.md` is their text for Codex) and `HarnessLint` (a run's map and skills); `AutoEffort`, `TaskState` (Compact), `HarnessView` (the inspector). The agent's rules,
   tasks and roles are `docs/harness/**/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel`
   (the sidebar; partials Card, Roles, Task with its cards, Composer) in `StudioWindow`, beside `HarnessInspector`.
@@ -58,7 +60,8 @@ The same harness Link gives its agents, for work on this repo.
   goes), ChatLink (the project's chat, its connection, check), Response (the answer), Capture, Voice, Sizing,
   Panel, Agent (starting and running tasks), AgentCard (the card, setups), Thread (the task's thread, live runs), HandOff
   (compact, hand over), Limits, Changes (undo), OwnAnswers (the map), Works (the tasks at work
-  side by side; edits go one run at a time per folder), Studio.
+  side by side; edits go one run at a time per folder), Studio, Share (the Harness column's Share card: knowledge
+  and team packs).
 - `ChatPageWindow` the embedded ChatGPT page (WebView2). Never hide or minimize the window — it waits off screen, or
   ChatGPT is throttled to a few characters a second. Only the page inside rests, out of its engine's sight, while
   LINK does not need it (`IChatPage.Rest`); it is awake for every request.
@@ -66,7 +69,7 @@ The same harness Link gives its agents, for work on this repo.
 - Remote control: `RemoteControl` (on in Settings) runs `TelegramBot`, the user's bot, over `IRemoteHost`
   (`MainWindow.Remote`); a run's review window reaches the user by the bot's link through `RemoteServer` (127.0.0.1,
   `/view/<ticket>/`) and `RemoteTunnel` (cloudflared).
-  No-stop is `MainWindow.NoStop` + `Services/NoStop`; spending is `UsageReport` (ccusage).
+  Night mode (No-stop in the code) is `MainWindow.NoStop` + `Services/NoStop`; spending is `UsageReport` (ccusage).
 - User data: `%LocalAppData%\Link` — settings.json, projects.json, Screenshots, Recordings, Models, link.log,
   WebView2 (the ChatGPT session: never log or copy it).
 

@@ -85,10 +85,18 @@
                                 </StackPanel>
                             </Border>
 
-                            <Button x:Name="ProjectButton" Grid.Column="2" Margin="10,0,12,0" Height="30" Padding="8,2" HorizontalAlignment="Left"
-                                    VerticalAlignment="Center" Style="{StaticResource GhostButtonStyle}"
+                            <!-- The Studio's own project, apart from the card's: a click lists the projects and its settings. -->
+                            <Button x:Name="ProjectButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" MaxWidth="220"
+                                    Margin="10,0,12,0" Padding="9,2,8,2" HorizontalAlignment="Left" VerticalAlignment="Center"
                                     shell:WindowChrome.IsHitTestVisibleInChrome="True" Click="Project_OnClick">
-                                <TextBlock x:Name="ProjectText" FontSize="13" TextTrimming="CharacterEllipsis" />
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="ProjectText" VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold"
+                                               TextTrimming="CharacterEllipsis" />
+                                    <Path Grid.Column="1" Width="8" Margin="7,1,0,0" VerticalAlignment="Center" Stretch="Uniform"
+                                          Data="{StaticResource ChevronIconGeometry}" Stroke="{StaticResource MutedBrush}" StrokeThickness="1.6"
+                                          StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round" />
+                                </Grid>
                             </Button>
                         </Grid>
 

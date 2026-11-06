@@ -23,7 +23,7 @@ internal sealed partial class ChatPageHost : IDisposable
     private const int MaxStoredEntries = 500;
     private const int MaxConversations = 30;
     private const string SignInRequired = "ChatGPT is not signed in. Press Open chat, sign in there, then send again.";
-    private readonly object _gate = new();
+    private readonly Lock _gate = new();
     private readonly ChatRequestBroker _broker;
     private readonly PageTimings _timings;
     private readonly byte[] _token;
@@ -496,7 +496,7 @@ internal sealed partial class ChatPageHost : IDisposable
         {
             ConversationId = id,
             Title = string.IsNullOrEmpty(title) ? "ChatGPT conversation" : title[..Math.Min(title.Length, 200)],
-            Url = url!,
+            Url = url,
             LastSeenAt = DateTimeOffset.Now
         };
     }

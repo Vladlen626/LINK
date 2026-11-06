@@ -156,7 +156,8 @@ public partial class MainWindow
     /// The input as it is now: the prompt, the context stack, the work target while its chip stands, and with Auto
     /// on a screenshot of the work window.
     /// </summary>
-    private async Task<InputSnapshot> TakeSnapshotAsync(LinkProject project, string prompt)
+    // A pack's set-up task has nothing to do with the screen: it goes without a frame.
+    private async Task<InputSnapshot> TakeSnapshotAsync(LinkProject project, string prompt, bool frame = true)
     {
         // The app Link was invoked from, not whatever took the focus since (the browser, Link's own captures).
         var workTarget = _currentApplication.WorkTarget;
@@ -174,7 +175,7 @@ public partial class MainWindow
             WorkTarget = named ? _currentApplication.GetContext(workWindow) : null,
             WorkWindow = workWindow
         };
-        if (!AutoFrameOn || workWindow == IntPtr.Zero)
+        if (!frame || !AutoFrameOn || workWindow == IntPtr.Zero)
         {
             return snapshot;
         }

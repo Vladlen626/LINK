@@ -125,7 +125,8 @@ public partial class App : System.Windows.Application
             new AgentLimits(paths.AgentLimitsFile),
             new UsageReport(Log),
             new UsageHistory(paths.UsageHistoryFile),
-            cues);
+            cues,
+            paths.CardDraftFile);
         MainWindow = _mainWindow;
         _mainWindow.SettingsRequested += ShowSettings;
         _mainWindow.NotificationRequested += ShowNotification;
@@ -177,7 +178,7 @@ public partial class App : System.Windows.Application
 
     protected override void OnSessionEnding(SessionEndingCancelEventArgs e)
     {
-        if (_mainWindow is not null) _mainWindow.AllowClose = true;
+        _mainWindow?.AllowClose = true;
         SaveState();
         base.OnSessionEnding(e);
     }

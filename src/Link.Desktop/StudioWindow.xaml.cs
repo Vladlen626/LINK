@@ -28,18 +28,25 @@ public partial class StudioWindow : Window
     private const double NarrowWidth = 980;
     private readonly StudioSettings _settings;
     private readonly AgentPanel _tasks;
+    // Link's projects as they stand (the list Link keeps), for the header's menu.
+    private readonly IReadOnlyList<LinkProject> _projects;
+    private Guid _project;
 
-    public StudioWindow(StudioSettings settings, AgentPanel tasks, ChatsPanel chats, ProjectPanel project)
+    public StudioWindow(StudioSettings settings, AgentPanel tasks, ChatsPanel chats, ProjectPanel project, IReadOnlyList<LinkProject> projects)
     {
         _settings = settings;
         _tasks = tasks;
+        _projects = projects;
         InitializeComponent();
         TasksHost.Child = tasks;
         ChatHost.Child = chats;
         ProjectHost.Child = project;
         Inspector.OpenFileRequested += path => OpenFileRequested?.Invoke(path);
+        Inspector.ShareLearnedRequested += () => ShareLearnedRequested?.Invoke();
         Inspector.TeamPackExportRequested += () => TeamPackExportRequested?.Invoke();
-        Inspector.TeamPackImportRequested += () => TeamPackImportRequested?.Invoke();
+        Inspector.OpenPackRequested += () => OpenPackRequested?.Invoke();
+        Inspector.PicksConfirmed += picks => PicksConfirmed?.Invoke(picks);
+        Inspector.SetUpRequested += () => SetUpRequested?.Invoke();
         Spend.Start(settings.SpendDays, settings.SpendAllProjects);
         Spend.FixRequested += fix => SpendFixRequested?.Invoke(fix);
         Spend.HistoryChanged += () =>
@@ -78,6 +85,9 @@ public partial class StudioWindow : Window
     /// <summary>The header's Compact: a fresh session of the open task's agent is to be started from its state.</summary>
     public event Action? CompactRequested;
 
+    /// <summary>A project chosen in the header: the Studio is to show it, the card stays on its own.</summary>
+    public event Action<LinkProject>? ProjectChosen;
+
     /// <summary>The right column opened or turned to another view: it is to be shown the harness or the spend as they stand.</summary>
     public event Action? InspectorOpened;
 
@@ -90,11 +100,20 @@ public partial class StudioWindow : Window
     /// <summary>A file of the harness is to be shown in Explorer.</summary>
     public event Action<string>? OpenFileRequested;
 
-    /// <summary>The inspector's Export team pack…</summary>
+    /// <summary>The inspector's Share ▾ → What my agents learned.</summary>
+    public event Action? ShareLearnedRequested;
+
+    /// <summary>The inspector's Share ▾ → This workspace's roles and skills.</summary>
     public event Action? TeamPackExportRequested;
 
-    /// <summary>The inspector's Import team pack…</summary>
-    public event Action? TeamPackImportRequested;
+    /// <summary>The inspector's Open a pack…</summary>
+    public event Action? OpenPackRequested;
+
+    /// <summary>The ticked items of the inspector's list.</summary>
+    public event Action<IReadOnlyList<SharePick>>? PicksConfirmed;
+
+    /// <summary>The inspector's Set up for this project.</summary>
+    public event Action? SetUpRequested;
 
     /// <summary>What the right column shows now; null while it is folded or its view is not of this tab.</summary>
     public StudioSide? OpenSide => SideShown ? _settings.Side : null;
@@ -111,10 +130,11 @@ public partial class StudioWindow : Window
     /// The project, the open task's context line (null: no task is open) with how full it is (0 to 1; null: no limit is
     /// known), and whether Compact is offered.
     /// </summary>
-    public void ShowHeader(string project, string? context, double? full, bool canCompact)
+    public void ShowHeader(LinkProject project, string? context, double? full, bool canCompact)
     {
-        ProjectText.Text = project;
-        ProjectButton.ToolTip = $"The project {project}: its note, workspace, map, skills and check";
+        _project = project.Id;
+        ProjectText.Text = project.Name;
+        ProjectButton.ToolTip = $"{project.Name}: the Studio's project, apart from the card's. Click to switch, or for its note, workspace, map, skills and check";
         ContextText.Text = context ?? string.Empty;
         ContextPanel.Visibility = context is null ? Visibility.Collapsed : Visibility.Visible;
         ContextMeter.Visibility = full is null ? Visibility.Collapsed : Visibility.Visible;
@@ -129,7 +149,9 @@ public partial class StudioWindow : Window
 
     public void ShowSpendHistory(IReadOnlyList<SpendDay> days) => Spend.ShowHistory(days);
 
-    public void ShowTeamPackStatus(string text) => Inspector.ShowTeamPackStatus(text);
+    public void ShowSharePicks(string heading, IReadOnlyList<SharePick> picks, string confirm) => Inspector.ShowPicks(heading, picks, confirm);
+
+    public void ShowShareStatus(string text, bool setUp = false) => Inspector.ShowShareStatus(text, setUp);
 
     /// <summary>The Studio tab's dot: how the agent's task stands (working, needs you, done); null hides it.</summary>
     public void ShowTaskDot(Brush? dot)
@@ -262,11 +284,27 @@ public partial class StudioWindow : Window
         else ShowSide(!(SideShown && _settings.Side == side), side);
     }
 
+    /// <summary>The header's project: the projects to switch the Studio to, and this one's settings in the right column.</summary>
+    private void Project_OnClick(object sender, RoutedEventArgs e)
+    {
+        var menu = MenuPlacement.Under(ProjectButton);
+        foreach (var project in _projects)
+        {
+            var item = new MenuItem { Header = project.Name, IsCheckable = true, IsChecked = project.Id == _project };
+            item.Click += (_, _) => ProjectChosen?.Invoke(project);
+            menu.Items.Add(item);
+        }
+
+        menu.Items.Add(new Separator());
+        var settings = new MenuItem { Header = "Project settings", IsCheckable = true, IsChecked = OpenSide == StudioSide.Project };
+        settings.Click += (_, _) => ToggleSide(StudioSide.Project);
+        menu.Items.Add(settings);
+        menu.IsOpen = true;
+    }
+
     private void ChatTab_OnClick(object sender, RoutedEventArgs e) => ShowTab(StudioTab.Chat);
 
     private void StudioTab_OnClick(object sender, RoutedEventArgs e) => ShowTab(StudioTab.Studio);
-
-    private void Project_OnClick(object sender, RoutedEventArgs e) => ToggleSide(StudioSide.Project);
 
     private void Harness_OnClick(object sender, RoutedEventArgs e) => ToggleSide(StudioSide.Harness);
 

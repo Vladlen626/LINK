@@ -3,12 +3,15 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// No-stop: a task that takes at each stop the choice it recommends (the first option of its question, the decision's
-/// button, the next step it named) after a short countdown the user can cancel, until a stop rule makes it wait for
-/// the user after all. Its runs ask for nothing (<see cref="AgentTask.NoStop"/>).
+/// Night mode (No-stop in the code and the saved data): a task that takes at each stop the choice it recommends (the
+/// first option of its question, the decision's button, the next step it named) after a short countdown the user can
+/// cancel, until a stop rule makes it wait for the user after all. Its runs ask for nothing (<see cref="AgentTask.NoStop"/>).
 /// </summary>
 public static class NoStop
 {
+    /// <summary>What the user sees it as.</summary>
+    public const string Name = "Night mode";
+
     /// <summary>The seconds a choice shows before No-stop takes it: time for the user at the PC to step in.</summary>
     public const int CountdownSeconds = 10;
 
@@ -30,7 +33,7 @@ public static class NoStop
     /// </summary>
     public static string? WhyWait(AgentTaskRecord record, int turns, string choice, string? last)
     {
-        if (record.NoStopTaken >= turns) return $"No-stop took {turns} choices in a row";
+        if (record.NoStopTaken >= turns) return $"{Name} took {turns} choices in a row";
         if (string.Equals(choice, last, StringComparison.Ordinal)) return "the same choice came twice in a row";
         if (record.Runs.Count >= IdleRuns && record.Runs.TakeLast(IdleRuns).All(run => run.Files.Count == 0))
         {

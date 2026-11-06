@@ -481,8 +481,8 @@
                 <!-- How the run goes: each choice a pill, its whole meaning under the pointer. -->
                 <WrapPanel Margin="0,12,0,0">
                     <CheckBox x:Name="PlanFirstBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Content="Plan first" />
-                    <CheckBox x:Name="NoStopBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Content="No-stop"
-                              ToolTip="It takes the choices it recommends and asks for nothing. Every stop (a question, the plan, a refused tool, the next step) is taken after 10 s; only the deny list of Settings stays refused. It waits for you after the turns of Settings in a row; untick it on the task to step in" />
+                    <CheckBox x:Name="NoStopBox" Style="{StaticResource ToggleChipStyle}" Checked="Card_OnChanged" Unchecked="Card_OnChanged" Content="Night mode"
+                              ToolTip="For when you are away: the agent may do anything (push and submit too) and takes the choice it recommends. Every stop (a question, the plan, a tool it asks for, the next step) is taken after 10 s. The computer stays awake while it works. It waits for you after the turns of Settings in a row; untick it on the task to step in" />
                 </WrapPanel>
                 <ItemsControl x:Name="CardLimitsList" Margin="0,4,0,0" ItemTemplate="{StaticResource LimitRowTemplate}" />
 
@@ -563,7 +563,7 @@
                     <Button x:Name="StopButton" Grid.Column="3" Style="{StaticResource ChipButtonStyle}" Height="28" Margin="8,0,0,0"
                             Click="Stop_OnClick" Content="■ Stop" ToolTip="Stop the agent now; what it changed so far stays, and the task stays open" />
                     <Button x:Name="MoreButton" Grid.Column="4" Style="{StaticResource HeaderIconButtonStyle}" Margin="4,0,-4,0"
-                            VerticalAlignment="Center" Click="More_OnClick" ToolTip="More: discuss in chat, undo, start over, console…">
+                            VerticalAlignment="Center" Click="More_OnClick" ToolTip="More: discuss in chat, undo, compact, export…">
                         <TextBlock Margin="0,-4,0,0" FontSize="15" FontWeight="Bold" Foreground="{StaticResource TextBrush}" Text="⋯" />
                     </Button>
                 </Grid>
@@ -683,7 +683,7 @@
                             <Button x:Name="FinishButton" Style="{StaticResource GhostChipStyle}" Click="Finish_OnClick" Content="Finish"
                                     ToolTip="Close the task; it stays in the list, where it can be opened and taken up again" />
                         </WrapPanel>
-                        <!-- No-stop for this task, also while it works; its label shows the choice it is about to take. -->
+                        <!-- Night mode for this task, also while it works; its label shows the choice it is about to take. -->
                         <CheckBox x:Name="NoStopLiveBox" Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12"
                                   Click="NoStopLiveBox_OnClick" Visibility="Collapsed" />
                         <!-- What the next words run on; nothing starts when it changes. -->

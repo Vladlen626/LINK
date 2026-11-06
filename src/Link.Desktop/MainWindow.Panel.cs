@@ -24,10 +24,13 @@ public partial class MainWindow
 
     private void NoteChip_OnClick(object sender, RoutedEventArgs e) => ShowProjectSettings();
 
-    /// <summary>The project's column in the Link window, its note ready for typing.</summary>
+    /// <summary>The card's project in the Link window's column, its note ready for typing.</summary>
     private void ShowProjectSettings()
     {
         ShowLinkWindow();
+        // As if chosen in the window's header: a new-task card goes with the project the window leaves.
+        if (_cardRun is not null && _projects.ActiveProject.Id != StudioProject.Id) CancelCard();
+        ShowStudioProject(_projects.ActiveProject);
         _studio?.ShowProject();
         _projectPanel?.FocusNote();
     }
@@ -67,19 +70,18 @@ public partial class MainWindow
         _projectPanel.NoteChanged += OnNoteChanged;
         _projectPanel.EditEnded += _projects.Save;
         _projectPanel.WorkspaceChosen += OnWorkspaceChosen;
-        _projectPanel.MapRequested += () => _ = WriteProjectMapAsync();
+        _projectPanel.MapRequested += () => _ = WriteProjectMapAsync(StudioProject);
         _projectPanel.SkillRequested += ShowFile;
         // Saved with the note, when the field is left.
-        _projectPanel.CheckCommandChanged += command => _projects.ActiveProject.CheckCommand = command.Length == 0 ? null : command;
+        _projectPanel.CheckCommandChanged += command => StudioProject.CheckCommand = command.Length == 0 ? null : command;
         return true;
     }
 
-    /// <summary>Shows the active project in the Link window, when its panels are made.</summary>
+    /// <summary>Shows the projects in the Link window, when its panels are made: the Studio's and the card's chats.</summary>
     private void RefreshProjectPanel()
     {
         RefreshStudioProject();
-        if (_projectPanel is null || _chatsPanel is null) return;
-        _projectPanel.ShowProject(_projects.ActiveProject);
+        if (_chatsPanel is null) return;
         _shownChat = null;
         _chatsPanel.ShowListView();
         RefreshChats();
@@ -194,7 +196,7 @@ public partial class MainWindow
     private void OnNoteChanged(string text)
     {
         var note = text.Length == 0 ? null : new ProjectState { Text = text };
-        _projects.ActiveProject.State = note;
+        StudioProject.State = note;
         _projectPanel?.ShowNoteDate(note);
         // A changed note goes again, even if the last one was left out.
         _noteLeftOut = false;
@@ -203,9 +205,9 @@ public partial class MainWindow
 
     private void OnWorkspaceChosen(string? folder)
     {
-        _projects.ActiveProject.WorkspaceRoot = folder;
+        StudioProject.WorkspaceRoot = folder;
         _projects.Save();
-        _projectPanel?.ShowProject(_projects.ActiveProject);
+        _projectPanel?.ShowProject(StudioProject);
         SetStatus(folder is null ? "Workspace folder forgotten" : $"Workspace: {folder}");
     }
 

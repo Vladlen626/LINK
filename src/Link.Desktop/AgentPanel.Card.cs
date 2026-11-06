@@ -70,11 +70,37 @@ public sealed record AgentCardModel(
     public Func<AgentCardModel>? Renew { get; init; }
 }
 
+/// <summary>A new task's words and the pictures pasted on its card, not run yet.</summary>
+public sealed record CardDraft(string Goal, string[] Pictures);
+
 // The card before a run: the agent, model, effort and access, the goal, its images, and Run.
 public partial class AgentPanel
 {
+    /// <summary>
+    /// The new task's words and pictures not run yet: the open card's, else the draft a card left; null for none. Link
+    /// keeps it across a restart.
+    /// </summary>
+    public CardDraft? Draft
+    {
+        get => _card is { FixedProvider: false } && Drafted() is { } open ? open : _draft;
+        set => _draft = value;
+    }
+
+    /// <summary>The open card's words and pictures; null when it has none.</summary>
+    private CardDraft? Drafted() => GoalBox.Text.Trim().Length > 0 || _cardAttached.Count > 0 ? new CardDraft(GoalBox.Text, [.. _cardAttached]) : null;
+
     public void ShowCard(AgentCardModel card)
     {
+        LeaveCard();
+        // A new task's card without words of its own takes up the draft.
+        var draft = !card.FixedProvider && string.IsNullOrWhiteSpace(card.Goal) ? _draft : null;
+        if (draft is { } kept)
+        {
+            _draft = null;
+            _cardAttached.AddRange(kept.Pictures.Where(File.Exists));
+            ShowAttached();
+        }
+
         _card = card;
         _fillingCard = true;
         CardTitleText.Text = card.Title;
@@ -86,7 +112,7 @@ public partial class AgentPanel
         PlanFirstBox.Visibility = card.FixedProvider ? Visibility.Collapsed : Visibility.Visible;
         NoStopBox.IsChecked = false;
         NoStopBox.Visibility = PlanFirstBox.Visibility;
-        GoalBox.Text = card.Goal;
+        GoalBox.Text = draft?.Goal ?? card.Goal;
         ProjectText.Text = card.ProjectName;
         ShowWorkspace(card);
         HarnessLineText.Text = card.HarnessLine;
@@ -99,6 +125,8 @@ public partial class AgentPanel
         ShowAgentChoices();
         ShowRoles(card);
         _fillingCard = false;
+        // The specialist and skills follow the draft's words, as they would have once its box lost the focus.
+        if (draft is not null) PickFromGoal();
         UpdateCard();
         ShowView(CardView);
         Window.GetWindow(this)?.Activate();
@@ -180,8 +208,21 @@ public partial class AgentPanel
     /// <summary>The card is gone: back to the open task, or to the empty middle.</summary>
     public void HideCard()
     {
-        _card = null;
+        LeaveCard();
         ShowView(_hasTask ? TaskView : EmptyView);
+    }
+
+    /// <summary>
+    /// The card goes without Run: a new task's words and pictures are kept as the draft (none left: no draft), a
+    /// hand-over's go.
+    /// </summary>
+    private void LeaveCard()
+    {
+        if (_card is { FixedProvider: false }) _draft = Drafted();
+
+        _card = null;
+        _cardAttached.Clear();
+        ShowAttached();
     }
 
     public void ShowCardWarning(string message)
@@ -379,9 +420,7 @@ public partial class AgentPanel
 
     private void CancelCard_OnClick(object sender, RoutedEventArgs e)
     {
-        _card = null;
-        _cardAttached.Clear();
-        ShowAttached();
+        LeaveCard();
         CardCancelled?.Invoke();
     }
 }

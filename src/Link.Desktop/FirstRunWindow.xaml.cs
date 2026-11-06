@@ -4,7 +4,6 @@ using System.Windows;
 using System.Windows.Controls;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
-using Link.Desktop.Windows;
 
 namespace Link.Desktop;
 

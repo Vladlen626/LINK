@@ -1,0 +1,7 @@
+{
+  "id": "grass-perf",
+  "kind": "performance",
+  "set": "full",
+  "timeLimitMin": 40,
+  "measures": "measuring before optimising (ran the page, read frame times) and fixing the real costs: the swing that sorts every blade, the field rebuilt every frame"
+}

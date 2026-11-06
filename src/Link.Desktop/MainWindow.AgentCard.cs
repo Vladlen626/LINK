@@ -1,3 +1,4 @@
+using System.Text.Json;
 using System.Windows.Media;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
@@ -7,6 +8,29 @@ namespace Link.Desktop;
 // The task card: which agent works with what model and effort, the limits it shows, and the setup of the next run.
 public partial class MainWindow
 {
+    // A new task's card left unsent when Link closed (a restart, a rebuild): the next Link's card starts from it.
+    private readonly string _cardDraftFile;
+
+    private CardDraft? ReadCardDraft() => AtomicJsonFile.Read<CardDraft>(_cardDraftFile);
+
+    /// <summary>
+    /// Link closes: a new task's words and pictures not run yet are kept for the next Link, none takes the file away.
+    /// Without the Studio opened this time the draft on disk is the last Link's, and stays.
+    /// </summary>
+    private void SaveCardDraft()
+    {
+        if (_agentPanel is not { } panel) return;
+        try
+        {
+            if (panel.Draft is { } draft) AtomicJsonFile.Write(_cardDraftFile, draft, new JsonSerializerOptions());
+            else File.Delete(_cardDraftFile);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // Closing must go on: the draft is lost, as it was before Link kept one.
+        }
+    }
+
     /// <summary>The task card for a snapshot: <paramref name="brief"/> is what the agent is told, the question by default.</summary>
     private void OpenAgentCard(InputSnapshot snapshot, string? brief = null)
     {
@@ -17,16 +41,19 @@ public partial class MainWindow
             .Select(item => item.Label)
             .ToArray();
         var (starting, notice) = StartingAgent();
+        // The card is for the snapshot's project, the overlay's or the Studio's; the Studio turns to it.
+        var project = _projects.Projects.FirstOrDefault(each => each.Id == snapshot.ProjectId) ?? _projects.ActiveProject;
         // The task runs beside the others at once; only its edits wait for another task's in the same folder.
-        if (_projects.ActiveProject.WorkspaceRoot is { Length: > 0 } folder && FolderBusy(null, folder) is { } busy)
+        if (project.WorkspaceRoot is { Length: > 0 } folder && FolderBusy(null, folder) is { } busy)
         {
             var waits = $"{busy}: this task's edits wait for that run and start by itself, reading and planning start at once.";
             notice = notice is null ? waits : $"{waits} {notice}";
         }
 
         var card = CardModel(brief ?? snapshot.Text, others.Length == 0 ? string.Empty : "Goes along: " + string.Join(", ", others),
-            images, starting) with { Notice = notice };
+            images, starting, project) with { Notice = notice };
         _cardRun = RunAgentAsync;
+        ShowStudioProject(project);
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
         RefreshStudio();
@@ -35,7 +62,7 @@ public partial class MainWindow
 
     /// <summary>
     /// The card's agents, each with its own models and efforts, Settings' choice first, and its usage. The card keeps the
-    /// project it is made for (the active one unless <paramref name="forProject"/> says), whatever is active when it runs.
+    /// project it is made for (the overlay's unless <paramref name="forProject"/> says), whatever is shown when it runs.
     /// </summary>
     private AgentCardModel CardModel(string goal, string attachments, IReadOnlyList<string> images, AgentProviderKind provider,
         LinkProject? forProject = null)
@@ -192,7 +219,7 @@ public partial class MainWindow
             ? ranModel is null ? ModelName(agent, chosen) : $"{ModelName(agent, chosen)} ({ranModel})"
             : ranModel ?? unknown;
         var words = (effort ?? own.Effort) is { } level ? $"{modelName} · {EffortName(agent, level)}" : modelName;
-        return autoReason is null ? words : $"{words} · auto: {autoReason}";
+        return autoReason is null or AutoEffort.SameAsLast ? words : $"{words} · auto: {autoReason}";
     }
 
     /// <summary>

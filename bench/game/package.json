@@ -1,0 +1,1 @@
+{ "name": "island", "private": true, "type": "module", "scripts": { "test": "node --test", "serve": "node tools/serve.mjs", "shot": "node tools/shot.mjs", "items": "node tools/gen-items.mjs" } }

@@ -86,7 +86,9 @@ public partial class MainWindow
         {
             Provider = provider,
             Workspace = record.Workspace,
-            Prompt = FinalCheck.Prompt(request, record.Goal, record.Plan, check, [.. done.Changes.Select(change => Relative(change.Path, workspace))], diff),
+            // The whole brief: the goal is only its first line, and a plan of several items read against one looks wrong.
+            Prompt = FinalCheck.Prompt(request, record.Brief.Length > 0 ? record.BriefText : record.Goal, record.Plan, check,
+                [.. done.Changes.Select(change => Relative(change.Path, workspace))], diff),
             Judge = true,
             AllowedTools = AgentCoordinator.Tools(work.Project, record.Workspace),
             AutoApprove = done.Task.AutoApprove,
@@ -226,7 +228,7 @@ public partial class MainWindow
                     if (_ownShown) ShowOwnRun();
                 }
 
-                _projectPanel?.ShowProject(_projects.ActiveProject);
+                _projectPanel?.ShowProject(StudioProject);
                 AgentStatus(left.Length == 0 ? "Link's own answer was undone" : $"Undone; {left.Length} files still differ");
                 return;
             }

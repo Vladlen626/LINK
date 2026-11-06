@@ -203,8 +203,22 @@ public static class AgentProcess
 /// </summary>
 public sealed class AgentInput
 {
+    // How long a turn's end waits for words said while the CLI worked to be taken in, before stdin closes anyway: a CLI
+    // that never shows it took them would otherwise wait for input forever.
+    private static readonly TimeSpan UnreadWait = TimeSpan.FromSeconds(20);
+
     private readonly SemaphoreSlim _gate = new(1, 1);
+    private readonly List<string> _unread = [];
     private StreamWriter? _writer;
+
+    /// <summary>Whether words said while the CLI works are still to be taken in.</summary>
+    public bool HasUnread
+    {
+        get
+        {
+            lock (_unread) return _unread.Count > 0;
+        }
+    }
 
     internal async Task OpenAsync(StreamWriter writer, string first)
     {
@@ -232,21 +246,71 @@ public sealed class AgentInput
         }
     }
 
-    /// <summary>The CLI's stdin ends: it finishes what it does and exits.</summary>
-    public async Task CloseAsync()
+    /// <summary>
+    /// The user's words while the CLI works, as its <paramref name="line"/>; they count as unread until it shows it took
+    /// them in (<see cref="Took"/>). False when its stdin is closed already.
+    /// </summary>
+    public async Task<bool> SayAsync(string line, string words)
     {
         await _gate.WaitAsync();
         try
         {
-            _writer?.Close();
+            if (_writer is null) return false;
+            await _writer.WriteAsync(line + "\n");
+            await _writer.FlushAsync();
+            lock (_unread) _unread.Add(words);
+            return true;
         }
         catch (Exception exception) when (exception is IOException or ObjectDisposedException)
         {
-            // Already gone.
+            _writer = null;
+            return false;
         }
         finally
         {
+            _gate.Release();
+        }
+    }
+
+    /// <summary>The CLI took these words in; other text it shows back (the task's own) changes nothing.</summary>
+    public void Took(string words)
+    {
+        lock (_unread) _unread.Remove(words);
+    }
+
+    /// <summary>
+    /// A turn of the CLI's ended. With nothing unread its stdin closes, and it exits. Words still unread come in as its
+    /// next turn, whose end closes it; if they are not taken in a while, it closes anyway.
+    /// </summary>
+    public async Task EndTurnAsync()
+    {
+        if (await CloseAsync(unlessUnread: true)) return;
+        var waited = System.Diagnostics.Stopwatch.StartNew();
+        while (HasUnread && waited.Elapsed < UnreadWait) await Task.Delay(250);
+        if (HasUnread) await CloseAsync();
+    }
+
+    /// <summary>The CLI's stdin ends: it finishes what it does and exits. With <paramref name="unlessUnread"/>, only if no words wait.</summary>
+    public async Task<bool> CloseAsync(bool unlessUnread = false)
+    {
+        await _gate.WaitAsync();
+        try
+        {
+            if (unlessUnread && HasUnread) return false;
+            try
+            {
+                _writer?.Close();
+            }
+            catch (Exception exception) when (exception is IOException or ObjectDisposedException)
+            {
+                // Already gone.
+            }
+
             _writer = null;
+            return true;
+        }
+        finally
+        {
             _gate.Release();
         }
     }

@@ -25,7 +25,7 @@ public sealed class StoragePaths
     public string Models { get; }
     public string Projects { get; }
 
-    /// <summary>The pictures sent to the Telegram bot, kept until the user deletes them.</summary>
+    /// <summary>The pictures sent to the Telegram bot and pasted for the agents in the Studio, kept until the user deletes them.</summary>
     public string Images { get; }
     public string SettingsFile => Path.Combine(Root, "settings.json");
     public string ProjectsFile => Path.Combine(Root, "projects.json");
@@ -48,4 +48,7 @@ public sealed class StoragePaths
 
     /// <summary>The Telegram bot's messages about tasks (each task's topic and live message), kept across restarts.</summary>
     public string TelegramCardsFile => Path.Combine(Root, "telegram-cards.json");
+
+    /// <summary>A new task's card left unsent when Link closed, its words and pictures: the next card starts from it.</summary>
+    public string CardDraftFile => Path.Combine(Root, "card-draft.json");
 }

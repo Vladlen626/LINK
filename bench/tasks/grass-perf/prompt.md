@@ -1,0 +1,1 @@
+The new meadow (20,000 grass blades) makes the game crawl, and it gets worse when you swing the sword through it. It has to run at 60 fps in the browser. Keep the meadow as it is: all its blades, and `state.grass` as it is (tests read it).

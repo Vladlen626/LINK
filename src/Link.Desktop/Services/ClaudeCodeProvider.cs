@@ -8,7 +8,7 @@ namespace Link.Desktop.Services;
 /// Claude Code in print mode with stream-json events. A run is in <c>acceptEdits</c> (a command not allowed by the
 /// project's rules is asked of the user while it works when the task can ask, else refused and listed in the result),
 /// or in <c>auto</c> on Auto, where Claude Code's own check stops
-/// risky actions. A No-stop task runs in <c>bypassPermissions</c> with its deny list. No run is read only: <c>plan</c>
+/// risky actions. A No-stop task runs in <c>bypassPermissions</c>. No run is read only: <c>plan</c>
 /// and <c>dontAsk</c> are never used.
 /// </summary>
 public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Action<string> log)
@@ -62,16 +62,19 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         if (task.Effort is { } effort) arguments.AddRange(["--effort", effort]);
         // No AskUserQuestion: a run has no dialog to answer it, so a question ends the answer as a link-ask block, which the
         // Task tab shows as a choice. Subagents are the agent's own choice.
-        // No-stop's deny list holds in bypassPermissions too: deny rules win over every mode.
-        arguments.AddRange(["--disallowedTools", "AskUserQuestion", .. task.Deny]);
-        // A tool the rules do not allow is asked on stdin (Talk) instead of refused, while the user is there to answer.
-        if (Talks(task)) arguments.AddRange(["--input-format", "stream-json", "--permission-prompt-tool", "stdio"]);
+        arguments.AddRange(["--disallowedTools", "AskUserQuestion"]);
+        // A talk keeps stdin open: the user's words while it works go in there, shown back once taken in, and a tool the
+        // rules do not allow is asked there (Talk) instead of refused, while the user is there to answer.
+        if (Talks(task)) arguments.AddRange(["--input-format", "stream-json", "--replay-user-messages"]);
+        if (task.AskPermission is not null) arguments.AddRange(["--permission-prompt-tool", "stdio"]);
         // MCP servers come only from the workspace's .mcp.json, as for Codex: otherwise the user's claude.ai
         // connectors ride along too, such as a docs app in a game task. Link's own answers get none.
         arguments.Add("--strict-mcp-config");
         if (!task.WithoutMcp && McpConfigIn(task.Workspace) is { } servers) arguments.AddRange(["--mcp-config", servers]);
-        // Link's helper: the mechanic subagent for clear mechanical edits, never in a plan first, which changes nothing.
-        if (Helps(task) && !task.PlanOnly && Settings.Helpers && HelperAgents() is { } agents) arguments.AddRange(["--agents", agents]);
+        // Link's helpers: the mechanic for clear mechanical edits, never in a plan first, which changes nothing; the scout,
+        // which only reads, in a plan first too.
+        var mechanic = Helps(task) && !task.PlanOnly && Settings.Helpers;
+        if (HelperAgents(mechanic, scout: !task.Judge && CodexReader(task) is not null) is { } agents) arguments.AddRange(["--agents", agents]);
         if (task.ResumeSessionId is { } session) arguments.AddRange(["--resume", session]);
         // Images live in Link's data and attached files anywhere, outside the workspace: their folders are opened for reading.
         foreach (var folder in task.Images.Concat(task.Files).Select(Path.GetDirectoryName).OfType<string>().Distinct(StringComparer.OrdinalIgnoreCase))
@@ -85,10 +88,12 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
             if (Path.Combine(pack.Folder, "skills") is var skills && Directory.Exists(skills)) arguments.AddRange(["--add-dir", skills]);
         }
 
-        if (ClaudeAccounts.MemoryFolder(task.Workspace) is { } memory) arguments.AddRange(["--add-dir", memory]);
+        foreach (var memory in ClaudeAccounts.MemoryFolders(task.Workspace, Settings.ClaudeAccount)) arguments.AddRange(["--add-dir", memory]);
 
-        // Last: the option takes every argument after it. Codex needs no asking: its own sandbox keeps it in the workspace.
-        var allowed = CodexHelper(task) is null ? task.AllowedTools : [.. task.AllowedTools, CodexRule];
+        // Last: the option takes every argument after it. Codex needs no asking: its own sandbox keeps it in the workspace,
+        // or only lets it read. A plan first and a judge may only ask it to read.
+        var codexRule = CodexHelper(task) is not null ? CodexRule : CodexReader(task) is null ? null : task.Judge ? ReviewRule : ScoutRule;
+        var allowed = codexRule is null ? task.AllowedTools : [.. task.AllowedTools, codexRule];
         if (allowed.Count > 0) arguments.AddRange(allowed.Prepend("--allowedTools"));
         return arguments;
     }
@@ -101,25 +106,54 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
 
     internal const string CodexRule = $"Bash({CodexCommand}:*)";
 
+    /// <summary>What a run may ask Codex where it may not hand it work: to bring facts (a plan first) or read a change (a judge).</summary>
+    internal const string ScoutRule = $"Bash({CodexCommand} scout:*)";
+
+    internal const string ReviewRule = $"Bash({CodexCommand} review:*)";
+
     /// <summary>
-    /// The subagents Link gives a run, in a file (claude.cmd would split JSON's quotes): <c>mechanic</c>, on the Light
-    /// model, for a mechanical change the session can describe exactly. A search has Claude Code's own Explore.
+    /// The subagents Link gives a run, in a file named by them (claude.cmd would split JSON's quotes, and runs started
+    /// together must not rewrite each other's): <c>mechanic</c>, on the Light model, for a mechanical change the session
+    /// can describe exactly; <c>scout</c>, a Light-model go-between that asks Codex for facts, so that a search spends the
+    /// ChatGPT subscription instead of the lead's model (Claude Code's own Explore runs on it). Null: none.
     /// </summary>
-    private string? HelperAgents()
+    private string? HelperAgents(bool mechanic, bool scout)
     {
-        var agents = new JsonObject
+        var agents = new JsonObject();
+        if (mechanic)
         {
-            ["mechanic"] = new JsonObject
+            agents["mechanic"] = new JsonObject
             {
                 ["description"] = "Does one mechanical change described exactly: renames, moves, imports, a repeated edit across files, " +
                                   "docs and comments. Give it the files, the change and the check; it answers in a few lines.",
                 ["prompt"] = MechanicPrompt,
                 ["tools"] = new JsonArray("Read", "Edit", "Write", "Glob", "Grep", "Bash", "PowerShell"),
                 ["model"] = Settings.ClaudeLight.Model ?? "haiku"
-            }
-        }.ToJsonString();
-        return TempFile("link-agents.json", agents);
+            };
+        }
+
+        if (scout)
+        {
+            agents["scout"] = new JsonObject
+            {
+                ["description"] = "Brings facts in a few lines through Codex, which only reads (the ChatGPT subscription, not this usage " +
+                                  "window): where X is, what uses Y, how a part works, how others solve a problem (it searches the web). " +
+                                  "Give it the question and what you know already; it changes nothing.",
+                ["prompt"] = ScoutPrompt,
+                ["tools"] = new JsonArray("Bash", "Read", "Grep", "Glob"),
+                ["model"] = Settings.ClaudeLight.Model ?? "haiku"
+            };
+        }
+
+        return agents.Count == 0 ? null : TempFile($"link-agents{(mechanic ? "-mechanic" : "")}{(scout ? "-scout" : "")}.json", agents.ToJsonString());
     }
+
+    internal const string ScoutPrompt =
+        "You bring facts to the agent that leads the task, through Codex. Put its question, whole and as it gave it, into one " +
+        "Bash call with the Bash tool's timeout at 600000 ms: `link-codex scout <<'EOF'`, the question, `EOF`. Answer with " +
+        "what Codex answered, as it is, without its last line about the session. If link-codex fails (not found, a usage " +
+        "limit, an error), find the answer yourself with Read, Grep and Glob, change nothing, and begin your answer with " +
+        "\"Codex was not there:\". At most 15 lines.";
 
     internal const string MechanicPrompt =
         "You make one mechanical change in the user's project for the agent that leads the task: exactly what it describes, " +
@@ -135,26 +169,60 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     /// the workspace writable, asking nothing, without the desktop's add-ons.
     /// </summary>
     private string? CodexHelper(AgentTask task) =>
-        Helps(task) && !task.PlanOnly && Settings.CodexHelper && CodexScriptFolder() is not null ? FindCodex(Settings) : null;
+        Helps(task) && !task.PlanOnly && CodexReader(task) is { } codex ? codex : null;
+
+    /// <summary>
+    /// The Codex CLI the run may ask to read, where the setting and a Codex CLI are there: a task's run (a plan first
+    /// too) for facts (<c>link-codex scout</c>), the final check for a second reading of the change (<c>link-codex
+    /// review</c>), both in Codex's read-only sandbox. Link's own answers get none.
+    /// </summary>
+    private string? CodexReader(AgentTask task) =>
+        Settings.CodexHelper && (Helps(task) || (task.Judge && task.AnswerFile is null)) && CodexScriptFolder() is not null
+            ? FindCodex(Settings)
+            : null;
 
     /// <summary>
     /// The script's folder, which goes first on the run's PATH. One script serves every run: what differs by task comes
     /// in the run's variables (<see cref="CodexVariables"/>). Its answer is Codex's last message, the events go to a log.
+    /// Scout and review only read, whatever the run's own access: the sandbox is set here, not by the run.
     /// </summary>
     private static string? CodexScriptFolder()
     {
         const string script = """
             #!/bin/sh
-            # Link's Codex helper for a Claude Code run: link-codex [resume <session>] < brief
+            # Link's Codex helper for a Claude Code run: link-codex [resume <session>] < brief works in the workspace;
+            # link-codex scout < question and link-codex review < brief only read (facts in a few lines, a second reading).
             log=$(mktemp)
             out=$(mktemp)
-            if [ "$1" = resume ] && [ -n "$2" ]; then set -- exec resume "$2"; else set -- exec; fi
-            "$LINK_CODEX" "$@" --json --skip-git-repo-check -o "$out" $LINK_CODEX_CONFIG - >"$log" 2>&1
+            brief=$(mktemp)
+            read_only='-c sandbox_mode=read-only -c approval_policy=never'
+            case "$1" in
+              scout)
+                set -- exec --sandbox read-only -c web_search=live
+                config=${LINK_CODEX_SCOUT:-$read_only}
+                rules='You gather facts for another agent that leads a task in this project. Change nothing: read, search and run only commands that read; search the web when the question is about the world outside the project. Answer in at most 15 lines: each fact with where it stands (the file and line, or the URL), then what you could not find or are unsure of. Nothing beyond what was asked.' ;;
+              review)
+                set -- exec --sandbox read-only
+                config=${LINK_CODEX_REVIEW:-$read_only}
+                rules='You are a second reader, of another model family, of a change another agent made in this project. Change nothing. Read the changed files and what calls them, and look for real bugs only: wrong behavior, a case missed, error handling, a part of the brief left undone. At most eight findings, most important first, each with its file and line, what goes wrong and why you think so; or Nothing found. No style, no praise.' ;;
+              *)
+                if [ "$1" = resume ] && [ -n "$2" ]; then set -- exec resume "$2"; else set -- exec; fi
+                config=$LINK_CODEX_CONFIG
+                rules= ;;
+            esac
+            { if [ -n "$rules" ]; then printf '%s\n\n' "$rules"; fi; cat; } >"$brief"
+            "$LINK_CODEX" "$@" --json --skip-git-repo-check -o "$out" $config - <"$brief" >"$log" 2>&1
             status=$?
+            # A level's model the ChatGPT account does not have fails before any work: once more on the user's own model.
+            if [ $status -ne 0 ] && grep -q model_not_found "$log"; then
+              config=$(printf '%s' "$config" | sed 's/-c model=[^ ]*//')
+              "$LINK_CODEX" "$@" --json --skip-git-repo-check -o "$out" $config - <"$brief" >"$log" 2>&1
+              status=$?
+            fi
             cat "$out"
             session=$(grep -o '"thread_id":"[^"]*"' "$log" | head -1 | cut -d'"' -f4)
             printf '\n[codex session %s, exit %s, events in %s]\n' "${session:-unknown}" "$status" "$log"
-            rm -f "$out"
+            rm -f "$out" "$brief"
             exit $status
 
             """;
@@ -162,13 +230,28 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         return file is null ? null : Path.GetDirectoryName(file);
     }
 
-    /// <summary>What the script reads from the run: Codex itself, its settings as for a Codex task of Link's own, git's safe folder.</summary>
-    internal static Dictionary<string, string> CodexVariables(AgentTask task, string codex) =>
+    /// <summary>
+    /// What the script reads from the run: Codex itself, its settings as for a Codex task of Link's own, those of its
+    /// reads (a scout on the Light level, a review on the Deep one), git's safe folder.
+    /// </summary>
+    internal static Dictionary<string, string> CodexVariables(AgentTask task, string codex, AgentSettings settings) =>
         new(CodexProvider.GitVariables(task.Workspace))
         {
             ["LINK_CODEX"] = codex.Replace('\\', '/'),
-            ["LINK_CODEX_CONFIG"] = string.Join(' ', CodexConfig(task))
+            ["LINK_CODEX_CONFIG"] = string.Join(' ', CodexConfig(task)),
+            ["LINK_CODEX_SCOUT"] = string.Join(' ', ReaderConfig(settings.Level(AgentProviderKind.Codex, AgentLevel.Light))),
+            ["LINK_CODEX_REVIEW"] = string.Join(' ', ReaderConfig(settings.Level(AgentProviderKind.Codex, AgentLevel.Deep)))
         };
+
+    /// <summary>What a Codex read is started with: the read-only sandbox in any run, Night mode's too, asking nothing, without the desktop's add-ons.</summary>
+    internal static IReadOnlyList<string> ReaderConfig((string? Model, string? Effort) level)
+    {
+        var arguments = new List<string> { "-c", "sandbox_mode=read-only", "-c", "approval_policy=never" };
+        foreach (var feature in CodexProvider.FeaturesOff) arguments.AddRange(["-c", $"features.{feature}=false"]);
+        if (level.Model is { } model) arguments.AddRange(["-c", $"model={model}"]);
+        if (level.Effort is { } effort) arguments.AddRange(["-c", $"model_reasoning_effort={effort}"]);
+        return arguments;
+    }
 
     // A record, so that runs on other threads read a whole look or none.
     private sealed record CodexLook(string? Chosen, string? Found, long At);
@@ -199,11 +282,12 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     /// <summary>The words that go with the helpers into a new session: when to hand work to them.</summary>
     protected override string? HelpersText(AgentTask task)
     {
-        if (!Helps(task)) return null;
         var text = new List<string>();
-        if (Settings.Helpers && AgentRules.ReadHarness(AgentRules.HelpersFile) is { Length: > 0 } helpers) text.Add(helpers);
-        // A plan first is told of them too: the plan is carried out in the same session, which then has them.
-        if (Settings.CodexHelper && FindCodex(Settings) is not null && AgentRules.ReadHarness(AgentRules.CodexHelperFile) is { Length: > 0 } codex) text.Add(codex);
+        if (Helps(task) && Settings.Helpers && AgentRules.ReadHarness(AgentRules.HelpersFile) is { Length: > 0 } helpers) text.Add(helpers);
+        // A plan first is told of them too: the plan is carried out in the same session, which then has them. A judge is
+        // told only of Codex's second reading.
+        var codex = CodexReader(task) is null ? null : task.Judge ? AgentRules.CodexReviewFile : AgentRules.CodexHelperFile;
+        if (codex is not null && AgentRules.ReadHarness(codex) is { Length: > 0 } words) text.Add(words);
         return text.Count > 0 ? string.Join("\n\n", text) : null;
     }
 
@@ -229,21 +313,25 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     public static string GuardExecutable => Path.Combine(AppContext.BaseDirectory, "Link.Guard.exe");
 
     /// <summary>
-    /// A settings file with the guard as the PreToolUse hook of the tools it checks; null without the guard. A file, not
-    /// JSON on the command line: claude.cmd would split its quotes.
+    /// A settings file with the guard as the PreToolUse hook of the tools it checks and as the Stop hook; null without the
+    /// guard. A file, not JSON on the command line: claude.cmd would split its quotes.
     /// </summary>
     private static string? GuardSettings()
     {
         if (!File.Exists(GuardExecutable)) return null;
+        static JsonArray Guard() => new(new JsonObject { ["type"] = "command", ["command"] = $"\"{GuardExecutable.Replace('\\', '/')}\"" });
         var hook = new JsonObject
         {
             ["hooks"] = new JsonObject
             {
                 ["PreToolUse"] = new JsonArray(new JsonObject
                 {
-                    ["matcher"] = "Read|Write|Bash|PowerShell",
-                    ["hooks"] = new JsonArray(new JsonObject { ["type"] = "command", ["command"] = $"\"{GuardExecutable.Replace('\\', '/')}\"" })
-                })
+                    // Edits, searches and MCP calls too: the guard counts searches since the last piece of work, and edits.
+                    ["matcher"] = "Read|Write|Edit|MultiEdit|NotebookEdit|Bash|PowerShell|Grep|Glob|LS|mcp__.*",
+                    ["hooks"] = Guard()
+                }),
+                // Before a long session ends, it is asked once what to keep (HarnessGuard.Stop).
+                ["Stop"] = new JsonArray(new JsonObject { ["hooks"] = Guard() })
             }
         }.ToJsonString();
         var file = Path.Combine(Path.GetTempPath(), "link-guard-settings.json");
@@ -258,10 +346,10 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
         }
     }
 
-    public override string Input(AgentTask task) =>
-        task.Images.Count == 0
-            ? task.Prompt
-            : task.Prompt + "\n\nImages attached to this task (open them with Read):\n" + string.Join('\n', task.Images);
+    public override string Input(AgentTask task) => WithImages(task.Prompt, task.Images);
+
+    private static string WithImages(string words, IReadOnlyList<string> images) =>
+        images.Count == 0 ? words : words + "\n\nImages attached to this task (open them with Read):\n" + string.Join('\n', images);
 
     /// <summary>What the agent is told when the user does not allow a tool: the run goes on without it.</summary>
     internal const string Refused = "The user did not allow this. Do the task another way, or stop and say what you need.";
@@ -269,7 +357,13 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     // The task's own words as they are: stdin is no web page, so nothing but JSON needs escaping.
     private static readonly JsonSerializerOptions Plain = new() { Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping };
 
-    protected override bool Talks(AgentTask task) => task.AskPermission is not null;
+    protected override bool Talks(AgentTask task) => task.AskPermission is not null || task.Inbox is not null;
+
+    // Claude Code takes a user message on stdin while it works and shows it to the model at its next step ("The user
+    // sent a new message while you were working"), as its own app does.
+    protected override bool Hears => true;
+
+    protected override string Said(string words, IReadOnlyList<string> images) => Opening(WithImages(words, images));
 
     /// <summary>The task as stream-json's first user message.</summary>
     protected override string Opening(string input) => new JsonObject
@@ -281,23 +375,50 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     }.ToJsonString(Plain);
 
     /// <summary>
-    /// A <c>can_use_tool</c> request waits for the user's answer, which goes back as its <c>control_response</c>; the
-    /// result ends the talk, and the CLI then exits.
+    /// A <c>can_use_tool</c> request waits for the user's answer, which goes back as its <c>control_response</c>; a user
+    /// message shown back (<c>--replay-user-messages</c>) was taken in; the result ends the turn, and with no words left
+    /// unread the talk, and the CLI then exits.
     /// </summary>
     protected override void Talk(string line, AgentTask task, AgentInput input, CancellationToken cancellationToken)
     {
+        if (input.HasUnread && line.Contains("\"type\":\"user\"", StringComparison.Ordinal) && Replayed(line) is { } words)
+        {
+            input.Took(words);
+            return;
+        }
+
         // Most lines are the agent's events: only these two are parsed again.
         if (!line.Contains("\"type\":\"control_request\"", StringComparison.Ordinal) && !line.Contains("\"type\":\"result\"", StringComparison.Ordinal)) return;
         if (Request(line) is not { } request) return;
         if (request.Ended)
         {
-            _ = input.CloseAsync();
+            _ = input.EndTurnAsync();
             return;
         }
 
         _ = request.Ask is { } ask && task.AskPermission is { } asking
             ? AnswerAsync(input, request.Id, ask, request.ToolInput, request.Rules, asking, cancellationToken)
             : input.SendAsync(Failure(request.Id, "Link answers only tool permission requests."));
+    }
+
+    /// <summary>The words of a user message the CLI shows back, without the images' note; null for any other line.</summary>
+    internal static string? Replayed(string line)
+    {
+        try
+        {
+            if (JsonNode.Parse(line) is not JsonObject root || TextOf(root["type"]) != "user" || root["message"] is not JsonObject message) return null;
+            var text = message["content"] switch
+            {
+                JsonValue value when value.TryGetValue<string>(out var content) => content,
+                JsonArray blocks => string.Concat(blocks.OfType<JsonObject>().Where(block => TextOf(block["type"]) == "text").Select(block => TextOf(block["text"]))),
+                _ => null
+            };
+            return text is { Length: > 0 } ? text.Split("\n\nImages attached to this task", 2)[0] : null;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
     }
 
     /// <summary>A line of the CLI's in a talk: its result, or a request with its id, and a tool to ask about when it is one.</summary>
@@ -398,16 +519,21 @@ public sealed partial class ClaudeCodeProvider(Func<AgentSettings> settings, Act
     /// </summary>
     public override IReadOnlyDictionary<string, string> EnvironmentVariables(AgentTask task)
     {
-        var variables = new Dictionary<string, string>(AccountVariables(Settings));
+        var variables = new Dictionary<string, string>(AccountVariables(Settings))
+        {
+            // Claude Code gives models newer than 4.7 no task list unless asked (2.1.286), and Link's plan, its steps'
+            // checks and the final check all read that list: without it no run of Opus 5.5 ever showed a plan.
+            ["CLAUDE_CODE_ENABLE_TODO_TOOLS"] = "1"
+        };
         if (task.ContextBudget is { } budget and > 0)
         {
             variables["CLAUDE_CODE_AUTO_COMPACT_WINDOW"] = budget.ToString(System.Globalization.CultureInfo.InvariantCulture);
         }
 
-        // Codex as a helper: its script first on PATH, which the run's Bash inherits.
-        if (CodexHelper(task) is { } codex && CodexScriptFolder() is { } folder)
+        // Codex as a helper or a reader: its script first on PATH, which the run's Bash inherits.
+        if (CodexReader(task) is { } codex && CodexScriptFolder() is { } folder)
         {
-            foreach (var (name, value) in CodexVariables(task, codex)) variables[name] = value;
+            foreach (var (name, value) in CodexVariables(task, codex, Settings)) variables[name] = value;
             variables["PATH"] = folder + Path.PathSeparator + System.Environment.GetEnvironmentVariable("PATH");
         }
 

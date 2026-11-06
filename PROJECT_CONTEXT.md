@@ -347,6 +347,8 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   только вручную; лимит — не провал. Специалисты — встроенные роли (`docs/harness/roles`, копируются к Link.exe) и
   роли папки, подбираются по брифу вместе с skills, меняются на карточке.
   Remote (телефон через свой VPS пользователя) — после проверки приложения.
+  Since 2026-10-31 the Studio has its own project (`StudioSettings.ProjectId`; null follows the overlay), switched in
+  its header apart from the overlay's; a card or task opened from the overlay turns the Studio to its project.
 - Fast / Normal / Deep: provider-neutral подсказка в запросе плюс переключение режима ChatGPT с проверкой; Normal
   возвращает режим, который был до LINK.
 - ChatGPT — только встроенная страница WebView2 (2026-09-26). Расширение и loopback HTTP-мост удалены, когда
@@ -389,8 +391,9 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   progress bar by time, then "Image ready") that opens Link's ChatGPT window: the picture stays there, not copied, so
   the user looks, saves or goes on in the chat (the user's choice over a viewer of Link's own); Codex's image_gen
   pictures come from its rollout into the run's thread. The Telegram bot stays a chat bot (no Mini App yet): one
-  silently edited card per task, a topic per task when topics are on, Deny, photos both ways (one picture per run, the
-  one its answer names, else the newest: the user wants no stack of check frames), a picker for /new; no /ask to ChatGPT from the phone.
+  silently edited card per task, a topic per task when topics are on, Deny, photos both ways (since 2026-10-31 a run's
+  pictures as its thread shows them, at most 6, as one silent album: one picture per run hid the other collages), a
+  picker for /new; no /ask to ChatGPT from the phone.
   Remote is Telegram only (2026-10-26, the user's choice): the task page (PWA, pairing, Web Push) is removed, Telegram
   serves tasks better. Kept is the review: a run's link-page (the model's review window) comes as the bot's link with the
   alert, through Link's server (`/view/<ticket>/`, the viewer uses relative paths) and a Cloudflare quick tunnel
@@ -411,6 +414,18 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
   the task list searched and grouped by what it waits for. Claude Code asks for a tool outside the rules during the
   run (`--permission-prompt-tool stdio` over stream-json stdin), answered Allow / Deny on the card; "Allow and retry"
   after the run stays only where Link does not ask (No-stop).
+- Night mode (2026-10-31, the user's request): No-stop is named Night mode in the UI and the bot (`/night`; `/auto`
+  still works; the code and saved data keep NoStop). It means "allow everything while I sleep": the guard refuses only
+  edits of protected folders, a tool asked for mid-run is allowed at once, and the computer stays awake while a Night
+  task runs or waits for a limit's reset. No deny list since the first night: its `git push` refusal looped the
+  finished task six times; the user wants agents to do anything at night (Codex runs `danger-full-access`).
+- Closer to Claude's app (2026-10-31, from the DriverTheSlop sessions): a run's turn shows the files it changed itself
+  (Review, Undo and the task state keep the task's), so Night mode's 3-idle-runs stop works; agents answer in the
+  user's language (a brief translated from Russian says so), all else stays English; the guard lets the workspace's
+  Claude memory through (it refused 14 writes there in one session) and a run gets the memory folder under its account
+  too (an ask waited 17 min); `↑` in the composer brings back the last words; "auto: same as the last run" is not
+  repeated in headers. Compact budget stays 250k: on 11
+  DriverTheSlop sessions it compacts at ~218k, 200k would save ~9% of tokens and 150k ~15% with twice the compactions.
 
 ## ChatGPT-транспорт
 
@@ -474,7 +489,7 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    на 08.10 и ждут проверки пользователем: WPF, живые CLI и сервер Z.ai здесь не запускались (проверки — на Linux,
    без Windows-тестов). Вживую не сверены: поля `TaskCreate`/`TaskUpdate` и `rate_limit_event` Claude Code, режим
    Auto Claude Code на чужом сервере (его классификатор ходит в ту же модель), бесплатный ключ GLM. Дальше: Remote
-   через VPS пользователя, Steer now без остановки шага (stream-json на входе).
+   через VPS пользователя. Слова без остановки шага у Claude сделаны 30.10 (`AgentInbox`, LOOP_PLAN L.16).
 9. **Команда и пакеты инструментов** (PDF пользователя и его ответы, 08.10): ведущий раскладывает большую задачу на
    шаги, Link раздаёт их Opus / Codex Astra / Haiku 5.5 по очереди и показывает кто и почему; пакеты инструментов
    (unreal, unity, godot, blender, cascadeur…) общие для игр в своей папке, роли без движка —
@@ -552,6 +567,24 @@ C#, .NET 10, WPF, Win32; один assembly (`Models`, `Services`, `Windows`, pre
    where git lives; the final check tags its findings Important / Nit / Pre-existing and reads `REVIEW.md`; the rules
    are shorter, and HarnessLint flags long skill descriptions. L.6 is the user's measurement: 10 golden tasks, each
    twice, one loop against Team; then Team is deleted or kept for one kind. Team was deleted on 2026-11-06 (the cuts).
+
+   Codex reads for Claude (02.11, from the Drive Slop runs of 30.10–01.11): Claude Code's Explore runs on the lead's
+   model (Opus), and in one run seven of them made a third of the requests to bring back a few lines, while
+   `link-codex` was never called. So:
+   - a run gets `scout`, a Light-model subagent that asks `link-codex scout` (a plan first too);
+   - the final check of a Claude task may start `link-codex review` as a second reader of another model family
+     (Greptile 2026: each family finds more bugs in the other's code). Only findings Claude confirmed count;
+   - both run in Codex's read-only sandbox whatever the run's access, Night mode's too;
+   - a level's model the ChatGPT account lacks is retried once on the user's own model;
+   - without Codex, everything is as before (Explore, the check alone).
+16. **Sharing what the agents learned** (the user, 30.10: give the useful knowledge to a friend, who sets it up for
+   their own tasks): the Harness column's Share card. Share ▾ → What my agents learned… lists the tool packs' skills
+   and roles that differ from Link's own; an item with a line that looks personal (a user's folder, an email, a key,
+   a project's name) starts unticked. They go to a `.linkpack` (`KnowledgePack`: Agent Skills folders, with a README
+   for Claude Code or Codex without Link). Open a pack… shows what one brings (new, updates yours, both changed): a
+   file the friend changed too stays theirs, and the pack's goes beside it in `LinkPacks\.incoming\<file>`; Set up for
+   this project opens a task card that fits the skills to the project (its `<pack>-project` add-on, a map line, a
+   merge). The team pack is the menu's other item, and Open a pack… takes it too. Built, waiting for the user's check.
 
 ## Для AI-агентов
 

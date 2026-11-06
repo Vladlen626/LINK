@@ -46,6 +46,8 @@ internal static class NativeMethods
     internal const int WmDisplayChange = 0x007E;
     internal const long WsExToolWindow = 0x00000080;
     internal const long WsExNoActivate = 0x08000000;
+    internal const uint EsSystemRequired = 0x00000001;
+    internal const uint EsContinuous = 0x80000000;
     internal const uint MonitorDefaultToPrimary = 0x00000001;
     internal const uint MonitorDefaultToNearest = 0x00000002;
     internal const int WaveMapper = -1;
@@ -258,6 +260,9 @@ internal static class NativeMethods
 
     [DllImport("kernel32.dll", CharSet = CharSet.Unicode)]
     internal static extern IntPtr GetModuleHandle(string? moduleName);
+
+    [DllImport("kernel32.dll")]
+    internal static extern uint SetThreadExecutionState(uint flags);
 
     [DllImport("winmm.dll")]
     internal static extern int waveInGetNumDevs();

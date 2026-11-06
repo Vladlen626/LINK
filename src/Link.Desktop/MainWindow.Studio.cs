@@ -1,7 +1,6 @@
 using System.Windows;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
-using Microsoft.Win32;
 
 namespace Link.Desktop;
 
@@ -38,21 +37,30 @@ public partial class MainWindow
 
     private StudioWindow CreateStudio(AgentPanel tasks)
     {
-        var studio = new StudioWindow(_settings.Current.Studio, tasks, _chatsPanel!, _projectPanel!);
+        var studio = new StudioWindow(_settings.Current.Studio, tasks, _chatsPanel!, _projectPanel!, _projects.Projects);
         studio.CompactRequested += () =>
         {
             if (_open is { } work) _ = CompactTask(work);
         };
+        studio.ProjectChosen += project =>
+        {
+            // A card is made for its project: it goes with the project the Studio leaves.
+            if (_cardRun is not null && project.Id != StudioProject.Id) CancelCard();
+            ShowStudioProject(project);
+            // Chosen here, even the overlay's own: the Studio keeps it when the overlay turns to another.
+            if (_settings.Current.Studio.ProjectId == project.Id) return;
+            _settings.Current.Studio.ProjectId = project.Id;
+            _settings.Save();
+        };
         studio.InspectorOpened += () => RefreshStudio();
         studio.SpendFixRequested += fix =>
         {
-            if (fix == SpendFix.Map) _ = WriteProjectMapAsync();
+            if (fix == SpendFix.Map) _ = WriteProjectMapAsync(StudioProject);
             else if (fix == SpendFix.Compact && StudioTask is { } work) _ = CompactTask(work);
         };
         studio.SpendHistoryChanged += () => studio.ShowSpendHistory(SpendDays(studio));
         studio.OpenFileRequested += ShowFile;
-        studio.TeamPackExportRequested += ExportTeamPack;
-        studio.TeamPackImportRequested += ImportTeamPack;
+        WireShare(studio);
         // Back from editing a rules, role or skill file: the inspector reads it again.
         studio.Activated += (_, _) =>
         {
@@ -83,7 +91,7 @@ public partial class MainWindow
         if (_studio is not { } studio) return;
         var context = StudioTask is { } work ? ContextLine(work.Record) ?? "Context not told yet" : null;
         var canCompact = StudioTask is { Busy: false, Waiting: null } open && ResumableTask(open) is not null;
-        studio.ShowHeader(_projects.ActiveProject.Name, context, StudioTask is { } shownTask ? ContextFull(shownTask.Record) : null, canCompact);
+        studio.ShowHeader(StudioProject, context, StudioTask is { } shownTask ? ContextFull(shownTask.Record) : null, canCompact);
         if (studio.OpenSide is not { } side || side == StudioSide.Project ||
             live && Environment.TickCount64 - _inspectorBuiltAt < LiveInspectorEvery.TotalMilliseconds) return;
         _inspectorBuiltAt = Environment.TickCount64;
@@ -121,7 +129,7 @@ public partial class MainWindow
         var (days, all) = studio.SpendRange;
         var today = DateOnly.FromDateTime(DateTime.Today);
         var first = today.AddDays(1 - days);
-        return SpendReport.Days(_spending.Since(first, all ? null : _projects.ActiveProject.Id), first, today);
+        return SpendReport.Days(_spending.Since(first, all ? null : StudioProject.Id), first, today);
     }
 
     /// <summary>
@@ -133,74 +141,32 @@ public partial class MainWindow
     /// <summary>The folder the Studio's harness is of: the shown task's, else the project's workspace; null when there is none.</summary>
     private string? StudioWorkspace()
     {
-        var project = StudioTask?.Project ?? _projects.ActiveProject;
+        var project = StudioTask?.Project ?? StudioProject;
         return StudioTask?.Record.Workspace ?? (project.WorkspaceRoot is { } root && Directory.Exists(root) ? root : null);
     }
 
-    /// <summary>Export team pack…: the workspace's roles and skills to a .linkpack file the user names.</summary>
-    private void ExportTeamPack()
-    {
-        if (_studio is not { } studio) return;
-        if (StudioWorkspace() is not { } workspace)
-        {
-            studio.ShowTeamPackStatus("Choose the workspace folder first: the project's name at the top opens it.");
-            return;
-        }
+    /// <summary>The project the Studio lists and shows: its own once one is chosen in its header, else the overlay's.</summary>
+    private LinkProject StudioProject =>
+        _projects.Projects.FirstOrDefault(project => project.Id == _settings.Current.Studio.ProjectId) ?? _projects.ActiveProject;
 
-        var dialog = new SaveFileDialog
-        {
-            Title = "Export team pack",
-            Filter = "LINK team pack (*.linkpack)|*.linkpack",
-            DefaultExt = TeamPack.Extension,
-            FileName = Path.GetFileName(workspace) + TeamPack.Extension
-        };
-        if (dialog.ShowDialog(studio) != true) return;
-        try
-        {
-            var (roles, skills) = TeamPack.Export(workspace, dialog.FileName);
-            studio.ShowTeamPackStatus(roles + skills == 0
-                ? "Nothing to export: the workspace has no roles or skills of its own in .agents."
-                : $"Exported {Plural(roles, "role")} and {Plural(skills, "skill")} to {dialog.FileName}");
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
-        {
-            studio.ShowTeamPackStatus($"The pack could not be written: {exception.Message}");
-        }
+    /// <summary>
+    /// The Studio turns to <paramref name="project"/>, chosen in its header or the project of what it is to show: its tasks
+    /// (those waiting for a limit's reset taken up) and its harness. The overlay stays on its own.
+    /// </summary>
+    private void ShowStudioProject(LinkProject project)
+    {
+        if (project.Id == StudioProject.Id) return;
+        _settings.Current.Studio.ProjectId = project.Id;
+        _settings.Save();
+        RearmContinue();
+        RefreshStudioProject();
     }
 
-    /// <summary>Import team pack…: the roles and skills of a .linkpack file into the workspace; what it has already is replaced only if the user says so.</summary>
-    private void ImportTeamPack()
-    {
-        if (_studio is not { } studio) return;
-        if (StudioWorkspace() is not { } workspace)
-        {
-            studio.ShowTeamPackStatus("Choose the workspace folder first: the project's name at the top opens it.");
-            return;
-        }
-
-        var dialog = new OpenFileDialog { Title = "Import team pack", Filter = "LINK team pack (*.linkpack)|*.linkpack" };
-        if (dialog.ShowDialog(studio) != true) return;
-        // One question for everything the workspace has already, asked at the first.
-        bool? replaceThem = null;
-        try
-        {
-            var result = TeamPack.Import(dialog.FileName, workspace, name => replaceThem ??= MessageBox.Show(studio,
-                $"The workspace has {name} already, and maybe more of the pack's. Replace the ones it has with the pack's?\n\nNo keeps yours and adds only what is new.",
-                "Link · team pack", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes);
-            studio.ShowTeamPackStatus($"Imported: {result.Added.Count} new, {result.Replaced.Count} replaced, {result.Skipped.Count} kept as they were.");
-            RefreshProjectPanel();
-            RefreshStudio();
-        }
-        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
-        {
-            studio.ShowTeamPackStatus($"The pack was not imported: {exception.Message}");
-        }
-    }
-
-    /// <summary>Another project is shown: the Studio lists its tasks (the list, unless its own task is open) and its harness.</summary>
+    /// <summary>Another project is shown: the Studio lists its tasks (the list, unless its own task is open), its harness and its column.</summary>
     private void RefreshStudioProject()
     {
-        if (_agentPanel is not null && _shown is not null && _shown.Project.Id != _projects.ActiveProject.Id) ShowTaskList();
+        _projectPanel?.ShowProject(StudioProject);
+        if (_agentPanel is not null && _shown is not null && _shown.Project.Id != StudioProject.Id) ShowTaskList();
         else RefreshTaskList();
         RefreshStudio();
     }

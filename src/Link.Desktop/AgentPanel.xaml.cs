@@ -20,6 +20,11 @@ public partial class AgentPanel : UserControl
     // Pictures and files the user pasted or dropped, for the card and for the next reply.
     private readonly List<string> _cardAttached = [];
     private readonly List<string> _replyAttached = [];
+    // The words and pictures of a new task's card left without Run (Cancel, another task opened, another card): the next
+    // new task's card without words of its own starts from them, as a chat keeps a draft.
+    private CardDraft? _draft;
+    // The words sent last, which Up in an empty box brings back.
+    private string _lastReply = string.Empty;
     private static readonly AgentChoice AutoChoice = new("auto", "Auto — Link picks");
     private AgentCardModel? _card;
     private bool _fillingCard;
@@ -41,6 +46,7 @@ public partial class AgentPanel : UserControl
     private readonly HashSet<string> _skillsOff = new(StringComparer.OrdinalIgnoreCase);
     private readonly HashSet<string> _skillsOn = new(StringComparer.OrdinalIgnoreCase);
     private bool _running;
+    private bool _hears;
     private bool _planning;
     private bool _hasTask;
     private bool _replyShown;

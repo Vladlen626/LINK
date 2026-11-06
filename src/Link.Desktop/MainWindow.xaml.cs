@@ -45,8 +45,10 @@ public partial class MainWindow : Window
         AgentLimits limits,
         UsageReport usage,
         UsageHistory spending,
-        SoundCues cues)
+        SoundCues cues,
+        string cardDraftFile)
     {
+        _cardDraftFile = cardDraftFile;
         _usage = usage;
         _spending = spending;
         _settings = settings;
@@ -216,6 +218,7 @@ public partial class MainWindow : Window
         }
 
         _sendCancellation?.Cancel();
+        SaveCardDraft();
         KeepRunsCutShort();
         StopAllRuns();
         _attempts.Forget();

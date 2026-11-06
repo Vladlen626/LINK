@@ -225,8 +225,14 @@ public static class ToolPacks
             // The next start tries again.
         }
 
-        lock (Gate) Seen.Clear();
+        Forget();
         return copied;
+    }
+
+    /// <summary>The packs folder changed (a pack came in): what each workspace showed is read again.</summary>
+    public static void Forget()
+    {
+        lock (Gate) Seen.Clear();
     }
 
     /// <summary>What Link put into the packs folder, file by file, as a hash: a file still the same is Link's to update.</summary>

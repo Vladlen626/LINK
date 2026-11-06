@@ -1,0 +1,5 @@
+[
+  { "id": "gem", "name": "Gem", "shape": "gem", "color": "#3fd8e8", "effect": { "gems": 1 }, "drop": 3 },
+  { "id": "heart", "name": "Heart", "shape": "heart", "color": "#ef4a5a", "effect": { "hp": 1 }, "drop": 1 },
+  { "id": "key", "name": "Small key", "shape": "key", "color": "#f2c94c", "effect": { "keys": 1 } }
+]

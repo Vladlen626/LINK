@@ -133,14 +133,14 @@ public partial class MainWindow
     private async Task OpenNewTaskCardAsync()
     {
         RemoveMissingContextFiles();
-        var snapshot = await TakeSnapshotAsync(_projects.ActiveProject, PromptBox.Text);
+        var snapshot = await TakeSnapshotAsync(StudioProject, PromptBox.Text);
         _attempts.Keep(snapshot);
         OpenAgentCard(snapshot);
     }
 
     private AgentPanel CreateAgentPanel()
     {
-        var panel = new AgentPanel { SaveImage = _history.SaveClipboardImage };
+        var panel = new AgentPanel { SaveImage = bitmap => _history.SaveClipboardImage(bitmap, kept: true), Draft = ReadCardDraft() };
         panel.RunRequested += plan =>
         {
             if (_cardRun is { } run) _ = run(plan);
@@ -193,7 +193,7 @@ public partial class MainWindow
             if (_projects.Projects.FirstOrDefault(each => each.Id == projectId) is not { } project) return;
             project.WorkspaceRoot = folder;
             _projects.Save();
-            if (project == _projects.ActiveProject) _projectPanel?.ShowProject(project);
+            if (project == StudioProject) _projectPanel?.ShowProject(project);
             panel.RefreshSetup();
             RefreshStudio();
         };
@@ -234,12 +234,12 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The project's tasks, newest first, those Link holds as they stand in memory, saved yet or not; the open one
+    /// The Studio's project's tasks, newest first, those Link holds as they stand in memory, saved yet or not; the open one
     /// leads.
     /// </summary>
     private IReadOnlyList<TaskRow> TaskRows()
     {
-        var project = _projects.ActiveProject;
+        var project = StudioProject;
         var tasks = _projects.ReadAgentTasks(project).Select(task => WorkOf(task.Id)?.Record ?? task).ToList();
         foreach (var work in _works.Where(work => work.Project.Id == project.Id && !tasks.Contains(work.Record))) tasks.Insert(0, work.Record);
         if (_open is { } open && open.Project.Id == project.Id)
@@ -368,6 +368,12 @@ public partial class MainWindow
         if (work.Waiting is not null) return;
         if (work.Run is { } live)
         {
+            if (live.Task.Inbox is { IsOpen: true } inbox)
+            {
+                _ = TellRunningAsync(work, live, inbox, text, images);
+                return;
+            }
+
             work.SteerWith = text;
             work.SteerImages = images;
             work.Record.Add(AgentEntryKind.You, "(steer now) " + text + ImagesNote(images));
@@ -439,6 +445,24 @@ public partial class MainWindow
         var (text, images, files) = WithAttached(words, attached);
         work.AttachedFiles.AddRange(files);
         if (queue) QueueAfterRun(work, text, images);
+        else ContinueAgent(work, text, images);
+    }
+
+    /// <summary>
+    /// Words while the agent works, as in Claude Code's own app: they go into the running session, which reads them at
+    /// its next step, and nothing is stopped. A run that ended meanwhile takes them as the session's next words.
+    /// </summary>
+    private async Task TellRunningAsync(TaskWork work, LiveRun live, AgentInbox inbox, string text, IReadOnlyList<string> images)
+    {
+        if (await inbox.SayAsync(text, images))
+        {
+            work.Record.Add(AgentEntryKind.You, "(while it works) " + text + ImagesNote(images));
+            ShowTask(work);
+            AgentStatus(work, $"{ShortName(live.Task.Provider)} reads your words at its next step");
+            return;
+        }
+
+        if (work.Busy) QueueAfterRun(work, text, images);
         else ContinueAgent(work, text, images);
     }
 
@@ -516,7 +540,7 @@ public partial class MainWindow
             return;
         }
 
-        var work = TakeUpTask(record, _projects.ActiveProject);
+        var work = TakeUpTask(record, StudioProject);
         OpenWork(work);
         ShowTaskInPanel();
         _ = ShowChangesAsync(record);
@@ -569,6 +593,8 @@ public partial class MainWindow
     {
         if (_open is not { } work) return;
         OpenWork(work);
+        // A task of another project than the Studio's, such as the overlay's: the Studio turns to it.
+        ShowStudioProject(work.Project);
         ShowTask(work);
     }
 
@@ -596,9 +622,10 @@ public partial class MainWindow
             ContextBudget = _settings.Current.Agent.ContextBudget,
             EffortReason = null,
             NoStop = record.NoStop,
-            Deny = record.NoStop ? _settings.Current.Agent.NoStopDeny : [],
             // A tool its rules do not allow is asked while it works; No-stop asks nothing.
-            AskPermission = record.NoStop ? null : (ask, token) => AskPermissionAsync(work, ask, token)
+            AskPermission = record.NoStop ? null : (ask, token) => AskPermissionAsync(work, ask, token),
+            // The user's words while it works reach the session without a stop, where the CLI takes them.
+            Inbox = new AgentInbox()
         };
         CancelNoStop(work);
         if (work.AttachedFiles.Count > 0)
@@ -637,6 +664,7 @@ public partial class MainWindow
         work.OthersEdited = false;
         // The run holds its folder from here on, before anything is awaited.
         work.Run = live;
+        KeepAwakeAtNight();
         _agentPanel ??= CreateAgentPanel();
         // The open task's run shows at once; another's is drawn when it is opened.
         if (work == _open)
@@ -672,6 +700,7 @@ public partial class MainWindow
         {
             FlushAgentEvents();
             work.Run = null;
+            KeepAwakeAtNight();
             live.Clock.Stop();
             live.Stop.Dispose();
             if (!AnyRunning) _activityTimer.Stop();
@@ -833,7 +862,7 @@ public partial class MainWindow
         turn.OutcomeBrush = OutcomeBrush(ending);
         turn.Said = text;
         turn.Pages = pages.Count > 0 ? pages : LatestPages(record);
-        turn.Files = run.Changes.Select(change => ToChangeRow(change, record.Workspace)).ToArray();
+        turn.Files = run.Own.Select(change => ToChangeRow(change, record.Workspace)).ToArray();
         turn.Stats = StatsLine(result.Stats) + SpentLine(task.Provider, spent);
         turn.StepsOpen = false;
 
@@ -918,7 +947,7 @@ public partial class MainWindow
         AgentStatus(work, limitReached
             ? $"{provider.Name} ran out of its limit · the Studio offers a way on"
             : work.Question is not null ? $"{provider.Name} asks: the choice is in the Studio"
-            : $"{provider.Name}: {ending.ToLowerInvariant()} · {Plural(run.Changes.Count, "file")} changed");
+            : $"{provider.Name}: {ending.ToLowerInvariant()} · {Plural(run.Own.Count, "file")} changed");
         NoStopSoon(work);
         _ = RefreshSpentAsync(now: false);
     }
@@ -1031,7 +1060,7 @@ public partial class MainWindow
             Looped = result.Loops.Count > 0,
             Spent = [.. spent],
             Steps = [.. live.Steps.TakeLast(StepsKeptPerRun)],
-            Files = files,
+            Files = [.. run.Own.Select(change => Relative(change.Path, record.Workspace))],
             Images = [.. RunImages.Of(RunImages.Named(answer), [.. live.Images, .. run.Changes.Select(change => change.Path)], record.Workspace,
                 live.StartedAt, RunImages.Written)],
             Words = Shorten(answer, 12_000)
@@ -1041,7 +1070,7 @@ public partial class MainWindow
         _spending.Add(work.Project.Id, record.Runs[^1]);
         record.Add(AgentEntryKind.Run,
             $"{AgentName(task.Provider)} · {SetupWords(task.Provider, task.Model, task.Effort, ranModel: record.Runs[^1].RanModel)}: " +
-            $"{ending.ToLowerInvariant()}, {Plural(run.Changes.Count, "file")} changed");
+            $"{ending.ToLowerInvariant()}, {Plural(run.Own.Count, "file")} changed");
         // A family the task asked for (haiku) got a newer model than last time: never a silent change of behaviour.
         if (task.Provider == AgentProviderKind.ClaudeCode && _settings.Current.Agent.NoteResolved(task.Model, result.Model) is { } resolved)
         {
@@ -1085,7 +1114,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The ⋯ menu: what the last run allows (chat, undo), compacting, starting over, the export, and the console. While its
+    /// The ⋯ menu: what the last run allows (chat, undo), compacting and the export. While its
     /// run waits for its folder, nothing that starts another.
     /// </summary>
     private IReadOnlyList<PanelAction> MoreActions(TaskWork work)
@@ -1193,14 +1222,14 @@ public partial class MainWindow
     private static IReadOnlyList<string> HelperNames(AgentSettings settings) =>
     [
         .. settings.Helpers ? new[] { $"mechanic · {settings.ClaudeLight.Model ?? "haiku"}", "Explore" } : [],
-        .. settings.CodexHelper && ClaudeCodeProvider.FindCodex(settings) is not null ? new[] { "Codex as a tool" } : []
+        .. settings.CodexHelper && ClaudeCodeProvider.FindCodex(settings) is not null ? new[] { "scout · Codex", "Codex as a tool" } : []
     ];
 
     internal HarnessView CurrentHarness()
     {
         var shown = StudioTask;
         var record = shown?.Record;
-        var project = shown?.Project ?? _projects.ActiveProject;
+        var project = shown?.Project ?? StudioProject;
         var settings = _settings.Current.Agent;
         var workspace = StudioWorkspace();
 
@@ -1364,8 +1393,9 @@ public partial class MainWindow
             return true;
         }
 
-        // A run that asked while it worked had the user's answer to each tool already: a Deny is not offered again.
-        if (task.Provider == AgentProviderKind.ClaudeCode && task.AskPermission is null && result.Denials.Count > 0)
+        // A run that asked while it worked had the user's answer to each tool already: a Deny is not offered again. A No-stop
+        // run was refused only what no allow opens (the guard's protected folders).
+        if (task.Provider == AgentProviderKind.ClaudeCode && task.AskPermission is null && !task.NoStop && result.Denials.Count > 0)
         {
             var rules = result.Denials;
             OfferChoice(work,
@@ -1428,7 +1458,6 @@ public partial class MainWindow
                     answer.TrySetResult(new AgentPermissionAnswer(true, _rememberAllowance));
                     RefreshTaskList();
                 },
-                noStop: false,
                 refuse: () =>
                 {
                     record.Add(AgentEntryKind.You, $"Denied {rules}");
@@ -1441,6 +1470,8 @@ public partial class MainWindow
                 answer.TrySetCanceled(cancellationToken);
             }));
             _ = answer.Task.ContinueWith(_ => ended.Dispose(), CancellationToken.None, TaskContinuationOptions.None, TaskScheduler.Default);
+            // Night mode was turned on after the run began: it answers instead of the user.
+            if (NightAnswered(work)) return;
             RefreshTaskList();
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
             _cues.Play(SoundCue.NeedsDecision);

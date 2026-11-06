@@ -10,7 +10,7 @@ public sealed class ScreenshotHistoryService
     private readonly SettingsService _settings;
     // How many holders keep each file out of pruning: the context stack and every input snapshot that has it.
     private readonly Dictionary<string, int> _pinned = new(StringComparer.OrdinalIgnoreCase);
-    private readonly object _sync = new();
+    private readonly Lock _sync = new();
 
     public ScreenshotHistoryService(StoragePaths paths, SettingsService settings)
     {
@@ -21,20 +21,28 @@ public sealed class ScreenshotHistoryService
 
     public ScreenshotResult Save(Bitmap bitmap, string source, bool prune = true)
     {
-        var path = CreatePath(source);
+        var path = CreatePath(source, _paths.Screenshots);
         bitmap.Save(path, ImageFormat.Png);
         if (prune) Prune();
         return new ScreenshotResult(path, LoadPreview(path), source);
     }
 
-    public string SaveClipboardImage(BitmapSource bitmap)
+    /// <summary>
+    /// A picture pasted from the clipboard. One for the agents (a card or a reply in the Studio) is <paramref name="kept"/>:
+    /// it goes with the pictures sent to the bot, out of the screenshots' rotation, which would delete it after five
+    /// more while the card waits or the task still reads it.
+    /// </summary>
+    public string SaveClipboardImage(BitmapSource bitmap, bool kept = false)
     {
-        var path = CreatePath("clipboard");
-        using var stream = File.Create(path);
-        var encoder = new PngBitmapEncoder();
-        encoder.Frames.Add(BitmapFrame.Create(bitmap));
-        encoder.Save(stream);
-        Prune();
+        var path = CreatePath("clipboard", kept ? _paths.Images : _paths.Screenshots);
+        using (var stream = File.Create(path))
+        {
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            encoder.Save(stream);
+        }
+
+        if (!kept) Prune();
         return path;
     }
 
@@ -88,10 +96,8 @@ public sealed class ScreenshotHistoryService
         }
     }
 
-    private string CreatePath(string source) =>
-        Path.Combine(
-            _paths.Screenshots,
-            $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-{source}-{Guid.NewGuid():N}.png");
+    private static string CreatePath(string source, string folder) =>
+        Path.Combine(folder, $"{DateTime.Now:yyyyMMdd-HHmmss-fff}-{source}-{Guid.NewGuid():N}.png");
 
     private static BitmapImage LoadPreview(string path)
     {

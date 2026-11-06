@@ -28,10 +28,10 @@ public static partial class FinalCheck
     /// <summary>A plan by its steps' words: the same plan is checked once.</summary>
     public static string Key(IReadOnlyList<AgentPlanItem> plan) => string.Join('\n', plan.Select(item => item.Text));
 
-    /// <summary>What the checking session is asked: the request, the goal, the plan, the project's check and the diff.</summary>
-    public static string Prompt(string request, string goal, IReadOnlyList<AgentPlanItem> plan, string? check, IReadOnlyList<string> files, string? diff)
+    /// <summary>What the checking session is asked: the request, the task's brief, the plan, the project's check and the diff.</summary>
+    public static string Prompt(string request, string brief, IReadOnlyList<AgentPlanItem> plan, string? check, IReadOnlyList<string> files, string? diff)
     {
-        var text = new StringBuilder(AgentRules.WithoutNotes(request)).Append("\n\n## The task\n\n").Append(goal).Append("\n\n## Its plan\n");
+        var text = new StringBuilder(AgentRules.WithoutNotes(request)).Append("\n\n## The task\n\n").Append(brief.Trim()).Append("\n\n## Its plan\n");
         foreach (var item in plan) text.Append("\n- ").Append(item.Text);
         if (check is not null) text.Append("\n\n## The project's check\n\n").Append(check);
         text.Append("\n\n## Changed files\n\n").AppendJoin('\n', files);

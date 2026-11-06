@@ -147,6 +147,7 @@ public partial class MainWindow
         };
         work.ContinueTimer = timer;
         timer.Start();
+        KeepAwakeAtNight();
     }
 
     /// <summary>The wait for a limit's reset is over without firing: the timer stops and the task no longer remembers it.</summary>
@@ -154,24 +155,27 @@ public partial class MainWindow
     {
         work.ContinueTimer?.Stop();
         work.ContinueTimer = null;
+        KeepAwakeAtNight();
         if (work.Record.ContinueAt is null) return;
         work.Record.ContinueAt = null;
         SaveTask(work);
     }
 
     /// <summary>
-    /// Link started, or another project was loaded: the active project's tasks that wait for a limit's reset (their time
-    /// was kept with them) are taken up again, without opening the Studio, and their timers run; the first is the open
-    /// task while none is.
+    /// Link started, or another project was loaded in the overlay or the Studio: their tasks that wait for a limit's reset
+    /// (their time was kept with them) are taken up again, without opening the Studio, and their timers run; the first is
+    /// the open task while none is.
     /// </summary>
     private void RearmContinue()
     {
-        var project = _projects.ActiveProject;
-        foreach (var waiting in _projects.ReadAgentTasks(project).Where(task =>
-                     task.ContinueAt is not null && task.Status != AgentTaskStatus.Finished && WorkOf(task.Id) is null && Directory.Exists(task.Workspace)))
+        foreach (var project in new[] { _projects.ActiveProject, StudioProject }.Distinct())
         {
-            var work = TakeUpTask(waiting, project);
-            _open ??= work;
+            foreach (var waiting in _projects.ReadAgentTasks(project).Where(task =>
+                         task.ContinueAt is not null && task.Status != AgentTaskStatus.Finished && WorkOf(task.Id) is null && Directory.Exists(task.Workspace)))
+            {
+                var work = TakeUpTask(waiting, project);
+                _open ??= work;
+            }
         }
 
         UpdateAgentPill();

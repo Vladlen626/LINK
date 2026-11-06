@@ -79,7 +79,9 @@ public partial class AgentPanel
     private void UpdateReplyHint()
     {
         var answering = !_running && QuestionCard.Visibility == Visibility.Visible;
-        ReplyPlaceholder.Text = _running
+        ReplyPlaceholder.Text = _hears
+            ? $"Tell {_replyTarget} now: it reads your words at its next step, nothing stops · Tab: after this run"
+            : _running
             ? $"Steer {_replyTarget} now: Enter stops the step and goes on with your words · Tab: after this step"
             : answering
                 ? $"Answer {_replyTarget} in your own words"
@@ -87,9 +89,11 @@ public partial class AgentPanel
                     ? $"Reply to {_replyTarget}: the session stays in plan mode, reading and planning only"
                     : $"Reply to {_replyTarget}: the same session goes on with your words";
         // The send button is a round icon: its tooltip carries the label, and so does its name for UI Automation.
-        var label = _running ? "Steer now" : answering ? "Answer" : "Send";
+        var label = _hears ? "Tell now" : _running ? "Steer now" : answering ? "Answer" : "Send";
         AutomationProperties.SetName(ContinueButton, label);
-        ContinueButton.ToolTip = _running
+        ContinueButton.ToolTip = _hears
+            ? "Tell now: your words go into the running session, which reads them at its next step; nothing is stopped (Enter) · Tab: your words wait for the run to end"
+            : _running
             ? "Steer now: stops the current step and goes on in the same session with your words; nothing is read again (Enter) · Tab: After this step, your words wait for it to end"
             : answering
                 ? "Answer: the same session goes on with your words as the answer (Enter)"
@@ -241,6 +245,15 @@ public partial class AgentPanel
             return;
         }
 
+        // Up in an empty box brings back the words sent last, as in Claude Code: to send them again or correct them.
+        if (e.Key == Key.Up && ReplyBox.Text.Length == 0 && _lastReply.Length > 0)
+        {
+            e.Handled = true;
+            ReplyBox.Text = _lastReply;
+            ReplyBox.CaretIndex = ReplyBox.Text.Length;
+            return;
+        }
+
         if (e.Key != Key.Enter || Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) return;
         e.Handled = true;
         SendReply(queue: false);
@@ -257,6 +270,7 @@ public partial class AgentPanel
     {
         var reply = ReplyBox.Text.Trim();
         if (reply.Length == 0 && _replyAttached.Count == 0) return;
+        if (reply.Length > 0) _lastReply = reply;
         // Pictures alone still say something: the agent is told to look.
         if (reply.Length == 0) reply = "Look at what I attached.";
         IReadOnlyList<string> attached = [.. _replyAttached];

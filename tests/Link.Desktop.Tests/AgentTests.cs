@@ -36,6 +36,7 @@ internal static class AgentTests
         Loops();
         Arguments();
         HandOff();
+        await MidRunWordsAsync();
         await StreamAsync();
         await LoopRunAsync();
         await FailureAsync();
@@ -82,12 +83,16 @@ internal static class AgentTests
         HarnessCardLine();
         StudioSettingsKept();
         StudioSettingsOdd();
+        CardDraftKept();
         FirstRunWords();
         TeamPackRoundTrip();
         TeamPackLinks();
         TeamPackReplace();
         TeamPackRefusals();
         PlanHeadline();
+        KnowledgePackLearned();
+        KnowledgePackRoundTrip();
+        KnowledgePackRefusals();
         CompactRuleReasons();
         TaskMetricsCounted();
         TaskExported();
@@ -367,6 +372,15 @@ internal static class AgentTests
             Program.Equal("git: the agent's changes are found",
                 string.Join(",", found.OrderBy(change => change.Path).Select(change => $"{Path.GetFileName(change.Path)}:{change.Undoable}")),
                 "clean.txt:True,mine.txt:False,new.txt:True");
+            // The next run of the task changes one of those again and adds one: its turn shows only these two.
+            var marks = AgentChanges.Marks(found);
+            File.WriteAllText(Path.Combine(workspace, "new.txt"), "agent, again");
+            File.SetLastWriteTimeUtc(Path.Combine(workspace, "new.txt"), DateTime.UtcNow.AddMinutes(2));
+            File.WriteAllText(Path.Combine(workspace, "next.txt"), "agent");
+            var next = await changes.CompareAsync(before, CancellationToken.None);
+            Program.Equal("git: a run's own changes are told from the task's",
+                (next.Count, string.Join(",", AgentChanges.Own(next, marks).Select(change => Path.GetFileName(change.Path)).Order())), (4, "new.txt,next.txt"));
+            File.Delete(Path.Combine(workspace, "next.txt"));
             var diff = await changes.DiffAsync(before, found, stat: false, 20_000, CancellationToken.None) ?? string.Empty;
             Program.Equal("git: a run's diff is its own work, the user's edit before it not; the user's index is as it was",
                 (before.DiffsOwnWork, diff.Contains("-my edit", StringComparison.Ordinal), diff.Contains("+my edit and the agent's", StringComparison.Ordinal),
@@ -842,10 +856,25 @@ internal static class AgentTests
             "-c sandbox_mode=workspace-write -c approval_policy=never " + string.Join(" ", CodexProvider.FeaturesOff.Select(feature => $"-c features.{feature}=false")));
         var variables = claude.EnvironmentVariables(work);
         var script = variables.TryGetValue("PATH", out var path) ? Path.Combine(path.Split(Path.PathSeparator)[0], ClaudeCodeProvider.CodexCommand) : string.Empty;
-        Program.Equal("one loop: a work run may call link-codex, a script first on its PATH that runs the found Codex; a plan first may not",
+        Program.Equal("one loop: a work run may call link-codex, a script first on its PATH that runs the found Codex; a plan first may not hand it work",
             (claude.Arguments(work)[^1], File.Exists(script) && !File.ReadAllText(script).Contains('\r'), variables["LINK_CODEX"],
-                claude.Arguments(work with { PlanOnly = true }).Contains(ClaudeCodeProvider.CodexRule), claude.EnvironmentVariables(work with { PlanOnly = true }).ContainsKey("PATH")),
-            (ClaudeCodeProvider.CodexRule, true, codex.Replace('\\', '/'), false, false));
+                claude.Arguments(work with { PlanOnly = true }).Contains(ClaudeCodeProvider.CodexRule)),
+            (ClaudeCodeProvider.CodexRule, true, codex.Replace('\\', '/'), false));
+
+        var judge = work with { Judge = true };
+        Program.Equal("Codex reads: a plan first may only scout and a final check only review, in the read-only sandbox whatever the run's access",
+            (claude.Arguments(work with { PlanOnly = true })[^1], claude.Arguments(judge)[^1],
+                variables["LINK_CODEX_SCOUT"].StartsWith("-c sandbox_mode=read-only", StringComparison.Ordinal),
+                claude.EnvironmentVariables(work with { NoStop = true })["LINK_CODEX_REVIEW"].StartsWith("-c sandbox_mode=read-only", StringComparison.Ordinal),
+                File.ReadAllText(script).Split("scout)")[1].Split(";;")[0].Contains("--sandbox read-only")),
+            (ClaudeCodeProvider.ScoutRule, ClaudeCodeProvider.ReviewRule, true, true, true));
+        string? Agents(AgentTask task) => claude.Arguments(task).ToList() is var arguments && arguments.IndexOf("--agents") is var at and >= 0 ? File.ReadAllText(arguments[at + 1]) : null;
+        Program.Equal("Codex reads: a plan first gets the scout alone, a work run the mechanic and the scout, a judge no subagent",
+            (Agents(work with { PlanOnly = true }) is { } scout && scout.Contains("\"scout\"") && !scout.Contains("\"mechanic\""),
+                Agents(work) is { } both && both.Contains("\"scout\"") && both.Contains("\"mechanic\""), Agents(judge)),
+            (true, true, (string?)null));
+        Program.Equal("Codex reads: the final check is told of its second reader, a work run of the scout",
+            (claude.StandardInput(judge).Contains("link-codex review"), claude.StandardInput(work).Contains("`scout`")), (true, true));
 
         var parser = claude.CreateParser(work);
         var events = new[]
@@ -1153,11 +1182,11 @@ internal static class AgentTests
         record.Runs.AddRange([Run(0), Run(0)]);
         Program.Equal("No-stop waits after runs that changed no file", NoStop.WhyWait(record, 20, "b", "a") is not null, true);
 
-        var settings = new AgentSettings { NoStopTurns = 0, NoStopDeny = null! };
+        var settings = new AgentSettings { NoStopTurns = 0 };
         settings.Normalize();
-        Program.Equal("No-stop settings: turns and deny list fall back to their defaults",
-            (settings.NoStopTurns, settings.NoStopDeny.SequenceEqual(AgentSettings.DefaultNoStopDeny), settings.Clone().NoStopDeny.Count),
-            (AgentSettings.DefaultNoStopTurns, true, AgentSettings.DefaultNoStopDeny.Count));
+        Program.Equal("No-stop settings: turns fall back to their default", settings.NoStopTurns, AgentSettings.DefaultNoStopTurns);
+        var older = System.Text.Json.JsonSerializer.Deserialize<AgentSettings>("""{"NoStopTurns":5,"NoStopDeny":["Bash(git push:*)"]}""")!;
+        Program.Equal("Settings with the old deny list of Night mode still load", older.NoStopTurns, 5);
     }
 
     private static async Task LocalPagesAsync()
@@ -1908,15 +1937,15 @@ internal static class AgentTests
             (string.Join(' ', codex.Arguments(analyze with { AutoApprove = true })).Contains("-c approval_policy=on-request -c approvals_reviewer=auto_review"),
                 string.Join(' ', codex.Arguments(analyze with { AutoApprove = true, PlanOnly = true })).Contains("approval")), (true, true));
 
-        // No-stop: nothing is asked; the deny list holds.
-        var noStop = analyze with { AutoApprove = true, NoStop = true, Deny = ["Bash(git push:*)"] };
-        Program.Equal("Claude No-stop bypasses permissions and keeps its deny list beside AskUserQuestion",
+        // No-stop (Night mode): nothing is asked or refused.
+        var noStop = analyze with { AutoApprove = true, NoStop = true };
+        Program.Equal("Claude No-stop bypasses permissions and refuses only AskUserQuestion",
             (claude.Arguments(noStop).Contains("bypassPermissions"),
-                string.Join(' ', claude.Arguments(noStop)).Contains("--disallowedTools AskUserQuestion Bash(git push:*) --strict-mcp-config")), (true, true));
+                string.Join(' ', claude.Arguments(noStop)).Contains("--disallowedTools AskUserQuestion --strict-mcp-config")), (true, true));
         var codexNoStop = string.Join(' ', codex.Arguments(noStop));
-        Program.Equal("Codex No-stop never asks, its sandbox the workspace's with the network",
-            (codexNoStop.Contains("-c approval_policy=never"), codexNoStop.Contains("auto_review"), codexNoStop.Contains("--sandbox workspace-write"),
-                codexNoStop.Contains("network_access=true")), (true, false, true, true));
+        Program.Equal("Codex No-stop never asks and runs without its sandbox, on resume too",
+            (codexNoStop.Contains("-c approval_policy=never"), codexNoStop.Contains("auto_review"), codexNoStop.Contains("--sandbox danger-full-access"),
+                string.Join(' ', codex.Arguments(noStop with { ResumeSessionId = "t1" })).Contains("-c sandbox_mode=danger-full-access")), (true, false, true, true));
         Program.Equal("Codex gets the network for a run that reads the web, and not for others",
             (string.Join(' ', codex.Arguments(analyze with { ReadsWeb = true })).Contains("network_access=true"),
                 string.Join(' ', codex.Arguments(analyze)).Contains("network_access=true")), (true, false));
@@ -2026,8 +2055,9 @@ internal static class AgentTests
                 parameters.EndsWith("'safe.directory=" + repository.Replace('\\', '/').Replace("'", @"'\''") + "'", StringComparison.Ordinal), true);
             Program.Equal("Codex: a folder without git gets no git settings",
                 codex.EnvironmentVariables(new AgentTask { Provider = AgentProviderKind.Codex, Workspace = Path.GetTempPath(), Prompt = "x" }).Count, 0);
-            Program.Equal("Claude runs as the user and needs no git settings",
-                claude.EnvironmentVariables(new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = repository, Prompt = "x" }).Count, 0);
+            Program.Equal("Claude runs as the user and needs no git settings, only its task list on",
+                string.Join(",", claude.EnvironmentVariables(new AgentTask { Provider = AgentProviderKind.ClaudeCode, Workspace = repository, Prompt = "x" })),
+                "[CLAUDE_CODE_ENABLE_TODO_TOOLS, 1]");
         }
         finally
         {
@@ -2150,9 +2180,17 @@ internal static class AgentTests
         };
         var talkArguments = asking.Arguments(watched);
         Program.Equal("ask: a watched run takes stream-json in and asks on stdio, --allowedTools still last",
-            (string.Join(' ', talkArguments).Contains("--input-format stream-json --permission-prompt-tool stdio"), talkArguments[^2], talkArguments[^1],
+            (string.Join(' ', talkArguments).Contains("--input-format stream-json --replay-user-messages --permission-prompt-tool stdio"), talkArguments[^2], talkArguments[^1],
                 string.Join(' ', asking.Arguments(watched with { AskPermission = null })).Contains("--permission-prompt-tool")),
             (true, "--allowedTools", "Read", false));
+        var hearing = string.Join(' ', asking.Arguments(watched with { AskPermission = null, Inbox = new AgentInbox() }));
+        Program.Equal("mid-run words: a No-stop run with an inbox takes stream-json in and shows the words back, asking nothing",
+            (hearing.Contains("--input-format stream-json --replay-user-messages"), hearing.Contains("--permission-prompt-tool")), (true, false));
+        Program.Equal("mid-run words: a message shown back gives its words without the images' note; a tool result gives none",
+            (ClaudeCodeProvider.Replayed("""{"type":"user","message":{"role":"user","content":"Make it red\n\nImages attached to this task (open them with Read):\nC:\\a.png"}}"""),
+                ClaudeCodeProvider.Replayed("""{"type":"user","message":{"role":"user","content":[{"type":"text","text":"Stop there"}]}}"""),
+                ClaudeCodeProvider.Replayed("""{"type":"user","message":{"content":[{"type":"tool_result","tool_use_id":"t","content":"ok"}]}}""")),
+            ((string?)"Make it red", (string?)"Stop there", (string?)null));
         var toolRequest = ClaudeCodeProvider.Request(
             """{"type":"control_request","request_id":"r1","request":{"subtype":"can_use_tool","tool_name":"Bash","display_name":"Bash","input":{"command":"python -c \"print(42)\"","description":"Print 42"},"description":"Print 42","permission_suggestions":[{"type":"addRules","rules":[{"toolName":"Bash","ruleContent":"python -c \"print(42)\""}],"behavior":"allow","destination":"localSettings"}],"tool_use_id":"toolu_1"}}""");
         Program.Equal("ask: a tool request names the tool, the command and the rule Claude Code suggests",
@@ -2179,6 +2217,25 @@ internal static class AgentTests
         Program.Equal("an earlier Link's session becomes a task of one run",
             AgentTaskRecord.FromSession(new AgentSessionRecord { SessionId = "s9", Workspace = @"C:\Work", Goal = "Fix it", Summary = "Done." }) is
                 { Goal: "Fix it", LastWords: "Done.", Runs: [{ SessionId: "s9" }] }, true);
+    }
+
+    // The words a run's stdin takes while it works: the turn's end leaves it open until they are taken in.
+    private static async Task MidRunWordsAsync()
+    {
+        var input = new AgentInput();
+        await input.OpenAsync(new StreamWriter(new MemoryStream()), "task");
+        var said = await input.SayAsync("{\"type\":\"user\"}", "Make it red");
+        var keptOpen = !await input.CloseAsync(unlessUnread: true);
+        input.Took("task");
+        var stillUnread = input.HasUnread;
+        input.Took("Make it red");
+        Program.Equal("mid-run words: said words keep stdin open past a turn's end until taken in; then it closes, and later words are refused",
+            (said, keptOpen, stillUnread, await input.CloseAsync(unlessUnread: true), await input.SayAsync("{}", "late")), (true, true, true, true, false));
+
+        var inbox = new AgentInbox();
+        var closed = await inbox.SayAsync("x", []);
+        inbox.Open((words, _) => System.Threading.Tasks.Task.FromResult(words == "y"));
+        Program.Equal("mid-run words: an inbox takes words only while a run holds it open", (closed, await inbox.SayAsync("y", []), inbox.IsOpen), (false, true, true));
     }
 
     private static async Task FailureAsync()
@@ -2645,6 +2702,17 @@ internal static class AgentTests
             ("Context budget 550k · 1 skill · MCP: unreal", "Context budget 1M · no skills · no MCP servers"));
     }
 
+    /// <summary>A new task's card left unsent comes back after a restart, its words and pictures as they were.</summary>
+    private static void CardDraftKept()
+    {
+        var file = Path.Combine(TempFolder(), "card-draft.json");
+        AtomicJsonFile.Write(file, new CardDraft("Fix the seats\nand the legs", [@"C:\pictures\a.png", @"C:\pictures\b.png"]), new JsonSerializerOptions());
+        var back = AtomicJsonFile.Read<CardDraft>(file);
+        Program.Equal("card draft: the words and pictures of an unsent card are read back after a restart",
+            (back?.Goal, back?.Pictures.Length, back?.Pictures[1]), ("Fix the seats\nand the legs", (int?)2, @"C:\pictures\b.png"));
+        Directory.Delete(Path.GetDirectoryName(file)!, recursive: true);
+    }
+
     /// <summary>The Studio window's place and inspector are saved with the settings; an older settings.json has the defaults.</summary>
     private static void StudioSettingsKept()
     {
@@ -2658,14 +2726,18 @@ internal static class AgentTests
         var missing = JsonSerializer.Deserialize<AppSettings>("""{"Studio":null}""")!;
         missing.Normalize();
         Program.Equal("studio settings: a missing section is the defaults", Of(missing.Studio), Of(older.Studio));
+        Program.Equal("studio settings: an older settings.json shows the overlay's project in the Studio", older.Studio.ProjectId, null);
 
         var kept = new AppSettings();
         kept.Studio.Remember(120, 80, 1400, 900, maximized: true);
         kept.Studio.InspectorOpen = false;
+        var project = Guid.NewGuid();
+        kept.Studio.ProjectId = project;
         var back = JsonSerializer.Deserialize<AppSettings>(JsonSerializer.Serialize(kept))!;
         back.Normalize();
         Program.Equal("studio settings: the place, the size, maximized and a folded inspector are saved",
             Of(back.Studio), ((double?)120.0, (double?)80.0, 1400.0, 900.0, true, false));
+        Program.Equal("studio settings: the Studio's own project is saved", back.Studio.ProjectId, project);
         Program.Equal("studio settings: a place on a screen left of the first is a place",
             Of(Remembered(-1500, 40, 1000, 700, false)), ((double?)-1500.0, (double?)40.0, 1000.0, 700.0, false, true));
     }
@@ -2944,6 +3016,199 @@ internal static class AgentTests
         finally
         {
             DeleteFolder(workspace);
+            DeleteFolder(folder);
+        }
+    }
+
+    /// <summary>
+    /// Link's own Blender pack (a skill to model, one to rig, a QA role) and a packs folder where the agents changed the
+    /// model skill and the QA role, added a bake skill with a script and an artist role, and left the rig as it shipped.
+    /// </summary>
+    private static (string BuiltIn, string Packs) LearnedPacks()
+    {
+        var builtIn = TempFolder();
+        var packs = TempFolder();
+        foreach (var root in new[] { builtIn, packs })
+        {
+            PackFile(root, "blender/pack.md", "---\nname: Blender\ndescription: Blender\ndetect: *.blend\n---\n");
+            PackFile(root, "blender/skills/blender-model/SKILL.md", "---\nname: blender-model\ndescription: Model a prop.\n---\nBevel last.\n");
+            PackFile(root, "blender/skills/blender-rig/SKILL.md", "---\nname: blender-rig\ndescription: Rig it.\n---\n");
+            PackFile(root, "blender/roles/qa.md", "---\nname: QA\n---\nCheck the model.\n");
+        }
+
+        PackFile(packs, "blender/skills/blender-model/SKILL.md", "---\nname: blender-model\ndescription: Model a prop.\n---\nBevel first: a lesson.\n");
+        PackFile(packs, "blender/roles/qa.md", "---\nname: QA\n---\nCheck the model, then its bake.\n");
+        PackFile(packs, "blender/skills/blender-rig/__pycache__/rig.cpython-312.pyc", "cache");
+        PackFile(packs, "blender/skills/blender-bake/SKILL.md", "---\nname: blender-bake\ndescription: Bake the textures.\n---\nSave to C:\\Users\\vlad\\Desktop\\bake.\n");
+        PackFile(packs, "blender/skills/blender-bake/scripts/run.py", "token = 'abcdef1234567890xyz'\n");
+        PackFile(packs, "blender/roles/artist.md", "---\nname: Artist\n---\nKeep the DriveSlop palette.\n");
+        return (builtIn, packs);
+    }
+
+    private static void PackFile(string root, string name, string text)
+    {
+        var path = Path.Combine(root, name.Replace('/', Path.DirectorySeparatorChar));
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        File.WriteAllText(path, text);
+    }
+
+    /// <summary>What the agents learned is what differs from Link's own, each item with the lines of it that look personal.</summary>
+    private static void KnowledgePackLearned()
+    {
+        Program.Equal("knowledge pack: why a line looks personal",
+            string.Join("|", new[]
+                {
+                    @"Save to C:\Users\vlad\Desktop", "cd /c/Users/vlad/game", "Ask vlad@example.com", "sk-" + new string('a', 24), "password: hunter2hunter2",
+                    "The DriveSlop menu", "DriveSlopper", "Bevel before you bake."
+                }
+                .Select(line => KnowledgePack.Why(line, ["DriveSlop"]) ?? "-")),
+            "a user's folder|a user's folder|an email|a key or token|a key or token|\"DriveSlop\"|-|-");
+
+        var (builtIn, packs) = LearnedPacks();
+        try
+        {
+            var learned = KnowledgePack.Learned(packs, builtIn, ["DriveSlop"]);
+            Program.Equal("knowledge pack: added and changed items with their personal lines; Link's own as shipped and Python's cache left out",
+                string.Join("|", learned.Select(item => $"{item.Item}={item.State}:{string.Join(",", item.Personal)}")),
+                "blender/skills/blender-bake=Added:scripts/run.py:1 a key or token,SKILL.md:5 a user's folder|blender/skills/blender-model=Changed:|" +
+                "blender/roles/artist.md=Added:artist.md:4 \"DriveSlop\"|blender/roles/qa.md=Changed:");
+            Program.Equal("knowledge pack: a skill is described by its SKILL.md, a role without a description by its name",
+                string.Join("|", learned.Select(item => item.Description)), "Bake the textures.|Model a prop.|Artist|QA");
+        }
+        finally
+        {
+            DeleteFolder(builtIn);
+            DeleteFolder(packs);
+        }
+    }
+
+    /// <summary>
+    /// What the agents learned goes to a file and into a friend's packs folder: new items and Link's untouched files are
+    /// taken, a file the friend changed too goes beside theirs, and the friend's agent gets a brief to fit it to a project.
+    /// </summary>
+    private static void KnowledgePackRoundTrip()
+    {
+        var (builtIn, packs) = LearnedPacks();
+        var friend = TempFolder();
+        var folder = TempFolder();
+        var file = Path.Combine(folder, "skills-2026" + TeamPack.Extension);
+        try
+        {
+            KnowledgePack.Export(packs, KnowledgePack.Learned(packs, builtIn, []), file);
+            Program.Equal("knowledge pack: the items with their pack.md, a README and pack.json, nothing else",
+                string.Join("|", PackEntries(file)),
+                "README.md|pack.json|packs/blender/pack.md|packs/blender/roles/artist.md|packs/blender/roles/qa.md|packs/blender/skills/blender-bake/SKILL.md|" +
+                "packs/blender/skills/blender-bake/scripts/run.py|packs/blender/skills/blender-model/SKILL.md");
+            using (var zip = ZipFile.OpenRead(file))
+            using (var readme = new StreamReader(zip.GetEntry("README.md")!.Open()))
+            {
+                var text = readme.ReadToEnd();
+                Program.Equal("knowledge pack: its README says where the skills go without Link, and what is inside",
+                    (text.Contains("~/.claude/skills/"), text.Contains("<project>/.agents/skills/"), text.Contains("- `blender/skills/blender-bake` — Bake the textures.")),
+                    (true, true, true));
+            }
+
+            var team = Path.Combine(folder, "team" + TeamPack.Extension);
+            MakeZip(team, ("pack.json", "{\"format\":1}"), ("roles/qa.md", "x"));
+            var plainText = Path.Combine(folder, "text" + TeamPack.Extension);
+            File.WriteAllText(plainText, "plain text");
+            Program.Equal("knowledge pack: told apart from a team pack and from a file that is no zip",
+                (KnowledgePack.IsOne(file), KnowledgePack.IsOne(team), KnowledgePack.IsOne(plainText)), (true, false, false));
+
+            // The friend's Link seeded its own Blender pack, and the friend changed its QA role since; the bake skill has its
+            // SKILL.md but not its script yet, and the pack's pack.md is gone.
+            ToolPacks.Seed(builtIn, friend);
+            File.Delete(Path.Combine(friend, "blender", "pack.md"));
+            PackFile(friend, "blender/roles/qa.md", "---\nname: QA\n---\nCheck it my way.\n");
+            PackFile(friend, "blender/skills/blender-bake/SKILL.md", File.ReadAllText(Path.Combine(packs, "blender", "skills", "blender-bake", "SKILL.md")));
+            var preview = KnowledgePack.Preview(file, friend);
+            Program.Equal("knowledge pack: a missing file or Link's untouched one updates, a missing item is new, one the friend changed is both",
+                string.Join("|", preview.Select(item => $"{item.Item}={item.State}")),
+                "blender/skills/blender-bake=Updates|blender/skills/blender-model=Updates|blender/roles/artist.md=Added|blender/roles/qa.md=BothChanged");
+            Program.Equal("knowledge pack: an opened pack describes its items", string.Join("|", preview.Select(item => item.Description)),
+                "Bake the textures.|Model a prop.|Artist|QA");
+
+            var nothing = KnowledgePack.Import(file, friend, []);
+            Program.Equal("knowledge pack: nothing ticked, nothing taken",
+                (nothing.Taken.Count, nothing.PutBeside.Count, File.Exists(Path.Combine(friend, "blender", "roles", "artist.md"))), (0, 0, false));
+            var import = KnowledgePack.Import(file, friend, [.. preview.Select(item => item.Item)]);
+            var beside = Path.Combine(friend, KnowledgePack.IncomingFolder, "skills-2026");
+            Program.Equal("knowledge pack: taken into the packs, the friend's changed one put beside",
+                (string.Join("|", import.Taken), string.Join("|", import.PutBeside), import.Beside),
+                ("blender/skills/blender-bake|blender/skills/blender-model|blender/roles/artist.md", "blender/roles/qa.md", beside));
+            Program.Equal("knowledge pack: the pack's files land, the friend's QA stays with the pack's beside it, the pack comes with its pack.md",
+                (File.ReadAllText(Path.Combine(friend, "blender", "skills", "blender-model", "SKILL.md")).Contains("Bevel first"),
+                    File.Exists(Path.Combine(friend, "blender", "skills", "blender-bake", "scripts", "run.py")),
+                    File.ReadAllText(Path.Combine(friend, "blender", "roles", "qa.md")).Contains("my way"),
+                    File.ReadAllText(Path.Combine(beside, "blender", "roles", "qa.md")).Contains("then its bake"),
+                    string.Join("|", ToolPacks.All(friend).Select(pack => pack.Id))),
+                (true, true, true, true, "blender"));
+            Program.Equal("knowledge pack: opened again, all is the same but the friend's own QA",
+                string.Join("|", KnowledgePack.Preview(file, friend).Select(item => $"{item.Item}={item.State}")),
+                "blender/skills/blender-bake=Same|blender/skills/blender-model=Same|blender/roles/artist.md=Same|blender/roles/qa.md=BothChanged");
+            Program.Equal("knowledge pack: taken again, what is the same is left", KnowledgePack.Import(file, friend, [.. import.Taken]).Taken.Count, 0);
+
+            var brief = KnowledgePack.SetUpBrief("skills-2026", friend, import);
+            var plain = KnowledgePack.SetUpBrief("skills-2026", friend, new KnowledgeImport(["blender/skills/blender-bake"], [], beside));
+            Program.Equal("knowledge pack: the set-up brief names what was taken and what is beside, and asks a merge only then",
+                (brief.Contains("- blender/roles/artist.md\n"), brief.Contains($"in {beside}:\n- blender/roles/qa.md\n"), brief.Contains("\n4. For each skill with two versions"),
+                    plain.Contains("- blender/skills/blender-bake\n"), plain.Contains("beside"), plain.Contains("\n4. "), plain.EndsWith("one line per skill.", StringComparison.Ordinal)),
+                (true, true, true, true, false, false, true));
+        }
+        finally
+        {
+            DeleteFolder(builtIn);
+            DeleteFolder(packs);
+            DeleteFolder(friend);
+            DeleteFolder(folder);
+        }
+    }
+
+    /// <summary>A file of another kind or version, and every entry that could leave the packs or hide in them, are refused before anything is written.</summary>
+    private static void KnowledgePackRefusals()
+    {
+        var friend = TempFolder();
+        var folder = TempFolder();
+        try
+        {
+            string Open(params (string Name, string Text)[] entries)
+            {
+                var file = Path.Combine(folder, Guid.NewGuid().ToString("N") + TeamPack.Extension);
+                MakeZip(file, entries);
+                try
+                {
+                    var items = KnowledgePack.Preview(file, friend);
+                    KnowledgePack.Import(file, friend, [.. items.Select(item => item.Item)]);
+                    return string.Join("|", items.Select(item => item.Item));
+                }
+                catch (InvalidDataException)
+                {
+                    return "refused";
+                }
+            }
+
+            const string Manifest = "{\"kind\":\"learned\",\"format\":1,\"created\":\"2026-10-30\",\"items\":[]}";
+            Program.Equal("knowledge pack: a team pack is refused", Open(("pack.json", "{\"format\":1}"), ("packs/blender/roles/qa.md", "x")), "refused");
+            Program.Equal("knowledge pack: a pack of another format is refused", Open(("pack.json", "{\"kind\":\"learned\",\"format\":2}"), ("packs/blender/roles/qa.md", "x")), "refused");
+            foreach (var bad in new[]
+                     {
+                         "packs/../evil.md", "packs/blender/../../evil.md", "packs/blender/skills/x/..\\..\\evil.md", "/packs/evil.md", "C:/evil.md",
+                         "packs//blender/roles/qa.md", "packs/.incoming/roles/qa.md", "packs/.git/roles/qa.md"
+                     })
+            {
+                Program.Equal($"knowledge pack: the entry {bad} is refused", Open(("pack.json", Manifest), ("packs/blender/roles/qa.md", "fine"), (bad, "evil")), "refused");
+            }
+
+            Program.Equal("knowledge pack: nothing was written by any refused pack",
+                (Directory.GetFileSystemEntries(friend).Length, File.Exists(Path.Combine(folder, "evil.md"))), (0, false));
+            Program.Equal("knowledge pack: the README, a folder entry and files outside skills and roles are not taken",
+                Open(("pack.json", Manifest), ("README.md", "x"), ("packs/blender/", string.Empty), ("packs/blender/notes.txt", "x"), ("packs/blender/skills/stray.md", "x"),
+                    ("packs/blender/roles/qa.txt", "x"), ("packs/blender/skills/x/SKILL.md", "---\nname: x\n---\n")),
+                "blender/skills/x");
+        }
+        finally
+        {
+            DeleteFolder(friend);
             DeleteFolder(folder);
         }
     }
@@ -3605,6 +3870,12 @@ See shots/flat.png. Not crate.blend or a.pngx.")),
             var frames = RunImages.Frames([game, "Art/thumb.jpg", "Art/game.png", "Art/crate.blend", "Art/gone.png", "bad\0path.png"], workspace, File.Exists);
             Program.Equal("turn pictures: frames are the images that exist, full paths, a relative one from the workspace, each once",
                 string.Join("|", frames.Select(frame => Path.GetRelativePath(workspace, frame).Replace('\\', '/'))), "Art/game.png|Art/thumb.jpg");
+            // A real PNG of one pixel, read off the UI thread as the thread reads its pictures.
+            var render = Path.Combine(workspace, "Art", "render.png");
+            File.WriteAllBytes(render, Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg=="));
+            Program.Equal("turn pictures: a run's picture is read for its turn, and a file that is no picture shows nothing",
+                (System.Threading.Tasks.Task.Run(() => ThreadImage.Read(render) is not null).GetAwaiter().GetResult(), ThreadImage.Read(game) is null),
+                (true, true));
         }
         finally
         {

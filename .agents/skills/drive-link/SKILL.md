@@ -28,7 +28,8 @@ unasked is refused, and Link's agents spend the user's limits.
 ```powershell
 & .agents\skills\drive-link\newtask.ps1 -Project <name> -Goal <goal.txt> [-Agent 'Claude Code'|Codex] [-NoRun]
 ```
-It waits for 15 s without typing, opens the Studio (the card's Expand, then the Link window's Studio tab), New task, picks the agent if
+It waits for 15 s without typing, opens the Studio (the card's Expand, then the Link window's Studio tab), switches the
+window's project in its header when another one shows, New task, picks the agent if
 asked, puts the goal from the UTF-8 file into `GoalBox`, prints the card (agent, model, effort, access, plan first,
 what goes along) and presses Run. After `-NoRun` the card stays open: invoke `RunButton` once it is right.
 
