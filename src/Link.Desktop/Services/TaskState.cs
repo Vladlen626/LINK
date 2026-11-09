@@ -34,12 +34,10 @@ public static class TaskState
     /// where it told them (the record's list of files otherwise), <paramref name="workspace"/> is where the map and the
     /// skills it points to are looked for, <paramref name="agentName"/> names an agent as Settings does.
     /// </summary>
-    public static string Build(AgentTaskRecord record, string? numstat, string workspace, Func<AgentProviderKind, string>? agentName = null) =>
-        Build(record, numstat, workspace, agentName, NextAction(record));
-
-    private static string Build(AgentTaskRecord record, string? numstat, string workspace, Func<AgentProviderKind, string>? agentName, string next)
+    public static string Build(AgentTaskRecord record, string? numstat, string workspace, Func<AgentProviderKind, string>? agentName = null)
     {
         agentName ??= kind => kind.DefaultName();
+        var next = NextAction(record);
         var pointers = Pointers(workspace);
         var state = string.Empty;
         foreach (var cut in Cuts)
@@ -61,13 +59,6 @@ public static class TaskState
     /// </summary>
     public static string CompactContinue(AgentTaskRecord record, string? numstat, string workspace, string words, Func<AgentProviderKind, string>? agentName = null) =>
         $"{CompactBrief(record, numstat, workspace, agentName)}\n\n{words.Trim()}";
-
-    /// <summary>
-    /// What a fresh session is told before a request of Link's own (<paramref name="next"/>, such as writing proven
-    /// lessons), when the session that would have taken it has grown or gone cold: the task's state with that as its next action.
-    /// </summary>
-    public static string FreshBrief(AgentTaskRecord record, string? numstat, string workspace, string next, Func<AgentProviderKind, string>? agentName = null) =>
-        Build(record, numstat, workspace, agentName, next);
 
     /// <summary>The line the task's history gets when it is compacted, with what the session held when that is known.</summary>
     public static string Compacted(long? contextTokens) =>

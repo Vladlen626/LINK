@@ -25,11 +25,6 @@
         <Setter Property="TextOptions.TextFormattingMode" Value="Ideal" />
     </Style>
 
-    <Style x:Key="BrandTextStyle" TargetType="TextBlock">
-        <Setter Property="FontSize" Value="14" />
-        <Setter Property="FontWeight" Value="SemiBold" />
-    </Style>
-
     <!-- LINK's orange jellyfish on a 24-unit grid: legs, body, eyes. It takes Foreground, so voice states recolor it;
          LinkIconFactory draws the same one for the tray. -->
     <ControlTemplate x:Key="LinkGlyphTemplate" TargetType="Control">

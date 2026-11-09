@@ -50,7 +50,6 @@ internal static class NativeMethods
     internal const uint JobObjectLimitKillOnJobClose = 0x00002000;
     internal const int GwlStyle = -16;
     internal const long WsCaption = 0x00C00000;
-    internal const long WsExTransparent = 0x00000020;
     internal const uint PwRenderFullContent = 0x00000002;
     internal const int QunsRunningD3dFullScreen = 3;
     internal const int D3DDriverTypeHardware = 1;

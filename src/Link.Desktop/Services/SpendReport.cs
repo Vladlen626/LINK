@@ -64,9 +64,6 @@ public sealed record SpendTask
 /// </summary>
 public static class SpendReport
 {
-    /// <summary>The longest history the view offers, the history file's length.</summary>
-    public const int MostDays = UsageHistory.KeptDays;
-
     /// <summary>What a part is called in the legend and its tooltip.</summary>
     public static string Name(SpendPart part) => part switch
     {
