@@ -41,7 +41,7 @@ public static class LinkIconFactory
         }
     }
 
-    // The overlay's own colors: aqua while it works, red when it waits for the user, green for a ready answer.
+    // Link's own colors: aqua while it works, red when it waits for the user, green for a ready answer.
     private static Color? BadgeColor(LinkState state) => state switch
     {
         LinkState.Working => Color.FromArgb(74, 207, 223),

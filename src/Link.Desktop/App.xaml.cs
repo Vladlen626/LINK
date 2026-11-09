@@ -139,7 +139,7 @@ public partial class App : System.Windows.Application
             new ApiKeyStore(paths.TelegramTokenFile, "Link Telegram bot"), action => Dispatcher.BeginInvoke(action), UserIdle.Time, Log,
             paths.Images, paths.TelegramCardsFile);
         _remote.Apply();
-        // The ChatGPT page loads once the overlay is up, so Link starts as fast as without it.
+        // The ChatGPT page loads once Link's window is up, so Link starts as fast as without it.
         Dispatcher.InvokeAsync(() => StartChatPage(chat, paths), DispatcherPriority.ApplicationIdle);
 
         _hotkeys = new GlobalHotkeyService(_mainWindow, Dispatcher);
@@ -279,8 +279,8 @@ public partial class App : System.Windows.Application
         }
     }
 
-    private void ShowNotification(string title, string message, Guid projectId) =>
-        _tray?.ShowNotification(title, message, () => Dispatcher.Invoke(() => _mainWindow?.ShowProject(projectId)));
+    private void ShowNotification(string title, string message, Guid projectId, Guid? taskId) =>
+        _tray?.ShowNotification(title, message, () => Dispatcher.Invoke(() => _mainWindow?.ShowProject(projectId, taskId)));
 
     private void ShowSettings()
     {

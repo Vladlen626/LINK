@@ -21,10 +21,20 @@ public partial class MainWindow
     private ResponsePicture? _responsePicture;
     private DispatcherTimer? _pictureTimer;
 
-    private void ShowResponse(ChatProgressState state, string text)
+    /// <summary>
+    /// The answer panel at the end of the thread: a request on its way, an answer coming or come, or one from the history
+    /// that Show whole put there (<paramref name="exchange"/>).
+    /// </summary>
+    private void ShowResponse(ChatProgressState state, string text, ProjectExchange? exchange = null)
     {
         // Whatever comes on screen is not the attempt the redirects were for; an attempt names itself when it ends.
         _attemptOnScreen = null;
+        // The thread is drawn again when the panel opens, or moves to another chat's thread or back to the current one.
+        var redraw = state == ChatProgressState.Sending || ResponsePanel.Visibility != Visibility.Visible
+            || exchange is not null || _shownExchange is not null;
+        _shownExchange = exchange;
+        // The thread follows a request, and an answer coming while it is read at its end; read higher up, it stays put.
+        var follow = state == ChatProgressState.Sending || ThreadAtEnd();
         RedirectPanel.Visibility = Visibility.Collapsed;
         ResponsePanel.Visibility = Visibility.Visible;
         ResponseStateText.Text = state switch
@@ -55,6 +65,10 @@ public partial class MainWindow
         _responseState = state;
         UpdateReadAloudButton();
         TickPicture();
+        // A request shows the chat it goes to.
+        if (state == ChatProgressState.Sending) _shownChat = null;
+        if (redraw) RefreshChats();
+        if (follow) Dispatcher.BeginInvoke(ThreadScroll.ScrollToEnd, DispatcherPriority.Background);
     }
 
     /// <summary>Whether the answer on screen comes with a picture ChatGPT made; set before the answer is shown.</summary>
@@ -72,7 +86,7 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// Moves the card of a picture still being made, once a second and only while it is: the overlay redraws for each
+    /// Moves the card of a picture still being made, once a second and only while it is: the window redraws for each
     /// tick.
     /// </summary>
     private void TickPicture()
@@ -151,6 +165,7 @@ public partial class MainWindow
         if (text is null)
         {
             _attemptOnScreen = null;
+            _shownExchange = null;
             _responseText = string.Empty;
             RenderResponse(string.Empty);
             ResponsePanel.Visibility = Visibility.Collapsed;
@@ -174,8 +189,18 @@ public partial class MainWindow
         }
     }
 
-    private void CloseResponse_OnClick(object sender, RoutedEventArgs e) =>
+    private void CloseResponse_OnClick(object sender, RoutedEventArgs e)
+    {
         ResponsePanel.Visibility = Visibility.Collapsed;
+        RefreshChats();
+    }
+
+    // The answer is as tall as itself and never scrolls: the wheel over it scrolls the thread.
+    private void ResponseViewer_OnPreviewMouseWheel(object sender, MouseWheelEventArgs e)
+    {
+        e.Handled = true;
+        ThreadScroll.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta) { RoutedEvent = MouseWheelEvent, Source = sender });
+    }
 
     private void RenderResponse(string text)
     {
@@ -297,7 +322,7 @@ public partial class MainWindow
             BorderBrush = (Brush)FindResource("AccentBorderBrush"),
             BorderThickness = new Thickness(1),
             Cursor = Cursors.Hand,
-            ToolTip = "Open the chat in Link's ChatGPT window: look at the picture, save it or go on there",
+            ToolTip = "Open the chat on Link's ChatGPT page: look at the picture, save it or go on there",
             Child = content
         };
         // A chat the prompt has just started has no address yet: the window shows the page as it is.
@@ -322,6 +347,12 @@ public partial class MainWindow
 
     private void OpenLink(Uri uri)
     {
+        if (uri.IsFile && File.Exists(uri.LocalPath))
+        {
+            ShowFile(uri.LocalPath);
+            return;
+        }
+
         try
         {
             Process.Start(new ProcessStartInfo(uri.IsFile ? uri.LocalPath : uri.AbsoluteUri) { UseShellExecute = true });

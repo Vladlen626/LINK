@@ -74,6 +74,7 @@ public abstract class CliAgentProvider : IAgentProvider
         if (talk is not null && Hears && task.Inbox is { } inbox)
         {
             inbox.Open((words, images) => talk.SayAsync(Said(words, images), words));
+            talk.Taken += inbox.Took;
         }
 
         AgentProcessResult process;
@@ -246,7 +247,7 @@ public abstract class CliAgentProvider : IAgentProvider
     {
         var input = task.PlanOnly ? PlanRequest + Input(task) : Input(task);
         return task.ResumeSessionId is null
-            ? AgentRules.Before(input, task.Workspace, !FindsSkills, ProjectRoles.Find(task.RoleId, task.Workspace), task.Skills, Guarded, HelpersText(task))
+            ? AgentRules.Before(input, task.Workspace, !FindsSkills, ProjectRoles.Of(task.RoleIds, ProjectRoles.In(task.Workspace)), task.Skills, Guarded, HelpersText(task))
             : input;
     }
 

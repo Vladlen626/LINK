@@ -10,8 +10,8 @@ public partial class MainWindow
     /// <summary>
     /// The workspace's Map button: the agent looks through the folder, told to change nothing, and Link writes its answer to
     /// docs/map.md, the one change, shown and undone like any other. Link's own answer, on Quick: a run of its own
-    /// in the Studio, beside the tasks at work, which it leaves as they are. <paramref name="project"/> is the overlay's or the
-    /// Studio's, by where it was asked.
+    /// in the Studio, beside the tasks at work, which it leaves as they are. <paramref name="project"/> is the one it was
+    /// asked for.
     /// </summary>
     private async Task WriteProjectMapAsync(LinkProject project)
     {
@@ -77,7 +77,7 @@ public partial class MainWindow
         var running = own.Live is not null;
         var status = running ? "working" : own.Status;
         return new TaskRow($"Link writes {OwnWhat(own.Task)}", "Link's own answer, apart from the tasks",
-            string.Empty, $"{AgentName(own.Task.Provider)} · {status}", (Brush)FindResource(running ? "BusyOrbBrush" : own.Dot), RoleBrushes.Link, null)
+            string.Empty, $"{AgentName(own.Task.Provider)} · {status}", (Brush)FindResource(running ? "BusyOrbBrush" : own.Dot), [RoleBrushes.Link], null)
         {
             Group = running ? TaskGroup.Running : TaskGroup.Recent
         };
@@ -92,8 +92,9 @@ public partial class MainWindow
         task = task with { ContextBudget = _settings.Current.Agent.ContextBudget, EffortReason = null };
         var provider = _agents.Provider(task.Provider);
         var turn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort, unknown: ".")}", "Starting…",
-            (Brush)FindResource("AccentBrush"), RoleBrushes.For(task.RoleId, WorkspaceRoles(task.Workspace))) { StepsOpen = true };
+            (Brush)FindResource("AccentBrush"), []) { StepsOpen = true };
         var live = new LiveRun(task, turn, _limits.For(task.Provider));
+        turn.Kit = JellyfishOf(live.KitFiles, task.RoleIds, live.Opened);
         var own = _own = new OwnRun(task, turn, project) { Live = live };
         _agentPanel ??= CreateAgentPanel();
         ShowOwnRun();
@@ -102,7 +103,7 @@ public partial class MainWindow
         _cues.Play(SoundCue.Sent);
         SayAgent($"{ShortName(task.Provider)} начал работу.", $"{ShortName(task.Provider)} started.");
         AgentStatus($"{provider.Name} writes {OwnWhat(task)} · Stop is in the Studio");
-        UpdateAgentPill();
+        UpdateStudioTab();
         RefreshTaskList();
         var progress = new Progress<AgentEvent>(agentEvent =>
         {
@@ -140,7 +141,7 @@ public partial class MainWindow
             ShowOwnFailure(own, failure);
         }
 
-        UpdateAgentPill();
+        UpdateStudioTab();
         RefreshTaskList();
         RefreshStudio();
         StartWaitingRuns();
@@ -200,7 +201,7 @@ public partial class MainWindow
         turn.Stats = StatsLine(result.Stats) + SpentLine(run.Task.Provider, SpentByRun(live));
         turn.StepsOpen = false;
         if (_ownShown) ShowOwnRun();
-        _projectPanel?.ShowProject(StudioProject);
+        _projectPanel.ShowProject(_projects.ActiveProject);
         var name = ShortName(run.Task.Provider);
         if (result.Stopped) return;
         _cues.Play(result.Succeeded ? SoundCue.Done : SoundCue.Error);

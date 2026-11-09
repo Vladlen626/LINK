@@ -1,14 +1,13 @@
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
-using Link.Desktop.Models;
 
 namespace Link.Desktop;
 
 /// <summary>
-/// The Chats tab beside Link, as ChatGPT's own list of chats: the project's chats, and one chat as a thread of what
-/// was asked through Link and what came back. Opening a chat makes it the one Link talks in. It only shows and asks;
-/// the window does the work.
+/// The Chat tab's sidebar, as ChatGPT's own list of chats: the project's chats, a new one, and how the chat stands.
+/// Choosing a chat makes it the one Link talks in, and its thread shows beside. It only shows and asks; the window does
+/// the work.
 /// </summary>
 public partial class ChatsPanel : UserControl
 {
@@ -25,33 +24,23 @@ public partial class ChatsPanel : UserControl
     /// <summary>Link's ChatGPT page is to be shown, at the current chat.</summary>
     public event Action? OpenChatRequested;
 
-    /// <summary>An answer of a thread is to be shown whole in Link's card.</summary>
-    public event Action<ProjectExchange>? AnswerShown;
-
     public void ShowChats(IReadOnlyList<ChatRow> chats)
     {
         ChatList.ItemsSource = chats;
         ChatsEmptyText.Visibility = chats.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
-    public void ShowListView()
+    /// <summary>The keyboard on the shown chat's row, else on New chat: arrows and Tab go on from there.</summary>
+    public void FocusList()
     {
-        ListView.Visibility = Visibility.Visible;
-        ThreadView.Visibility = Visibility.Collapsed;
-    }
-
-    /// <summary>One chat's thread, oldest first; <paramref name="hint"/> says where the next message goes.</summary>
-    public void ShowThread(string title, IReadOnlyList<object> items, string hint, bool canOpen)
-    {
-        ThreadTitle.Text = title;
-        ThreadTitle.ToolTip = title;
-        ThreadList.ItemsSource = items;
-        ThreadEmptyText.Visibility = items.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
-        ThreadHintText.Text = hint;
-        OpenThreadButton.Visibility = canOpen ? Visibility.Visible : Visibility.Collapsed;
-        ListView.Visibility = Visibility.Collapsed;
-        ThreadView.Visibility = Visibility.Visible;
-        Dispatcher.BeginInvoke(ThreadScroll.ScrollToEnd, System.Windows.Threading.DispatcherPriority.Background);
+        ChatList.UpdateLayout();
+        var open = ChatList.Items.OfType<ChatRow>().FirstOrDefault(row => row.IsOpen);
+        if (open is not null && ChatList.ItemContainerGenerator.ContainerFromItem(open) is ContentPresenter presenter &&
+            VisualTreeHelper.GetChildrenCount(presenter) > 0 && VisualTreeHelper.GetChild(presenter, 0) is UIElement row)
+        {
+            row.Focus();
+        }
+        else NewChatButton.Focus();
     }
 
     /// <param name="canSummarize">The current chat exists, so it can write a summary for a new one.</param>
@@ -87,21 +76,9 @@ public partial class ChatsPanel : UserControl
     }
 
     private void OpenChat_OnClick(object sender, RoutedEventArgs e) => OpenChatRequested?.Invoke();
-    private void OpenThread_OnClick(object sender, RoutedEventArgs e) => OpenChatRequested?.Invoke();
-    private void Back_OnClick(object sender, RoutedEventArgs e) => ShowListView();
-
-    private void UserWords_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { DataContext: ThreadUser words }) words.Open = !words.Open;
-    }
 
     private void ChatRow_OnClick(object sender, RoutedEventArgs e)
     {
         if (sender is FrameworkElement { DataContext: ChatRow row }) ChatSelected?.Invoke(row);
-    }
-
-    private void ShowAnswer_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { DataContext: ThreadAnswer answer }) AnswerShown?.Invoke(answer.Exchange);
     }
 }

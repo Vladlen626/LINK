@@ -20,8 +20,8 @@ public partial class MainWindow
     /// <summary>Whether any agent works now: a task's run or Link's own step for it, or Link's own answer.</summary>
     private bool AnyRunning => _works.Any(work => work.Busy) || _own?.Live is not null;
 
-    /// <summary>The task the pill names: the open one, else the first at work or waiting for its folder.</summary>
-    private TaskWork? PillWork => _open ?? _works.FirstOrDefault(work => work.Busy || work.Waiting is not null);
+    /// <summary>The task the Studio tab's dot is of: the open one, else the first at work or waiting for its folder.</summary>
+    private TaskWork? TabWork => _open ?? _works.FirstOrDefault(work => work.Busy || work.Waiting is not null);
 
     /// <summary>The task Link holds for a record, by its id; null when it holds none.</summary>
     private TaskWork? WorkOf(Guid id) => _works.FirstOrDefault(work => work.Record.Id == id);
@@ -62,7 +62,7 @@ public partial class MainWindow
         work.Waiting = new WaitingRun(start, why, work.Waiting?.Since ?? DateTimeOffset.Now);
         SaveTask(work);
         ShowTask(work);
-        UpdateAgentPill();
+        UpdateStudioTab();
         UpdateRouteButton();
         AgentStatus(work, $"the task waits: {why}");
     }
@@ -75,7 +75,7 @@ public partial class MainWindow
         work.Record.Add(AgentEntryKind.You, "Called off the run that waited");
         SaveTask(work);
         ShowTask(work);
-        UpdateAgentPill();
+        UpdateStudioTab();
         UpdateRouteButton();
     }
 
@@ -172,7 +172,8 @@ public partial class MainWindow
                 Model = task.Model,
                 Effort = task.Effort,
                 EffortReason = task.EffortReason,
-                RoleId = task.RoleId,
+                RoleIds = [.. task.RoleIds],
+                Opened = [.. live.Opened],
                 Judge = task.Judge,
                 AutoApprove = task.AutoApprove,
                 SessionId = live.SessionId ?? task.ResumeSessionId,
@@ -243,6 +244,9 @@ public partial class MainWindow
         public string? SteerWith { get; set; }
         public IReadOnlyList<string> SteerImages { get; set; } = [];
         public string? Queued { get; set; }
+
+        /// <summary>Words told while it works that the session has not taken in yet: the composer shows them until it does.</summary>
+        public List<string> Unread { get; } = [];
         public List<string> QueuedImages { get; } = [];
 
         // What the next words run on, chosen in the composer.
@@ -291,6 +295,10 @@ public partial class MainWindow
         public List<AgentEvent> Pending { get; } = [];
         public List<string> Steps { get; } = [];
         public HashSet<string> Files { get; } = new(StringComparer.OrdinalIgnoreCase);
+
+        // The kit's files the agent opened (see ProjectRoles.Opened), which light its jellyfish, and where they are read from.
+        public HashSet<string> Opened { get; } = new(StringComparer.Ordinal);
+        public KitFiles KitFiles { get; } = new(task.Workspace);
 
         // The pictures the run looked at or wrote, oldest first; one looked at again moves to the end.
         public List<string> Images { get; } = [];

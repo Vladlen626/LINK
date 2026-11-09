@@ -1,6 +1,7 @@
 using System.Collections.Concurrent;
 using System.Collections.ObjectModel;
 using System.ComponentModel;
+using System.Text;
 using System.Text.RegularExpressions;
 using System.Windows;
 using System.Windows.Media;
@@ -61,20 +62,21 @@ public sealed class ThreadUser(string text, string time, string carried = "") : 
 /// <summary>A line between the turns of a task: a hand-over, another model, a limit, the task finished.</summary>
 public sealed record ThreadNote(string Text, string Time);
 
-/// <summary>A chat's answer in its thread, cut to a glance; Show puts the whole of it in Link's card.</summary>
+/// <summary>A chat's answer in its thread, cut to a glance; Show whole puts the whole of it under the thread.</summary>
 public sealed record ThreadAnswer(string Text, string Time, ProjectExchange Exchange);
 
 /// <summary>
 /// An agent's run in its task's thread: who worked and on what, its steps folded, its answer, the files it changed and
-/// what it cost. The running one fills as the events come. <see cref="RoleBrush"/> is the colour of the jellyfish of the
-/// specialist the run worked as.
+/// what it cost. The running one fills as the events come. <see cref="Kit"/> is what the run worked with as jellyfish:
+/// its specialists and packs, lit as the agent opens their files.
 /// </summary>
-public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, Brush roleBrush) : INotifyPropertyChanged
+public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, IReadOnlyList<Jellyfish> kit) : INotifyPropertyChanged
 {
     private const int StepsKept = StepGroup.RowsKept;
     private string _who = who;
     private string _outcome = outcome;
     private Brush _outcomeBrush = outcomeBrush;
+    private IReadOnlyList<Jellyfish> _kit = kit;
     private string _current = string.Empty;
     private string _said = string.Empty;
     private IReadOnlyList<LocalPages.Page> _pages = [];
@@ -94,7 +96,12 @@ public sealed class ThreadTurn(string who, string outcome, Brush outcomeBrush, B
         set => Set(ref _who, value, nameof(Who));
     }
 
-    public Brush RoleBrush { get; } = roleBrush;
+    /// <summary>The run's specialists, the lead first, and its packs; a running turn's light up as the agent opens their files.</summary>
+    public IReadOnlyList<Jellyfish> Kit
+    {
+        get => _kit;
+        set => Set(ref _kit, value, nameof(Kit));
+    }
 
     /// <summary>The run's steps in order: the agent's words as rows, the tool steps between them as <see cref="StepGroup"/>s.</summary>
     public ObservableCollection<object> Steps { get; } = [];
@@ -423,11 +430,11 @@ public sealed record PanelToggle(string Label, string Hint, bool On, Action<bool
 
 /// <summary>
 /// A task in the Studio's sidebar: its goal, how it stands and its last words; no record: Link's own run (the map).
-/// <see cref="RoleBrush"/> is the colour of its specialist's jellyfish; <see cref="IsOpen"/> lights the row of the task the
+/// <see cref="RoleColors"/> are the colours of its specialists' jellyfish, the lead first; <see cref="IsOpen"/> lights the row of the task the
 /// Studio shows; <see cref="Group"/> is the sidebar's group it is listed under; <see cref="Spend"/> is where its tokens
 /// went, drawn as a thin bar <see cref="SpendScale"/> of the costliest listed task's long.
 /// </summary>
-public sealed record TaskRow(string Title, string Preview, string Time, string Status, Brush StatusBrush, Brush RoleBrush, AgentTaskRecord? Record)
+public sealed record TaskRow(string Title, string Preview, string Time, string Status, Brush StatusBrush, IReadOnlyList<Brush> RoleColors, AgentTaskRecord? Record)
 {
     public bool IsOpen { get; init; }
     public TaskGroup Group { get; init; } = TaskGroup.Recent;
@@ -447,6 +454,17 @@ public enum TaskGroup
 /// <summary>The line over a group of the sidebar's tasks.</summary>
 public sealed record TaskGroupHeader(string Title);
 
+/// <summary>
+/// A project's tab under Link's caption: <see cref="Active"/> lights the window's project; <see cref="Dot"/>, null for none,
+/// is the colour of what its agents do (one waits for the user, else one works). <see cref="NameId"/> names the lit tab's
+/// text for UI Automation: drive-link reads the window's project by it.
+/// </summary>
+public sealed record ProjectTab(LinkProject Project, string Name, bool Active, Brush? Dot, string Hint)
+{
+    public Visibility DotVisibility => Dot is null ? Visibility.Collapsed : Visibility.Visible;
+    public string NameId => Active ? "ProjectText" : string.Empty;
+}
+
 /// <summary>The jellyfish's brushes: one frozen brush for each colour, shared by every row that has it.</summary>
 public static class RoleBrushes
 {
@@ -464,22 +482,55 @@ public static class RoleBrushes
     });
 
     /// <summary>
-    /// The brush of the specialist <paramref name="roleId"/>, found among <paramref name="roles"/>, which are read only when
-    /// there is one to find; Link's orange for General and for a role whose file is gone.
+    /// The brushes of the specialists <paramref name="roleIds"/>, the lead first, found among <paramref name="roles"/>, which
+    /// are read only when there is one to find; Link's orange alone for General and for roles whose files are gone.
     /// </summary>
-    public static Brush For(string? roleId, Lazy<IReadOnlyList<AgentRole>> roles) =>
-        roleId is null || roles.Value.FirstOrDefault(role => string.Equals(role.Id, roleId, StringComparison.OrdinalIgnoreCase)) is not { } found
-            ? Link
-            : Of(ProjectRoles.ColorOf(found, roles.Value));
+    public static IReadOnlyList<Brush> For(IReadOnlyList<string> roleIds, Lazy<IReadOnlyList<AgentRole>> roles) =>
+        roleIds.Count == 0 || ProjectRoles.Of(roleIds, roles.Value) is not { Count: > 0 } found
+            ? [Link]
+            : [.. found.Select(role => Of(ProjectRoles.ColorOf(role, roles.Value)))];
 }
 
 /// <summary>
-/// A chat in the Chats list. <see cref="ConversationId"/> is null for the answers an earlier Link kept without their
-/// chat (<see cref="IsEarlier"/>) and for a new chat the next message starts.
+/// Words that wait for the agent above the composer: told while it works and not read yet, or kept for after the run
+/// (those can be taken back into the box).
+/// </summary>
+public sealed record QueuedWords(string Words, string State, bool CanTakeBack)
+{
+    public Visibility TakeBackVisibility => CanTakeBack ? Visibility.Visible : Visibility.Collapsed;
+}
+
+/// <summary>
+/// A jellyfish of a task's kit (<see cref="ProjectRoles.Kit"/>): a specialist in its colour, or a pack in the muted one. It
+/// is pale while Link has only given it and bright once the agent opened its role or one of its skills; its hint names
+/// what it brings, and a click opens its file.
+/// </summary>
+public sealed record Jellyfish(string Name, Brush Brush, bool Lit, string Hint, string? FilePath)
+{
+    public double Opacity => Lit ? 1 : 0.45;
+
+    /// <summary>The kit's parts as jellyfish; a pack, with no colour of its own, in <paramref name="packBrush"/>.</summary>
+    public static IReadOnlyList<Jellyfish> Of(IReadOnlyList<KitPart> kit, Brush packBrush) =>
+        [.. kit.Select(part => new Jellyfish(part.Name, part.Color is null ? packBrush : RoleBrushes.Of(part.Color), part.Lit, HintOf(part), part.FilePath))];
+
+    private static string HintOf(KitPart part)
+    {
+        var hint = new StringBuilder(part.Name);
+        if (part.Description.Length > 0) hint.Append(": ").Append(part.Description);
+        if (part.Skills.Count > 0) hint.Append("\nSkills: ").AppendJoin(", ", part.Skills);
+        if (part.FilePath is not null) hint.Append(part.Lit ? "\nThe agent opened it" : "\nGiven by Link; the agent has not opened it yet").Append(" · click to open");
+        return hint.ToString();
+    }
+}
+
+/// <summary>
+/// A chat in the Chat tab's sidebar. <see cref="ConversationId"/> is null for the answers an earlier Link kept without
+/// their chat (<see cref="IsEarlier"/>) and for a new chat the next message starts. <see cref="IsCurrent"/>: Link talks
+/// in it; <see cref="IsOpen"/>: its thread is the one shown.
 /// </summary>
 public sealed record ChatRow(string Title, string Preview, string Time, string? ConversationId, bool IsCurrent, bool IsEarlier = false)
 {
-    public FontWeight Weight => IsCurrent ? FontWeights.SemiBold : FontWeights.Normal;
+    public bool IsOpen { get; init; }
     public Visibility CurrentVisibility => IsCurrent ? Visibility.Visible : Visibility.Collapsed;
 }
 

@@ -7,29 +7,9 @@ namespace Link.Desktop.Windows;
 
 public static class WindowStyleService
 {
-    // The overlay is a layered window: DWM system backdrops are milky and cannot be tuned, while the
-    // accent blur only softens what shows through the window's own translucent pixels.
-    public static bool EnableGlass(Window window, bool blur)
-    {
-        var handle = new WindowInteropHelper(window).Handle;
-        if (handle == IntPtr.Zero) return false;
-
-        try
-        {
-            return SetAccent(handle, new AccentPolicy
-            {
-                AccentState = blur ? NativeMethods.AccentEnableBlurBehind : NativeMethods.AccentDisabled
-            });
-        }
-        catch (EntryPointNotFoundException)
-        {
-            return false;
-        }
-    }
-
-    // The big windows and dialogs are solid in the overlay's colours: a system backdrop is milky grey and cannot be
-    // tinted. Their frame takes the same colours: the dark caption buttons everywhere, and on Windows 11 the caption,
-    // its text and the border.
+    // Link's window and dialogs are solid in Link's colours: a system backdrop is milky grey and cannot be tinted.
+    // Their frame takes the same colours: the dark caption buttons everywhere, and on Windows 11 the caption, its text
+    // and the border.
     public static void PaintFrame(Window window, bool dark, Color caption, Color text)
     {
         var handle = new WindowInteropHelper(window).Handle;
@@ -54,27 +34,6 @@ public static class WindowStyleService
 
     // COLORREF is 0x00BBGGRR.
     private static int ColorRef(Color color) => color.R | color.G << 8 | color.B << 16;
-
-    private static bool SetAccent(IntPtr handle, AccentPolicy accent)
-    {
-        var size = Marshal.SizeOf<AccentPolicy>();
-        var accentPointer = Marshal.AllocHGlobal(size);
-        try
-        {
-            Marshal.StructureToPtr(accent, accentPointer, false);
-            var data = new WindowCompositionAttributeData
-            {
-                Attribute = NativeMethods.WcaAccentPolicy,
-                Data = accentPointer,
-                SizeOfData = size
-            };
-            return NativeMethods.SetWindowCompositionAttribute(handle, ref data);
-        }
-        finally
-        {
-            Marshal.FreeHGlobal(accentPointer);
-        }
-    }
 
     /// <summary>
     /// Keeps a helper window off the taskbar and Alt+Tab. With <paramref name="noActivate"/> neither a click nor the
@@ -179,21 +138,4 @@ public static class WindowStyleService
             window.Top = virtualTop + Math.Max(16, (SystemParameters.VirtualScreenHeight - window.Height) / 2);
         }
     }
-}
-
-[StructLayout(LayoutKind.Sequential)]
-internal struct AccentPolicy
-{
-    public int AccentState;
-    public int AccentFlags;
-    public int GradientColor;
-    public int AnimationId;
-}
-
-[StructLayout(LayoutKind.Sequential)]
-internal struct WindowCompositionAttributeData
-{
-    public int Attribute;
-    public IntPtr Data;
-    public int SizeOfData;
 }

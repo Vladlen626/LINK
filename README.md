@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="docs/images/overview.svg" width="880" alt="Link over Blender: the project panel and the card with an answer">
+  <img src="docs/images/overview.svg" width="880" alt="Link over Blender: the Chat tab with its chats, a question and its answer">
 </p>
 
 <h1 align="center">Link</h1>
@@ -15,13 +15,13 @@
   <a href="LICENSE"><img alt="MIT license" src="https://img.shields.io/badge/license-MIT-3FB950"></a>
 </p>
 
-Link is a small always-on-top overlay for Windows. You work in Unreal, Unity, Blender, an IDE or a browser; Link sends
-your question to your ChatGPT conversation together with what you choose (a frame of the window you work in, the
-clipboard, the project note, your voice) and shows the answer on top of your work. When the answer is work in your
-folder, **Claude Code** or **Codex** does it under a harness that keeps them on track. Chats and agent tasks live in
-one **Link window** with two tabs, **Chat** and **Studio**; the card on top of your work is for quick input.
+Link is one window for Windows with two tabs. You work in Unreal, Unity, Blender, an IDE or a browser; `Ctrl+Alt+Space`
+brings Link up on its **Chat** tab, and your question goes to your ChatGPT conversation together with what you choose (a
+frame of the window you work in, the clipboard, the project note, your voice). When the answer is work in your folder,
+**Claude Code** or **Codex** does it on the **Studio** tab, under a harness that keeps them on track.
 
-- **Ask in place.** Type or hold a key and talk; the card shows what the model sees and streams the answer.
+- **Ask in place.** Type or hold a key and talk; the Chat box shows what the model sees, and the answer streams into
+  the chat's thread.
 - **Talk.** Local speech recognition while you hold a key, answers read aloud.
 - **Agents as conversations.** A task is one thread from the brief to the result: its plan, steps, pictures, changes
   and cost. Several tasks run side by side.
@@ -36,41 +36,59 @@ one **Link window** with two tabs, **Chat** and **Studio**; the card on top of y
    your subscription. For voice: [Visual C++ Redistributable 2022 x64](https://aka.ms/vs/17/release/vc_redist.x64.exe).
 2. Download `Link-<version>-win-x64.zip` (~100 MB) from [Releases](../../releases), unzip it to a folder of your own
    (not Program Files) and run `Link.exe`. The build is not signed: SmartScreen may warn, More info → Run anyway.
-3. **Welcome to LINK** checks your agents. Then open the Link window (**Expand** on the card), its **Chat** tab,
-   **ChatGPT page**, sign in once, and pick a folder for the project under its name in the window's header. Claude Code signs in from Settings → Agents → **Sign in**, Codex with `codex login`.
+3. **Welcome to LINK** checks your agents. Then, on the **Chat** tab, the line under **New chat** opens Link's ChatGPT
+   page: sign in once. **+** on the project tabs opens a folder as a project. Claude Code signs in from
+   Settings → Agents → **Sign in**, Codex with `codex login`.
 
 Optional: paste [docs/harness/chat-instructions.md](docs/harness/chat-instructions.md) into the instructions of the
 ChatGPT project Link talks to.
 
 ## Ask
 
-- **The card.** Write, or hold `Ctrl+Alt+V` and talk; `Enter` sends. **ChatGPT · ‹chat› ▾** says where it goes (a
+- **The Chat box.** Write, or hold `Ctrl+Alt+V` and talk; `Enter` sends. **ChatGPT · ‹chat› ▾** says where it goes (a
   chat, or the project's agent).
 - **What goes along is in sight.** **Sees** shows the frame (a window, a monitor or a region; or a fresh frame of the
   window you work in on every send), and chips show the project note and the clipboard; `×` leaves one out. Above the
   answer, **Saw** lists what really went.
-- **The answer** streams in as Markdown; **Listen** reads it aloud. Under it, **→ Agent task**.
-- **The Link window** (**Expand** on the card, `Ctrl+1` and `Ctrl+2` for its tabs): **Chat** with the project's chats
-  (`Ctrl+K`), **Studio** with the agents' tasks, and the project's column (its note, folder, map, skills and check
-  command) under the project's name in the header, on both tabs.
+- **The answer** streams in as Markdown at the end of the chat's thread; **Listen** reads it aloud, **Check chat** takes
+  it from the chat if it did not arrive. Under it, **→ Agent task**. An earlier answer opens whole with **Show whole**.
+- **Chats on the left**, as in ChatGPT: the project's chats, **New chat** (with a summary of the current one if you
+  like) and the line that opens Link's ChatGPT page. `Ctrl+K` goes to the list, `Ctrl+B` folds it.
+- **Two tabs** (`Ctrl+1`, `Ctrl+2`): **Chat**, and **Studio** with the agents' tasks. Under them, a tab for each
+  project; the lit one's menu opens its column (its note, folder, map, skills and check command) on either tab. `Esc`
+  hides Link to the tray.
 - ChatGPT runs in Link's own page (WebView2) off screen, so it types at full speed with no browser open.
 
 ## Agents on the Studio tab
 
 <p align="center">
-  <img src="docs/images/studio.svg" width="880" alt="Link Studio: the task list, a task's thread with its plan, and the Harness column">
+  <img src="docs/images/studio.svg" width="880" alt="Link on its Studio tab: the task list, a task's thread with its plan, and the Harness column">
 </p>
 
-- **Start a task** with `Ctrl+Enter` in the card, **New task** in Studio (`Ctrl+N`) or **→ Agent task** under an
+- **Start a task** with `Ctrl+Enter` in the Chat box, **New task** in Studio (`Ctrl+N`) or **→ Agent task** under an
   answer. A card shows the brief, the agent, model, effort and access; nothing runs before **Run**. **Plan first**
   has the agent only read and propose. A card left without Run keeps its words and pasted pictures as a draft, also
   across a restart: the next **New task** starts from it.
-- **Its own project.** The window's header picks the project Studio shows, apart from the card's: write in one while
-  agents work in another. A task or card opened from the card turns Studio to its project.
+- **Several projects at once.** Each project is a tab; a dot on it says its agent works or waits for you. The window
+  shows one project's chats and tasks, and the agents of the others keep working.
+- **Link picks the specialists.** From the brief, Link gives a task one to three specialists, the lead first, and at
+  most four skills to read first: there is nothing to choose. Each specialist and each tool pack is a jellyfish on the
+  card and on every run, pale while Link has only given it and bright once the agent opens its role or one of its
+  skills. Hover for its skills, click to read its files in Link.
 - **One task, one thread.** Each run shows its steps folded ("Ran 3 commands, read 4 files…"), the pictures it looked
   at, its answer, the files it changed and what it cost. The agent's own task list is the **Plan** at the top.
 - **Talk while it works.** `Enter` is **Tell now**: Claude reads your words at its next step, nothing stops. Codex
   gets **Steer now**. `Tab` keeps your words for after the run; `↑` in an empty box brings back your last words.
+  What waits shows above the box: words the agent has not read yet (gone once it reads them, "read your words" in
+  the status line) and words for after the run, which **Take back** returns into the box.
+- **Talk to the agents.** Hold the microphone on the card or in a task's box, or `Ctrl+Alt+V` on the Studio tab: your
+  words go into the brief or the box in view, and `Enter` (`Ctrl+Enter` on the card) while you speak sends them once
+  written. Over the task list push-to-talk turns to the Chat tab.
+- **See it in Link.** A file an answer names, a jellyfish, a skill, the project's map and **Memory** (the map and
+  Claude's notes on the project) open in Link's viewer over the tab: Markdown, pictures (a changed one beside its
+  last commit), OBJ and STL models to turn with the mouse, and any text. Nothing opened there runs; `Esc` goes back.
+  On the Studio tab, with a task open, pick words or click a point of a picture and write a comment: **Send to the
+  task** gives them all to its agent as your next words, the pictures with them.
 - **Checked work.** Your check command (a build, tests) runs after every run with edits; a failure goes back to the
   agent, twice at most. When a plan of three steps or more is done, **Check the work** has a fresh session review the
   whole diff step by step, and **Fix them** sends its findings back.
@@ -80,8 +98,10 @@ ChatGPT project Link talks to.
   in Perforce and without a VCS Link shows what changed.
 - **Access.** **Edit** asks before commands, **Auto** asks nothing. **Night mode**, for while you sleep, lets the agent do
   anything (push and submit too), takes its recommended choice after 10 s and keeps the computer awake while it works.
-- **Spend** (`Ctrl+Shift+U`): where a task's tokens went, tips to save with a **Fix**, the context curve, usage windows
-  and history; today's and this month's cost by [ccusage](https://ccusage.com).
+- **Spend** (`Ctrl+Shift+U`): the usage windows first (how much is used, this task's part, whether it lasts to the
+  reset), then where a task's tokens went, tips to save with a **Fix**, the context curve and history; today's and this
+  month's cost by [ccusage](https://ccusage.com).
+- A Windows notification of an agent (it finished, failed or asks) opens its task on the Studio tab.
 
 ## The harness
 
@@ -115,7 +135,7 @@ quick tunnel while Link runs.
 | Push-to-talk | `Ctrl+Alt+V` |
 | Send | `Ctrl+Alt+Enter` |
 | Whole desktop · active window · region | `Ctrl+Alt+D` · `Ctrl+Alt+W` · `Ctrl+Alt+Shift+R` |
-| New agent task (in the card) | `Ctrl+Enter` |
+| New agent task (in the Chat box) | `Ctrl+Enter` |
 
 All change in Settings. `F13`–`F24` work without modifiers: handy on a macro pad or a pedal.
 
@@ -153,7 +173,7 @@ bench/              Link Bench
 
 ## Limits
 
-- **ChatGPT.** A very long chat answers slowly in Link and in ChatGPT alike: start a new one (**New chat ▾**, with a
+- **ChatGPT.** A very long chat answers slowly in Link and in ChatGPT alike: start a new one (**New chat**, with a
   summary if needed). Its page takes 650–750 MB right after an answer and about 450 MB at rest.
 - **The ChatGPT page can change.** Link logs what it saw when it cannot read an answer.
 - **Voice.** Models download on first use (Whisper Base 148 MB; turbo 574 MB with a Vulkan GPU). No echo

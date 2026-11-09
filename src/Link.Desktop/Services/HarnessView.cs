@@ -85,13 +85,14 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
 
     public static HarnessView Build(HarnessInput input)
     {
-        var role = ProjectRoles.Find(input.Task?.RoleId, input.Workspace);
+        var all = ProjectRoles.In(input.Workspace);
+        var roles = ProjectRoles.Of(input.Task?.RoleIds ?? [], all);
         return new HarnessView(
         [
-            Setup(input, role),
+            Setup(input, roles),
             Context(input),
             Rules(),
-            RoleSection(input, role),
+            RoleSection(input, roles, all),
             Memory(input.Workspace),
             State(input),
             Skills(input),
@@ -128,10 +129,11 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
             Note = "The session keeps the plan and hands them parts it can describe exactly; their steps show in the thread"
         };
 
-    private static HarnessSection Setup(HarnessInput input, AgentRole? role)
+    private static HarnessSection Setup(HarnessInput input, IReadOnlyList<AgentRole> roles)
     {
         var caps = input.Capabilities;
-        return new HarnessSection("Setup", $"{role?.Name ?? input.Task?.RoleId ?? "General"} · {input.Agent} · {input.Setup}")
+        var names = roles.Count > 0 ? roles.Select(role => role.Name) : input.Task?.RoleIds is { Count: > 0 } ids ? ids : ["General"];
+        return new HarnessSection("Setup", $"{string.Join(" + ", names)} · {input.Agent} · {input.Setup}")
         {
             Note = $"Effort: {input.EffortWhy}\n{(caps.Subscription ? "Subscription" : "API, no subscription")} · code goes to {caps.SeesCode}"
         };
@@ -164,20 +166,22 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
         };
     }
 
-    private static HarnessSection RoleSection(HarnessInput input, AgentRole? role)
+    // The task's roles in one section, the lead first: its file and colour stand for them.
+    private static HarnessSection RoleSection(HarnessInput input, IReadOnlyList<AgentRole> roles, IReadOnlyList<AgentRole> all)
     {
-        if (role is not null)
+        if (roles.Count > 0)
         {
-            return new HarnessSection("Role", role.Name)
+            var notes = roles.Where(role => role.Description.Length > 0).Select(role => roles.Count == 1 ? role.Description : $"{role.Name}: {role.Description}");
+            return new HarnessSection("Role", string.Join(" + ", roles.Select(role => role.Name)))
             {
-                Note = role.Description.Length > 0 ? role.Description : null,
-                FilePath = role.FilePath,
-                Color = ProjectRoles.ColorOf(role, ProjectRoles.In(input.Workspace))
+                Note = string.Join("\n", notes) is { Length: > 0 } note ? note : null,
+                FilePath = roles[0].FilePath,
+                Color = ProjectRoles.ColorOf(roles[0], all)
             };
         }
 
-        return input.Task?.RoleId is { } id
-            ? new HarnessSection("Role", $"{id} (its file is gone)") { Note = "The agent gets no role text" }
+        return input.Task?.RoleIds is { Count: > 0 } ids
+            ? new HarnessSection("Role", $"{string.Join(" + ", ids)} ({(ids.Count == 1 ? "its file is" : "their files are")} gone)") { Note = "The agent gets no role text" }
             : new HarnessSection("Role", "General — no role") { Note = "No specialist text goes with the rules", Color = ProjectRoles.LinkColor };
     }
 

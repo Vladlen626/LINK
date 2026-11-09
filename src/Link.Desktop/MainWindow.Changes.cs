@@ -46,7 +46,7 @@ public partial class MainWindow
         var (changed, _) = TaskChanges.Describe(null, [.. files.Select(file => file.Path)]);
         var added = files.Sum(file => file.Added);
         var removed = files.Sum(file => file.Removed);
-        var window = new ReviewWindow($"Review: {work.Record.Goal}  ·  +{added} −{removed} in {changed}", files) { Owner = _studio };
+        var window = new ReviewWindow($"Review: {work.Record.Goal}  ·  +{added} −{removed} in {changed}", files) { Owner = this };
         window.ShowDialog();
         if (window.Review is not { } review || _open != work) return;
         UserSpoke(work);
@@ -228,7 +228,7 @@ public partial class MainWindow
                     if (_ownShown) ShowOwnRun();
                 }
 
-                _projectPanel?.ShowProject(StudioProject);
+                _projectPanel.ShowProject(_projects.ActiveProject);
                 AgentStatus(left.Length == 0 ? "Link's own answer was undone" : $"Undone; {left.Length} files still differ");
                 return;
             }

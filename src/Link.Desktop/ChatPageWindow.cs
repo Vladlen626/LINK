@@ -10,7 +10,7 @@ using Microsoft.Web.WebView2.Wpf;
 namespace Link.Desktop;
 
 /// <summary>
-/// LINK's own ChatGPT page. WebView2 cannot draw in the layered overlay, so the page has a window of its own. The window
+/// LINK's own ChatGPT page, in a window of its own that keeps working while Link's window is hidden. The window
 /// is never hidden or minimized: the engine would then throttle the page, and ChatGPT would type an answer out a few
 /// characters a second. Out of the user's way, it waits off every monitor instead. While LINK does not need it, the
 /// page rests out of its engine's sight: drawn off screen, ChatGPT's animations would cost a tenth of a core all day.
@@ -303,9 +303,9 @@ internal sealed class ChatPageWindow : Window, IChatPage
 
     private void OnActivated(object? sender, EventArgs e)
     {
-        // The page out of sight must never hold the keyboard: whatever activates it hands the focus back to the overlay,
+        // The page out of sight must never hold the keyboard: whatever activates it hands the focus back to Link's window,
         // so the user's typing never lands in ChatGPT.
-        if (!_revealed && Application.Current.MainWindow is { IsVisible: true } overlay && overlay != this) overlay.Activate();
+        if (!_revealed && Application.Current.MainWindow is { IsVisible: true } link && link != this) link.Activate();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)

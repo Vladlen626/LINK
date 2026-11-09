@@ -124,8 +124,8 @@ public partial class MainWindow
 
         var (words, images) = AgentCoordinator.Words(snapshot, newTask: false);
         if (PromptBox.Text.Trim() == snapshot.Text) ClearSentInput(PromptBox.Text);
-        // The Studio follows when it is open, without coming over what is being written; closed, the pill shows the agent at work.
-        if (_studio is not null) ShowOpenTask();
+        // The Studio tab follows, without coming over what is being written; its dot shows the agent at work.
+        ShowOpenTask();
         if (_open is { } work) ContinueAgent(work, words, images);
     }
 
@@ -133,7 +133,7 @@ public partial class MainWindow
     private async Task OpenNewTaskCardAsync()
     {
         RemoveMissingContextFiles();
-        var snapshot = await TakeSnapshotAsync(StudioProject, PromptBox.Text);
+        var snapshot = await TakeSnapshotAsync(_projects.ActiveProject, PromptBox.Text);
         _attempts.Keep(snapshot);
         OpenAgentCard(snapshot);
     }
@@ -175,9 +175,15 @@ public partial class MainWindow
         };
         panel.ContinueRequested += (words, attached) => ContinueWithAttached(words, attached, queue: false);
         panel.QueueRequested += (words, attached) => ContinueWithAttached(words, attached, queue: true);
+        panel.TakeBackRequested += TakeBackQueued;
         panel.FinishRequested += FinishTask;
         panel.PlanModeOffRequested += LeavePlanMode;
         panel.OpenFileRequested += ShowFile;
+        // Voice in the Studio: the goal and the composer take dictation as the chat's box does.
+        panel.VoiceStarted += StartPushToTalk;
+        panel.VoiceStopped += () => _ = StopPushToTalkAsync();
+        panel.VoiceSendRequested += _voice.SendWhenTranscribed;
+        panel.ShowVoice(false, _voice.CanStartListening);
         panel.NewTaskRequested += () => _ = OpenNewTaskCardAsync();
         panel.TaskSelected += OpenAgentTask;
         panel.OwnRunRequested += ShowOwnRun;
@@ -185,19 +191,22 @@ public partial class MainWindow
         panel.SpentRefreshRequested += () => _ = RefreshSpentAsync(now: true);
         panel.ShowSpent(_usage.Last?.Line, _usage.Last?.Hint);
         _ = RefreshSpentAsync(now: false);
-        // The card is in the Studio, so the Studio is there to open its column.
-        panel.HarnessRequested += () => _studio?.ShowInspector(true);
+        // The card's harness: the window's right column opens on it.
+        panel.HarnessRequested += () => ShowInspector(true);
         // The folder chosen on the card is the project's, as if chosen in the project's column; the card takes its harness.
         panel.WorkspaceChosen += (projectId, folder) =>
         {
             if (_projects.Projects.FirstOrDefault(each => each.Id == projectId) is not { } project) return;
             project.WorkspaceRoot = folder;
             _projects.Save();
-            if (project == StudioProject) _projectPanel?.ShowProject(project);
+            if (project == _projects.ActiveProject) _projectPanel.ShowProject(project);
+            UpdateProjectTabs();
             panel.RefreshSetup();
             RefreshStudio();
         };
         panel.ShowList(TaskRows(), AllLimitRows(), null);
+        TasksHost.Child = panel;
+        panel.ShowSidebar(Place.SidebarOpen);
         return panel;
     }
 
@@ -239,7 +248,7 @@ public partial class MainWindow
     /// </summary>
     private IReadOnlyList<TaskRow> TaskRows()
     {
-        var project = StudioProject;
+        var project = _projects.ActiveProject;
         var tasks = _projects.ReadAgentTasks(project).Select(task => WorkOf(task.Id)?.Record ?? task).ToList();
         foreach (var work in _works.Where(work => work.Project.Id == project.Id && !tasks.Contains(work.Record))) tasks.Insert(0, work.Record);
         if (_open is { } open && open.Project.Id == project.Id)
@@ -263,7 +272,7 @@ public partial class MainWindow
             if (!roles.TryGetValue(record.Workspace, out var inWorkspace)) roles[record.Workspace] = inWorkspace = WorkspaceRoles(record.Workspace);
             var spent = Spent(record);
             return new TaskRow(record.Goal, ToPreviewText(record.LastWords), ShortTime(record.UpdatedAt), who + status, brush,
-                RoleBrushes.For(record.RoleId, inWorkspace), record)
+                RoleBrushes.For(record.RoleIds, inWorkspace), record)
             {
                 Group = GroupOf(record, work),
                 Spend = spent,
@@ -339,7 +348,7 @@ public partial class MainWindow
             Workspace = plan.Workspace,
             AutoEffort = plan.AutoEffort,
             NoStop = plan.NoStop,
-            RoleId = plan.RoleId,
+            RoleIds = [.. plan.RoleIds],
             Skills = [.. plan.Skills],
             Images = [.. origin.Images]
         };
@@ -456,6 +465,7 @@ public partial class MainWindow
     {
         if (await inbox.SayAsync(text, images))
         {
+            work.Unread.Add(text);
             work.Record.Add(AgentEntryKind.You, "(while it works) " + text + ImagesNote(images));
             ShowTask(work);
             AgentStatus(work, $"{ShortName(live.Task.Provider)} reads your words at its next step");
@@ -464,6 +474,39 @@ public partial class MainWindow
 
         if (work.Busy) QueueAfterRun(work, text, images);
         else ContinueAgent(work, text, images);
+    }
+
+    /// <summary>The run's way in for the user's words; once the session takes some in, the composer stops showing them as unread.</summary>
+    private AgentInbox InboxFor(TaskWork work, AgentProviderKind provider)
+    {
+        var inbox = new AgentInbox();
+        inbox.Taken += words => Dispatcher.InvokeAsync(() =>
+        {
+            if (!work.Unread.Remove(words)) return;
+            AgentStatus(work, $"{ShortName(provider)} read your words");
+            if (Shows(work)) _agentPanel!.ShowQueue(QueueRows(work));
+        });
+        return inbox;
+    }
+
+    /// <summary>What waits for the agent: words it has not read yet, and words for after this run.</summary>
+    private static IReadOnlyList<QueuedWords> QueueRows(TaskWork work)
+    {
+        var rows = work.Unread.Select(words => new QueuedWords(words, "Unread · it reads them at its next step", false)).ToList();
+        if (work.Queued is { } later) rows.Add(new QueuedWords(later, "After this run", true));
+        return rows;
+    }
+
+    /// <summary>Words for after the run come back into the box, with their pictures, before the run ends.</summary>
+    private void TakeBackQueued()
+    {
+        if (_open is not { Queued: { } words } work) return;
+        IReadOnlyList<string> images = [.. work.QueuedImages];
+        work.Queued = null;
+        work.QueuedImages.Clear();
+        work.Record.Add(AgentEntryKind.Note, "Words for after this run taken back");
+        ShowTask(work);
+        _agentPanel!.PutBack(words, images);
     }
 
     /// <summary>Tab while the agent works: the words wait for the end of the run, then the same session goes on with them.</summary>
@@ -512,7 +555,7 @@ public partial class MainWindow
         _works.Remove(work);
         _open = null;
         _shown = null;
-        UpdateAgentPill();
+        UpdateStudioTab();
         UpdateRouteButton();
         ShowTaskList();
         RefreshStudio();
@@ -540,7 +583,7 @@ public partial class MainWindow
             return;
         }
 
-        var work = TakeUpTask(record, StudioProject);
+        var work = TakeUpTask(record, _projects.ActiveProject);
         OpenWork(work);
         ShowTaskInPanel();
         _ = ShowChangesAsync(record);
@@ -571,7 +614,7 @@ public partial class MainWindow
                 Effort = last.Effort,
                 AllowedTools = AgentCoordinator.Tools(project, record.Workspace),
                 CheckCommand = project.CheckCommand,
-                RoleId = record.RoleId,
+                RoleIds = [.. record.RoleIds],
                 Skills = record.Skills,
                 ResumeSessionId = session
             }
@@ -593,8 +636,8 @@ public partial class MainWindow
     {
         if (_open is not { } work) return;
         OpenWork(work);
-        // A task of another project than the Studio's, such as the overlay's: the Studio turns to it.
-        ShowStudioProject(work.Project);
+        // A task of another project: Link turns to it.
+        SwitchProject(work.Project);
         ShowTask(work);
     }
 
@@ -625,7 +668,7 @@ public partial class MainWindow
             // A tool its rules do not allow is asked while it works; No-stop asks nothing.
             AskPermission = record.NoStop ? null : (ask, token) => AskPermissionAsync(work, ask, token),
             // The user's words while it works reach the session without a stop, where the CLI takes them.
-            Inbox = new AgentInbox()
+            Inbox = InboxFor(work, task.Provider)
         };
         CancelNoStop(work);
         if (work.AttachedFiles.Count > 0)
@@ -650,13 +693,18 @@ public partial class MainWindow
         // A session that goes on keeps its tasks; the parser follows the agent's TaskUpdate by their numbers.
         if (task.ResumeSessionId is not null && record.LastRun?.Provider == task.Provider) task = task with { Plan = record.Plan };
         var turn = new ThreadTurn($"{provider.Name} · {SetupWords(task.Provider, task.Model, task.Effort, task.EffortReason, unknown: ".")}", "Starting…",
-            (Brush)FindResource("AccentBrush"), RoleBrushes.For(task.RoleId, WorkspaceRoles(task.Workspace))) { StepsOpen = true };
+            (Brush)FindResource("AccentBrush"), []) { StepsOpen = true };
         var live = new LiveRun(task, turn, _limits.For(task.Provider));
-        // A session taken up again holds what its last run left, and the model's window stays until a run says otherwise.
+        // A session taken up again holds what its last run left, the kit's files it read among them, and the model's
+        // window stays until a run says otherwise.
         if (record.LastRun is { } last && last.Provider == task.Provider)
         {
-            live.Context = (last.SessionId == task.ResumeSessionId ? last.ContextTokens : null, last.ContextWindow);
+            var same = last.SessionId == task.ResumeSessionId;
+            live.Context = (same ? last.ContextTokens : null, last.ContextWindow);
+            if (same) live.Opened.UnionWith(last.Opened);
         }
+
+        turn.Kit = JellyfishOf(live.KitFiles, task.RoleIds, live.Opened);
 
         if (note is not null) live.Pending.Add(new AgentEvent(AgentEventKind.Output, note));
         // Another run edited the folder since the last one: what differs from that run's start is not all this task's.
@@ -678,7 +726,7 @@ public partial class MainWindow
         _cues.Play(SoundCue.Sent);
         SayAgent($"{ShortName(task.Provider)} начал работу.", $"{ShortName(task.Provider)} started.");
         AgentStatus(work, $"{provider.Name} is working · its thread is in the Studio");
-        UpdateAgentPill();
+        UpdateStudioTab();
         UpdateRouteButton();
         RefreshTaskList();
         var progress = new Progress<AgentEvent>(agentEvent =>
@@ -700,6 +748,8 @@ public partial class MainWindow
         {
             FlushAgentEvents();
             work.Run = null;
+            // Words the session never took in end with it: what it said last shows whether it saw them.
+            work.Unread.Clear();
             KeepAwakeAtNight();
             live.Clock.Stop();
             live.Stop.Dispose();
@@ -711,7 +761,7 @@ public partial class MainWindow
 
         if (ended is not null) ShowAgentRun(work, live, ended);
         else if (failure is not null) ShowAgentFailure(work, provider, failure);
-        UpdateAgentPill();
+        UpdateStudioTab();
         UpdateRouteButton();
         RefreshTaskList();
         RefreshStudio();
@@ -767,7 +817,8 @@ public partial class MainWindow
         var efforts = _agents.Provider(task.Provider).EffortsOf(task.Model).Select(choice => choice.Value).ToArray();
         // A model with no effort levels has nothing to pick, and no reason to show.
         if (efforts.Length == 0) return task;
-        var role = ProjectRoles.Find(record.RoleId, record.Workspace)?.Effort;
+        // The lead specialist's effort, if it names one.
+        var role = ProjectRoles.Of(record.RoleIds, ProjectRoles.In(record.Workspace)).FirstOrDefault()?.Effort;
         var (effort, reason) = AutoEffort.Choose(phase, BriefOf(record),
             efforts, last?.Effort, AutoEffort.Failures(record.Runs),
             last is null ? null : AgentNext.Split(last.Words).Next, role);
@@ -919,21 +970,21 @@ public partial class MainWindow
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
             _cues.Play(SoundCue.NeedsDecision);
             SayAgent($"{name} спрашивает.", $"{name} asks you.");
-            NotifyIfAway(work.Project, $"{provider.Name} asks", asked.Question);
+            NotifyIfAway(work.Project, $"{provider.Name} asks", asked.Question, work);
         }
         else if (decision)
         {
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
             _cues.Play(SoundCue.NeedsDecision);
             SayAgent($"{name} ждёт решения.", $"{name} needs your decision.");
-            NotifyIfAway(work.Project, "Agent needs a decision", ToPreviewText(summary));
+            NotifyIfAway(work.Project, "Agent needs a decision", ToPreviewText(summary), work);
         }
         else if (result.Succeeded && !stopped && !checkFailed)
         {
             if (!IsVisible) _unseen = LinkState.Done;
             _cues.Play(SoundCue.Done);
             SayAgent($"{name} закончил работу.", $"{name} finished.");
-            NotifyIfAway(work.Project, "Agent finished", ToPreviewText(summary));
+            NotifyIfAway(work.Project, "Agent finished", ToPreviewText(summary), work);
         }
         else if (!stopped)
         {
@@ -941,7 +992,7 @@ public partial class MainWindow
             _cues.Play(SoundCue.Error);
             SayAgent(checkFailed ? $"{name} закончил, но проверка не прошла." : $"{name}: не получилось.",
                 checkFailed ? $"{name} finished, but the check fails." : $"{name} failed.");
-            NotifyIfAway(work.Project, checkFailed ? "The check fails after the agent" : "Agent failed", ToPreviewText(summary));
+            NotifyIfAway(work.Project, checkFailed ? "The check fails after the agent" : "Agent failed", ToPreviewText(summary), work);
         }
 
         AgentStatus(work, limitReached
@@ -977,7 +1028,7 @@ public partial class MainWindow
 
         try
         {
-            ClaudeSignInWindow.Run(_studio is { IsVisible: true } studio ? studio : this, executable, setup.ClaudeAccount);
+            ClaudeSignInWindow.Run(this, executable, setup.ClaudeAccount);
         }
         catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or InvalidOperationException)
         {
@@ -1029,7 +1080,8 @@ public partial class MainWindow
             RanModel = result.Model != task.Model ? result.Model : null,
             Effort = task.Effort,
             EffortReason = task.EffortReason,
-            RoleId = task.RoleId,
+            RoleIds = [.. task.RoleIds],
+            Opened = [.. live.Opened],
             Judge = task.Judge,
             AutoApprove = task.AutoApprove,
             SessionId = AgentCoordinator.SessionOf(run),
@@ -1229,7 +1281,7 @@ public partial class MainWindow
     {
         var shown = StudioTask;
         var record = shown?.Record;
-        var project = shown?.Project ?? StudioProject;
+        var project = shown?.Project ?? _projects.ActiveProject;
         var settings = _settings.Current.Agent;
         var workspace = StudioWorkspace();
 
@@ -1293,17 +1345,18 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The agent's pill in the card's header and the Link window's Studio tab dot: who works and how the task stands,
-    /// the open task's or else the one at work, Link's own answer while it is written, and how many more runs are at work.
+    /// The Studio tab's dot and tooltip: who works and how the task stands, the open task's or else the one at work, Link's
+    /// own answer while it is written, and how many more runs are at work.
     /// </summary>
-    private void UpdateAgentPill()
+    private void UpdateStudioTab()
     {
-        var work = PillWork;
+        UpdateProjectTabs();
+        var work = TabWork;
         var own = _own?.Live;
         if (work is null && own is null)
         {
-            AgentPill.Visibility = Visibility.Collapsed;
-            _studio?.ShowTaskDot(null);
+            TaskTabDot.Visibility = Visibility.Collapsed;
+            StudioTabButton.ToolTip = "Studio: the agents' tasks, their threads, the Harness and the Spend (Ctrl+2)";
             return;
         }
 
@@ -1315,32 +1368,13 @@ public partial class MainWindow
             ? ($"· {(live == own ? "map " : string.Empty)}{(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}", (Brush)FindResource("BusyOrbBrush"))
             : Standing(work!.Record);
         var more = _works.Count(other => other.Run is not null && other.Run != live) + (own is not null && own != live ? 1 : 0);
-        var text = $"{ShortName(provider)} {words}" + (more > 0 ? $" · +{more}" : string.Empty);
-        AgentPillText.Text = text;
-        AgentPillDot.Fill = dot;
         var subject = live is not null && live == own ? $"Link writes {OwnWhat(live.Task)}" : work?.Record.Goal ?? "Agent";
-        AgentPill.ToolTip = $"{subject}\n{text}" +
-                            (more > 0 ? $"\n{Plural(more, "more run")} at work: the tasks are in the Studio" : string.Empty) +
-                            (_limits.Describe(provider) is { Length: > 0 } limits ? $"\nUsage: {limits}" : string.Empty) +
-                            "\nClick to see it in the Studio";
-        AgentPill.Visibility = Visibility.Visible;
-        _studio?.ShowTaskDot(dot);
-    }
-
-    private void AgentPill_OnClick(object sender, RoutedEventArgs e)
-    {
-        // What the pill names: the task, else Link's own answer.
-        if (PillWork is { } work && (work.Run is not null || _own?.Live is null))
-        {
-            OpenWork(work);
-            ShowTaskInPanel();
-        }
-        else if (_own is not null)
-        {
-            ShowAgentPanel();
-            ShowOwnRun();
-        }
-        else ShowAgentPanel();
+        TaskTabDot.Fill = dot;
+        TaskTabDot.Visibility = Visibility.Visible;
+        StudioTabButton.ToolTip = $"{subject}\n{ShortName(provider)} {words}" +
+                                  (more > 0 ? $"\n{Plural(more, "more run")} at work" : string.Empty) +
+                                  (_limits.Describe(provider) is { Length: > 0 } limits ? $"\nUsage: {limits}" : string.Empty) +
+                                  "\nStudio: the tasks and their threads (Ctrl+2)";
     }
 
     private static string StatusWords(AgentTaskStatus status) => status switch
@@ -1476,7 +1510,7 @@ public partial class MainWindow
             if (!IsVisible) _unseen = LinkState.NeedsDecision;
             _cues.Play(SoundCue.NeedsDecision);
             SayAgent($"{ShortName(live.Task.Provider)} ждёт разрешения.", $"{ShortName(live.Task.Provider)} asks for a permission.");
-            NotifyIfAway(work.Project, $"{provider} asks to use {ask.Tool}", Shorten(ask.What, 200));
+            NotifyIfAway(work.Project, $"{provider} asks to use {ask.Tool}", Shorten(ask.What, 200), work);
             RemoteAlert?.Invoke(record.Id, $"{provider} needs you · {Shorten(record.Goal, 60)}", $"Allow {Shorten(rules, 200)}?");
             AgentStatus(work, $"{provider} asks to use {ask.Tool} · allow or deny it in the Studio");
         });
@@ -1591,13 +1625,6 @@ public partial class MainWindow
 
     private static string Relative(string path, string workspace) =>
         path.StartsWith(workspace, StringComparison.OrdinalIgnoreCase) ? Path.GetRelativePath(workspace, path) : path;
-
-    /// <summary>Shows the file in Explorer: opening it could run it, and a changed script is not to be run by a click.</summary>
-    private static void ShowFile(string path)
-    {
-        var target = File.Exists(path) ? $"/select,\"{path}\"" : $"\"{Path.GetDirectoryName(path)}\"";
-        Process.Start(new ProcessStartInfo("explorer.exe", target) { UseShellExecute = true })?.Dispose();
-    }
 
     /// <summary>
     /// What the agent tells the status line, only while it is the chat's to spare: never over a request, its answer or

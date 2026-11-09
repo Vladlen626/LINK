@@ -3,11 +3,8 @@ using System.Collections.Specialized;
 using System.ComponentModel;
 using System.Windows;
 using System.Windows.Controls;
-using System.Windows.Controls.Primitives;
 using System.Windows.Data;
 using System.Windows.Input;
-using System.Windows.Interop;
-using System.Windows.Media;
 using System.Windows.Threading;
 using Link.Desktop.Models;
 using Link.Desktop.Services;
@@ -28,7 +25,6 @@ public partial class MainWindow : Window
     private readonly ObservableCollection<ContextItem> _context = [];
     // What came while Link was hidden, an answer or a failed request; it lasts until Link is shown.
     private LinkState? _unseen;
-    private IntPtr _windowHandle;
     private bool _loadingProject = true;
 
     public MainWindow(
@@ -80,12 +76,14 @@ public partial class MainWindow : Window
         };
         _context.CollectionChanged += Context_OnCollectionChanged;
         _currentApplication.WorkTargetChanged += OnWorkTargetChanged;
+        SetUpWindow();
         LoadProject(_projects.ActiveProject);
         _loadingProject = false;
         UpdateRouteButton();
 
         SourceInitialized += OnSourceInitialized;
         PreviewKeyDown += OnPreviewKeyDown;
+        KeyDown += OnKeyDown;
         IsVisibleChanged += OnVisibleChanged;
         Loaded += OnLoaded;
         Activated += OnActivated;
@@ -101,8 +99,8 @@ public partial class MainWindow : Window
 
     public event Action? SettingsRequested;
 
-    /// <summary>A Windows notification is due: title, message and the project it opens.</summary>
-    public event Action<string, string, Guid>? NotificationRequested;
+    /// <summary>A Windows notification is due: title, message, the project it opens and the agent's task, if it is of one.</summary>
+    public event Action<string, string, Guid, Guid?>? NotificationRequested;
 
     /// <summary>What Link is up to, or its status line, changed: the tray shows both while Link is hidden.</summary>
     public event Action<LinkState, string>? LinkStateChanged;
@@ -111,13 +109,9 @@ public partial class MainWindow : Window
 
     public void ApplySettings()
     {
-        Opacity = 1;
-        Topmost = _settings.Current.AlwaysOnTop;
-        ApplyGlass(this, ShellBorder);
         UpdateSees();
         // Voice replies may have been switched off or on.
         UpdateReadAloudButton();
-        HideButton.ToolTip = $"Hide Link · {_settings.Current.Hotkeys.ShowHide} brings it back";
         // The default agent or the access the card starts with may have changed.
         UpdateRouteButton();
         // The agents' models and levels, Auto or the context budget may have changed: an open card and the
@@ -126,18 +120,20 @@ public partial class MainWindow : Window
         RefreshStudio();
     }
 
+    /// <summary>The show/hide hotkey: Link in front hides; hidden, minimized or behind other windows, it comes forward on Chat.</summary>
     public void ToggleVisible()
     {
-        if (IsVisible)
+        if (IsVisible && IsActive && WindowState != WindowState.Minimized)
         {
-            HideOverlay();
+            HideLinkWindow();
         }
         else if (OverExclusiveFullscreen())
         {
             NotificationRequested?.Invoke(
                 "Link stays hidden over this game",
                 "It would throw the game out of exclusive fullscreen. Switch the game to borderless to use Link over it.",
-                _projects.ActiveProject.Id);
+                _projects.ActiveProject.Id,
+                null);
         }
         else
         {
@@ -147,44 +143,37 @@ public partial class MainWindow : Window
 
     public void ShowNonBlockingWarning(string message) => SetStatus(message);
 
-    /// <summary>The card's glass, for the card and its panel alike.</summary>
-    private void ApplyGlass(Window window, Border shell)
+    /// <summary>
+    /// Brings Link up on a project's answer when its notification is clicked, or on the Studio tab with the agent's task
+    /// the notification was about.
+    /// </summary>
+    public void ShowProject(Guid projectId, Guid? taskId = null)
     {
-        // With Windows transparency effects off the glass turns solid, like the rest of the system.
-        var transparent = ThemeService.IsTransparencyEnabled;
-        var blurRequested = transparent && _settings.Current.BlurBackground;
-        var blurred = WindowStyleService.EnableGlass(window, blurRequested);
-        if (FindResource("PanelBrush") is not Brush source) return;
-
-        // Glass setting 0.2..1 maps to a 25..95% tint; unblurred glass needs more tint to keep text readable.
-        var tint = source.Clone();
-        var opacity = 0.25 + (_settings.Current.Opacity - 0.2) * 0.875;
-        tint.Opacity = !transparent ? 1 : blurRequested && !blurred ? Math.Max(opacity, 0.85) : opacity;
-        shell.Background = tint;
-    }
-
-    /// <summary>Brings Link up on a project's answer, e.g. when its notification is clicked.</summary>
-    public void ShowProject(Guid projectId)
-    {
+        var work = taskId is { } id ? WorkOf(id) : null;
         if (!_sending && _projects.Projects.FirstOrDefault(project => project.Id == projectId) is { } project)
         {
             if (project.Id != _projects.ActiveProject.Id) SwitchProject(project);
-            else if (ResponsePanel.Visibility != Visibility.Visible) ShowProjectResponse(project);
+            else if (work is null && ResponsePanel.Visibility != Visibility.Visible) ShowProjectResponse(project);
         }
 
-        ShowAndActivate();
+        if (work is null)
+        {
+            ShowAndActivate();
+            return;
+        }
+
+        ShowLinkWindow(StudioTab.Studio);
+        OpenAgentTask(work.Record);
     }
 
     private void OnSourceInitialized(object? sender, EventArgs e)
     {
-        _windowHandle = new WindowInteropHelper(this).Handle;
-        HwndSource.FromHwnd(_windowHandle)?.AddHook(WindowProcedure);
+        ThemeService.PaintFrame(this);
         ApplySettings();
     }
 
     private void OnLoaded(object sender, RoutedEventArgs e)
     {
-        RestoreWindowState();
         UpdateConnectionState();
         _connectionTimer.Start();
         // A task left waiting for a usage limit's reset goes on waiting; its file is read once Link has nothing else to do.
@@ -198,6 +187,8 @@ public partial class MainWindow : Window
         _unseen = null;
         ReportState();
         RefreshWorkPreview();
+        // The Harness and the Spend are not built while Link is hidden.
+        RefreshStudio();
     }
 
     private void OnActivated(object? sender, EventArgs e)
@@ -205,6 +196,8 @@ public partial class MainWindow : Window
         // Coming back from an app the user worked in makes it the target; watching the linked chat does not.
         _currentApplication.LatchRecent(_chat.IsConversationWindow);
         RefreshWorkPreview();
+        // Back from editing a rules, role or skill file: the inspector reads it again.
+        RefreshStudio();
     }
 
     private void OnClosing(object? sender, CancelEventArgs e)
@@ -225,29 +218,28 @@ public partial class MainWindow : Window
         ClearContext(prune: true);
     }
 
+    /// <summary>The Link window in front on its Chat tab, the cursor in the input.</summary>
     public void ShowAndActivate()
     {
-        ShowActivated = true;
-        Show();
-        WindowState = WindowState.Normal;
-        Activate();
+        ShowLinkWindow(StudioTab.Chat);
         PromptBox.Focus();
     }
 
     /// <summary>Hides Link completely: work already started goes on, and the show/hide hotkey brings it back.</summary>
-    private void HideOverlay()
+    private void HideLinkWindow()
     {
         SaveWindowState();
         Hide();
     }
 
     /// <summary>
-    /// Shows Link without taking the focus from the app in front. Over a game in exclusive fullscreen Link stays hidden:
-    /// a window would throw the game out of full screen, so the answer comes by voice and notification.
+    /// Shows Link on its Chat tab without taking the focus from the app in front. Over a game in exclusive fullscreen Link
+    /// stays hidden: a window would throw the game out of full screen, so the answer comes by voice and notification.
     /// </summary>
     private void ShowPassive()
     {
         if (IsVisible || OverExclusiveFullscreen()) return;
+        ShowTab(StudioTab.Chat);
         ShowActivated = false;
         Show();
         ShowActivated = true;
@@ -304,49 +296,17 @@ public partial class MainWindow : Window
         }
     }
 
-    private void TitleBar_OnPreviewMouseLeftButtonDown(object sender, MouseButtonEventArgs e)
-    {
-        var source = e.OriginalSource as DependencyObject;
-        if (FindParent<ButtonBase>(source) is not null || FindParent<ComboBox>(source) is not null || FindParent<TextBox>(source) is not null)
-        {
-            return;
-        }
-
-        if (e.ClickCount == 2)
-        {
-            HideOverlay();
-            e.Handled = true;
-            return;
-        }
-
-        if (e.ButtonState != MouseButtonState.Pressed) return;
-
-        e.Handled = true;
-        var handle = _windowHandle != IntPtr.Zero ? _windowHandle : new WindowInteropHelper(this).EnsureHandle();
-        NativeMethods.ReleaseCapture();
-        NativeMethods.SendMessage(handle, NativeMethods.WmNcLButtonDown, new IntPtr(NativeMethods.HtCaption), IntPtr.Zero);
-    }
-
-    private static T? FindParent<T>(DependencyObject? child) where T : DependencyObject
-    {
-        while (child is not null)
-        {
-            if (child is T parent) return parent;
-            child = VisualTreeHelper.GetParent(child);
-        }
-        return null;
-    }
-
     private void LoadProject(LinkProject project)
     {
-        ProjectNameText.Text = project.Name;
+        UpdateProjectTabs();
         // The Agent route names the project's own agent.
         UpdateRouteButton();
         _noteLeftOut = false;
         UpdateNoteChip();
         ShowApplicationContext();
         UpdateConnectionState();
-        ShowProjectResponse(project);
+        // A request still under way keeps its answer on screen; it is of the project it was sent in.
+        if (!_sending) ShowProjectResponse(project);
         RefreshProjectPanel();
     }
 
@@ -359,50 +319,12 @@ public partial class MainWindow : Window
         RearmContinue();
     }
 
-    private void ProjectMenu_OnClick(object sender, RoutedEventArgs e)
-    {
-        var menu = MenuPlacement.Under(ProjectMenuButton);
-        foreach (var project in _projects.Projects)
-        {
-            var item = new MenuItem
-            {
-                Header = project.Name,
-                IsCheckable = true,
-                IsChecked = project.Id == _projects.ActiveProject.Id,
-                StaysOpenOnClick = false
-            };
-            item.Click += (_, _) => SwitchProject(project);
-            menu.Items.Add(item);
-        }
-
-        menu.Items.Add(new Separator());
-        var create = new MenuItem { Header = "Create project…" };
-        create.Click += (_, _) => CreateProject();
-        menu.Items.Add(create);
-        var rename = new MenuItem { Header = "Rename current…" };
-        rename.Click += (_, _) => RenameCurrentProject();
-        menu.Items.Add(rename);
-        var delete = new MenuItem { Header = "Remove current…", IsEnabled = _projects.Projects.Count > 1 };
-        delete.Click += (_, _) => RemoveCurrentProject();
-        menu.Items.Add(delete);
-        menu.Items.Add(new Separator());
-        var linkConversation = new MenuItem { Header = "Link ChatGPT conversation…" };
-        linkConversation.Click += (_, _) => LinkConversation();
-        menu.Items.Add(linkConversation);
-        var unlinkConversation = new MenuItem
-        {
-            Header = "Unlink conversation",
-            IsEnabled = _projects.ActiveProject.LinkedConversation is not null
-        };
-        unlinkConversation.Click += (_, _) => UnlinkConversation();
-        menu.Items.Add(unlinkConversation);
-        menu.IsOpen = true;
-    }
-
     private void CreateProject()
     {
         var dialog = new CreateProjectWindow { Owner = this };
         if (dialog.ShowDialog() != true) return;
+        // A card is made for its project: it goes with the project Link leaves.
+        if (_cardRun is not null) CancelCard();
         var project = _projects.Create(dialog.ProjectName);
         LoadProject(project);
         // A new project starts with its note and workspace.
@@ -412,6 +334,7 @@ public partial class MainWindow : Window
     /// <summary>A project for a folder, named by it and working there; it becomes the current one. Returns its name.</summary>
     public string AddProjectForFolder(string folder)
     {
+        if (_cardRun is not null) CancelCard();
         var project = _projects.Create(Path.GetFileName(Path.TrimEndingDirectorySeparator(folder)));
         project.WorkspaceRoot = folder;
         _projects.Save();
@@ -424,7 +347,7 @@ public partial class MainWindow : Window
         var dialog = new CreateProjectWindow(_projects.ActiveProject.Name, isRename: true) { Owner = this };
         if (dialog.ShowDialog() != true) return;
         _projects.Rename(_projects.ActiveProject, dialog.ProjectName);
-        ProjectNameText.Text = _projects.ActiveProject.Name;
+        UpdateProjectTabs();
         RefreshProjectPanel();
     }
 
@@ -439,13 +362,13 @@ public partial class MainWindow : Window
             MessageBoxImage.Question);
         if (result != MessageBoxResult.Yes) return;
 
+        if (_cardRun is not null) CancelCard();
         var next = _projects.Remove(project);
         _attempts.Forget(project.Id);
         LoadProject(next);
         SetStatus("Project removed; local files were kept");
     }
 
-    private void Hide_OnClick(object sender, RoutedEventArgs e) => HideOverlay();
     private void Settings_OnClick(object sender, RoutedEventArgs e) => SettingsRequested?.Invoke();
 
     private void Clipboard_OnClick(object sender, RoutedEventArgs e)
@@ -505,23 +428,41 @@ public partial class MainWindow : Window
         if (!_sending && !e.IsRepeat) await SendOrQueueAsync();
     }
 
+    /// <summary>
+    /// The window's keys, wherever the focus is: Ctrl+K the chats, as in the chat apps; Ctrl+1 and Ctrl+2 the tabs; Ctrl+B
+    /// the sidebar; Ctrl+Shift+H the Harness; Ctrl+Shift+U the Spend; Ctrl+N a new task.
+    /// </summary>
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        // Ctrl+K, as in the chat apps: the chats, to open another or start a new one.
-        if (e.Key == Key.K && Keyboard.Modifiers == ModifierKeys.Control)
+        var keys = Keyboard.Modifiers;
+        if (keys == ModifierKeys.Control && e.Key == Key.K) ShowAllChats();
+        else if (keys == ModifierKeys.Control && e.Key is Key.D1 or Key.NumPad1) ShowTab(StudioTab.Chat);
+        else if (keys == ModifierKeys.Control && e.Key is Key.D2 or Key.NumPad2) ShowTab(StudioTab.Studio);
+        else if (keys == ModifierKeys.Control && e.Key == Key.B) ShowSidebar(!Place.SidebarOpen);
+        else if (keys == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.H) ToggleSide(StudioSide.Harness);
+        else if (keys == (ModifierKeys.Control | ModifierKeys.Shift) && e.Key == Key.U) ToggleSide(StudioSide.Spend);
+        else if (keys == ModifierKeys.Control && e.Key == Key.N)
         {
-            e.Handled = true;
-            ShowAllChats();
-            return;
+            ShowTab(StudioTab.Studio);
+            _agentPanel?.RequestNewTask();
         }
-
-        if (e.Key != Key.Escape) return;
-        // Like the Stop orb: silence Link first, then stop the request; with nothing going on Esc hides Link.
-        if (_voice.Phase == VoicePhase.Speaking) _voice.StopSpeaking();
-        else if (_sending) CancelSend();
-        else if (_voice.Phase == VoicePhase.Idle) HideOverlay();
         else return;
         e.Handled = true;
     }
 
+    /// <summary>
+    /// Esc, once what has the focus let it pass (a menu, a box of its own): like the Stop orb, it silences Link first;
+    /// on the Chat tab it then stops the request, and with nothing going on hides Link.
+    /// </summary>
+    private void OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Escape) return;
+        if (_voice.Phase == VoicePhase.Speaking) _voice.StopSpeaking();
+        else if (Viewer.Visibility == Visibility.Visible) CloseViewer();
+        else if (Place.Tab != StudioTab.Chat) return;
+        else if (_sending) CancelSend();
+        else if (_voice.Phase == VoicePhase.Idle) HideLinkWindow();
+        else return;
+        e.Handled = true;
+    }
 }

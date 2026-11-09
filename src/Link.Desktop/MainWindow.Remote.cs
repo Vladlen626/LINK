@@ -145,7 +145,7 @@ public partial class MainWindow : IRemoteHost
             Effort = effort,
             AutoEffort = settings.AutoEffort,
             AutoApprove = settings.DefaultAccess == AgentAccessChoice.Auto,
-            RoleId = ProjectRoles.Suggest(task.Goal, ProjectRoles.In(workspace))?.Id,
+            RoleIds = [.. ProjectRoles.Pick(task.Goal, ProjectRoles.In(workspace)).Select(role => role.Id)],
             ProjectId = project.Id,
             NoStop = task.NoStop,
             Attached = task.Attached ?? []

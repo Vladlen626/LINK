@@ -8,17 +8,17 @@ namespace Link.Desktop;
 // The chat the project talks in: linked, switched, started anew with a summary, its connection, and checked.
 public partial class MainWindow
 {
-    /// <summary>Ctrl+K: the project's chats on the Link window's Chat tab, where one opens and goes on, or a new one starts.</summary>
+    /// <summary>Ctrl+K: the project's chats in the Chat tab's sidebar, where one opens and goes on, or a new one starts.</summary>
     private void ShowAllChats()
     {
         ShowLinkWindow(StudioTab.Chat);
-        _shownChat = null;
-        _chatsPanel?.ShowListView();
+        ShowSidebar(true);
+        _chatsPanel.FocusList();
     }
 
     /// <summary>
-    /// A chat of those Link's ChatGPT page knows, picked in a dialog (the project menu, ChatGPT's chats… on the Chat tab):
-    /// Link talks there from now on. The dialog also starts a new chat or shows the page.
+    /// A chat of those Link's ChatGPT page knows, picked in a dialog (the project menu): Link talks there from now on.
+    /// The dialog also starts a new chat or shows the page.
     /// </summary>
     private void LinkConversation()
     {
@@ -60,6 +60,7 @@ public partial class MainWindow
         _projects.Save();
         UpdateConnectionState();
         ShowProjectResponse(project);
+        _shownChat = null;
         RefreshChats();
         UpdateRouteButton();
         SetStatus($"Your next message goes to the chat {title}");
@@ -97,9 +98,10 @@ public partial class MainWindow
         project.LinkedConversation = next;
         _projects.Save();
         UpdateConnectionState();
-        RefreshChats();
+        _shownChat = null;
         // The previous chat's answer stays on screen only when it is the summary that goes on.
         if (!withSummary) ShowProjectResponse(project);
+        RefreshChats();
         SetStatus(withSummary
             ? "Summary ready: your next message starts the new chat and takes it along"
             : "Your next message starts a new chat");
@@ -159,8 +161,8 @@ public partial class MainWindow
         _projects.ActiveProject.LinkedConversation = null;
         _projects.Save();
         UpdateConnectionState();
-        RefreshChats();
         ShowProjectResponse(_projects.ActiveProject);
+        RefreshChats();
         SetStatus("Conversation unlinked");
     }
 
@@ -185,7 +187,7 @@ public partial class MainWindow
             ChatConnectionState.NoLinkedConversation => "No linked conversation",
             ChatConnectionState.Connecting => $"Connecting to ChatGPT… · {conversation?.Title}",
             ChatConnectionState.BridgeUnavailable => $"ChatGPT unavailable · {conversation?.Title}",
-            ChatConnectionState.SignInRequired => "Sign in to ChatGPT: Open chat",
+            ChatConnectionState.SignInRequired => "Sign in to ChatGPT: open its page",
             ChatConnectionState.ConversationAvailable => $"ChatGPT connected · {conversation?.Title}",
             _ => "ChatGPT unavailable"
         };
@@ -195,18 +197,20 @@ public partial class MainWindow
             ChatConnectionState.BridgeUnavailable or ChatConnectionState.SignInRequired => "ErrorOrbBrush",
             _ => "IdleOrbBrush"
         });
-        ChatStatusDot.Fill = dot;
-        ProjectMenuButton.ToolTip = $"{text}\nSwitch project";
+        // The Chat tab carries a dot only while the chat needs the user: signed out, or its page unavailable.
+        ChatTabDot.Fill = dot;
+        ChatTabDot.Visibility = state is ChatConnectionState.BridgeUnavailable or ChatConnectionState.SignInRequired ? Visibility.Visible : Visibility.Collapsed;
+        ChatTabButton.ToolTip = $"{text}\nChat: the project's chats with ChatGPT, the screen, voice and the clipboard for a question (Ctrl+1)";
         // The chat Link talks in may have changed or been named: the destination says it.
         UpdateRouteButton();
-        _chatsPanel?.ShowConnection(text, dot, conversation is { IsNew: false });
+        _chatsPanel.ShowConnection(text, dot, conversation is { IsNew: false });
 
         if (state == _connectionState) return;
         _connectionState = state;
         if (state == ChatConnectionState.SignInRequired) _cues.Play(SoundCue.NeedsDecision);
-        // The chat row lives in the Link window, which may be closed: trouble with the chat shows in the status line too.
+        // Trouble with the chat says in the status line what to do about it, as well as on the connection row.
         if (_sending) ReportState();
-        else if (state == ChatConnectionState.SignInRequired) SetStatus("Sign in to ChatGPT: the Link window's Chat tab → Open chat");
+        else if (state == ChatConnectionState.SignInRequired) SetStatus("Sign in to ChatGPT: the connection row over the chats opens its page");
         else if (state == ChatConnectionState.BridgeUnavailable) SetStatus(text);
         else ReportState();
     }

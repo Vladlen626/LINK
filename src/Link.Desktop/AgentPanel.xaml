@@ -68,56 +68,6 @@
             <Setter Property="TextBlock.LineStackingStrategy" Value="BlockLineHeight" />
         </Style>
 
-        <!-- An agent's answer as formatted Markdown (MarkdownText.Source): selectable, as tall as its text. -->
-        <Style x:Key="ReadRichTextStyle" TargetType="RichTextBox">
-            <Setter Property="IsReadOnly" Value="True" />
-            <Setter Property="IsDocumentEnabled" Value="True" />
-            <Setter Property="Background" Value="Transparent" />
-            <Setter Property="BorderThickness" Value="0" />
-            <Setter Property="Padding" Value="0" />
-            <Setter Property="FontSize" Value="13" />
-            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
-            <Setter Property="SelectionBrush" Value="{StaticResource SelectionBrush}" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="RichTextBox">
-                        <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" />
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-        </Style>
-
-        <!-- A task in the sidebar: a row with soft corners, lit while the task is the open one. -->
-        <Style x:Key="SidebarRowStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
-            <Setter Property="Margin" Value="0,0,0,2" />
-            <Setter Property="Padding" Value="8,7" />
-            <Setter Property="HorizontalContentAlignment" Value="Stretch" />
-            <Setter Property="VerticalContentAlignment" Value="Top" />
-            <Setter Property="Template">
-                <Setter.Value>
-                    <ControlTemplate TargetType="Button">
-                        <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="1" CornerRadius="8">
-                            <Grid>
-                                <Border x:Name="HoverLight" CornerRadius="8" Background="{StaticResource HoverBrush}" Opacity="0" />
-                                <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
-                                                  VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
-                            </Grid>
-                        </Border>
-                        <ControlTemplate.Triggers>
-                            <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="HoverLight" Property="Opacity" Value="1" /></Trigger>
-                            <Trigger Property="IsPressed" Value="True"><Setter TargetName="HoverLight" Property="Background" Value="{StaticResource PressedBrush}" /></Trigger>
-                            <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" /></Trigger>
-                        </ControlTemplate.Triggers>
-                    </ControlTemplate>
-                </Setter.Value>
-            </Setter>
-            <Style.Triggers>
-                <DataTrigger Binding="{Binding IsOpen}" Value="True">
-                    <Setter Property="Background" Value="{StaticResource ActiveContextBrush}" />
-                </DataTrigger>
-            </Style.Triggers>
-        </Style>
-
         <!-- A usage window: who and which, the bar, how much and when it resets. A click asks the agent anew. -->
         <DataTemplate x:Key="LimitRowTemplate" DataType="{x:Type local:LimitRow}">
             <Button Margin="-6,2,-6,0" Padding="6,2" HorizontalContentAlignment="Stretch" Style="{StaticResource GhostButtonStyle}"
@@ -171,10 +121,23 @@
         </DataTemplate>
         <DataTemplate DataType="{x:Type local:ThreadTurn}">
             <StackPanel Margin="0,18,0,0">
-                <!-- Who worked, in the colour of the specialist's jellyfish; how it ended; the steps a click away. -->
+                <!-- What worked: a jellyfish per specialist and pack, pale until the agent opens its files; who ran it,
+                     how it ended, the steps a click away. -->
                 <WrapPanel>
-                    <Control Width="16" Height="16" Margin="0,0,8,0" VerticalAlignment="Center" Focusable="False"
-                             Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" />
+                    <ItemsControl Margin="0,0,6,0" VerticalAlignment="Center" Focusable="False" ItemsSource="{Binding Kit}">
+                        <ItemsControl.ItemsPanel>
+                            <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                        </ItemsControl.ItemsPanel>
+                        <ItemsControl.ItemTemplate>
+                            <DataTemplate DataType="{x:Type local:Jellyfish}">
+                                <Button Padding="2" Style="{StaticResource GhostButtonStyle}" Click="Jellyfish_OnClick" ToolTip="{Binding Hint}"
+                                        AutomationProperties.Name="{Binding Name}">
+                                    <Control Width="16" Height="16" Focusable="False" Foreground="{Binding Brush}" Opacity="{Binding Opacity}"
+                                             Template="{StaticResource LinkGlyphTemplate}" />
+                                </Button>
+                            </DataTemplate>
+                        </ItemsControl.ItemTemplate>
+                    </ItemsControl>
                     <TextBlock VerticalAlignment="Center" FontSize="12" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}"
                                Text="{Binding Who}" TextWrapping="Wrap" ToolTip="{Binding Who}" />
                     <TextBlock Margin="8,0,0,0" VerticalAlignment="Center" FontSize="12" Foreground="{Binding OutcomeBrush}" Text="{Binding Outcome}" />
@@ -355,11 +318,34 @@
                                     <Button Style="{StaticResource SidebarRowStyle}" Click="TaskRow_OnClick" ToolTip="Open the task: its thread; your words go on with it">
                                         <Grid>
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                            <!-- The specialist's jellyfish, with the task's standing as a dot on its corner. -->
-                                            <Grid Width="20" Height="20" Margin="0,0,9,0" VerticalAlignment="Top">
-                                                <Control Width="14" Height="14" HorizontalAlignment="Left" VerticalAlignment="Top" Focusable="False"
-                                                         Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" />
-                                                <Ellipse Width="8" Height="8" HorizontalAlignment="Right" VerticalAlignment="Bottom" Fill="{Binding StatusBrush}"
+                                            <!-- The specialists' jellyfish, the lead in front, with the task's standing as a dot on its corner. -->
+                                            <Grid Width="26" Height="20" Margin="0,0,9,0" VerticalAlignment="Top">
+                                                <ItemsControl HorizontalAlignment="Left" VerticalAlignment="Top" Focusable="False" AlternationCount="3"
+                                                              ItemsSource="{Binding RoleColors}">
+                                                    <ItemsControl.ItemsPanel>
+                                                        <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
+                                                    </ItemsControl.ItemsPanel>
+                                                    <ItemsControl.ItemContainerStyle>
+                                                        <Style TargetType="ContentPresenter">
+                                                            <Setter Property="Margin" Value="-8,0,0,0" />
+                                                            <Style.Triggers>
+                                                                <Trigger Property="ItemsControl.AlternationIndex" Value="0">
+                                                                    <Setter Property="Margin" Value="0" />
+                                                                    <Setter Property="Panel.ZIndex" Value="3" />
+                                                                </Trigger>
+                                                                <Trigger Property="ItemsControl.AlternationIndex" Value="1">
+                                                                    <Setter Property="Panel.ZIndex" Value="2" />
+                                                                </Trigger>
+                                                            </Style.Triggers>
+                                                        </Style>
+                                                    </ItemsControl.ItemContainerStyle>
+                                                    <ItemsControl.ItemTemplate>
+                                                        <DataTemplate>
+                                                            <Control Width="14" Height="14" Focusable="False" Foreground="{Binding}" Template="{StaticResource LinkGlyphTemplate}" />
+                                                        </DataTemplate>
+                                                    </ItemsControl.ItemTemplate>
+                                                </ItemsControl>
+                                                <Ellipse Width="8" Height="8" Margin="8,0,0,0" HorizontalAlignment="Left" VerticalAlignment="Bottom" Fill="{Binding StatusBrush}"
                                                          Stroke="{StaticResource WindowSurfaceBrush}" StrokeThickness="1.5" />
                                             </Grid>
                                             <StackPanel Grid.Column="1">
@@ -451,7 +437,9 @@
                                  ToolTip="What the agent is told, word for word: its first line names the task. Edit it before Run (Ctrl+Enter runs). Ctrl+V or drop adds pictures and files" />
                         <!-- The setup: who works, on what, how hard, with what leave. -->
                         <Grid Margin="-6,8,0,0">
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                            </Grid.ColumnDefinitions>
                             <WrapPanel VerticalAlignment="Center">
                                 <ComboBox x:Name="ProviderCombo" Style="{StaticResource ChipComboStyle}" SelectionChanged="Provider_OnChanged"
                                           ToolTip="The agent that works on the task" />
@@ -467,9 +455,15 @@
                                                   ToolTip="Edits and runs commands without asking; the agent's own review stops risky actions: Claude Code's auto mode, Codex's automatic review" />
                                 </ComboBox>
                             </WrapPanel>
-                            <TextBlock Grid.Column="1" Margin="8,0,10,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}"
+                            <Button x:Name="CardVoiceButton" Grid.Column="1" Margin="8,0,0,0" Padding="7" VerticalAlignment="Center"
+                                    Style="{StaticResource GhostButtonStyle}" ToolTip="Hold to talk: your words go into the goal"
+                                    AutomationProperties.Name="Voice"
+                                    PreviewMouseLeftButtonDown="Voice_OnPreviewMouseLeftButtonDown" PreviewMouseLeftButtonUp="Voice_OnPreviewMouseLeftButtonUp">
+                                <Viewbox Width="14" Height="14"><Path Data="{StaticResource MicrophoneIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" /></Viewbox>
+                            </Button>
+                            <TextBlock Grid.Column="2" Margin="8,0,10,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}"
                                        FontSize="12" Text="Ctrl+Enter" />
-                            <Button x:Name="RunButton" Grid.Column="2" Height="30" Padding="16,0" VerticalAlignment="Bottom"
+                            <Button x:Name="RunButton" Grid.Column="3" Height="30" Padding="16,0" VerticalAlignment="Bottom"
                                     Style="{StaticResource PrimaryButtonStyle}" Click="Run_OnClick" Content="Run" ToolTipService.ShowOnDisabled="True" />
                         </Grid>
                     </StackPanel>
@@ -486,16 +480,12 @@
                 </WrapPanel>
                 <ItemsControl x:Name="CardLimitsList" Margin="0,4,0,0" ItemTemplate="{StaticResource LimitRowTemplate}" />
 
-                <!-- The specialist Link picks from the goal, and the skills that go with it: both can be changed. -->
-                <StackPanel x:Name="RoleRow" Margin="0,10,0,0" Visibility="Collapsed">
-                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Specialist" />
+                <!-- The kit Link gives the task from its goal: its specialists and the workspace's packs as jellyfish, and the skills read first. -->
+                <StackPanel Margin="0,10,0,0">
+                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Link gives"
+                               ToolTip="The specialists Link picked from your words and the workspace's packs: pale until the agent opens them" />
                     <WrapPanel x:Name="RolesPanel" Margin="0,-6,0,0" />
-                    <TextBlock x:Name="RolePickText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap"
-                               Text="Picked by Link from your words: change it if it does not fit" />
-                </StackPanel>
-                <StackPanel x:Name="SkillsRow" Margin="0,12,0,0" Visibility="Collapsed">
-                    <TextBlock Style="{StaticResource FieldLabelStyle}" Text="Skills" ToolTip="Skills of the workspace the agent is told to read first" />
-                    <WrapPanel x:Name="SkillsPanel" Margin="0,-6,0,0" />
+                    <TextBlock x:Name="ReadFirstText" Margin="0,8,0,0" Style="{StaticResource SecondaryTextStyle}" TextWrapping="Wrap" />
                 </StackPanel>
 
                 <!-- Where, with what else: muted, below the setup. -->
@@ -661,8 +651,29 @@
             <Border x:Name="ReplyPanel" Grid.Row="2" MaxWidth="780" Margin="24,6,24,16" Style="{StaticResource ComposerStyle}" Visibility="Collapsed">
                 <Grid>
                     <Grid.RowDefinitions><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /><RowDefinition Height="Auto" /></Grid.RowDefinitions>
-                    <!-- Pictures and files pasted (Ctrl+V) or dropped, to go with the words. -->
-                    <WrapPanel x:Name="ReplyAttachedPanel" Margin="0,0,0,6" Visibility="Collapsed" />
+                    <StackPanel>
+                        <!-- What waits for the agent: words it has not read yet, words for after this run. -->
+                        <ItemsControl x:Name="QueueList" Margin="0,0,0,6" Visibility="Collapsed">
+                            <ItemsControl.ItemTemplate>
+                                <DataTemplate DataType="{x:Type local:QueuedWords}">
+                                    <Border Margin="0,0,0,4" Padding="10,5,6,5" CornerRadius="8" Background="{StaticResource HairlineBrush}">
+                                        <Grid>
+                                            <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                            <StackPanel VerticalAlignment="Center">
+                                                <TextBlock FontSize="13" Text="{Binding Words}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Words}" />
+                                                <TextBlock Style="{StaticResource SecondaryTextStyle}" FontSize="12" Text="{Binding State}" />
+                                            </StackPanel>
+                                            <Button Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource GhostChipStyle}"
+                                                    Content="Take back" Click="TakeBack_OnClick" Visibility="{Binding TakeBackVisibility}"
+                                                    ToolTip="The words come back into the box: change them, or send them now" />
+                                        </Grid>
+                                    </Border>
+                                </DataTemplate>
+                            </ItemsControl.ItemTemplate>
+                        </ItemsControl>
+                        <!-- Pictures and files pasted (Ctrl+V) or dropped, to go with the words. -->
+                        <WrapPanel x:Name="ReplyAttachedPanel" Margin="0,0,0,6" Visibility="Collapsed" />
+                    </StackPanel>
                     <Grid x:Name="ReplyEditor" Grid.Row="1">
                         <TextBox x:Name="ReplyBox" Style="{StaticResource BareTextBoxStyle}" Padding="0,2" FontSize="13" MinHeight="44" MaxHeight="180"
                                  AcceptsReturn="True" AcceptsTab="False" TextWrapping="Wrap" VerticalScrollBarVisibility="Auto"
@@ -673,6 +684,7 @@
                     <Grid x:Name="ComposerFooter" Grid.Row="2" Margin="0,6,0,0">
                         <Grid.ColumnDefinitions>
                             <ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" /><ColumnDefinition Width="Auto" />
+                            <ColumnDefinition Width="Auto" />
                         </Grid.ColumnDefinitions>
                         <WrapPanel x:Name="TaskButtons" VerticalAlignment="Center">
                             <Button x:Name="PlanModeButton" Style="{StaticResource GhostChipStyle}" Click="PlanMode_OnClick" Content="Plan mode ✕"
@@ -689,8 +701,14 @@
                         <!-- What the next words run on; nothing starts when it changes. -->
                         <Button x:Name="SetupButton" Grid.Column="2" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource GhostChipStyle}"
                                 Click="Setup_OnClick" Visibility="Collapsed"
-                                ToolTip="What your next words run on: the specialist, the model and its effort. Nothing starts when you change it; the runs after keep it" />
-                        <Button x:Name="ContinueButton" Grid.Column="3" Margin="8,0,0,0" Style="{StaticResource ComposerSendButtonStyle}"
+                                ToolTip="What your next words run on: the model and its effort. Nothing starts when you change it; the runs after keep it" />
+                        <Button x:Name="ReplyVoiceButton" Grid.Column="3" Margin="8,0,0,0" Padding="7" VerticalAlignment="Bottom"
+                                Style="{StaticResource GhostButtonStyle}" ToolTip="Hold to talk: your words go into this box, Enter sends them"
+                                AutomationProperties.Name="Voice"
+                                PreviewMouseLeftButtonDown="Voice_OnPreviewMouseLeftButtonDown" PreviewMouseLeftButtonUp="Voice_OnPreviewMouseLeftButtonUp">
+                            <Viewbox Width="14" Height="14"><Path Data="{StaticResource MicrophoneIconGeometry}" Fill="Transparent" Stroke="{StaticResource TextBrush}" StrokeThickness="1.6" StrokeStartLineCap="Round" /></Viewbox>
+                        </Button>
+                        <Button x:Name="ContinueButton" Grid.Column="4" Margin="8,0,0,0" Style="{StaticResource ComposerSendButtonStyle}"
                                 VerticalAlignment="Bottom" Click="Continue_OnClick" IsEnabled="False">
                             <Viewbox Width="14" Height="14">
                                 <Path Data="{StaticResource ArrowUpIconGeometry}" Stroke="{StaticResource AccentForegroundBrush}"

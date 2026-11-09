@@ -91,8 +91,6 @@ public partial class SettingsWindow : Window
         var current = settings.Current;
         ThemeCombo.ItemsSource = Enum.GetValues<AppTheme>();
         ThemeCombo.SelectedItem = current.Theme;
-        OpacitySlider.Value = current.Opacity;
-        BlurBackgroundBox.IsChecked = current.BlurBackground;
         VoiceLanguageCombo.ItemsSource = Enum.GetValues<VoiceLanguage>();
         VoiceLanguageCombo.SelectedItem = current.VoiceLanguage;
         LiveTranscriptionBox.IsChecked = current.LiveTranscription;
@@ -102,7 +100,6 @@ public partial class SettingsWindow : Window
         ReplySpeedSlider.Value = current.VoiceReplySpeed;
         LoadVoiceReplies(current);
         HistorySizeBox.Text = current.ScreenshotHistorySize.ToString();
-        AlwaysOnTopBox.IsChecked = current.AlwaysOnTop;
         LaunchWithWindowsBox.IsChecked = current.LaunchWithWindows;
         SoundCuesBox.IsChecked = current.SoundCues;
         DiagnosticsBox.IsChecked = current.Diagnostics;
@@ -718,8 +715,6 @@ public partial class SettingsWindow : Window
         }
 
         current.Theme = (AppTheme)(ThemeCombo.SelectedItem ?? AppTheme.System);
-        current.Opacity = OpacitySlider.Value;
-        current.BlurBackground = BlurBackgroundBox.IsChecked == true;
         current.VoiceLanguage = (VoiceLanguage)(VoiceLanguageCombo.SelectedItem ?? VoiceLanguage.Auto);
         current.LiveTranscription = LiveTranscriptionBox.IsChecked == true;
         var microphone = MicrophoneCombo.SelectedItem as AudioInputDevice;
@@ -735,7 +730,6 @@ public partial class SettingsWindow : Window
         current.GeminiVoice = speech.GeminiVoice;
         current.LocalVoice = speech.LocalVoice;
         current.VoiceReplySpeed = speech.Speed;
-        current.AlwaysOnTop = AlwaysOnTopBox.IsChecked == true;
         current.LaunchWithWindows = LaunchWithWindowsBox.IsChecked == true;
         current.SoundCues = SoundCuesBox.IsChecked == true;
         current.Diagnostics = DiagnosticsBox.IsChecked == true;

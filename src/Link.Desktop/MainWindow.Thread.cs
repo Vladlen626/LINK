@@ -58,6 +58,7 @@ public partial class MainWindow
         if (waiting is null) panel.ShowLimit(work.Limit?.Text, work.Limit?.Actions ?? [], work.Limit?.Toggle);
         panel.ShowMenus(work.Busy || waiting is not null ? [] : HandOffActions(work), MoreActions(work));
         panel.ShowFinish(true);
+        panel.ShowQueue(QueueRows(work));
         panel.ShowNoStop(NoStopToggle(work));
         panel.ShowPlanMode(!work.Busy && waiting is null && work.LastRun is { Task.PlanOnly: true });
         if (live is not null) panel.ShowReply(true);
@@ -65,7 +66,7 @@ public partial class MainWindow
         else if (TakesWords(work)) panel.ShowReply(true);
         else panel.ShowReply(false, "This task has no session to go on with: hand it to an agent, or start it anew from its card.");
         ShowSetup(panel, work);
-        UpdateAgentPill();
+        UpdateStudioTab();
         RefreshStudio();
     }
 
@@ -78,8 +79,8 @@ public partial class MainWindow
         var items = new List<object>();
         var runs = 0;
         ThreadTurn? turn = null;
-        // The workspace's role files are read once for the whole thread, and only if a run worked as a specialist.
-        var roles = WorkspaceRoles(record.Workspace);
+        // The workspace's roles, skills and packs are read once for the whole thread, and only if it has a run.
+        var files = new KitFiles(record.Workspace);
         foreach (var entry in record.Entries)
         {
             var time = AgentLimits.Time(entry.At);
@@ -92,7 +93,7 @@ public partial class MainWindow
                 case AgentEntryKind.Run:
                     var run = runs < record.Runs.Count ? record.Runs[runs] : null;
                     // The next step the agent named is ahead only for the last run, and not while another runs.
-                    turn = TurnOf(record, run, entry.Text, showNext: live is null && run is not null && ReferenceEquals(run, record.LastRun), roles);
+                    turn = TurnOf(record, run, entry.Text, showNext: live is null && run is not null && ReferenceEquals(run, record.LastRun), files);
                     runs++;
                     items.Add(turn);
                     break;
@@ -114,14 +115,14 @@ public partial class MainWindow
     }
 
     /// <summary>A recorded run as a turn of the thread; an earlier Link's run has only its line.</summary>
-    private ThreadTurn TurnOf(AgentTaskRecord record, AgentRunRecord? run, string line, bool showNext, Lazy<IReadOnlyList<AgentRole>> roles)
+    private ThreadTurn TurnOf(AgentTaskRecord record, AgentRunRecord? run, string line, bool showNext, KitFiles files)
     {
         // "Claude Code · Opus 5.5: done in 3:12, 2 files changed".
         var colon = line.IndexOf(": ", StringComparison.Ordinal);
         var who = run is not null ? $"{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason, run.RanModel)}"
             : colon > 0 ? line[..colon] : line;
         var outcome = run?.Outcome ?? (colon > 0 ? line[(colon + 2)..] : string.Empty);
-        var turn = new ThreadTurn(who, outcome, OutcomeBrush(outcome), RoleBrushes.For(run?.RoleId, roles));
+        var turn = new ThreadTurn(who, outcome, OutcomeBrush(outcome), run is null ? [] : JellyfishOf(files, run.RoleIds, run.Opened));
         if (run is null) return turn;
         // A run an earlier Link kept has its rows untidied.
         turn.AddSteps(run.Steps.Select(step => StepRow(StepGroups.Tidy(step, record.Workspace))));
@@ -232,7 +233,7 @@ public partial class MainWindow
         if (_agentPanel is null) return;
         foreach (var work in _works.Where(work => work.Run is not null).ToArray()) FlushRun(work.Run!, work);
         if (_own?.Live is { } own) FlushRun(own, null);
-        UpdateAgentPill();
+        UpdateStudioTab();
     }
 
     /// <summary>What a run's CLI told since the last batch: into its turn and its task's record, and the Studio where it shows the run.</summary>
@@ -265,6 +266,15 @@ public partial class MainWindow
         var steps = events.Select(StepText).OfType<string>().Select(step => Shorten(StepGroups.Tidy(step, workspace), 1200)).ToArray();
         live.Steps.AddRange(steps.Select(step => Shorten(step, 300)));
         live.Turn.AddSteps(steps.Select(StepRow));
+        // A role or skill file the agent opened lights its jellyfish.
+        var lit = false;
+        foreach (var file in events.Where(agentEvent => agentEvent.Kind == AgentEventKind.Tool)
+                     .SelectMany(agentEvent => ProjectRoles.Opened($"{agentEvent.Text} {agentEvent.Arguments}")))
+        {
+            lit |= live.Opened.Add(file);
+        }
+
+        if (lit) live.Turn.Kit = JellyfishOf(live.KitFiles, live.Task.RoleIds, live.Opened);
         if (events.LastOrDefault(agentEvent => agentEvent.Kind is AgentEventKind.Tool or AgentEventKind.Status) is { } current)
         {
             live.Turn.Current = current.Kind == AgentEventKind.Tool ? StepGroups.Tidy(StepGroups.Step(current), workspace)[2..] : current.Text;
@@ -334,7 +344,7 @@ public partial class MainWindow
             : task.Judge ? "judge"
             : task.AutoApprove ? "auto" : "edits";
         var elapsed = live.Clock.Elapsed;
-        return $"{RoleWords(task.RoleId, task.Workspace)}{_agents.Provider(task.Provider).Name} · " +
+        return $"{RoleWords(task.RoleIds, task.Workspace)}{_agents.Provider(task.Provider).Name} · " +
                $"{LiveSetup(live)} · {access} · {(int)elapsed.TotalMinutes}:{elapsed.Seconds:00}";
     }
 
@@ -364,11 +374,29 @@ public partial class MainWindow
         return _roleName.Name;
     }
 
-    /// <summary>"Rigger / Animator · " before a line of who works, when the task has a specialist.</summary>
-    private string RoleWords(string? id, string workspace) => RoleName(id, workspace) is { } name ? name + " · " : string.Empty;
+    /// <summary>"Rigger / Animator + Technical artist" for the task's specialists, or General.</summary>
+    private string RoleNames(IReadOnlyList<string> ids, string workspace) =>
+        ids.Count == 0 ? "General" : string.Join(" + ", ids.Select(id => RoleName(id, workspace)));
+
+    /// <summary>The specialists' names and " · " before a line of who works, when the task has specialists.</summary>
+    private string RoleWords(IReadOnlyList<string> ids, string workspace) => ids.Count == 0 ? string.Empty : RoleNames(ids, workspace) + " · ";
+
+    /// <summary>A workspace's specialists, skills and packs, each read when the first jellyfish wants it.</summary>
+    private sealed class KitFiles(string workspace)
+    {
+        private readonly Lazy<IReadOnlyList<AgentRole>> _roles = new(() => ProjectRoles.In(workspace));
+        private readonly Lazy<IReadOnlyList<ProjectSkill>> _skills = new(() => ProjectSkills.In(workspace));
+
+        public IReadOnlyList<KitPart> Kit(IReadOnlyList<string> roleIds, IReadOnlyCollection<string> opened) =>
+            ProjectRoles.Kit(roleIds, opened, _roles.Value, _skills.Value, ToolPacks.For(workspace));
+    }
+
+    /// <summary>A run's kit as jellyfish: those whose files the run opened are lit.</summary>
+    private IReadOnlyList<Jellyfish> JellyfishOf(KitFiles files, IReadOnlyList<string> roleIds, IReadOnlyCollection<string> opened) =>
+        Jellyfish.Of(files.Kit(roleIds, opened), (Brush)FindResource("MutedBrush"));
 
     private string RunLine(AgentRunRecord run, string workspace) =>
-        $"{RoleWords(run.RoleId, workspace)}{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason, run.RanModel)} · " +
+        $"{RoleWords(run.RoleIds, workspace)}{AgentName(run.Provider)} · {SetupWords(run.Provider, run.Model, run.Effort, run.EffortReason, run.RanModel)} · " +
         $"{(run.Judge ? "judge" : run.AutoApprove ? "auto" : "edits")}";
 
     /// <summary>Where the task works: its project and the folder.</summary>

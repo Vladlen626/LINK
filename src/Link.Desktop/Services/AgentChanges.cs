@@ -288,6 +288,42 @@ public sealed class AgentChanges
         return false;
     }
 
+    /// <summary>
+    /// The file as the last commit has it, to show beside the file as it is now (a picture before and after); null outside
+    /// git, for a file git does not track, or when it has not changed. Bytes as they are: git's line endings are not undone.
+    /// </summary>
+    public static async Task<byte[]?> CommittedAsync(string file, CancellationToken cancellationToken)
+    {
+        var folder = Path.GetDirectoryName(file);
+        if (folder is null || !File.Exists(file) || !IsGit(folder)) return null;
+        var start = new System.Diagnostics.ProcessStartInfo("git")
+        {
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            UseShellExecute = false,
+            CreateNoWindow = true
+        };
+        foreach (var argument in new[] { "-C", folder, "show", "HEAD:./" + Path.GetFileName(file) }) start.ArgumentList.Add(argument);
+        try
+        {
+            using var git = System.Diagnostics.Process.Start(start);
+            if (git is null) return null;
+            using var output = new MemoryStream();
+            var errors = git.StandardError.ReadToEndAsync(cancellationToken);
+            await git.StandardOutput.BaseStream.CopyToAsync(output, cancellationToken);
+            await git.WaitForExitAsync(cancellationToken);
+            await errors;
+            if (git.ExitCode != 0) return null;
+            var committed = output.ToArray();
+            var now = await File.ReadAllBytesAsync(file, cancellationToken);
+            return committed.AsSpan().SequenceEqual(now) ? null : committed;
+        }
+        catch (Exception exception) when (exception is System.ComponentModel.Win32Exception or IOException or InvalidOperationException)
+        {
+            return null;
+        }
+    }
+
     /// <summary>Runs git in the workspace; its output, or null when git is missing or the command failed.</summary>
     private static async Task<string?> GitAsync(string workspace, IReadOnlyList<string> arguments, CancellationToken cancellationToken,
         IReadOnlyDictionary<string, string>? environment = null)

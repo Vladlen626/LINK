@@ -66,8 +66,8 @@ public partial class MainWindow
             RunLabel = $"Hand off to {AgentName(to)}",
             FixedProvider = true,
             AutoEffort = record.AutoEffort && _settings.Current.Agent.AutoEffort,
-            // The new session works as the task's specialist, unless it is changed here.
-            RoleId = record.RoleId,
+            // The new session works as the task's specialists.
+            RoleIds = record.RoleIds,
             Skills = record.Skills
         };
         var card = Build() with { Renew = Build };
@@ -92,15 +92,15 @@ public partial class MainWindow
             Effort = plan.Effort,
             AutoApprove = plan.AutoApprove,
             AllowedTools = AgentCoordinator.Tools(work.Project, template.Workspace),
-            RoleId = plan.RoleId,
+            RoleIds = plan.RoleIds,
             Skills = plan.Skills
         };
         // Auto stays on the card's word: an effort chosen there pins it.
         record.AutoEffort = plan.AutoEffort;
-        var specialist = string.Equals(record.RoleId, plan.RoleId, StringComparison.OrdinalIgnoreCase)
+        var specialist = plan.RoleIds.SequenceEqual(record.RoleIds, StringComparer.OrdinalIgnoreCase)
             ? string.Empty
-            : $", as {RoleName(plan.RoleId, record.Workspace) ?? "General"}";
-        record.RoleId = plan.RoleId;
+            : $", as {RoleNames(plan.RoleIds, record.Workspace)}";
+        record.RoleIds = [.. plan.RoleIds];
         record.Skills = [.. plan.Skills];
         var setup = WithAutoEffort(work, task, EffortPhase.HandOff);
         record.Add(AgentEntryKind.HandOff,
@@ -143,7 +143,7 @@ public partial class MainWindow
                 RunLabel = "Compact",
                 FixedProvider = true,
                 AutoEffort = record.AutoEffort && _settings.Current.Agent.AutoEffort,
-                RoleId = record.RoleId,
+                RoleIds = record.RoleIds,
                 Skills = record.Skills
             };
         }
@@ -163,9 +163,9 @@ public partial class MainWindow
         var record = work.Record;
         var template = ResumableTask(work)?.Task ?? work.Origin;
         if (template is null) return;
-        // The card may have changed the specialist, the skills and Auto: the task keeps them.
+        // The card's specialists, skills and Auto: the task keeps them.
         record.AutoEffort = plan.AutoEffort;
-        record.RoleId = plan.RoleId;
+        record.RoleIds = [.. plan.RoleIds];
         record.Skills = [.. plan.Skills];
         var task = AgentCoordinator.CompactTask(template, record, plan.Goal, work.Origin?.Images ?? []) with
         {

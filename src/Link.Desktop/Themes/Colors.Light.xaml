@@ -25,7 +25,6 @@
         <GradientStop Offset="0" Color="#FFF9FBFD" />
         <GradientStop Offset="1" Color="#FFEDF2F7" />
     </LinearGradientBrush>
-    <SolidColorBrush x:Key="ShellBorderBrush" Color="#38000000" />
     <LinearGradientBrush x:Key="RimLightBrush" StartPoint="0,0" EndPoint="0,1">
         <GradientStop Offset="0" Color="#E6FFFFFF" />
         <GradientStop Offset="0.25" Color="#4DFFFFFF" />

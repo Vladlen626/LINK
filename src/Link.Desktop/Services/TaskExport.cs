@@ -48,7 +48,7 @@ public static class TaskExport
     {
         var metric = TaskMetrics.Of(task, strong);
         text.AppendLine("## Summary");
-        text.Append("- Status: ").Append(task.Status).Append(" · specialist: ").AppendLine(roleName(task.RoleId));
+        text.Append("- Status: ").Append(task.Status).Append(" · specialist: ").AppendLine(Roles(task.RoleIds, roleName));
         text.Append("- Folder: ").AppendLine(LastPart(task.Workspace));
         text.Append("- Started ").Append(Stamp(task.CreatedAt)).Append(", last change ").Append(Stamp(task.UpdatedAt))
             .Append("; the agents worked ").AppendLine(Duration(metric.Time));
@@ -134,11 +134,15 @@ public static class TaskExport
         }
     }
 
+    // The specialists by name, the lead first; General's name when there are none.
+    private static string Roles(IReadOnlyList<string> ids, Func<string?, string> roleName) =>
+        ids.Count == 0 ? roleName(null) : string.Join(" + ", ids.Select(id => roleName(id)));
+
     private static void Run(StringBuilder text, AgentRunRecord run, int number, Func<AgentProviderKind, string> agentName, Func<string?, string> roleName)
     {
         text.Append("### Run ").Append(number).Append(" · ").Append(agentName(run.Provider)).Append(" · ").Append(run.Model ?? "default model");
         if (run.RanModel is { } ran) text.Append(" (").Append(ran).Append(')');
-        text.Append(" · ").Append(run.Effort ?? "its own effort").Append(" · as ").Append(roleName(run.RoleId))
+        text.Append(" · ").Append(run.Effort ?? "its own effort").Append(" · as ").Append(Roles(run.RoleIds, roleName))
             .Append(" · ").Append(run.Judge ? "judge" : run.AutoApprove ? "auto" : "edits");
         text.AppendLine();
         // The outcome tells the time: "Done in 3:12".

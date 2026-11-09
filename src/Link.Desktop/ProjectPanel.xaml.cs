@@ -17,6 +17,7 @@ public partial class ProjectPanel : UserControl
 {
     private bool _showing;
     private string? _workspace;
+    private string? _map;
 
     public ProjectPanel() => InitializeComponent();
 
@@ -32,8 +33,11 @@ public partial class ProjectPanel : UserControl
     /// <summary>The map of the workspace is to be written or brought up to date.</summary>
     public event Action? MapRequested;
 
-    /// <summary>A skill's SKILL.md, to be shown in Explorer.</summary>
-    public event Action<string>? SkillRequested;
+    /// <summary>A file to show in Link's viewer: a skill's SKILL.md, the map.</summary>
+    public event Action<string>? FileRequested;
+
+    /// <summary>The project's memory, to be shown in Link's viewer.</summary>
+    public event Action? MemoryRequested;
 
     /// <summary>The check after edits was typed; empty runs none.</summary>
     public event Action<string>? CheckCommandChanged;
@@ -60,12 +64,19 @@ public partial class ProjectPanel : UserControl
         MapText.Text = shared is not null ? $"{ProjectMap.Relative(_workspace!, shared)} · the repository's own"
             : map is { Exists: true } ? $"{ProjectMap.RelativePath} · {map.LastWriteTime.ToString("d MMM", CultureInfo.InvariantCulture)}"
             : "No map yet";
+        _map = shared ?? (map is { Exists: true } ? map.FullName : null);
+        MapOpenButton.IsEnabled = _map is not null;
+        MapText.Foreground = (Brush)FindResource(_map is null ? "MutedBrush" : "LinkTextBrush");
         MapButton.Visibility = shared is null ? Visibility.Visible : Visibility.Collapsed;
         MapButton.Content = map is { Exists: true } ? "Update map" : "Write map";
         VcsText.Text = _workspace is null ? string.Empty
             : AgentChanges.IsGit(_workspace) ? "Git: undo puts back what an agent changed"
             : AgentChanges.IsPerforce(_workspace) ? "Perforce: agents open files with p4 edit; Link lists what they changed but cannot undo it"
             : "No version control: Link lists what an agent changed but cannot undo it";
+        var notes = _workspace is null ? 0 : ProjectMemory.Notes(_workspace).Count;
+        MemoryText.Text = notes > 0 ? $"Memory · Claude's {notes} {(notes == 1 ? "note" : "notes")}" : "Memory · no notes kept yet";
+        MemoryButton.IsEnabled = notes > 0 || _map is not null;
+        MemoryText.Foreground = (Brush)FindResource(MemoryButton.IsEnabled ? "LinkTextBrush" : "MutedBrush");
         var skills = ProjectSkills.In(_workspace);
         SkillsList.ItemsSource = skills;
         SkillsEmptyText.Visibility = skills.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -110,8 +121,15 @@ public partial class ProjectPanel : UserControl
 
     private void Map_OnClick(object sender, RoutedEventArgs e) => MapRequested?.Invoke();
 
+    private void MapOpen_OnClick(object sender, RoutedEventArgs e)
+    {
+        if (_map is not null) FileRequested?.Invoke(_map);
+    }
+
+    private void Memory_OnClick(object sender, RoutedEventArgs e) => MemoryRequested?.Invoke();
+
     private void Skill_OnClick(object sender, RoutedEventArgs e)
     {
-        if ((sender as FrameworkElement)?.DataContext is ProjectSkill skill) SkillRequested?.Invoke(skill.FilePath);
+        if ((sender as FrameworkElement)?.DataContext is ProjectSkill skill) FileRequested?.Invoke(skill.FilePath);
     }
 }

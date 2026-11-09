@@ -46,12 +46,13 @@ public sealed record AgentCardModel(
     /// <summary>The effort list starts with Auto, Link's pick for each run, and the card starts on it.</summary>
     public bool AutoEffort { get; init; }
 
-    /// <summary>The specialists the card offers (none: no row) and the one it starts on, Link's pick; null: General.</summary>
+    /// <summary>The workspace's specialists, which Link picks the task's from with its goal.</summary>
     public IReadOnlyList<AgentRole> Roles { get; init; } = [];
 
-    public string? RoleId { get; init; }
+    /// <summary>The specialists the card starts with, Link's pick from the goal or a hand-over's own; none: General.</summary>
+    public IReadOnlyList<string> RoleIds { get; init; } = [];
 
-    /// <summary>The workspace's skills, which the card picks from and offers to add (none: no row).</summary>
+    /// <summary>The workspace's skills, which Link picks those the agent reads first from.</summary>
     public IReadOnlyList<ProjectSkill> WorkspaceSkills { get; init; } = [];
 
     /// <summary>The skills the card starts with, such as a task's own on a hand-over; null: picked from the goal.</summary>
@@ -60,7 +61,7 @@ public sealed record AgentCardModel(
     /// <summary>"Context budget 400k · 5 skills · MCP: unreal, blender": what else goes with the run, shown muted under the setup.</summary>
     public string HarnessLine { get; init; } = string.Empty;
 
-    /// <summary>The project the card was opened for: Run starts the task in it, whichever project the overlay shows by then.</summary>
+    /// <summary>The project the card was opened for: Run starts the task in it, whichever project Link shows by then.</summary>
     public Guid ProjectId { get; init; }
 
     /// <summary>Why the card is not on Settings' default agent (its limit is reached now); null when it is.</summary>
@@ -154,8 +155,9 @@ public partial class AgentPanel
             {
                 Workspace = fresh.Workspace,
                 Roles = fresh.Roles,
-                RoleId = ProjectRoles.Suggest(GoalBox.Text, fresh.Roles)?.Id,
-                WorkspaceSkills = fresh.WorkspaceSkills
+                RoleIds = [.. ProjectRoles.Pick(GoalBox.Text, fresh.Roles).Select(role => role.Id)],
+                WorkspaceSkills = fresh.WorkspaceSkills,
+                Skills = null
             };
             ShowWorkspace(card);
             ShowRoles(card);
@@ -327,36 +329,28 @@ public partial class AgentPanel
         ShowEfforts(agent, SelectedEffort, SelectedAutoEffort);
     }
 
-    /// <summary>
-    /// The goal as the user left it: the specialist is picked from the new words while it is still Link's pick, and the
-    /// skills are, whoever chose the specialist. A hand-over keeps the task's.
-    /// </summary>
-    private void Goal_OnLostFocus(object sender, RoutedEventArgs e)
+    /// <summary>The goal as the user left it: Link picks the kit from the new words. A hand-over keeps the task's.</summary>
+    private void Goal_OnLostFocus(object sender, RoutedEventArgs e) => PickFromGoal();
+
+    /// <summary>Picks the specialists and the skills read first from the goal as it stands; the kit is drawn anew if they changed.</summary>
+    private void PickFromGoal()
     {
-        // A press on Run takes the focus before its click: that click is not to run a pick the card has not shown yet.
-        _pickChangedByRun = PickFromGoal() && RunButton.IsMouseOver;
+        if (_card is not { FixedProvider: false } card) return;
+        IReadOnlyList<string> roleIds = [.. ProjectRoles.Pick(GoalBox.Text, card.Roles).Select(role => role.Id)];
+        var skills = ProjectRoles.SkillsFor(GoalBox.Text, ProjectRoles.Of(roleIds, card.Roles), card.WorkspaceSkills);
+        if (roleIds.SequenceEqual(_roleIds) && skills.SequenceEqual(_skills)) return;
+        _roleIds = roleIds;
+        _skills = skills;
+        ShowKit(card);
     }
 
-    /// <summary>Picks the specialist and the skills from the goal as it stands; whether the pick changed.</summary>
-    private bool PickFromGoal()
-    {
-        if (_card is not { FixedProvider: false } card) return false;
-        var role = SelectedRoleId;
-        if (!_roleChosen && card.Roles.Count > 0) SelectRole(ProjectRoles.Suggest(GoalBox.Text, card.Roles)?.Id);
-        // The chips stay as they are unless the pick changed: a click on one lost the focus of the goal, and a chip
-        // drawn anew under the mouse would take that click.
-        var skills = PickedSkills();
-        var changed = role != SelectedRoleId || !skills.SequenceEqual(_skills);
-        if (changed) ShowSkills(skills);
-        return changed;
-    }
-
-    /// <summary>Ctrl+Enter in the goal runs the task as the Run button does, with the same guard against a pick not yet seen.</summary>
+    /// <summary>Ctrl+Enter in the goal runs the task as the Run button does, with the kit picked from the goal as it stands.</summary>
     private void Goal_OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
-        if (e.Key != Key.Enter || Keyboard.Modifiers != ModifierKeys.Control) return;
+        var run = e.Key == Key.Enter && Keyboard.Modifiers == ModifierKeys.Control;
+        if (KeyWhileDictating(GoalBox, e, run) || !run) return;
         e.Handled = true;
-        _pickChangedByRun = PickFromGoal();
+        PickFromGoal();
         Run_OnClick(RunButton, e);
     }
 
@@ -386,13 +380,6 @@ public partial class AgentPanel
             return;
         }
 
-        if (_pickChangedByRun)
-        {
-            _pickChangedByRun = false;
-            ShowCardWarning("The specialist or skills changed with the goal: check them, then press Run again.");
-            return;
-        }
-
         var plan = new AgentPlan(
             agent.Kind,
             workspace,
@@ -404,7 +391,7 @@ public partial class AgentPanel
             // A model with no effort levels leaves Auto as the card had it, for the agents the task may reach.
             AutoEffort = SelectedAutoEffort || (!EffortCombo.IsEnabled && card.AutoEffort),
             AutoApprove = SelectedAuto,
-            RoleId = SelectedRoleId,
+            RoleIds = _roleIds,
             Skills = _skills,
             ProjectId = card.ProjectId,
             NoStop = NoStopBox.Visibility == Visibility.Visible && NoStopBox.IsChecked == true,

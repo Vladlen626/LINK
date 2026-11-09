@@ -10,7 +10,7 @@ namespace Link.Desktop.Windows;
 
 /// <summary>
 /// Screenshots for the context: through Windows.Graphics.Capture first, which sees games and GPU-drawn pages and a
-/// window under Link's overlay, then the older ways. A black frame is refused, not sent as if it showed something.
+/// window under Link's own, then the older ways. A black frame is refused, not sent as if it showed something.
 /// The work runs off the UI thread; each capture leaves a [Capture] line in link.log, without window titles.
 /// </summary>
 public sealed class ScreenCaptureService

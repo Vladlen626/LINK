@@ -45,28 +45,26 @@ function Select-Item($combo, [string]$like) {
   $combo.GetCurrentPattern([System.Windows.Automation.ExpandCollapsePattern]::Pattern).Collapse(); Start-Sleep -Milliseconds 800
 }
 
-# The card would take the user's keys: wait until nobody types for 15 s (at most 2 minutes).
+# Link's window takes the keyboard: wait until nobody types for 15 s (at most 2 minutes).
 for ($i = 0; $i -lt 120 -and [Idle]::Seconds() -lt 15; $i++) { Start-Sleep -Seconds 1 }
 "idle: $([Idle]::Seconds()) s"
 
-# The Link window open (the card's Expand), on its Studio tab; New task opens the card (Link refuses while
-# an agent works).
-Invoke-Element (Wait-Id 'ExpandButton'); Start-Sleep -Milliseconds 800
+# Link's window on its Studio tab: a Link hidden in the tray is not in the UIA tree, and a second Link.exe brings
+# it forward.
+if (-not (Find-Id 'StudioTabButton')) { Start-Process (Get-Process Link | Select-Object -First 1).Path }
 Invoke-Element (Wait-Id 'StudioTabButton'); Start-Sleep -Milliseconds 800
 
-# The Link window has a project of its own, apart from the card's: New task is for it. Its header's menu switches it.
-$header = Wait-Id 'ProjectButton'
-$byText = New-Object System.Windows.Automation.PropertyCondition($A::AutomationIdProperty, 'ProjectText')
-$name = $header.FindFirst($Tree::Descendants, $byText).Current.Name
+# New task opens the card (Link refuses while an agent works), for the window's project: the lit project tab
+# names it, and another project's tab switches to that one.
+$name = (Wait-Id 'ProjectText').Current.Name
 "project: $name"
 if ($name -ne $Project) {
-  Invoke-Element $header; Start-Sleep -Milliseconds 600
-  $byName = New-Object System.Windows.Automation.PropertyCondition($A::NameProperty, $Project)
-  $item = $null
-  foreach ($w in (Main-Window)) { $item = $w.FindFirst($Tree::Descendants, $byName); if ($item) { break } }
-  if (-not $item) { throw "the Link window's menu has no project '$Project'" }
-  Invoke-Element $item; Start-Sleep -Milliseconds 800
-  "project: $($header.FindFirst($Tree::Descendants, $byText).Current.Name)"
+  $byTab = New-Object System.Windows.Automation.PropertyCondition($A::AutomationIdProperty, 'ProjectTab')
+  $tab = $null
+  foreach ($w in (Main-Window)) { foreach ($each in $w.FindAll($Tree::Descendants, $byTab)) { if ($each.Current.Name -eq $Project) { $tab = $each } } }
+  if (-not $tab) { throw "the Link window has no project tab '$Project'" }
+  Invoke-Element $tab; Start-Sleep -Milliseconds 800
+  "project: $((Wait-Id 'ProjectText').Current.Name)"
 }
 if (-not (Find-Id 'NewTaskButton')) {
   # A task is open: its back button (no name, only the tooltip) leads to the list.
@@ -87,5 +85,5 @@ $plan = (Wait-Id 'PlanFirstBox').GetCurrentPattern([System.Windows.Automation.To
 if ($NoRun) { 'stopped before Run'; return }
 Invoke-Element (Wait-Id 'RunButton')
 Start-Sleep -Seconds 6
-"pill: $((Find-Id 'AgentPillText').Current.Name)"
+"studio tab: $(((Find-Id 'StudioTabButton').Current.HelpText) -replace "`r?`n", ' | ')"
 "status: $((Find-Id 'StatusText').Current.Name)"

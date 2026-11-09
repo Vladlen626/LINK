@@ -32,17 +32,17 @@ function Wait-Id([string]$id, [int]$seconds = 8) {
   throw "not found: $id"
 }
 
-# The card would take the user's keys: wait until nobody types for 15 s (at most 2 minutes).
+# Link's window takes the keyboard: wait until nobody types for 15 s (at most 2 minutes).
 for ($i = 0; $i -lt 120 -and [Idle]::Seconds() -lt 15; $i++) { Start-Sleep -Seconds 1 }
 "idle: $([Idle]::Seconds()) s"
 
-$name = (Wait-Id 'ProjectNameText').Current.Name
+# Link's window on its Studio tab: a Link hidden in the tray is not in the UIA tree, and a second Link.exe brings
+# it forward.
+if (-not (Find-Id 'StudioTabButton')) { Start-Process (Get-Process Link | Select-Object -First 1).Path }
+Invoke-Element (Wait-Id 'StudioTabButton'); Start-Sleep -Milliseconds 800
+$name = (Wait-Id 'ProjectText').Current.Name
 "project: $name"
 if ($name -ne $Project) { throw "Link shows the project '$name', not '$Project': switch it first" }
-
-# The Link window open (the card's Expand), on its Studio tab, with the list.
-Invoke-Element (Wait-Id 'ExpandButton'); Start-Sleep -Milliseconds 800
-Invoke-Element (Wait-Id 'StudioTabButton'); Start-Sleep -Milliseconds 800
 $list = Wait-Id 'TaskList'
 $isButton = New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
 $first = $list.FindFirst($Tree::Descendants, $isButton)
@@ -70,5 +70,5 @@ $run = Wait-Id 'RunButton'
 if ($NoRun) { 'stopped before Run'; return }
 Invoke-Element $run
 Start-Sleep -Seconds 6
-"pill: $((Find-Id 'AgentPillText').Current.Name)"
+"studio tab: $(((Find-Id 'StudioTabButton').Current.HelpText) -replace "`r?`n", ' | ')"
 "status: $((Find-Id 'StatusText').Current.Name)"

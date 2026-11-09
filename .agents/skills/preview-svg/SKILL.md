@@ -15,10 +15,12 @@ Width and height are the SVG's own `width` and `height`. Then read the PNG with 
 
 ## How the drawings are made
 
-- Two drawings: `overview.svg` (Link's card and panel over a 3D editor) and `studio.svg` (the task list, a task's
-  thread, the Harness column). Redraw a part when the UI it shows changes.
-- Link's dark theme from `src/Link.Desktop/Themes/Colors.Dark.xaml`: window `#1B2027`, text `#F2F5F8`, muted
-  `#BAC5D0`, accent `#D95E0E` / `#FF9F4A`, green dot `#3FB950`. Labels are the real ones from the XAML.
+- Two drawings: `overview.svg` (Link's window on its Chat tab over a 3D editor) and `studio.svg` (the Studio tab: the
+  task list, a task's thread, the Harness column). Redraw a part when the UI it shows changes.
+- Link's dark theme from `src/Link.Desktop/Themes/Colors.Dark.xaml`: window `#20262E` → `#171B21` (`PanelBrush`), text
+  `#F2F5F8`, muted `#BAC5D0`, accent `#D95E0E` / `#FF9F4A`, green dot `#3FB950`. Labels are the real ones from the XAML.
+- The window is drawn at its real size (1100 wide, header 46) in a scaled `<g>`, so each part sits where the XAML puts
+  it: count the header's right side from the right edge (caption buttons 46 each, then Settings, then the tools).
 - No callouts: the README's text names what the picture shows, in English.
 - No real project names, chats or paths of the user: the example project is "My game" in `C:\Users\me\...`.
 

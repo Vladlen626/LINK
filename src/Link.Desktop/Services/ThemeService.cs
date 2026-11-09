@@ -12,9 +12,6 @@ public static class ThemeService
 
     public static bool IsDark { get; private set; }
 
-    // Windows' "Transparency effects" switch; when it is off Link draws solid glass.
-    public static bool IsTransparencyEnabled => ReadPersonalizeFlag("EnableTransparency", fallback: true);
-
     // Must run before the first window is created: every window resolves theme brushes as StaticResource.
     public static void Apply(Application application, AppSettings settings)
     {

@@ -14,7 +14,7 @@ namespace Link.Desktop.Windows;
 /// <summary>
 /// One frame of a window or a monitor through Windows.Graphics.Capture: what the compositor draws for it. A game, a
 /// video or a page drawn by the GPU comes out as seen, which a copy of the screen often misses, and a window comes out
-/// whole even under Link's overlay. Nothing stays open between frames.
+/// whole even under Link's window. Nothing stays open between frames.
 /// </summary>
 internal static class GraphicsCapture
 {

@@ -87,10 +87,14 @@ public sealed class AgentTaskRecord
     /// <summary>The choices No-stop took since the user last spoke to the task.</summary>
     public int NoStopTaken { get; set; }
 
-    /// <summary>The specialist the task runs as, the file name of its role (<see cref="Services.ProjectRoles"/>); null: General.</summary>
-    public string? RoleId { get; set; }
+    /// <summary>The specialists Link gave the task, the file names of their roles (<see cref="Services.ProjectRoles"/>), the lead first; none: General.</summary>
+    public List<string> RoleIds { get; set; } = [];
 
-    /// <summary>The names of the skills the agent is told to read first, as the card or the last change of specialist picked them.</summary>
+    /// <summary>The one specialist a task of an older Link ran as: it loads into <see cref="RoleIds"/> and is not written again.</summary>
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private string? RoleId { get => null; set { if (value is not null) RoleIds = [value]; } }
+
+    /// <summary>The names of the skills the agent is told to read first, as Link picked them with the roles.</summary>
     public List<string> Skills { get; set; } = [];
 
     /// <summary>The images the task began with (the user's references, a screenshot), by path.</summary>
@@ -160,8 +164,18 @@ public sealed record AgentRunRecord
     /// <summary>Why Link chose the effort when the task was on Auto; null when it was chosen by hand.</summary>
     public string? EffortReason { get; init; }
 
-    /// <summary>The specialist this run worked as; null: General.</summary>
-    public string? RoleId { get; init; }
+    /// <summary>The specialists this run worked as, the lead first; none: General.</summary>
+    public List<string> RoleIds { get; init; } = [];
+
+    /// <summary>The one specialist a run of an older Link worked as: it loads into <see cref="RoleIds"/> and is not written again.</summary>
+    [JsonInclude, JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)]
+    private string? RoleId { get => null; init { if (value is not null) RoleIds = [value]; } }
+
+    /// <summary>
+    /// The roles and skills whose files the run opened, as "roles/&lt;id&gt;" and "skills/&lt;folder&gt;" in lower case: their
+    /// jellyfish are lit. None in a run of an older Link.
+    /// </summary>
+    public List<string> Opened { get; init; } = [];
 
     /// <summary>The run judged another's work (the final check): the user's words never go on in it.</summary>
     public bool Judge { get; init; }
@@ -445,8 +459,8 @@ public sealed record AgentTask
     /// <summary>Why Link chose <see cref="Effort"/> for a task on Auto (see <see cref="Services.AutoEffort"/>); null when the user did.</summary>
     public string? EffortReason { get; init; }
 
-    /// <summary>The specialist the task runs as (see <see cref="Services.ProjectRoles"/>): a new session is told its role. Null: General.</summary>
-    public string? RoleId { get; init; }
+    /// <summary>The specialists the task runs as, the lead first (see <see cref="Services.ProjectRoles"/>): a new session is told their roles. None: General.</summary>
+    public IReadOnlyList<string> RoleIds { get; init; } = [];
 
     /// <summary>The names of the workspace's skills picked for the task: a new session is told to read them first.</summary>
     public IReadOnlyList<string> Skills { get; init; } = [];
@@ -903,10 +917,15 @@ public sealed class AgentInbox
     /// <summary>Whether a session takes words now.</summary>
     public bool IsOpen => _say is not null;
 
+    /// <summary>The session took these words in, at its step (raised on the reading thread).</summary>
+    public event Action<string>? Taken;
+
     /// <summary>The words, and pictures for it to open, to the working session; false when none takes them now.</summary>
     public Task<bool> SayAsync(string words, IReadOnlyList<string> images) => _say?.Invoke(words, images) ?? Task.FromResult(false);
 
     internal void Open(Func<string, IReadOnlyList<string>, Task<bool>> say) => _say = say;
 
     internal void Close() => _say = null;
+
+    internal void Took(string words) => Taken?.Invoke(words);
 }

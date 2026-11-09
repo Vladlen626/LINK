@@ -197,7 +197,7 @@ public sealed class MarkdownRenderer(FrameworkElement resources, Action<Uri> ope
 
     private Paragraph CreateTable(IReadOnlyList<string> lines)
     {
-        // Monospace columns keep tables readable without a grid control in the compact overlay.
+        // Monospace columns keep tables readable without a grid control.
         var rows = lines
             .Select(SplitTableRow)
             .Where(cells => !cells.All(cell => cell.Length > 0 && cell.All(ch => ch is '-' or ':')))
@@ -464,7 +464,7 @@ public static class MarkdownText
             document.SetBinding(property, new Binding(property.Name) { Source = box });
         }
 
-        new MarkdownRenderer(box, Open).Render((string?)e.NewValue ?? string.Empty, (_, create) => document.Blocks.Add(create()));
+        new MarkdownRenderer(box, uri => Open(box, uri)).Render((string?)e.NewValue ?? string.Empty, (_, create) => document.Blocks.Add(create()));
         // The last block's space below would only pad the turn.
         if (document.Blocks.LastBlock is { } last) last.Margin = new Thickness(last.Margin.Left, last.Margin.Top, last.Margin.Right, 0);
         box.Document = document;
@@ -475,6 +475,23 @@ public static class MarkdownText
         if (e.Handled || sender is not DependencyObject box || VisualTreeHelper.GetParent(box) is not UIElement parent) return;
         e.Handled = true;
         parent.RaiseEvent(new MouseWheelEventArgs(e.MouseDevice, e.Timestamp, e.Delta) { RoutedEvent = UIElement.MouseWheelEvent, Source = sender });
+    }
+
+    /// <summary>A file the text names, asked of the window around the box: Link shows it in its own viewer.</summary>
+    public static readonly RoutedEvent FileRequestedEvent = EventManager.RegisterRoutedEvent(
+        "FileRequested", RoutingStrategy.Bubble, typeof(EventHandler<FileRequestedEventArgs>), typeof(MarkdownText));
+
+    // A file goes to the window when it shows files itself; a page, or a file no window took, opens with its app.
+    private static void Open(UIElement box, Uri uri)
+    {
+        if (uri.IsFile)
+        {
+            var request = new FileRequestedEventArgs(FileRequestedEvent, uri.LocalPath);
+            box.RaiseEvent(request);
+            if (request.Handled) return;
+        }
+
+        Open(uri);
     }
 
     internal static void Open(Uri uri)
@@ -488,4 +505,10 @@ public static class MarkdownText
             // No browser took the link: the text still shows where it goes.
         }
     }
+}
+
+/// <summary>The file a Markdown text's link names, for <see cref="MarkdownText.FileRequestedEvent"/>.</summary>
+public sealed class FileRequestedEventArgs(RoutedEvent routedEvent, string path) : RoutedEventArgs(routedEvent)
+{
+    public string Path { get; } = path;
 }

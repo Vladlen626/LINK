@@ -12,6 +12,37 @@
     </UserControl.Resources>
 
     <StackPanel>
+        <!-- First, as it holds for every task: the agents' usage windows, how much is used, this task's part of it, and whether it lasts to the reset. -->
+        <Border x:Name="GaugesCard" Style="{StaticResource CardStyle}" Visibility="Collapsed">
+            <StackPanel>
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                    <TextBlock Style="{StaticResource CardHeadingStyle}" Text="Usage windows" />
+                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                        <Border Width="8" Height="8" Margin="0,1,5,0" CornerRadius="2" Background="{StaticResource IdleOrbBrush}" />
+                        <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="used" />
+                        <Border Width="8" Height="8" Margin="10,1,5,0" CornerRadius="2" Background="{StaticResource AccentBrush}" />
+                        <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="this task" />
+                    </StackPanel>
+                </Grid>
+                <ItemsControl x:Name="GaugesList" Margin="0,2,0,0">
+                    <ItemsControl.ItemTemplate>
+                        <DataTemplate DataType="{x:Type local:SpendGaugeRow}">
+                            <StackPanel Margin="0,9,0,0">
+                                <Grid>
+                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
+                                    <TextBlock FontSize="13" Foreground="{StaticResource TextBrush}" Text="{Binding Label}" />
+                                    <TextBlock Grid.Column="1" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Used}" />
+                                </Grid>
+                                <local:SpendGaugeBar Height="6" Margin="0,5,0,0" Gauge="{Binding Gauge}" />
+                                <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{Binding NoteBrush}" Text="{Binding Note}" TextWrapping="Wrap" />
+                            </StackPanel>
+                        </DataTemplate>
+                    </ItemsControl.ItemTemplate>
+                </ItemsControl>
+            </StackPanel>
+        </Border>
+
         <!-- The task: what it cost, where its tokens went, and whether its cache is still warm. -->
         <Border Style="{StaticResource CardStyle}">
             <StackPanel>
@@ -120,37 +151,6 @@
                                     <TextBlock Grid.Column="2" FontSize="12" Foreground="{StaticResource TextBrush}" Text="{Binding Amount}" />
                                 </Grid>
                                 <local:SpendBar Height="6" Margin="0,5,0,0" Gap="1" Parts="{Binding Parts}" Scale="{Binding Scale}" />
-                            </StackPanel>
-                        </DataTemplate>
-                    </ItemsControl.ItemTemplate>
-                </ItemsControl>
-            </StackPanel>
-        </Border>
-
-        <!-- The agents' usage windows: how much is used, this task's part of it, and whether it lasts to the reset. -->
-        <Border x:Name="GaugesCard" Style="{StaticResource CardStyle}" Visibility="Collapsed">
-            <StackPanel>
-                <Grid>
-                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBlock Style="{StaticResource CardHeadingStyle}" Text="Usage windows" />
-                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
-                        <Border Width="8" Height="8" Margin="0,1,5,0" CornerRadius="2" Background="{StaticResource IdleOrbBrush}" />
-                        <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="used" />
-                        <Border Width="8" Height="8" Margin="10,1,5,0" CornerRadius="2" Background="{StaticResource AccentBrush}" />
-                        <TextBlock FontSize="12" Foreground="{StaticResource MutedBrush}" Text="this task" />
-                    </StackPanel>
-                </Grid>
-                <ItemsControl x:Name="GaugesList" Margin="0,2,0,0">
-                    <ItemsControl.ItemTemplate>
-                        <DataTemplate DataType="{x:Type local:SpendGaugeRow}">
-                            <StackPanel Margin="0,9,0,0">
-                                <Grid>
-                                    <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                                    <TextBlock FontSize="13" Foreground="{StaticResource TextBrush}" Text="{Binding Label}" />
-                                    <TextBlock Grid.Column="1" FontSize="13" FontWeight="SemiBold" Foreground="{StaticResource TextBrush}" Text="{Binding Used}" />
-                                </Grid>
-                                <local:SpendGaugeBar Height="6" Margin="0,5,0,0" Gauge="{Binding Gauge}" />
-                                <TextBlock Margin="0,4,0,0" FontSize="12" Foreground="{Binding NoteBrush}" Text="{Binding Note}" TextWrapping="Wrap" />
                             </StackPanel>
                         </DataTemplate>
                     </ItemsControl.ItemTemplate>

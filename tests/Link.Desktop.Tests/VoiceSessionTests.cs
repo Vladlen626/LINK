@@ -385,7 +385,7 @@ internal static class VoiceSessionTests
 
     private static ChatProgress Receiving(string text) => new() { State = ChatProgressState.Receiving, Text = text };
 
-    /// <summary>The chat's progress straight into the session, as the overlay passes it on.</summary>
+    /// <summary>The chat's progress straight into the session, as Link's window passes it on.</summary>
     private sealed class SessionProgress(VoiceSession session) : IProgress<ChatProgress>
     {
         public void Report(ChatProgress value) => session.ReportProgress(value);

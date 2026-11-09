@@ -33,19 +33,19 @@ public partial class MainWindow
     public async Task CaptureCurrentMonitorAsync()
     {
         if (!CanCapture) return;
-        await CaptureWithOverlayHiddenAsync(async () => [await _capture.CaptureCurrentMonitorAsync()]);
+        await CaptureWithLinkHiddenAsync(async () => [await _capture.CaptureCurrentMonitorAsync()]);
     }
 
     public async Task CaptureDesktopAsync()
     {
         if (!CanCapture) return;
-        await CaptureWithOverlayHiddenAsync(async () => [await _capture.CaptureDesktopAsync()]);
+        await CaptureWithLinkHiddenAsync(async () => [await _capture.CaptureDesktopAsync()]);
     }
 
     public async Task CaptureAllMonitorsAsync()
     {
         if (!CanCapture) return;
-        await CaptureWithOverlayHiddenAsync(_capture.CaptureAllMonitorsAsync);
+        await CaptureWithLinkHiddenAsync(_capture.CaptureAllMonitorsAsync);
     }
 
     /// <summary>
@@ -125,7 +125,7 @@ public partial class MainWindow
     }
 
     /// <summary>A monitor, the desktop or all monitors: Link would be in the picture, so it hides for a moment.</summary>
-    private async Task CaptureWithOverlayHiddenAsync(Func<Task<IReadOnlyList<ScreenshotResult>>> capture)
+    private async Task CaptureWithLinkHiddenAsync(Func<Task<IReadOnlyList<ScreenshotResult>>> capture)
     {
         var wasVisible = IsVisible;
         var wasActive = IsActive;

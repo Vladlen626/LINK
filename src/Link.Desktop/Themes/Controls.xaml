@@ -105,17 +105,10 @@
         <Setter Property="TextWrapping" Value="Wrap" />
     </Style>
 
-    <!-- A dialog's surface: the overlay's panel, solid. -->
+    <!-- A dialog's surface: Link's panel, solid. -->
     <Style x:Key="DialogSurfaceStyle" TargetType="Border">
         <Setter Property="Background" Value="{StaticResource PanelBrush}" />
         <Setter Property="IsHitTestVisible" Value="False" />
-    </Style>
-
-    <Style x:Key="GlassShellStyle" TargetType="Border">
-        <Setter Property="Background" Value="{StaticResource PanelBrush}" />
-        <Setter Property="BorderBrush" Value="{StaticResource ShellBorderBrush}" />
-        <Setter Property="BorderThickness" Value="1" />
-        <Setter Property="CornerRadius" Value="{StaticResource ShellRadius}" />
     </Style>
 
     <Style x:Key="KeyCapStyle" TargetType="Border">
@@ -352,6 +345,37 @@
         <Setter Property="Template" Value="{StaticResource GhostButtonTemplate}" />
     </Style>
 
+    <!-- A task or a chat in a sidebar: a row with soft corners, lit while it is the open one. -->
+    <Style x:Key="SidebarRowStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
+        <Setter Property="Margin" Value="0,0,0,2" />
+        <Setter Property="Padding" Value="8,7" />
+        <Setter Property="HorizontalContentAlignment" Value="Stretch" />
+        <Setter Property="VerticalContentAlignment" Value="Top" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="Button">
+                    <Border x:Name="Chrome" Background="{TemplateBinding Background}" BorderBrush="Transparent" BorderThickness="1" CornerRadius="8">
+                        <Grid>
+                            <Border x:Name="HoverLight" CornerRadius="8" Background="{StaticResource HoverBrush}" Opacity="0" />
+                            <ContentPresenter Margin="{TemplateBinding Padding}" HorizontalAlignment="{TemplateBinding HorizontalContentAlignment}"
+                                              VerticalAlignment="{TemplateBinding VerticalContentAlignment}" />
+                        </Grid>
+                    </Border>
+                    <ControlTemplate.Triggers>
+                        <Trigger Property="IsMouseOver" Value="True"><Setter TargetName="HoverLight" Property="Opacity" Value="1" /></Trigger>
+                        <Trigger Property="IsPressed" Value="True"><Setter TargetName="HoverLight" Property="Background" Value="{StaticResource PressedBrush}" /></Trigger>
+                        <Trigger Property="IsKeyboardFocused" Value="True"><Setter TargetName="Chrome" Property="BorderBrush" Value="{StaticResource AccentBorderBrush}" /></Trigger>
+                    </ControlTemplate.Triggers>
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+        <Style.Triggers>
+            <DataTrigger Binding="{Binding IsOpen}" Value="True">
+                <Setter Property="Background" Value="{StaticResource ActiveContextBrush}" />
+            </DataTrigger>
+        </Style.Triggers>
+    </Style>
+
     <Style x:Key="CompactActionButtonStyle" TargetType="Button" BasedOn="{StaticResource ChipButtonStyle}">
         <Setter Property="Height" Value="30" />
         <Setter Property="Padding" Value="8,3" />
@@ -442,6 +466,25 @@
         <Setter Property="Template">
             <Setter.Value>
                 <ControlTemplate TargetType="TextBox">
+                    <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" />
+                </ControlTemplate>
+            </Setter.Value>
+        </Setter>
+    </Style>
+
+    <!-- Formatted Markdown (MarkdownText.Source), an agent's answer or a file in the viewer: selectable, as tall as its text. -->
+    <Style x:Key="ReadRichTextStyle" TargetType="RichTextBox">
+        <Setter Property="IsReadOnly" Value="True" />
+        <Setter Property="IsDocumentEnabled" Value="True" />
+        <Setter Property="Background" Value="Transparent" />
+        <Setter Property="BorderThickness" Value="0" />
+        <Setter Property="Padding" Value="0" />
+        <Setter Property="FontSize" Value="13" />
+        <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+        <Setter Property="SelectionBrush" Value="{StaticResource SelectionBrush}" />
+        <Setter Property="Template">
+            <Setter.Value>
+                <ControlTemplate TargetType="RichTextBox">
                     <ScrollViewer x:Name="PART_ContentHost" Margin="{TemplateBinding Padding}" />
                 </ControlTemplate>
             </Setter.Value>

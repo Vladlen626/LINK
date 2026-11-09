@@ -158,7 +158,7 @@ public partial class SpendView : UserControl
     {
         GaugesCard.Visibility = gauges.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         Fill(GaugesList, gauges.Select(gauge => new SpendGaugeRow(gauge.Label,
-            $"{Math.Round(gauge.Used)}%{(gauge.Mine > 0 ? $" · this task {gauge.Mine.ToString("0.#", CultureInfo.InvariantCulture)}" : string.Empty)}",
+            $"{Math.Round(gauge.Used)}%{(gauge.Mine > 0 ? $" · {gauge.Mine.ToString("0.#", CultureInfo.InvariantCulture)}% this task" : string.Empty)}",
             gauge, gauge.Note, SpendInk.Brush(this, gauge.Warn ? "ErrorBrush" : "MutedBrush"))).ToArray());
     }
 

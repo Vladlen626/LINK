@@ -4,7 +4,7 @@ using Link.Desktop.Models;
 
 namespace Link.Desktop.Services;
 
-/// <summary>What a voice interaction is doing now; the overlay and its sounds follow this one value.</summary>
+/// <summary>What a voice interaction is doing now; Link's window and its sounds follow this one value.</summary>
 public enum VoicePhase
 {
     Idle,
@@ -33,7 +33,7 @@ public sealed record VoiceTranscript(string Text, bool SendRequested);
 /// <summary>
 /// The one owner of voice state: the microphone, local transcription with its live draft, the request as far as
 /// voice cares and the spoken answer, handed to the voice sentence by sentence while it streams. It has no UI; the
-/// overlay renders <see cref="Phase"/>. Used on the UI thread, with the live settings that the Settings window
+/// window renders <see cref="Phase"/>. Used on the UI thread, with the live settings that the Settings window
 /// edits in place.
 /// </summary>
 public sealed class VoiceSession

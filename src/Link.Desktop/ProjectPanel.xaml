@@ -65,11 +65,19 @@
                 <!-- The project map: what is where and how to check, read by agents instead of searching. -->
                 <Grid Margin="0,6,0,0">
                     <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                    <TextBlock x:Name="MapText" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}" TextTrimming="CharacterEllipsis" />
+                    <Button x:Name="MapOpenButton" Margin="-6,0,0,0" Padding="6,3" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
+                            Click="MapOpen_OnClick" ToolTip="Open the map in Link">
+                        <TextBlock x:Name="MapText" FontSize="12" TextTrimming="CharacterEllipsis" />
+                    </Button>
                     <Button x:Name="MapButton" Grid.Column="1" Style="{StaticResource ChipButtonStyle}" Height="26" Margin="4,0,0,0"
                             Click="Map_OnClick"
                             ToolTip="The agent looks through the folder, changing nothing, and Link writes its answer to docs/map.md: what is where, how to build and check. Agents read the map instead of searching; press again when it is out of date." />
                 </Grid>
+                <!-- What the agents keep between tasks: the map, and the notes each model keeps on this folder. -->
+                <Button x:Name="MemoryButton" Margin="-6,2,0,0" Padding="6,3" HorizontalAlignment="Left" Style="{StaticResource GhostButtonStyle}"
+                        Click="Memory_OnClick" ToolTip="The project's memory in Link: the map and Claude's notes on this folder, one list">
+                    <TextBlock x:Name="MemoryText" FontSize="12" TextTrimming="CharacterEllipsis" />
+                </Button>
                 <!-- The workspace's skills: repeated work written down once, which both agents pick by its description. -->
                 <TextBlock x:Name="SkillsEmptyText" Margin="0,6,0,0" Style="{StaticResource SecondaryTextStyle}" Text="No skills yet"
                            ToolTip="The agents keep a skill in .agents/skills themselves, when a task proves a way of working; the Studio's Harness column lists them" />
@@ -77,7 +85,7 @@
                     <ItemsControl.ItemTemplate>
                         <DataTemplate>
                             <Button Style="{StaticResource GhostButtonStyle}" Margin="0,0,0,2" Padding="8,4" HorizontalContentAlignment="Stretch"
-                                    Click="Skill_OnClick" ToolTip="Show its SKILL.md in Explorer">
+                                    Click="Skill_OnClick" ToolTip="Open its SKILL.md in Link">
                                 <StackPanel>
                                     <TextBlock FontSize="12" FontWeight="SemiBold" Text="{Binding Name}" TextTrimming="CharacterEllipsis" />
                                     <TextBlock Margin="0,2,0,0" MaxHeight="32" FontSize="12" LineHeight="16" LineStackingStrategy="BlockLineHeight"

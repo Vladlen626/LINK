@@ -9,7 +9,7 @@ $shell = New-Object -ComObject WScript.Shell
 $link = $shell.CreateShortcut("$programs\Link.lnk")
 $link.TargetPath = $exe
 $link.WorkingDirectory = Split-Path $exe
-$link.Description = 'Link: the AI companion overlay'
+$link.Description = 'Link: the AI chat and agent studio'
 $link.Save()
 
 $rebuild = $shell.CreateShortcut("$programs\Rebuild Link.lnk")

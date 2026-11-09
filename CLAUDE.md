@@ -3,9 +3,9 @@
 <!-- Loaded into every Claude session (HTML comments are stripped): keep it short, specific and current.
      Product vision and decisions live in PROJECT_CONTEXT.md; other agents read AGENTS.md. -->
 
-Windows desktop companion: a small always-on-top WPF overlay that sends a prompt plus screen, clipboard, voice
-and current-app context to a linked AI chat (ChatGPT in LINK's own off-screen WebView2 page) and shows the answer.
-C#, .NET 10, WPF, one assembly.
+Windows desktop companion: one WPF window with two tabs. Chat sends a prompt plus screen, clipboard, voice and
+current-app context to a linked AI chat (ChatGPT in LINK's own off-screen WebView2 page) and shows the answer; Studio
+runs coding agents on the user's projects. C#, .NET 10, WPF, one assembly.
 
 ## Working with the user
 - Everything in English (replies, docs, code, commits): the user's choice, it saves tokens. Briefly, result first.
@@ -55,9 +55,10 @@ The same harness Link gives its agents, for work on this repo.
   rules a script can hold are code: `src/Link.Guard` (Claude Code's PreToolUse hook,
   `docs/harness/guarded-rules.md` is their text for Codex) and `HarnessLint` (a run's map and skills); `AutoEffort`, `TaskState` (Compact), `HarnessView` (the inspector). The agent's rules,
   tasks and roles are `docs/harness/**/*.md`, copied beside Link.exe and editable without a rebuild. UI: `AgentPanel`
-  (the sidebar; partials Card, Roles, Task with its cards, Composer) in `StudioWindow`, beside `HarnessInspector`.
-- `MainWindow.*.cs` partials by concern: shell/projects/context, Chat (Send, one attempt), Route (where Send
-  goes), ChatLink (the project's chat, its connection, check), Response (the answer), Capture, Voice, Sizing,
+  (the sidebar; partials Card, Roles, Task with its cards, Composer) on the Studio tab, beside `HarnessInspector`.
+- `MainWindow` is Link's one window: the Chat tab (`ChatsPanel` its sidebar of chats, `ProjectPanel` the project
+  column) and the Studio tab. Its `*.cs` partials by concern: shell/projects/context, Chat (Send, one attempt), Route
+  (where Send goes), ChatLink (the project's chat, its connection, check), Response (the answer), Capture, Voice,
   Panel, Agent (starting and running tasks), AgentCard (the card, setups), Thread (the task's thread, live runs), HandOff
   (compact, hand over), Limits, Changes (undo), OwnAnswers (the map), Works (the tasks at work
   side by side; edits go one run at a time per folder), Studio, Share (the Harness column's Share card: knowledge
@@ -79,8 +80,7 @@ The same harness Link gives its agents, for work on this repo.
 - Keep UI, app logic and Win32 apart. Provider and browser details stay behind `IChatIntegration`.
 - Services are wired by hand in `App.OnStartup` (no DI container). No new dependency unless .NET or the
   Windows SDK can't do it — ask the user first.
-- It is an all-day tray app: watch startup time and memory. The overlay is a layered window, so every redraw
-  is costly — keep animations cheap.
+- It is an all-day tray app: watch startup time and memory, and keep animations cheap.
 - Never block the UI thread; dispose native resources; P/Invoke declarations go in `NativeMethods`.
 - Match the surrounding style: `ImplicitUsings` off (see GlobalUsings.cs), nullable on, short comments that say why.
 - Settings or model changes: defaults plus `Normalize()`; older JSON must still load. Persist with `AtomicJsonFile`.

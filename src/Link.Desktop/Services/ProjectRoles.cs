@@ -28,9 +28,17 @@ public sealed record AgentRole(
 }
 
 /// <summary>
+/// A jellyfish of what a task is given (<see cref="ProjectRoles.Kit"/>): a role in its colour, or a tool pack with no
+/// colour of its own, with the skills it brings and whether the agent opened its files. <see cref="FilePath"/> is the
+/// role's file or the pack's folder; null for General.
+/// </summary>
+public sealed record KitPart(string Name, string? Color, string Description, IReadOnlyList<string> Skills, string? FilePath, bool Lit);
+
+/// <summary>
 /// The specialists: nine ship beside Link.exe and are edited without a rebuild; a workspace adds its own or replaces a
-/// built-in one in <c>.agents/roles</c> by the file's name. Link suggests one from the brief, picks the skills that go
-/// with it, and tells them to the agent in the new session, where they follow its rules.
+/// built-in one in <c>.agents/roles</c> by the file's name. Link picks those the brief calls for (<see cref="Pick"/>),
+/// the skills that go with them, and tells them to the agent in the new session, where they follow their rules; there
+/// is no choice of role by hand. <see cref="Kit"/> is what the user sees of it.
 /// </summary>
 public static partial class ProjectRoles
 {
@@ -43,6 +51,9 @@ public static partial class ProjectRoles
     /// </summary>
     public static readonly IReadOnlyList<string> Colors =
         ["#4ACFDF", "#6C9EF8", "#A78BFA", "#F472B6", "#F87171", "#FBBF24", "#A3E635", "#34D399", "#38BDF8", "#C084FC"];
+
+    // So many specialists work on one task together: more would bury each one's text under the others'.
+    private const int MostRoles = 3;
 
     // So many skills go to one task: more is a reading list, not a pick.
     private const int MostSkills = 4;
@@ -91,13 +102,15 @@ public static partial class ProjectRoles
     }
 
     /// <summary>The role of that file name, or of the name it had; null for General and for a role whose file is gone.</summary>
-    public static AgentRole? Find(string? id, string? workspace)
-    {
-        if (id is null) return null;
-        var roles = In(workspace);
-        return roles.FirstOrDefault(role => string.Equals(role.Id, id, StringComparison.OrdinalIgnoreCase)) ??
-               (Renamed.TryGetValue(id, out var now) ? roles.FirstOrDefault(role => string.Equals(role.Id, now, StringComparison.OrdinalIgnoreCase)) : null);
-    }
+    public static AgentRole? Find(string? id, string? workspace) => id is null ? null : Resolve(id, In(workspace));
+
+    /// <summary>The roles of those file names (or of the names they had) among <paramref name="roles"/>, in their order; a gone one is left out.</summary>
+    public static IReadOnlyList<AgentRole> Of(IEnumerable<string> ids, IReadOnlyList<AgentRole> roles) =>
+        [.. ids.Select(id => Resolve(id, roles)).OfType<AgentRole>().Distinct()];
+
+    private static AgentRole? Resolve(string id, IReadOnlyList<AgentRole> roles) =>
+        roles.FirstOrDefault(role => string.Equals(role.Id, id, StringComparison.OrdinalIgnoreCase)) ??
+        (Renamed.TryGetValue(id, out var now) ? roles.FirstOrDefault(role => string.Equals(role.Id, now, StringComparison.OrdinalIgnoreCase)) : null);
 
     /// <summary>
     /// A built-in role as a tool pack has it: the pack's <c>roles/&lt;id&gt;.md</c> adds its text under "In &lt;pack&gt;"
@@ -144,23 +157,6 @@ public static partial class ProjectRoles
     }
 
     /// <summary>
-    /// The role whose keywords the brief has the most of (a keyword counts once, as a word that begins with it); the
-    /// earlier one on a tie. Null when none is found: General, no role.
-    /// </summary>
-    public static AgentRole? Suggest(string brief, IReadOnlyList<AgentRole> roles)
-    {
-        AgentRole? best = null;
-        var bestScore = 0;
-        foreach (var role in roles)
-        {
-            var score = role.Keywords.Count(keyword => Stems.Found(brief, keyword));
-            if (score > bestScore) (best, bestScore) = (role, score);
-        }
-
-        return best;
-    }
-
-    /// <summary>
     /// Every role whose keywords the brief has, in the order they first occur in it: a task that goes from a model to its
     /// animation to the game names its specialists in the order the work flows. A role with no keyword in the brief is
     /// not among them; roles whose first words are at the same place keep their order.
@@ -173,18 +169,30 @@ public static partial class ProjectRoles
             .Select(each => each.Role)];
 
     /// <summary>
-    /// The skills for a task, at most four: the role's own (<see cref="OwnSkills"/>), then those that go with the brief
-    /// or the role by two words or more. A skill goes with the brief when a word of its name or description (the first
-    /// letters of it) begins a word of the brief, and with the role when one of the role's keywords is in its
-    /// description; the more such words, the earlier. A pack's name is no such word for its skills: "Blender" in a brief
-    /// calls for none of the Blender pack's skills more than another. Names as the workspace has them.
+    /// The specialists Link gives a task, at most three of <see cref="SuggestAll"/>: the lead, whose words come first in
+    /// the brief, first. None: General.
     /// </summary>
-    public static IReadOnlyList<string> SkillsFor(string brief, AgentRole? role, IReadOnlyList<ProjectSkill> skills)
+    public static IReadOnlyList<AgentRole> Pick(string brief, IReadOnlyList<AgentRole> roles) => [.. SuggestAll(brief, roles).Take(MostRoles)];
+
+    /// <summary>
+    /// The skills for a task, at most four: the roles' own (<see cref="OwnSkills"/>), the first of each role, then the
+    /// second of each and so on, so that the lead does not take them all; then those that go with the brief or the roles
+    /// by two words or more. A skill goes with the brief when a word of its name or description (the first letters of it)
+    /// begins a word of the brief, and with the roles when one of their keywords is in its description; the more such
+    /// words, the earlier. A pack's name is no such word for its skills: "Blender" in a brief calls for none of the
+    /// Blender pack's skills more than another. Names as the workspace has them.
+    /// </summary>
+    public static IReadOnlyList<string> SkillsFor(string brief, IReadOnlyList<AgentRole> roles, IReadOnlyList<ProjectSkill> skills)
     {
-        var picked = OwnSkills(role, skills);
+        var picked = roles
+            .SelectMany(role => OwnSkills(role, skills).Select((name, turn) => (Name: name, Turn: turn)))
+            .OrderBy(each => each.Turn)
+            .Select(each => each.Name)
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
         var related = skills
             .Where(skill => !picked.Contains(skill.Name, StringComparer.OrdinalIgnoreCase))
-            .Select(skill => (skill.Name, Score: Related(skill, brief, role)))
+            .Select(skill => (skill.Name, Score: Related(skill, brief, roles)))
             .Where(each => each.Score >= RelatedWords)
             .OrderByDescending(each => each.Score)
             .Select(each => each.Name);
@@ -209,13 +217,21 @@ public static partial class ProjectRoles
     }
 
     /// <summary>
-    /// What a new session is told after the rules: the role's text under "Your role", and the skills (their names) that
-    /// the workspace has as a line of files to read first. Empty when there is neither.
+    /// What a new session is told after the rules: the role's text under "Your role" (several roles each under its
+    /// name, the lead first), and the skills (their names) that the workspace has as a line of files to read first.
+    /// Empty when there is neither.
     /// </summary>
-    public static string SessionText(AgentRole? role, IReadOnlyList<string> skills, string workspace)
+    public static string SessionText(IReadOnlyList<AgentRole> roles, IReadOnlyList<string> skills, string workspace)
     {
         var text = new StringBuilder();
-        if (role is not null) text.Append("## Your role: ").Append(role.Name).Append('\n').Append(role.Body);
+        if (roles.Count == 1) text.Append("## Your role: ").Append(roles[0].Name).Append('\n').Append(roles[0].Body);
+        if (roles.Count > 1)
+        {
+            text.Append("## Your roles\nYou work on this task as ").AppendJoin(", ", roles.Select(role => role.Name))
+                .Append(": each part of the work by the role it belongs to; where they differ, ").Append(roles[0].Name).Append(" leads.");
+            foreach (var role in roles) text.Append("\n\n### ").Append(role.Name).Append('\n').Append(role.Body.TrimEnd());
+        }
+
         var all = skills.Count == 0 ? [] : ProjectSkills.In(workspace);
         var files = skills
             .Select(name => all.FirstOrDefault(skill => string.Equals(skill.Name, name, StringComparison.OrdinalIgnoreCase)))
@@ -227,17 +243,47 @@ public static partial class ProjectRoles
     }
 
     /// <summary>
-    /// What the session that goes on is told when the specialist changes: from now on it works as the other one, who has
-    /// its text and skills; null is General. It does not read the project again.
+    /// What a task is given, as the user sees it: a part for each of its roles, the lead first (General when none of
+    /// them is found), then one for each tool pack of the workspace. A role is lit once the agent opened its file or one
+    /// of its own skills (<paramref name="opened"/>, see <see cref="Opened"/>), a pack once it opened one of the pack's
+    /// skills; General is always lit.
     /// </summary>
-    public static string SwitchText(AgentRole? role, IReadOnlyList<string> skills, string workspace)
+    public static IReadOnlyList<KitPart> Kit(IReadOnlyList<string> roleIds, IReadOnlyCollection<string> opened,
+        IReadOnlyList<AgentRole> roles, IReadOnlyList<ProjectSkill> skills, IReadOnlyList<ToolPack> packs)
     {
-        var text = new StringBuilder(role is null
-            ? "From now on you work on this task without a specialist role: the one before no longer applies."
-            : $"From now on you work on this task as {role.Name}.");
-        if (SessionText(role, skills, workspace) is { Length: > 0 } session) text.Append("\n\n").Append(session);
-        return text.ToString();
+        bool AnyOpen(IEnumerable<ProjectSkill> some) => some.Any(skill => opened.Contains(Tail(skill)));
+        var parts = new List<KitPart>();
+        foreach (var role in Of(roleIds, roles))
+        {
+            var own = OwnSkills(role, skills);
+            var lit = opened.Contains("roles/" + role.Id.ToLowerInvariant()) || AnyOpen(skills.Where(skill => own.Contains(skill.Name)));
+            parts.Add(new KitPart(role.Name, ColorOf(role, roles), role.Description, own, role.FilePath, lit));
+        }
+
+        if (parts.Count == 0) parts.Add(new KitPart("General", LinkColor, "No specialist: Link's rules and the project's own.", [], null, true));
+        foreach (var pack in packs)
+        {
+            var its = skills.Where(skill => skill.Pack == pack.Name).ToArray();
+            parts.Add(new KitPart(pack.Name, null, pack.Description, [.. its.Select(skill => skill.Name)], pack.Folder, AnyOpen(its)));
+        }
+
+        return parts;
     }
+
+    /// <summary>
+    /// The roles and skills a tool call opens, as "roles/&lt;id&gt;" and "skills/&lt;folder&gt;" in lower case: a
+    /// <c>…/roles/&lt;id&gt;.md</c> or <c>…/skills/&lt;folder&gt;/SKILL.md</c> in its text or arguments, whatever the
+    /// slashes. None for any other call, and for a pattern such as <c>skills/*/SKILL.md</c>.
+    /// </summary>
+    public static IReadOnlyList<string> Opened(string call)
+    {
+        var text = Slashes().Replace(call.ToLowerInvariant(), "/");
+        if (!text.Contains("skill.md", StringComparison.Ordinal) && !text.Contains("roles/", StringComparison.Ordinal)) return [];
+        return [.. OpenedFile().Matches(text).Select(match => match.Groups[1].Success ? match.Groups[1].Value : match.Groups[2].Value).Distinct()];
+    }
+
+    // How Opened names a skill: its folder.
+    private static string Tail(ProjectSkill skill) => "skills/" + Path.GetFileName(Path.GetDirectoryName(skill.FilePath))?.ToLowerInvariant();
 
     private static List<AgentRole> ReadFolder(string folder)
     {
@@ -297,10 +343,10 @@ public static partial class ProjectRoles
         value?.Split(',', StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries).Distinct(StringComparer.OrdinalIgnoreCase).ToArray() ?? [];
 
     /// <summary>
-    /// How many words of the skill's name and description are in the brief, plus the role's keywords in its description;
+    /// How many words of the skill's name and description are in the brief, plus the roles' keywords in its description;
     /// the name of the skill's pack is none of them.
     /// </summary>
-    private static int Related(ProjectSkill skill, string brief, AgentRole? role)
+    private static int Related(ProjectSkill skill, string brief, IReadOnlyList<AgentRole> roles)
     {
         var pack = skill.Pack?[..Math.Min(skill.Pack.Length, StemLength)];
         var stems = skill.Name.Split('-').Where(part => part.Length >= ShortestName)
@@ -309,11 +355,19 @@ public static partial class ProjectRoles
             .Where(stem => !Common.Contains(stem) && !string.Equals(stem, pack, StringComparison.OrdinalIgnoreCase))
             .Distinct(StringComparer.OrdinalIgnoreCase);
         return stems.Count(stem => Stems.Found(brief, stem)) +
-               (role?.Keywords.Count(keyword => Stems.Found(skill.Description, keyword)) ?? 0);
+               roles.SelectMany(role => role.Keywords).Distinct(StringComparer.OrdinalIgnoreCase).Count(keyword => Stems.Found(skill.Description, keyword));
     }
 
     [GeneratedRegex(@"^#[0-9A-Fa-f]{6}\z")]
     private static partial Regex ColorText();
+
+    // A run of slashes either way, as a path in JSON or a shell has it.
+    [GeneratedRegex(@"[\\/]+")]
+    private static partial Regex Slashes();
+
+    // A skill's SKILL.md (group 1: "skills/<folder>") or a role's file (group 2: "roles/<id>"), in a lower-case text with "/".
+    [GeneratedRegex(@"(skills/[^/\s""'`*?]+)/skill\.md|(roles/[^/\s""'`*?]+?)\.md")]
+    private static partial Regex OpenedFile();
 
     // The words of a description that tell something: five letters or more.
     [GeneratedRegex(@"\p{L}{5,}")]

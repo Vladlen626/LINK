@@ -172,6 +172,25 @@ public partial class AgentPanel
         ShowAttached();
     }
 
+    /// <summary>What waits for the agent, above the box: unread words, and words for after this run.</summary>
+    public void ShowQueue(IReadOnlyList<QueuedWords> rows)
+    {
+        QueueList.ItemsSource = rows;
+        QueueList.Visibility = rows.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>Words taken back from the queue come into the box before what is in it, with their pictures.</summary>
+    public void PutBack(string words, IReadOnlyList<string> images)
+    {
+        ReplyBox.Text = ReplyBox.Text.Trim().Length == 0 ? words : words + "\n" + ReplyBox.Text;
+        ReplyBox.CaretIndex = ReplyBox.Text.Length;
+        _replyAttached.AddRange(images.Except(_replyAttached, StringComparer.OrdinalIgnoreCase));
+        ShowAttached();
+        ReplyBox.Focus();
+    }
+
+    private void TakeBack_OnClick(object sender, RoutedEventArgs e) => TakeBackRequested?.Invoke();
+
     /// <summary>What was pasted or dropped, as small pictures and file names; a click takes one off.</summary>
     private void ShowAttached()
     {
@@ -238,6 +257,7 @@ public partial class AgentPanel
     {
         // Enter sends, Shift+Enter starts a new line, as in Link's own box; Tab while the agent works keeps the words
         // for after its run.
+        if (KeyWhileDictating(ReplyBox, e, send: e.Key == Key.Enter && !Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))) return;
         if (e.Key == Key.Tab && _running && ReplyBox.Text.Trim().Length > 0)
         {
             e.Handled = true;

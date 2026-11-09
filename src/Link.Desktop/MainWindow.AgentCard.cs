@@ -41,7 +41,7 @@ public partial class MainWindow
             .Select(item => item.Label)
             .ToArray();
         var (starting, notice) = StartingAgent();
-        // The card is for the snapshot's project, the overlay's or the Studio's; the Studio turns to it.
+        // The card is for the snapshot's project; Link turns to it.
         var project = _projects.Projects.FirstOrDefault(each => each.Id == snapshot.ProjectId) ?? _projects.ActiveProject;
         // The task runs beside the others at once; only its edits wait for another task's in the same folder.
         if (project.WorkspaceRoot is { Length: > 0 } folder && FolderBusy(null, folder) is { } busy)
@@ -53,7 +53,7 @@ public partial class MainWindow
         var card = CardModel(brief ?? snapshot.Text, others.Length == 0 ? string.Empty : "Goes along: " + string.Join(", ", others),
             images, starting, project) with { Notice = notice };
         _cardRun = RunAgentAsync;
-        ShowStudioProject(project);
+        SwitchProject(project);
         ShowAgentPanel();
         _agentPanel!.ShowCard(card);
         RefreshStudio();
@@ -62,7 +62,7 @@ public partial class MainWindow
 
     /// <summary>
     /// The card's agents, each with its own models and efforts, Settings' choice first, and its usage. The card keeps the
-    /// project it is made for (the overlay's unless <paramref name="forProject"/> says), whatever is shown when it runs.
+    /// project it is made for (the active one unless <paramref name="forProject"/> says), whatever is shown when it runs.
     /// </summary>
     private AgentCardModel CardModel(string goal, string attachments, IReadOnlyList<string> images, AgentProviderKind provider,
         LinkProject? forProject = null)
@@ -99,7 +99,7 @@ public partial class MainWindow
         {
             AutoEffort = settings.AutoEffort,
             Roles = roles,
-            RoleId = ProjectRoles.Suggest(goal, roles)?.Id,
+            RoleIds = [.. ProjectRoles.Pick(goal, roles).Select(role => role.Id)],
             WorkspaceSkills = skills,
             HarnessLine = CardHarnessLine(workspace, skills.Count),
             ProjectId = project.Id,
@@ -179,7 +179,7 @@ public partial class MainWindow
         {
             _askingLimits.Remove(provider);
             ShowLimitRows();
-            UpdateAgentPill();
+            UpdateStudioTab();
         }
     }
 
@@ -224,20 +224,21 @@ public partial class MainWindow
 
     /// <summary>
     /// What the user's next words in the task's session run on, chosen in the composer: the model, the effort (null with
-    /// Auto, which the task record keeps) and the specialist. Nothing runs when it is chosen; the next run takes it.
+    /// Auto, which the task record keeps). Nothing runs when it is chosen; the next run takes it. The specialists stay
+    /// Link's pick from the brief.
     /// </summary>
-    private sealed record NextSetup(AgentProviderKind Provider, string? Model, string? Effort, string? RoleId);
+    private sealed record NextSetup(AgentProviderKind Provider, string? Model, string? Effort);
 
     /// <summary>The setup the task's next words run on: the one chosen, else the session's own; null when no session takes words.</summary>
     private static NextSetup? CurrentSetup(TaskWork work)
     {
         if (work.NextSetup is { } chosen) return chosen;
         var task = work.Run?.Task ?? ResumableTask(work)?.Task ?? work.LastRun?.Task;
-        return task is null ? null : new NextSetup(task.Provider, task.Model, task.Effort, work.Record.RoleId);
+        return task is null ? null : new NextSetup(task.Provider, task.Model, task.Effort);
     }
 
     /// <summary>
-    /// The composer's choice of model, effort and specialist for the next words, like the model picker of the agents' own
+    /// The composer's choice of model and effort for the next words, like the model picker of the agents' own
     /// apps: the line says what they run on, the menu changes it, and the runs after keep it.
     /// </summary>
     private void ShowSetup(AgentPanel panel, TaskWork work)
@@ -267,20 +268,9 @@ public partial class MainWindow
                 Model = model.Value,
                 Effort = agent.EffortsOf(model.Value).Any(effort => effort.Value == setup.Effort) ? setup.Effort : null
             }, auto), Checked: setup.Model == model.Value)).ToArray();
-        var roles = ProjectRoles.In(record.Workspace).Select(role => new PanelAction(role.Name,
-                $"{role.Description} The same session goes on as this specialist, with its skills: it does not read the project again",
-                () => ChooseSetup(work, setup with { RoleId = role.Id }, auto),
-                Checked: string.Equals(role.Id, setup.RoleId, StringComparison.OrdinalIgnoreCase)))
-            .Prepend(new PanelAction("General", "The same session goes on without a specialist role",
-                () => ChooseSetup(work, setup with { RoleId = null }, auto), Checked: setup.RoleId is null)).ToArray();
         var effortWords = auto ? "Auto" : setup.Effort is { } effortValue ? EffortName(agent, effortValue) : null;
-        var label = string.Join(" · ", new[]
-        {
-            RoleName(setup.RoleId, record.Workspace) ?? "General",
-            setup.Model is { } modelValue ? ModelName(agent, modelValue) : null,
-            effortWords
-        }.OfType<string>());
-        panel.ShowSetup(label, [effortChoices, models, roles]);
+        var label = string.Join(" · ", new[] { setup.Model is { } modelValue ? ModelName(agent, modelValue) : null, effortWords }.OfType<string>());
+        panel.ShowSetup(label.Length > 0 ? label : agent.Name, [effortChoices, models]);
     }
 
     private void ChooseSetup(TaskWork work, NextSetup setup, bool auto)
@@ -292,23 +282,12 @@ public partial class MainWindow
     }
 
     /// <summary>
-    /// The run with the setup chosen for it in the composer, when it is its agent's: the model and effort, and another
-    /// specialist, told so before the user's words.
+    /// The run with the setup chosen for it in the composer, when it is its agent's: the model and effort.
     /// </summary>
     private static AgentTask WithNextSetup(TaskWork work, AgentTask task)
     {
         if (work.NextSetup is not { } next) return task;
         work.NextSetup = null;
-        if (next.Provider != task.Provider) return task;
-        var record = work.Record;
-        task = task with { Model = next.Model, Effort = next.Effort };
-        if (string.Equals(next.RoleId, record.RoleId, StringComparison.OrdinalIgnoreCase)) return task;
-        var role = ProjectRoles.Find(next.RoleId, record.Workspace);
-        var skills = ProjectRoles.SkillsFor(BriefOf(record), role, ProjectSkills.In(record.Workspace));
-        record.RoleId = role?.Id;
-        record.Skills = [.. skills];
-        record.Add(AgentEntryKind.HandOff, $"Specialist: {role?.Name ?? "General"}");
-        if (work.Origin is { } origin) work.Origin = origin with { RoleId = role?.Id, Skills = skills };
-        return task with { RoleId = role?.Id, Skills = skills, Prompt = $"{ProjectRoles.SwitchText(role, skills, record.Workspace)}\n\n{task.Prompt}" };
+        return next.Provider != task.Provider ? task : task with { Model = next.Model, Effort = next.Effort };
     }
 }

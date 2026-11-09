@@ -22,6 +22,7 @@ internal static class Program
         PromptRequestTests.Run();
         SoundCueTests.Run();
         HarnessLintTests.Run();
+        ViewerTests.Run();
         foreach (var (name, checks) in new (string, Func<Task>)[]
                  {
                      ("voice session", VoiceSessionTests.RunAsync),

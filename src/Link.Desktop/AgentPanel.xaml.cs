@@ -28,23 +28,14 @@ public partial class AgentPanel : UserControl
     private static readonly AgentChoice AutoChoice = new("auto", "Auto — Link picks");
     private AgentCardModel? _card;
     private bool _fillingCard;
-    // The specialist is the user's once they chose it (a hand-over starts so): the goal's words pick it no more.
-    private bool _roleChosen;
-    // The picked specialist (null: General) and its chips; a pick changes the chips in place, so that a click on one
-    // that took the goal's focus is not lost to a chip drawn anew.
-    private string? _roleId;
-    private readonly List<RoleChip> _roleChips = [];
+    // The specialists and the skills read first that the card gives the task, Link's pick from the goal (see ShowKit).
+    private IReadOnlyList<string> _roleIds = [];
+    private IReadOnlyList<string> _skills = [];
     // The sidebar's rows; the task the panel was given (null: Link's own run); and the row that is lit as drawn, by the
     // task's id (Guid.Empty: Link's own run, null: none), so that the rows are drawn again only when this changes.
     private IReadOnlyList<TaskRow> _rows = [];
     private Guid? _openTask;
     private Guid? _lit;
-    // The goal's new words changed the pick as a press on Run took their focus: that Run shows the pick first.
-    private bool _pickChangedByRun;
-    // The skills on the card as chips; those the user took off or added stay so when Link picks again.
-    private IReadOnlyList<string> _skills = [];
-    private readonly HashSet<string> _skillsOff = new(StringComparer.OrdinalIgnoreCase);
-    private readonly HashSet<string> _skillsOn = new(StringComparer.OrdinalIgnoreCase);
     private bool _running;
     private bool _hears;
     private bool _planning;
@@ -92,6 +83,9 @@ public partial class AgentPanel : UserControl
 
     /// <summary>Words for after the run that is going on (Tab): the same session goes on with them once it ends.</summary>
     public event Action<string, IReadOnlyList<string>>? QueueRequested;
+
+    /// <summary>The queue's Take back: the words for after the run come back into the box.</summary>
+    public event Action? TakeBackRequested;
 
     public event Action? FinishRequested;
 

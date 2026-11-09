@@ -10,7 +10,7 @@ namespace Link.Desktop;
 
 /// <summary>
 /// What the Spend view's charts share: the parts' colours from the theme, its quiet ink for labels, and text drawn at the
-/// screen's DPI. The charts draw themselves (OnRender) and keep no timer: a Studio column, not the layered overlay.
+/// screen's DPI. The charts draw themselves (OnRender) and keep no timer.
 /// </summary>
 internal static class SpendInk
 {

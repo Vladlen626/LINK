@@ -7,7 +7,7 @@ namespace Link.Desktop;
 /// <summary>
 /// Menus under or over their button that stay inside the button's window: left-aligned with the button while they fit,
 /// otherwise moved left just enough. WPF's own placement follows Windows' handedness setting, which for the right hand
-/// lines a menu's right edge up with the button's, and hung menus out of the narrow overlay.
+/// lines a menu's right edge up with the button's, and hung menus out of a narrow window.
 /// </summary>
 internal static class MenuPlacement
 {

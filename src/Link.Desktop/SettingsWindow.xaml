@@ -86,23 +86,13 @@
                             <Border Style="{StaticResource GlassCardStyle}" Padding="16,8">
                                 <Grid>
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                                    <Grid.RowDefinitions><RowDefinition Height="44" /><RowDefinition Height="44" /><RowDefinition Height="40" /></Grid.RowDefinitions>
+                                    <Grid.RowDefinitions><RowDefinition Height="44" /></Grid.RowDefinitions>
                                     <TextBlock VerticalAlignment="Center" Text="Theme" />
                                     <StackPanel Grid.Column="1" VerticalAlignment="Center" Orientation="Horizontal">
                                         <ComboBox x:Name="ThemeCombo" Width="150" />
                                         <TextBlock Margin="10,0,0,0" VerticalAlignment="Center" Style="{StaticResource SecondaryTextStyle}"
                                                    Text="applies after restart" />
                                     </StackPanel>
-                                    <TextBlock Grid.Row="1" VerticalAlignment="Center" Text="Glass tint" />
-                                    <Grid Grid.Row="1" Grid.Column="1" VerticalAlignment="Center">
-                                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="44" /></Grid.ColumnDefinitions>
-                                        <Slider x:Name="OpacitySlider" Minimum="0.2" Maximum="1" SmallChange="0.05" LargeChange="0.1"
-                                                ToolTip="Lower is more transparent" />
-                                        <TextBlock Grid.Column="1" Margin="10,0,0,0" VerticalAlignment="Center" Foreground="{StaticResource MutedBrush}"
-                                                   Text="{Binding ElementName=OpacitySlider, Path=Value, StringFormat={}{0:P0}}" />
-                                    </Grid>
-                                    <CheckBox x:Name="BlurBackgroundBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center"
-                                              Content="Blur what is behind Link (turn off for clear glass)" />
                                 </Grid>
                             </Border>
                         </StackPanel>
@@ -115,20 +105,19 @@
                                     <Grid.ColumnDefinitions><ColumnDefinition Width="170" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                                     <Grid.RowDefinitions>
                                         <RowDefinition Height="44" /><RowDefinition Height="36" /><RowDefinition Height="36" />
-                                        <RowDefinition Height="36" /><RowDefinition Height="36" /><RowDefinition Height="36" />
+                                        <RowDefinition Height="36" /><RowDefinition Height="36" />
                                     </Grid.RowDefinitions>
                                     <TextBlock VerticalAlignment="Center" Text="Screenshot history" />
                                     <TextBox x:Name="HistorySizeBox" Grid.Column="1" Width="72" HorizontalAlignment="Left" VerticalAlignment="Center"
                                              ToolTip="From 1 to 20" />
-                                    <CheckBox x:Name="AlwaysOnTopBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Always on top" />
-                                    <CheckBox x:Name="LaunchWithWindowsBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Launch with Windows" />
-                                    <CheckBox x:Name="SoundCuesBox" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                    <CheckBox x:Name="LaunchWithWindowsBox" Grid.Row="1" Grid.ColumnSpan="2" VerticalAlignment="Center" Content="Launch with Windows" />
+                                    <CheckBox x:Name="SoundCuesBox" Grid.Row="2" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                               Content="Short sounds: listening, heard, sent, answer ready, needs you, error"
                                               ToolTip="Quiet while Link speaks, except when it needs you" />
-                                    <CheckBox x:Name="DiagnosticsBox" Grid.Row="4" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                    <CheckBox x:Name="DiagnosticsBox" Grid.Row="3" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                               Content="Diagnostics: keep the last request in last-request.json"
                                               ToolTip="Its prompt, file paths and window title stay in Link's data folder until the next request" />
-                                    <CheckBox x:Name="OutlineCapturedWindowBox" Grid.Row="5" Grid.ColumnSpan="2" VerticalAlignment="Center"
+                                    <CheckBox x:Name="OutlineCapturedWindowBox" Grid.Row="4" Grid.ColumnSpan="2" VerticalAlignment="Center"
                                               Content="Outline a window for a moment when Link captures it"
                                               ToolTip="Shows which window went with the question; never over a window in fullscreen" />
                                 </Grid>

@@ -2,17 +2,13 @@ namespace Link.Desktop.Models;
 
 public sealed class AppSettings
 {
-    private const double DefaultGlassTint = 0.6;
     // Answers are read a little quicker than a voice's normal pace.
     private const double DefaultVoiceReplySpeed = 1.2;
     // Described as warm: the easiest to listen to all day. Any prebuilt voice speaks Russian.
     private const string DefaultGeminiVoice = "Sulafat";
 
     public int SchemaVersion { get; set; } = 11;
-    public double Opacity { get; set; } = DefaultGlassTint;
     public AppTheme Theme { get; set; } = AppTheme.System;
-    public bool BlurBackground { get; set; } = true;
-    public bool AlwaysOnTop { get; set; } = true;
     public VoiceLanguage VoiceLanguage { get; set; } = VoiceLanguage.Auto;
     public string? MicrophoneDeviceId { get; set; }
     public string? MicrophoneDeviceName { get; set; }
@@ -52,7 +48,6 @@ public sealed class AppSettings
     /// <summary>A short outline around a window Link has just captured, so that the user sees which window went.</summary>
     public bool OutlineCapturedWindow { get; set; } = true;
     public Guid? ActiveProjectId { get; set; }
-    public WindowPlacement Window { get; set; } = new();
     public StudioSettings Studio { get; set; } = new();
     public HotkeySettings Hotkeys { get; set; } = new();
     public AgentSettings Agent { get; set; } = new();
@@ -60,7 +55,6 @@ public sealed class AppSettings
 
     public void Normalize()
     {
-        Window ??= new WindowPlacement();
         Agent ??= new AgentSettings();
         Remote ??= new RemoteSettings();
         Studio ??= new StudioSettings();
@@ -72,11 +66,7 @@ public sealed class AppSettings
                 Hotkeys.CaptureRegion = "Ctrl+Alt+Shift+R";
             }
         }
-        if (SchemaVersion < 6)
-        {
-            // The overlay moved from system acrylic to real see-through glass, so old tint values mean something else.
-            Opacity = DefaultGlassTint;
-        }
+        // 6: the overlay card's glass tint was reset; the card and its glass are gone.
         // 7: Hide replaced the collapsed capsule. Its IsCollapsed flag is no longer read, so Link opens in full.
         // 8: the Context budget's default went from 550k to 450k; a saved 550k is the old default, not a choice.
         if (SchemaVersion < 8 && Agent.ContextBudget == 550_000) Agent.ContextBudget = 450_000;
@@ -87,7 +77,6 @@ public sealed class AppSettings
         // 11: the default became 250k; a saved Auto is the old default, not a choice.
         if (SchemaVersion < 11 && Agent.ContextBudget == 0) Agent.ContextBudget = AgentSettings.DefaultContextBudget;
         SchemaVersion = 11;
-        Opacity = double.IsFinite(Opacity) ? Math.Clamp(Opacity, 0.2, 1.0) : DefaultGlassTint;
         if (!Enum.IsDefined(Theme)) Theme = AppTheme.System;
         ScreenshotHistorySize = Math.Clamp(ScreenshotHistorySize, 1, 20);
         // 1, "only my text", is gone with the other values a newer Link may save.
@@ -104,7 +93,6 @@ public sealed class AppSettings
         VoiceReplySpeed = double.IsFinite(VoiceReplySpeed)
             ? Math.Round(Math.Clamp(VoiceReplySpeed, 0.5, 2.0), 2)
             : DefaultVoiceReplySpeed;
-        Window.Normalize();
         Studio.Normalize();
         Hotkeys.Normalize();
         Agent.Normalize();
@@ -145,12 +133,6 @@ public sealed class StudioSettings
 
     public bool SpendAllProjects { get; set; }
 
-    /// <summary>
-    /// The project the Studio shows, chosen in its header apart from the overlay's; null (or one removed since): the
-    /// overlay's.
-    /// </summary>
-    public Guid? ProjectId { get; set; }
-
     /// <summary>Keeps where the window stands, its normal bounds when it is maximized.</summary>
     public void Remember(double left, double top, double width, double height, bool maximized)
     {
@@ -188,36 +170,6 @@ public enum StudioSide
     Harness,
     Spend,
     Project
-}
-
-public sealed class WindowPlacement
-{
-    public const double MinWidth = 320;
-    public const double MaxWidth = 1200;
-    public const double MinHeight = 200;
-    public const double MaxHeight = 4320;
-    private const double DefaultWidth = 340;
-
-    public double? Left { get; set; }
-    public double? Top { get; set; }
-    public double Width { get; set; } = DefaultWidth;
-
-    /// <summary>
-    /// How tall the expanded window may grow, set by dragging its bottom edge. The window still fits its content,
-    /// so only long answers reach this height. Null keeps the compact default.
-    /// </summary>
-    public double? HeightLimit { get; set; }
-
-    public void Normalize()
-    {
-        if (Left is { } left && !double.IsFinite(left)) Left = null;
-        if (Top is { } top && !double.IsFinite(top)) Top = null;
-        Width = double.IsFinite(Width) && Width > 0 ? Math.Clamp(Width, MinWidth, MaxWidth) : DefaultWidth;
-        if (HeightLimit is { } height)
-        {
-            HeightLimit = double.IsFinite(height) && height > 0 ? Math.Clamp(height, MinHeight, MaxHeight) : null;
-        }
-    }
 }
 
 public sealed class HotkeySettings

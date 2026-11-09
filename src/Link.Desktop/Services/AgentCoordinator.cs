@@ -22,10 +22,10 @@ public sealed record AgentPlan(
     /// <summary>Auto on the card: with edits, nothing is asked (see <see cref="AgentTask.AutoApprove"/>).</summary>
     public bool AutoApprove { get; init; }
 
-    /// <summary>The specialist chosen on the card, the file name of its role; null: General.</summary>
-    public string? RoleId { get; init; }
+    /// <summary>The specialists Link gave the card, the file names of their roles, the lead first; none: General.</summary>
+    public IReadOnlyList<string> RoleIds { get; init; } = [];
 
-    /// <summary>The skills on the card, which the agent is told to read first.</summary>
+    /// <summary>The skills Link picked with them, which the agent is told to read first.</summary>
     public IReadOnlyList<string> Skills { get; init; } = [];
 
     /// <summary>The project the card was opened for: a new task belongs to it, whichever project is active when Run is pressed.</summary>
@@ -105,7 +105,7 @@ public sealed class AgentCoordinator
             AutoApprove = plan.AutoApprove,
             Model = plan.Model,
             Effort = plan.Effort,
-            RoleId = plan.RoleId,
+            RoleIds = plan.RoleIds,
             Skills = plan.Skills
         };
     }
@@ -236,10 +236,10 @@ public sealed class AgentCoordinator
 
     /// <summary>
     /// Compact: the same agent goes on in a new session of its own from the task's state, as the user saw and maybe
-    /// edited it. Like any new session it is told the task's specialist and skills.
+    /// edited it. Like any new session it is told the task's specialists and skills.
     /// </summary>
     public static AgentTask CompactTask(AgentTask last, AgentTaskRecord record, string state, IReadOnlyList<string> images) =>
-        HandOffTask(last, last.Provider, state, images) with { RoleId = record.RoleId, Skills = [.. record.Skills] };
+        HandOffTask(last, last.Provider, state, images) with { RoleIds = [.. record.RoleIds], Skills = [.. record.Skills] };
 
     /// <summary>
     /// The first agent takes its task back, such as once its limit has reset: its own session goes on, told what the

@@ -219,6 +219,7 @@ public partial class MainWindow
         {
             snapshot = await takeSnapshot();
             ShowSaw(RequestService.Build(snapshot));
+            ShowAsking(snapshot);
             _attempts.Keep(snapshot);
             _cues.Play(SoundCue.Sent);
             var response = await _attempts.SendAsync(
@@ -262,6 +263,8 @@ public partial class MainWindow
             _sendCancellation = null;
             cancellation.Dispose();
             SetSending(false);
+            // The question is no longer on its way: kept in the thread with its answer, or back in the input.
+            ShowAsking(null);
             UpdateConnectionState();
             _attemptOnScreen = snapshot ?? previous;
             UpdateRedirectButtons();
@@ -277,7 +280,7 @@ public partial class MainWindow
         if (_receivingSince is not { } since || DateTime.UtcNow - since < SlowChatSample) return null;
         var rate = (answer.Length - _receivingFrom) / (DateTime.UtcNow - since).TotalSeconds;
         return rate < SlowChatCharactersPerSecond
-            ? $"Slow answer ({rate:0} characters/s): this chat has grown long, a new one is faster (chat row → New chat)"
+            ? $"Slow answer ({rate:0} characters/s): this chat has grown long, a new one is faster (New chat over the chats)"
             : null;
     }
 
@@ -293,11 +296,11 @@ public partial class MainWindow
         }
     }
 
-    private void NotifyIfAway(LinkProject project, string title, string message)
+    private void NotifyIfAway(LinkProject project, string title, string message, TaskWork? work = null)
     {
-        // Someone looking at Link, its panel or the Studio already sees the result.
-        if (IsLinkActive) return;
-        NotificationRequested?.Invoke($"{title} · {project.Name}", message, project.Id);
+        // Someone looking at Link already sees the result: on its tab, or by the Studio tab's dot.
+        if (IsActive) return;
+        NotificationRequested?.Invoke($"{title} · {project.Name}", message, project.Id, work?.Record.Id);
     }
 
     // A one-glance preview for a notification or the history: plain words without Markdown markers or code fences.
@@ -320,8 +323,8 @@ public partial class MainWindow
         _sending = sending;
         UpdateSendButton();
         UpdatePromptReadOnly();
-        ProjectMenuButton.IsEnabled = !sending;
-        _chatsPanel?.SetBusy(sending);
+        ProjectStrip.IsEnabled = !sending;
+        _chatsPanel.SetBusy(sending);
         ContextActionsPanel.IsEnabled = !sending;
         ContextItemsControl.IsEnabled = !sending;
         SeesRow.IsEnabled = !sending;

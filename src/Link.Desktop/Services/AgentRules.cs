@@ -13,11 +13,11 @@ public static partial class AgentRules
 
     /// <summary>
     /// A new session's input: the rules, the skills of the workspace's tool packs and its own skills when the agent does
-    /// not find them itself (<paramref name="listOwnSkills"/>), the specialist's role and the skills picked for the task,
+    /// not find them itself (<paramref name="listOwnSkills"/>), the specialists' roles and the skills picked for the task,
     /// then the task. The rules Link's guard holds go as words only when it does not watch the agent (<paramref name="guarded"/>);
     /// <paramref name="helpers"/> says when to hand work to the run's helpers.
     /// </summary>
-    public static string Before(string task, string workspace, bool listOwnSkills, AgentRole? role = null, IReadOnlyList<string>? picked = null,
+    public static string Before(string task, string workspace, bool listOwnSkills, IReadOnlyList<AgentRole>? roles = null, IReadOnlyList<string>? picked = null,
         bool guarded = false, string? helpers = null)
     {
         string rules;
@@ -49,8 +49,9 @@ public static partial class AgentRules
             input.Append("\n\nThe project's map: `").Append(map).Append("`, what is where and how to build and check. Read it first.");
             if (map != ProjectMap.RelativePath) input.Append(" Where a skill or a role names `docs/map.md`, it means this file.");
         }
-        // The engine's or tool's own rules, for every task in a project of it, but a role's that works beside the engine.
-        foreach (var pack in role is { PackRules: false } ? [] : ToolPacks.For(workspace))
+        // The engine's or tool's own rules, for every task in a project of it, but one whose roles all work beside the engine.
+        roles ??= [];
+        foreach (var pack in roles.Count > 0 && roles.All(role => !role.PackRules) ? [] : ToolPacks.For(workspace))
         {
             if (ReadHarness(Path.Combine(pack.Folder, "rules.md")) is { Length: > 0 } packRules) input.Append("\n\n").Append(packRules);
         }
@@ -68,8 +69,8 @@ public static partial class AgentRules
             }
         }
 
-        // The role changes from step to step and the workspace's skills do not: the stable part goes first, for the cache.
-        if (ProjectRoles.SessionText(role, picked ?? [], workspace) is { Length: > 0 } specialist) input.Append("\n\n").Append(specialist);
+        // The roles change from task to task and the workspace's skills do not: the stable part goes first, for the cache.
+        if (ProjectRoles.SessionText(roles, picked ?? [], workspace) is { Length: > 0 } specialist) input.Append("\n\n").Append(specialist);
         return input.Append("\n\n# Task\n\n").Append(task).ToString();
     }
 

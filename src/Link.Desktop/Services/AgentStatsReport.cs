@@ -31,8 +31,8 @@ public static class AgentStatsReport
     /// <summary>
     /// The runs grouped by specialist, agent and model, the busiest group first. A task is in each group it had a run
     /// in; it is Done there when it ended Done or Finished and its last run in the group did not fail. The user's words
-    /// on the way (steers) count once per task, in the group of its last run. A run's specialist is the one it ran as
-    /// (null: General); <paramref name="roleName"/> and <paramref name="agentName"/> give the names a row shows.
+    /// on the way (steers) count once per task, in the group of its last run. A run's specialist is the lead of those it
+    /// ran as (null: General); <paramref name="roleName"/> and <paramref name="agentName"/> give the names a row shows.
     /// </summary>
     public static IReadOnlyList<StatsRow> For(
         IEnumerable<AgentTaskRecord> tasks, Func<AgentProviderKind, string> agentName, Func<string?, string> roleName) =>
@@ -46,7 +46,7 @@ public static class AgentStatsReport
             .ThenBy(row => row.Agent, StringComparer.OrdinalIgnoreCase)
             .ThenBy(row => row.Model, StringComparer.OrdinalIgnoreCase)];
 
-    private static Group GroupOf(AgentRunRecord run) => new(run.RoleId, run.Provider, run.Model);
+    private static Group GroupOf(AgentRunRecord run) => new(run.RoleIds.FirstOrDefault(), run.Provider, run.Model);
 
     private static StatsRow Row(
         Group group, (AgentTaskRecord Task, AgentRunRecord Run)[] entries, Func<AgentProviderKind, string> agentName, Func<string?, string> roleName)

@@ -10,7 +10,7 @@ const HEARTBEAT_INTERVAL_MS = 2000;
 // only at the composer and the last turns, so even a long chat stays cheap...
 const CHECK_INTERVAL_MS = 150;
 // ...and turns the growing answer into Markdown at most this often (less often for an answer slow to convert), for the
-// overlay and reading aloud.
+// answer LINK shows and reading aloud.
 const PROGRESS_INTERVAL_MS = 250;
 // Without ChatGPT's own sign of completion, a quiet period after its Stop button disappears ends the answer; a longer
 // one for an answer without a Markdown root, so that a status line cannot pass for it.

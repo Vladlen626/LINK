@@ -17,19 +17,18 @@ public partial class MainWindow
     // The task that fits what came in to the project, behind Set up for this project.
     private string? _setUpBrief;
 
-    private void WireShare(StudioWindow studio)
+    private void WireShare()
     {
-        studio.ShareLearnedRequested += ShareLearned;
-        studio.TeamPackExportRequested += ExportTeamPack;
-        studio.OpenPackRequested += OpenPack;
-        studio.PicksConfirmed += picks => _sharePicked?.Invoke(picks);
-        studio.SetUpRequested += () => _ = SetUpPackAsync();
+        Inspector.ShareLearnedRequested += ShareLearned;
+        Inspector.TeamPackExportRequested += ExportTeamPack;
+        Inspector.OpenPackRequested += OpenPack;
+        Inspector.PicksConfirmed += picks => _sharePicked?.Invoke(picks);
+        Inspector.SetUpRequested += () => _ = SetUpPackAsync();
     }
 
     /// <summary>Share ▾ → What my agents learned: the tool packs' skills and roles beyond Link's own, ticked to go.</summary>
     private void ShareLearned()
     {
-        if (_studio is not { } studio) return;
         IReadOnlyList<KnowledgeItem> items;
         try
         {
@@ -37,19 +36,19 @@ public partial class MainWindow
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            studio.ShowShareStatus($"The tool packs could not be read: {exception.Message}");
+            Inspector.ShowShareStatus($"The tool packs could not be read: {exception.Message}");
             return;
         }
 
         if (items.Count == 0)
         {
-            studio.ShowShareStatus("Your agents have kept nothing in the tool packs beyond Link's own yet: a lesson gets there with Share with all games after a task.");
+            Inspector.ShowShareStatus("Your agents have kept nothing in the tool packs beyond Link's own yet: a lesson gets there with Share with all games after a task.");
             return;
         }
 
         _sharePicked = picked => SaveLearned([.. items.Where(item => picked.Any(pick => pick.Item == item.Item))]);
         // A line that looks personal leaves its item unticked: the user reads it before it goes.
-        studio.ShowSharePicks(
+        Inspector.ShowPicks(
             $"What your agents learned, {Plural(items.Count, "item")} beyond Link's own. An item with a line that looks personal is not ticked: read it first.",
             [.. items.Select(item => new SharePick(item.Item, $"{item.Item} · {(item.State == KnowledgeState.Added ? "new" : "changed")}", item.Description,
                 item.Personal.Count == 0 ? null : "Looks personal: " + string.Join("; ", item.Personal)) { Picked = item.Personal.Count == 0 })],
@@ -58,10 +57,9 @@ public partial class MainWindow
 
     private void SaveLearned(IReadOnlyList<KnowledgeItem> items)
     {
-        if (_studio is not { } studio) return;
         if (items.Count == 0)
         {
-            studio.ShowShareStatus("Nothing was ticked, so no file was written.");
+            Inspector.ShowShareStatus("Nothing was ticked, so no file was written.");
             return;
         }
 
@@ -72,16 +70,16 @@ public partial class MainWindow
             DefaultExt = TeamPack.Extension,
             FileName = $"skills-{DateTime.Today:yyyy-MM-dd}{TeamPack.Extension}"
         };
-        if (dialog.ShowDialog(studio) != true) return;
+        if (dialog.ShowDialog(this) != true) return;
         try
         {
             KnowledgePack.Export(ToolPacks.Folder, items, dialog.FileName);
-            studio.ShowShareStatus($"Saved {Plural(items.Count, "item")} to {dialog.FileName}. A friend takes it with Open a pack… in Link; " +
-                                   "without Link, its README says where the skills go.");
+            Inspector.ShowShareStatus($"Saved {Plural(items.Count, "item")} to {dialog.FileName}. A friend takes it with Open a pack… in Link; " +
+                                      "without Link, its README says where the skills go.");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            studio.ShowShareStatus($"The file could not be written: {exception.Message}");
+            Inspector.ShowShareStatus($"The file could not be written: {exception.Message}");
         }
     }
 
@@ -102,10 +100,9 @@ public partial class MainWindow
     /// <summary>Share ▾ → This workspace's roles and skills: the team pack to a file the user names.</summary>
     private void ExportTeamPack()
     {
-        if (_studio is not { } studio) return;
         if (StudioWorkspace() is not { } workspace)
         {
-            studio.ShowShareStatus("Choose the workspace folder first: Project settings, under the project's name at the top.");
+            Inspector.ShowShareStatus("Choose the workspace folder first: Project settings, under the project's name at the top.");
             return;
         }
 
@@ -116,26 +113,25 @@ public partial class MainWindow
             DefaultExt = TeamPack.Extension,
             FileName = Path.GetFileName(workspace) + TeamPack.Extension
         };
-        if (dialog.ShowDialog(studio) != true) return;
+        if (dialog.ShowDialog(this) != true) return;
         try
         {
             var (roles, skills) = TeamPack.Export(workspace, dialog.FileName);
-            studio.ShowShareStatus(roles + skills == 0
+            Inspector.ShowShareStatus(roles + skills == 0
                 ? "Nothing to share: the workspace has no roles or skills of its own in .agents."
                 : $"Saved {Plural(roles, "role")} and {Plural(skills, "skill")} to {dialog.FileName}");
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
-            studio.ShowShareStatus($"The pack could not be written: {exception.Message}");
+            Inspector.ShowShareStatus($"The pack could not be written: {exception.Message}");
         }
     }
 
     /// <summary>Open a pack…: a knowledge pack shows what it would change in the tool packs; a team pack goes into the workspace.</summary>
     private void OpenPack()
     {
-        if (_studio is not { } studio) return;
         var dialog = new OpenFileDialog { Title = "Open a pack", Filter = PackFilter };
-        if (dialog.ShowDialog(studio) != true) return;
+        if (dialog.ShowDialog(this) != true) return;
         var file = dialog.FileName;
         if (!KnowledgePack.IsOne(file))
         {
@@ -149,13 +145,13 @@ public partial class MainWindow
             var brings = items.Where(item => item.State != KnowledgeState.Same).ToArray();
             if (brings.Length == 0)
             {
-                studio.ShowShareStatus("You have all of this pack already.");
+                Inspector.ShowShareStatus("You have all of this pack already.");
                 return;
             }
 
             _sharePicked = picked => TakeLearned(file, picked);
             var same = items.Count - brings.Length;
-            studio.ShowSharePicks(
+            Inspector.ShowPicks(
                 $"{Path.GetFileName(file)} brings {Plural(brings.Length, "skill or role", "skills or roles")} to your tool packs, shared by all projects" +
                 (same > 0 ? $"; {same} you have the same." : "."),
                 [.. brings.Select(item => new SharePick(item.Item, $"{item.Item} · {StateWords(item.State)}", item.Description,
@@ -164,7 +160,7 @@ public partial class MainWindow
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            studio.ShowShareStatus($"The pack was not opened: {exception.Message}");
+            Inspector.ShowShareStatus($"The pack was not opened: {exception.Message}");
         }
     }
 
@@ -178,24 +174,23 @@ public partial class MainWindow
 
     private void TakeLearned(string file, IReadOnlyList<SharePick> picked)
     {
-        if (_studio is not { } studio) return;
         try
         {
             var import = KnowledgePack.Import(file, ToolPacks.Folder, [.. picked.Select(pick => pick.Item)]);
             var any = import.Taken.Count + import.PutBeside.Count > 0;
-            var workspace = StudioProject.WorkspaceRoot is { } root && Directory.Exists(root);
+            var workspace = _projects.ActiveProject.WorkspaceRoot is { } root && Directory.Exists(root);
             _setUpBrief = any ? KnowledgePack.SetUpBrief(Path.GetFileNameWithoutExtension(file), ToolPacks.Folder, import) : null;
-            studio.ShowShareStatus(
+            Inspector.ShowShareStatus(
                 $"Taken into the tool packs: {Plural(import.Taken.Count, "item")}" +
                 (import.PutBeside.Count > 0 ? $", and {import.PutBeside.Count} beside yours in {import.Beside}" : string.Empty) +
-                (!any ? "." : workspace ? ". Set up for this project fits them to it." : ". Choose a workspace in the Project tab to set them up for a project."),
+                (!any ? "." : workspace ? ". Set up for this project fits them to it." : ". Choose a workspace in Project settings to set them up for a project."),
                 setUp: any && workspace);
             RefreshProjectPanel();
             RefreshStudio();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            studio.ShowShareStatus($"The pack was not taken: {exception.Message}");
+            Inspector.ShowShareStatus($"The pack was not taken: {exception.Message}");
         }
     }
 
@@ -203,17 +198,16 @@ public partial class MainWindow
     private async Task SetUpPackAsync()
     {
         if (_setUpBrief is not { } brief) return;
-        var snapshot = await TakeSnapshotAsync(StudioProject, brief, frame: false);
+        var snapshot = await TakeSnapshotAsync(_projects.ActiveProject, brief, frame: false);
         OpenAgentCard(snapshot, brief);
     }
 
     /// <summary>A team pack's roles and skills into the workspace; what it has already is replaced only if the user says so.</summary>
     private void ImportTeamPack(string file)
     {
-        if (_studio is not { } studio) return;
         if (StudioWorkspace() is not { } workspace)
         {
-            studio.ShowShareStatus("Choose the workspace folder first: Project settings, under the project's name at the top.");
+            Inspector.ShowShareStatus("Choose the workspace folder first: Project settings, under the project's name at the top.");
             return;
         }
 
@@ -221,16 +215,16 @@ public partial class MainWindow
         bool? replaceThem = null;
         try
         {
-            var result = TeamPack.Import(file, workspace, name => replaceThem ??= MessageBox.Show(studio,
+            var result = TeamPack.Import(file, workspace, name => replaceThem ??= MessageBox.Show(this,
                 $"The workspace has {name} already, and maybe more of the pack's. Replace the ones it has with the pack's?\n\nNo keeps yours and adds only what is new.",
                 "Link · team pack", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes);
-            studio.ShowShareStatus($"Taken: {result.Added.Count} new, {result.Replaced.Count} replaced, {result.Skipped.Count} kept as they were.");
+            Inspector.ShowShareStatus($"Taken: {result.Added.Count} new, {result.Replaced.Count} replaced, {result.Skipped.Count} kept as they were.");
             RefreshProjectPanel();
             RefreshStudio();
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            studio.ShowShareStatus($"The pack was not taken: {exception.Message}");
+            Inspector.ShowShareStatus($"The pack was not taken: {exception.Message}");
         }
     }
 }

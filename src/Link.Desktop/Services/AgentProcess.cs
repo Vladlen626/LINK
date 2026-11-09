@@ -272,10 +272,15 @@ public sealed class AgentInput
         }
     }
 
+    /// <summary>The user's words the CLI took in, as said (on the reading thread).</summary>
+    public event Action<string>? Taken;
+
     /// <summary>The CLI took these words in; other text it shows back (the task's own) changes nothing.</summary>
     public void Took(string words)
     {
-        lock (_unread) _unread.Remove(words);
+        bool taken;
+        lock (_unread) taken = _unread.Remove(words);
+        if (taken) Taken?.Invoke(words);
     }
 
     /// <summary>

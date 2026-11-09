@@ -35,17 +35,19 @@ function Wait-Id([string]$id, [int]$seconds = 8) {
 $text = [System.IO.File]::ReadAllText($Words, [System.Text.Encoding]::UTF8).Trim()
 if ($text.Length -eq 0) { throw "no words in $Words" }
 
-# The panel takes the keyboard: wait until nobody types for 15 s (at most 2 minutes).
+# Link's window takes the keyboard: wait until nobody types for 15 s (at most 2 minutes).
 for ($i = 0; $i -lt 120 -and [Idle]::Seconds() -lt 15; $i++) { Start-Sleep -Seconds 1 }
 "idle: $([Idle]::Seconds()) s"
 
-$name = (Wait-Id 'ProjectNameText').Current.Name
+# Link's window on its Studio tab: a Link hidden in the tray is not in the UIA tree, and a second Link.exe brings
+# it forward.
+if (-not (Find-Id 'StudioTabButton')) { Start-Process (Get-Process Link | Select-Object -First 1).Path }
+Invoke-Element (Wait-Id 'StudioTabButton'); Start-Sleep -Milliseconds 800
+$name = (Wait-Id 'ProjectText').Current.Name
 "project: $name"
 if ($name -ne $Project) { throw "Link shows the project '$name', not '$Project': switch it first" }
 
-# The Link window open (the card's Expand), on its Studio tab: the task Link shows there (it opens the last one), or else the newest of the list.
-Invoke-Element (Wait-Id 'ExpandButton'); Start-Sleep -Milliseconds 800
-Invoke-Element (Wait-Id 'StudioTabButton'); Start-Sleep -Milliseconds 800
+# The task Link shows there (it opens the last one), or else the newest of the list.
 if (-not (Find-Id 'GoalText')) {
   $list = Wait-Id 'TaskList'
   $isButton = New-Object System.Windows.Automation.PropertyCondition($A::ControlTypeProperty, [System.Windows.Automation.ControlType]::Button)
@@ -63,5 +65,5 @@ $box.GetCurrentPattern([System.Windows.Automation.ValuePattern]::Pattern).SetVal
 if ($NoSend) { 'stopped before Send'; return }
 Invoke-Element (Wait-Id 'ContinueButton')
 Start-Sleep -Seconds 6
-"pill: $((Find-Id 'AgentPillText').Current.Name)"
+"studio tab: $(((Find-Id 'StudioTabButton').Current.HelpText) -replace "`r?`n", ' | ')"
 "status: $((Find-Id 'StatusText').Current.Name)"

@@ -12,13 +12,6 @@ internal static class NativeMethods
     internal const int WmSysKeyDown = 0x0104;
     internal const int WmSysKeyUp = 0x0105;
     internal const int WmHotkey = 0x0312;
-    internal const int WmNcLButtonDown = 0x00A1;
-    internal const int WmNcLButtonDblClk = 0x00A3;
-    internal const int WmSizing = 0x0214;
-    internal const int HtCaption = 2;
-    internal const int HtBottom = 15;
-    internal const int HtBottomLeft = 16;
-    internal const int HtBottomRight = 17;
     internal const uint EventSystemForeground = 0x0003;
     internal const uint WinEventOutOfContext = 0x0000;
     internal const int DwmwaExtendedFrameBounds = 9;
@@ -26,9 +19,6 @@ internal static class NativeMethods
     internal const int DwmwaBorderColor = 34;
     internal const int DwmwaCaptionColor = 35;
     internal const int DwmwaTextColor = 36;
-    internal const int WcaAccentPolicy = 19;
-    internal const int AccentDisabled = 0;
-    internal const int AccentEnableBlurBehind = 3;
     internal const uint ModAlt = 0x0001;
     internal const uint ModControl = 0x0002;
     internal const uint ModShift = 0x0004;
@@ -42,7 +32,6 @@ internal static class NativeMethods
     internal const uint SwpNoZOrder = 0x0004;
     internal const uint SwpNoActivate = 0x0010;
     internal const uint SwpShowWindow = 0x0040;
-    internal const int WmExitSizeMove = 0x0232;
     internal const int WmDisplayChange = 0x007E;
     internal const long WsExToolWindow = 0x00000080;
     internal const long WsExNoActivate = 0x08000000;
@@ -174,17 +163,6 @@ internal static class NativeMethods
     [DllImport("user32.dll")]
     [return: MarshalAs(UnmanagedType.Bool)]
     internal static extern bool UnhookWinEvent(IntPtr hook);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool ReleaseCapture();
-
-    [DllImport("user32.dll", CharSet = CharSet.Auto)]
-    internal static extern IntPtr SendMessage(IntPtr hWnd, int message, IntPtr wParam, IntPtr lParam);
-
-    [DllImport("user32.dll")]
-    [return: MarshalAs(UnmanagedType.Bool)]
-    internal static extern bool SetWindowCompositionAttribute(IntPtr hwnd, ref WindowCompositionAttributeData data);
 
     [DllImport("dwmapi.dll")]
     internal static extern int DwmSetWindowAttribute(IntPtr hwnd, int attribute, ref int value, int valueSize);
