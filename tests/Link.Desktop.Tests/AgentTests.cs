@@ -2617,42 +2617,44 @@ internal static class AgentTests
                 ToolRules = ["Read", "Bash(git log:*)"]
             };
             static HarnessSection Section(HarnessView view, string title) => view.Sections.Single(section => section.Title == title);
+            static HarnessLink Link(HarnessSection section, string label) => section.Links.Single(link => link.Label == label);
+            static string Labels(HarnessSection section) => string.Join("|", section.Links.Select(link => link.Label));
 
             var bare = HarnessView.Build(Input());
-            Program.Equal("harness: the sections, in order",
+            Program.Equal("harness: the seven cards, in order",
                 string.Join("|", bare.Sections.Select(section => section.Title)),
-                "Setup|Context|Rules|Role|Project memory|Task state|Skills|Helpers|Injected context|Tools and MCP|Verification|Stats|Reflect");
-            Program.Equal("harness setup: the role (General), the agent, the model and effort, the effort's reason, who sees the code",
-                (Section(bare, "Setup").Value, Section(bare, "Setup").Note),
-                ("General · Claude Code · Opus 5.5 · Medium", "Effort: Link picked it: a usual task\nSubscription · code goes to Anthropic"));
-            Program.Equal("harness setup: an API model says so",
-                HarnessView.Build(Input() with { Capabilities = new AgentCapabilities(false, false, false, "Z.ai") }).Sections[0].Note,
-                "Effort: Link picked it: a usual task\nAPI, no subscription · code goes to Z.ai");
-            Program.Equal("harness context: what the session holds against the budget, the budget told",
-                (Section(bare, "Context").Value, Section(bare, "Context").Note!.StartsWith("Budget 400k:", StringComparison.Ordinal)), ("182k / 400k (46%)", true));
+                "The agent|Context|Instructions|Project knowledge|What it may do|Check|How it went");
+            Program.Equal("harness agent: the agent, the model and effort; the effort's reason, who sees the code, the helpers",
+                (Section(bare, "The agent").Value, Section(bare, "The agent").Note),
+                ("Claude Code · Opus 5.5 · Medium",
+                 "Effort: Link picked it: a usual task\nSubscription · code goes to Anthropic\nWorks alone: Claude Code gets helpers in Settings → Agents"));
+            Program.Equal("harness agent: an API model says so, the helpers are named",
+                Section(HarnessView.Build(Input() with { Capabilities = new AgentCapabilities(false, false, false, "Z.ai"), Helpers = ["mechanic · Haiku"] }), "The agent").Note,
+                "Effort: Link picked it: a usual task\nAPI, no subscription · code goes to Z.ai\nHands parts to mechanic · Haiku: their steps show in the thread");
+            Program.Equal("harness context: what the session holds against the budget, the budget told, nothing for Compact without a task",
+                (Section(bare, "Context").Value, Section(bare, "Context").Note!.StartsWith("Budget 400k:", StringComparison.Ordinal), Section(bare, "Context").Links.Count),
+                ("182k / 400k (46%)", true, 0));
             Program.Equal("harness context: nothing told yet",
                 Section(HarnessView.Build(Input() with { ContextUsed = null }), "Context").Value, "Not told yet");
-            Program.Equal("harness rules: the file beside Link.exe, to open",
-                (Section(bare, "Rules").Value, Section(bare, "Rules").FilePath), ("agent-rules.md", AgentRules.File));
+            var rules = Section(bare, "Instructions");
+            Program.Equal("harness instructions: no role, Link's rules beside Link.exe to open, no brief without a task",
+                (rules.Value, rules.Note, Labels(rules), rules.Links[0].Path),
+                ("General — no role", "No specialist text goes with the rules", "Link's rules", AgentRules.File));
 
-            Program.Equal("harness: nothing yet without a task",
-                (Section(bare, "Task state").Value, Section(bare, "Task state").Detail, Section(bare, "Injected context").Value,
-                 Section(bare, "Role").Value),
-                ("No task yet", (string?)null, "Nothing yet", "General — no role"));
-
-            // Project memory and skills, MCP, check.
-            Program.Equal("harness memory: a map that is not there is missing, and not opened",
-                (Section(bare, "Project memory").Value, Section(bare, "Project memory").FilePath), ("docs/map.md · missing", (string?)null));
+            // Project knowledge: the map, the skills.
+            var knowledge = Section(bare, "Project knowledge");
+            Program.Equal("harness knowledge: no map and no skills, each said with what to do",
+                (knowledge.Value, knowledge.Links.Count, knowledge.Note),
+                ("No map · no skills", 0,
+                 "Without a map the agent searches the folders itself; the Map button of the project's column has it written\nNo skills in .agents/skills: the agents write them as they learn the project"));
             Directory.CreateDirectory(Path.Combine(workspace, "docs"));
             File.WriteAllText(ProjectMap.PathIn(workspace), "# Map");
-            Program.Equal("harness memory: a map that is there opens",
-                (Section(HarnessView.Build(Input()), "Project memory").Value, Section(HarnessView.Build(Input()), "Project memory").FilePath),
-                ("docs/map.md · 1 line", ProjectMap.PathIn(workspace)));
-            Program.Equal("harness memory: no workspace",
-                Section(HarnessView.Build(Input() with { Workspace = null }), "Project memory").Value, "No workspace chosen");
+            var mapped = Section(HarnessView.Build(Input()), "Project knowledge");
+            Program.Equal("harness knowledge: a map that is there opens, its lines told",
+                (mapped.Value, mapped.Links[0].Label, mapped.Links[0].Path, mapped.Links[0].Note), ("The map · no skills", "docs/map.md", ProjectMap.PathIn(workspace), "1 line"));
+            Program.Equal("harness knowledge: no workspace",
+                Section(HarnessView.Build(Input() with { Workspace = null }), "Project knowledge").Value, "No workspace chosen");
 
-            Program.Equal("harness skills: none",
-                Section(bare, "Skills").Value, "None in .agents/skills");
             WriteSkill(workspace, "jump-tuning", "Tune the jump.");
             WriteSkill(workspace, "tidy-up", "Tidy.");
             var task = new AgentTaskRecord
@@ -2661,49 +2663,57 @@ internal static class AgentTests
                 Brief = "Fix the jump.",
                 Workspace = workspace,
                 RoleIds = ["rigger-animator"],
-                Skills = ["jump-tuning"],
+                Skills = ["tidy-up"],
                 LastCheck = "dotnet test: failed with exit code 1\nerror CS1002"
             };
             task.Add(AgentEntryKind.HandOff, TaskState.Compacted(180_000));
             task.Add(AgentEntryKind.HandOff, "Specialist: General");
             task.Add(AgentEntryKind.HandOff, TaskState.Compacted(null));
             var open = HarnessView.Build(Input(task));
-            var skills = Section(open, "Skills");
-            Program.Equal("harness skills: the count, the ones to read first marked, with their descriptions",
-                (skills.Value, skills.Detail), ("2 skills · 1 to read first", "jump-tuning (read first): Tune the jump.\ntidy-up: Tidy."));
-            Program.Equal("harness role: the specialist's name and description, its file to open",
-                (Section(open, "Role").Value, Section(open, "Role").Note!.Length > 0, Section(open, "Role").FilePath!.EndsWith("rigger-animator.md", StringComparison.Ordinal)),
-                ("Rigger / Animator", true, true));
-            Program.Equal("harness role: a role whose file is gone is named by its file",
-                Section(HarnessView.Build(Input(new AgentTaskRecord { Goal = "g", Workspace = workspace, RoleIds = ["gone"] })), "Role").Value, "gone (its file is gone)");
-            Program.Equal("harness context: the compactions in the task's history are counted",
-                Section(open, "Context").Note!.EndsWith("\nCompacted 2 times", StringComparison.Ordinal), true);
-            Program.Equal("harness task state: the state Compact starts from",
-                Section(open, "Task state").Detail!.StartsWith("# Task state\nGoal: Fix the jump\n", StringComparison.Ordinal), true);
-            Program.Equal("harness injected context: the brief Link gave, to read",
-                (Section(open, "Injected context").Value, Section(open, "Injected context").Detail),
-                ("The brief Link gave: 13 characters", "Fix the jump."));
+            var known = Section(open, "Project knowledge");
+            Program.Equal("harness knowledge: each skill opens, the ones to read first first, with their descriptions",
+                (known.Value, string.Join("|", known.Links.Skip(1).Select(link => $"{link.Label}: {link.Note}")), known.Links.Skip(1).All(link => File.Exists(link.Path))),
+                ("The map · 2 skills", "tidy-up: read first · Tidy.|jump-tuning: Tune the jump.", true));
+            var instructions = Section(open, "Instructions");
+            var rigger = Link(instructions, "Rigger / Animator");
+            var brief = Link(instructions, "The task's brief");
+            Program.Equal("harness instructions: the rules, the role with its jellyfish, file and description, the brief as text",
+                (instructions.Value, instructions.Note, Labels(instructions), rigger.Path!.EndsWith("rigger-animator.md", StringComparison.Ordinal), rigger.Color,
+                 rigger.Note!.Length > 0, brief.Text, brief.Note),
+                ("Rigger / Animator", "A new session reads the rules, then the roles, then the brief", "Link's rules|Rigger / Animator|The task's brief", true, "#F472B6",
+                 true, "Fix the jump.", "13 characters"));
+            var gone = Section(HarnessView.Build(Input(new AgentTaskRecord { Goal = "g", Workspace = workspace, RoleIds = ["gone"] })), "Instructions");
+            Program.Equal("harness instructions: a role whose file is gone is named by its file, with no jellyfish",
+                (gone.Value, gone.Links.Any(link => link.Color is not null)),
+                ("gone (its file is gone)", false));
+            Program.Equal("harness context: the compactions counted, the state Compact starts from opens as text",
+                (Section(open, "Context").Note!.EndsWith("\nCompacted 2 times", StringComparison.Ordinal),
+                 Link(Section(open, "Context"), "What Compact keeps").Text!.StartsWith("# Task state\nGoal: Fix the jump\n", StringComparison.Ordinal)),
+                (true, true));
+            Program.Equal("harness: a card built again from the same files is the same card, so a refresh leaves it alone",
+                (Section(HarnessView.Build(Input(task)), "Instructions") == instructions, Section(HarnessView.Build(Input(task)), "Project knowledge") == known), (true, true));
 
-            Program.Equal("harness tools: no .mcp.json, no servers, nothing to open; the access and the project's rules",
-                (Section(open, "Tools and MCP").Value, Section(open, "Tools and MCP").FilePath, Section(open, "Tools and MCP").Note, Section(open, "Tools and MCP").Detail),
-                ("No MCP servers", (string?)null, "Access: edits: other commands ask you\nTool rules the project allows: 2", "Read\nBash(git log:*)"));
+            var may = Section(open, "What it may do");
+            Program.Equal("harness access: edits, no servers and no .mcp.json, the project's tool rules as a list",
+                (may.Value, may.Note, Labels(may), Link(may, "Tools the project allows").Text, Link(may, "Tools the project allows").Note),
+                ("Edits: other commands ask you", "No MCP servers", "Tools the project allows", "- `Read`\n- `Bash(git log:*)`", "2 rules"));
             File.WriteAllText(Path.Combine(workspace, ".mcp.json"), "{\"mcpServers\": {\"unreal\": {\"command\": \"node\"}, \"blender\": {\"url\": \"http://localhost:1\"}}}");
-            var tools = Section(HarnessView.Build(Input(task) with { AutoApprove = true }), "Tools and MCP");
-            Program.Equal("harness tools: the MCP servers by the workspace's .mcp.json, auto access",
-                (tools.Value, tools.FilePath, tools.Note!.Split('\n')[0]),
-                ("MCP: unreal, blender", Path.Combine(workspace, ".mcp.json"), "Access: auto: edits and commands without asking"));
-            Program.Equal("harness tools: a plan",
-                Section(HarnessView.Build(Input() with { PlanOnly = true }), "Tools and MCP").Note!.Split('\n')[0], "Access: plan first, then the plan runs");
+            var auto = Section(HarnessView.Build(Input(task) with { AutoApprove = true }), "What it may do");
+            Program.Equal("harness access: auto, the MCP servers by the workspace's .mcp.json, the file to open",
+                (auto.Value, auto.Note, auto.Links[0].Path), ("Auto: edits and commands without asking", "MCP: unreal, blender", Path.Combine(workspace, ".mcp.json")));
+            Program.Equal("harness access: a plan",
+                Section(HarnessView.Build(Input() with { PlanOnly = true }), "What it may do").Value, "Plan first, then the plan runs");
             File.WriteAllText(Path.Combine(workspace, ".mcp.json"), "{ not json");
-            Program.Equal("harness tools: a .mcp.json that cannot be read gives no servers",
-                Section(HarnessView.Build(Input()), "Tools and MCP").Value, "No MCP servers");
+            Program.Equal("harness access: a .mcp.json that cannot be read gives no servers",
+                Section(HarnessView.Build(Input()), "What it may do").Note, "No MCP servers");
 
-            var check = Section(open, "Verification");
-            Program.Equal("harness verification: the command, the check as it last ran, its output behind a toggle",
-                (check.Value, check.Note, check.Detail), ("dotnet test", "Last: dotnet test: failed with exit code 1", "dotnet test: failed with exit code 1\nerror CS1002"));
-            var noCheck = Section(HarnessView.Build(Input() with { CheckCommand = null }), "Verification");
-            Program.Equal("harness verification: no command, you check the result",
-                (noCheck.Value, noCheck.Note!.StartsWith("A check command", StringComparison.Ordinal)), ("None — you check the result", true));
+            var check = Section(open, "Check");
+            Program.Equal("harness check: the command, the check as it last ran, its output to open",
+                (check.Value, check.Note, Link(check, "The last check").Text, Link(check, "The last check").Note),
+                ("dotnet test", "Last: dotnet test: failed with exit code 1", "```\ndotnet test: failed with exit code 1\nerror CS1002\n```", "2 lines"));
+            var noCheck = Section(HarnessView.Build(Input() with { CheckCommand = null }), "Check");
+            Program.Equal("harness check: no command, you check the result",
+                (noCheck.Value, noCheck.Note!.StartsWith("A check command", StringComparison.Ordinal), noCheck.Links.Count), ("None — you check the result", true, 0));
         }
         finally
         {
@@ -2722,7 +2732,7 @@ internal static class AgentTests
 
         var caps = AgentCapabilities.Usual;
         HarnessSection StatsOf(params StatsRow[] rows) =>
-            HarnessView.Build(new HarnessInput(null, "Codex", "its own model", "the CLI's own", caps, 550_000) { Stats = rows }).Sections.Single(section => section.Title == "Stats");
+            HarnessView.Build(new HarnessInput(null, "Codex", "its own model", "the CLI's own", caps, 550_000) { Stats = rows }).Sections.Single(section => section.Title == "How it went");
         Program.Equal("harness stats: none yet", StatsOf().Value, "No runs yet");
         var busy = StatsOf(
             new StatsRow("Rigger", "Claude Code", "opus", 3, 4, 1, 3, TimeSpan.FromSeconds(150), 126_667, 3),
@@ -3780,13 +3790,13 @@ internal static class AgentTests
         Program.Equal("harness meter: the other sections have none",
             HarnessView.Build(new HarnessInput(null, "Claude Code", "Opus 5.5", "x", caps, 400_000) { ContextUsed = 1000 }).Sections.Count(section => section.Meter is not null), 1);
 
-        HarnessSection Role(string? roleId) =>
+        string? RoleColor(string? roleId) =>
             HarnessView.Build(new HarnessInput(null, "Claude Code", "Opus 5.5", "x", caps, 400_000)
             {
                 Task = roleId is null ? null : new AgentTaskRecord { Goal = "Goal", Workspace = "w", RoleIds = [roleId] }
-            }).Sections.Single(section => section.Title == "Role");
-        Program.Equal("harness role: its jellyfish is the role's color, Link's orange for General, none for a role whose file is gone",
-            (Role("rigger-animator").Color, Role(null).Color, Role("gone").Color), ("#F472B6", "#F5843F", (string?)null));
+            }).Sections.Single(section => section.Title == "Instructions").Links.SingleOrDefault(link => link.Color is not null)?.Color;
+        Program.Equal("harness role: its jellyfish is the role's color; none without a role or for a role whose file is gone",
+            (RoleColor("rigger-animator"), RoleColor(null), RoleColor("gone")), ("#F472B6", (string?)null, (string?)null));
     }
 
     /// <summary>The Studio's tasks sidebar is open unless it was folded; an older settings.json, and one with a Studio section from before, open it.</summary>

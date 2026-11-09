@@ -9,12 +9,11 @@ namespace Link.Desktop;
 
 /// <summary>
 /// A part of the harness as the inspector draws it. The row outlives a refresh: a changed section is put in its place,
-/// so that an open text stays open and keeps its place, and an unchanged one is not drawn again.
+/// and an unchanged one is not drawn again.
 /// </summary>
 public sealed class HarnessRow(HarnessSection section) : INotifyPropertyChanged
 {
     private const double MeterWarning = 0.8;
-    private bool _detailOpen;
 
     public event PropertyChangedEventHandler? PropertyChanged;
 
@@ -23,12 +22,9 @@ public sealed class HarnessRow(HarnessSection section) : INotifyPropertyChanged
     public string Heading => Section.Title;
     public string Value => Section.Value;
     public string? Note => Section.Note;
-    public string? Detail => Section.Detail;
     public Visibility NoteVisibility => Section.Note is null ? Visibility.Collapsed : Visibility.Visible;
-    public Visibility OpenVisibility => Section.FilePath is null ? Visibility.Collapsed : Visibility.Visible;
-    public Visibility DetailToggleVisibility => Section.Detail is null ? Visibility.Collapsed : Visibility.Visible;
-    public Visibility DetailVisibility => _detailOpen && Section.Detail is not null ? Visibility.Visible : Visibility.Collapsed;
-    public string DetailLabel => _detailOpen ? "Hide ▾" : "View ▸";
+    public IReadOnlyList<HarnessLinkRow> Links => [.. Section.Links.Select(link => new HarnessLinkRow(link))];
+    public Visibility LinksVisibility => Section.Links.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
 
     /// <summary>The context's bar: how much of the limit is used, in percent for the bar; none for a section with no meter.</summary>
     public double MeterPercent => (Section.Meter ?? 0) * 100;
@@ -37,34 +33,31 @@ public sealed class HarnessRow(HarnessSection section) : INotifyPropertyChanged
     /// <summary>The bar turns to a warning near the limit, where the agent's CLI compacts.</summary>
     public bool MeterHigh => Section.Meter >= MeterWarning;
 
-    /// <summary>The jellyfish beside a role in the colour of the role; none for a section with no colour.</summary>
-    public Brush? RoleBrush => Section.Color is { } color ? RoleBrushes.Of(color) : null;
-    public Visibility RoleVisibility => Section.Color is null ? Visibility.Collapsed : Visibility.Visible;
-
-    public bool DetailOpen
-    {
-        get => _detailOpen;
-        set
-        {
-            _detailOpen = value;
-            Raise(nameof(DetailVisibility), nameof(DetailLabel));
-        }
-    }
-
     /// <summary>Puts the section as it stands now in the row; the same one changes nothing.</summary>
     public void Update(HarnessSection now)
     {
         if (now == Section) return;
         Section = now;
-        Raise(nameof(Value), nameof(Note), nameof(Detail), nameof(NoteVisibility), nameof(OpenVisibility),
-            nameof(DetailToggleVisibility), nameof(DetailVisibility), nameof(MeterPercent), nameof(MeterVisibility), nameof(MeterHigh),
-            nameof(RoleBrush), nameof(RoleVisibility));
+        Raise(nameof(Value), nameof(Note), nameof(NoteVisibility), nameof(Links), nameof(LinksVisibility),
+            nameof(MeterPercent), nameof(MeterVisibility), nameof(MeterHigh));
     }
 
     private void Raise(params string[] names)
     {
         foreach (var name in names) PropertyChanged?.Invoke(this, new PropertyChangedEventArgs(name));
     }
+}
+
+/// <summary>A line of a card: what opens in the viewer, or only says; a role's jellyfish in the colour of the role.</summary>
+public sealed class HarnessLinkRow(HarnessLink link)
+{
+    public HarnessLink Link { get; } = link;
+    public string Label => Link.Label;
+    public string NoteText => Link.Note is null ? string.Empty : " · " + Link.Note;
+    public bool Opens => Link.Path is not null || Link.Text is not null;
+    public string? Tip => Opens ? "Opens in Link's viewer" : null;
+    public Brush? RoleBrush => Link.Color is { } color ? RoleBrushes.Of(color) : null;
+    public Visibility RoleVisibility => Link.Color is null ? Visibility.Collapsed : Visibility.Visible;
 }
 
 /// <summary>
@@ -83,10 +76,10 @@ public sealed class SharePick(string item, string title, string note, string? wa
 }
 
 /// <summary>
-/// The Harness Inspector: what the agent really gets for the task (setup, context, rules, role, project memory, task
-/// state, skills, the brief, tools, the check and the project's stats), one card each. It only shows; the window builds
-/// the view (<see cref="HarnessView"/>) and does the work behind Open. It has no timer: it draws when it is
-/// shown a view.
+/// The Harness Inspector: what the agent really gets for the task (the agent, its context, its instructions, what it
+/// knows of the project, what it may do, the check and how the runs went), one card each, every file and text in them a
+/// click from Link's viewer. It only shows; the window builds the view (<see cref="HarnessView"/>) and opens what is
+/// clicked. It has no timer: it draws when it is shown a view.
 /// </summary>
 public partial class HarnessInspector : UserControl
 {
@@ -98,8 +91,8 @@ public partial class HarnessInspector : UserControl
         SectionsList.ItemsSource = _rows;
     }
 
-    /// <summary>A file of the harness (the rules, a role, the map, .mcp.json) is to be shown in Explorer.</summary>
-    public event Action<string>? OpenFileRequested;
+    /// <summary>A file or a text of the harness (the rules, a role, a skill, the brief…) is to be shown in the viewer.</summary>
+    public event Action<HarnessLink>? LinkOpened;
 
     /// <summary>Share ▾ → What my agents learned: the window lists what the tool packs hold beyond Link's own.</summary>
     public event Action? ShareLearnedRequested;
@@ -151,9 +144,9 @@ public partial class HarnessInspector : UserControl
         foreach (var section in sections) _rows.Add(new HarnessRow(section));
     }
 
-    private void Open_OnClick(object sender, RoutedEventArgs e)
+    private void Link_OnClick(object sender, RoutedEventArgs e)
     {
-        if (sender is FrameworkElement { DataContext: HarnessRow { Section.FilePath: { } path } }) OpenFileRequested?.Invoke(path);
+        if (sender is FrameworkElement { DataContext: HarnessLinkRow { Opens: true } row }) LinkOpened?.Invoke(row.Link);
     }
 
     private void Share_OnClick(object sender, RoutedEventArgs e)
@@ -186,9 +179,4 @@ public partial class HarnessInspector : UserControl
     private void CancelPicks_OnClick(object sender, RoutedEventArgs e) => ShowShareStatus("Nothing was shared or taken.");
 
     private void SetUp_OnClick(object sender, RoutedEventArgs e) => SetUpRequested?.Invoke();
-
-    private void Detail_OnClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is FrameworkElement { DataContext: HarnessRow row }) row.DetailOpen = !row.DetailOpen;
-    }
 }

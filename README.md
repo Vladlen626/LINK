@@ -105,7 +105,10 @@ ChatGPT project Link talks to.
 
 ## The harness
 
-What every agent session gets, shown in the **Harness** column (`Ctrl+Shift+H`):
+What every agent session gets, shown in the **Harness** column (`Ctrl+Shift+H`) in seven cards: the agent, its
+context, the instructions it starts with, what it knows of the project, what it may do, the check and how the runs
+went. A click on a rule, a role, a skill, the map, Claude's notes, the brief, what Compact keeps or the last check opens
+it in Link's viewer, with no folder to look for.
 
 | Part | What it does |
 |---|---|

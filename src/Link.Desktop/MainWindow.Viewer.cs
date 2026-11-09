@@ -39,6 +39,20 @@ public partial class MainWindow
         Viewer.Visibility = Visibility.Visible;
     }
 
+    /// <summary>What the Harness column names: a file or a folder, or text Link made (a brief, a check's output).</summary>
+    private void OpenHarnessLink(HarnessLink link)
+    {
+        if (link.Path is { } path)
+        {
+            ShowFile(path);
+        }
+        else if (link.Text is { } text)
+        {
+            Viewer.OpenText(link.Label, "Link's own text, not a file", text);
+            Viewer.Visibility = Visibility.Visible;
+        }
+    }
+
     /// <summary>The project's memory, the map and the model's notes, as one list in the viewer.</summary>
     private void ShowMemory()
     {

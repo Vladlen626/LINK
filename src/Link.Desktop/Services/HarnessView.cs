@@ -4,17 +4,34 @@ using Link.Desktop.Models;
 namespace Link.Desktop.Services;
 
 /// <summary>
-/// One part of what the agent really gets, for the inspector: a title, a line of what it is, short notes that always
-/// show, a longer <see cref="Detail"/> behind a toggle and a <see cref="FilePath"/> to show in Explorer.
-/// <see cref="Meter"/> (0..1) draws a bar under the value, <see cref="Color"/> ("#RRGGBB") a jellyfish beside it.
+/// Something a section names that opens in Link's viewer: a file or a folder (<see cref="Path"/>), or text Link holds
+/// rather than a file (<see cref="Text"/>, Markdown), such as the brief. Neither: a line that only says. A
+/// <see cref="Color"/> ("#RRGGBB") draws a role's jellyfish before it.
+/// </summary>
+public sealed record HarnessLink(string Label)
+{
+    public string? Path { get; init; }
+    public string? Text { get; init; }
+    public string? Note { get; init; }
+    public string? Color { get; init; }
+}
+
+/// <summary>
+/// One part of what the agent really gets, for the inspector: a title, a line of what it is, short notes and what opens
+/// in the viewer. <see cref="Meter"/> (0..1) draws a bar under the value.
 /// </summary>
 public sealed record HarnessSection(string Title, string Value)
 {
     public string? Note { get; init; }
-    public string? Detail { get; init; }
-    public string? FilePath { get; init; }
     public double? Meter { get; init; }
-    public string? Color { get; init; }
+    public IReadOnlyList<HarnessLink> Links { get; init; } = [];
+
+    // The same parts are the same section, so that a refresh leaves an unchanged card alone.
+    public bool Equals(HarnessSection? other) =>
+        other is not null && Title == other.Title && Value == other.Value && Note == other.Note && Meter == other.Meter &&
+        Links.SequenceEqual(other.Links);
+
+    public override int GetHashCode() => HashCode.Combine(Title, Value, Note, Meter, Links.Count);
 }
 
 /// <summary>
@@ -55,16 +72,17 @@ public sealed record HarnessInput(
 }
 
 /// <summary>
-/// The harness Link gives an agent, as the inspector lists it: setup, context, rules, role, project memory, task
-/// state, skills, the brief, tools and MCP, the check, the project's stats and its last two weeks looked back on. Built from files and records, not from a
-/// model, so that it says what is, and refreshes cheaply.
+/// The harness Link gives an agent, as the inspector lists it, in seven cards: the agent, its context, the instructions
+/// it starts with, what it knows of the project, what it may do, the check and how the project's runs went. Every file
+/// and text in them opens in Link's viewer, so that nothing needs the file system to be read. Built from files and
+/// records, not from a model, so that it says what is, and refreshes cheaply.
 /// </summary>
 public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
 {
     // So many of the stats' rows show; the rest is in the data.
     private const int StatsShown = 5;
 
-    // A skill's description cut for the list.
+    // A skill's description cut for its line.
     private const int DescriptionShown = 110;
 
     // Past these the map and a skill are condensed, as the agent's rules ask; the inspector says when they are not.
@@ -89,19 +107,13 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
         var roles = ProjectRoles.Of(input.Task?.RoleIds ?? [], all);
         return new HarnessView(
         [
-            Setup(input, roles),
+            Agent(input),
             Context(input),
-            Rules(),
-            RoleSection(input, roles, all),
-            Memory(input.Workspace),
-            State(input),
-            Skills(input),
-            HelpersSection(input),
-            Injected(input),
-            Tools(input),
+            Instructions(input, roles, all),
+            Knowledge(input),
+            Access(input),
             Verification(input),
-            Stats(input),
-            Reflect(input)
+            History(input)
         ]);
     }
 
@@ -122,20 +134,15 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
         $"Context budget {AgentContext.Budget(contextBudget)} · {(skills == 0 ? "no skills" : Plural(skills, "skill"))} · " +
         (mcpServers.Count == 0 ? "no MCP servers" : "MCP: " + string.Join(", ", mcpServers));
 
-    private static HarnessSection HelpersSection(HarnessInput input) => input.Helpers.Count == 0
-        ? new HarnessSection("Helpers", "None — the session does all the work") { Note = "Claude Code gets them in Settings → Agents" }
-        : new HarnessSection("Helpers", string.Join(" · ", input.Helpers))
-        {
-            Note = "The session keeps the plan and hands them parts it can describe exactly; their steps show in the thread"
-        };
-
-    private static HarnessSection Setup(HarnessInput input, IReadOnlyList<AgentRole> roles)
+    private static HarnessSection Agent(HarnessInput input)
     {
         var caps = input.Capabilities;
-        var names = roles.Count > 0 ? roles.Select(role => role.Name) : input.Task?.RoleIds is { Count: > 0 } ids ? ids : ["General"];
-        return new HarnessSection("Setup", $"{string.Join(" + ", names)} · {input.Agent} · {input.Setup}")
+        var helpers = input.Helpers.Count == 0
+            ? "Works alone: Claude Code gets helpers in Settings → Agents"
+            : $"Hands parts to {string.Join(" · ", input.Helpers)}: their steps show in the thread";
+        return new HarnessSection("The agent", $"{input.Agent} · {input.Setup}")
         {
-            Note = $"Effort: {input.EffortWhy}\n{(caps.Subscription ? "Subscription" : "API, no subscription")} · code goes to {caps.SeesCode}"
+            Note = $"Effort: {input.EffortWhy}\n{(caps.Subscription ? "Subscription" : "API, no subscription")} · code goes to {caps.SeesCode}\n{helpers}"
         };
     }
 
@@ -146,122 +153,120 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
             : "Budget Auto: the agent's CLI compacts its session by its own window for the model";
         var compacted = input.Task is null ? 0 : TaskState.CompactCount(input.Task);
         if (compacted > 0) note += $"\nCompacted {(compacted == 1 ? "once" : $"{compacted} times")}";
-        if (input.ContextUsed is not { } used) return new HarnessSection("Context", "Not told yet") { Note = note };
+        // The state is made from the record alone: the files are those of the record, without git's lines added and removed.
+        IReadOnlyList<HarnessLink> links = input.Task is { } task
+            ? [new HarnessLink("What Compact keeps") { Text = TaskState.Build(task, null, task.Workspace, input.AgentName), Note = "a fresh session starts from it" }]
+            : [];
+        if (input.ContextUsed is not { } used) return new HarnessSection("Context", "Not told yet") { Note = note, Links = links };
         var limit = AgentContext.Limit(input.ContextBudget, input.ContextWindow);
         return new HarnessSection("Context", AgentContext.Usage(used, input.ContextWindow, input.ContextBudget))
         {
             Note = note,
-            Meter = limit > 0 ? Math.Clamp((double)used / limit.Value, 0, 1) : null
+            Meter = limit > 0 ? Math.Clamp((double)used / limit.Value, 0, 1) : null,
+            Links = links
         };
     }
 
-    private static HarnessSection Rules()
+    // What a new session starts with: Link's rules, the task's roles (the lead first) and the brief.
+    private static HarnessSection Instructions(HarnessInput input, IReadOnlyList<AgentRole> roles, IReadOnlyList<AgentRole> all)
     {
-        var exists = File.Exists(AgentRules.File);
-        var name = Path.GetFileName(AgentRules.File);
-        return new HarnessSection("Rules", exists ? name : $"{name} is missing")
+        var links = new List<HarnessLink>
         {
-            Note = "Every new session starts with them; the file is beside Link.exe and changes without a rebuild",
-            FilePath = exists ? AgentRules.File : null
+            File.Exists(AgentRules.File)
+                ? new HarnessLink("Link's rules") { Path = AgentRules.File, Note = "beside Link.exe, they change without a rebuild" }
+                : new HarnessLink($"{Path.GetFileName(AgentRules.File)} is missing")
         };
-    }
-
-    // The task's roles in one section, the lead first: its file and colour stand for them.
-    private static HarnessSection RoleSection(HarnessInput input, IReadOnlyList<AgentRole> roles, IReadOnlyList<AgentRole> all)
-    {
-        if (roles.Count > 0)
+        links.AddRange(roles.Select(role => new HarnessLink(role.Name)
         {
-            var notes = roles.Where(role => role.Description.Length > 0).Select(role => roles.Count == 1 ? role.Description : $"{role.Name}: {role.Description}");
-            return new HarnessSection("Role", string.Join(" + ", roles.Select(role => role.Name)))
-            {
-                Note = string.Join("\n", notes) is { Length: > 0 } note ? note : null,
-                FilePath = roles[0].FilePath,
-                Color = ProjectRoles.ColorOf(roles[0], all)
-            };
+            Path = role.FilePath,
+            Note = role.Description.Length > 0 ? role.Description : null,
+            Color = ProjectRoles.ColorOf(role, all)
+        }));
+        if (input.Task is { Brief.Length: > 0 } task)
+        {
+            var text = task.BriefText;
+            links.Add(new HarnessLink("The task's brief") { Text = text, Note = $"{text.Length.ToString("N0", CultureInfo.InvariantCulture)} characters" });
         }
 
-        return input.Task?.RoleIds is { Count: > 0 } ids
-            ? new HarnessSection("Role", $"{string.Join(" + ", ids)} ({(ids.Count == 1 ? "its file is" : "their files are")} gone)") { Note = "The agent gets no role text" }
-            : new HarnessSection("Role", "General — no role") { Note = "No specialist text goes with the rules", Color = ProjectRoles.LinkColor };
+        var value = roles.Count > 0 ? string.Join(" + ", roles.Select(role => role.Name))
+            : input.Task?.RoleIds is { Count: > 0 } ids ? $"{string.Join(" + ", ids)} ({(ids.Count == 1 ? "its file is" : "their files are")} gone)"
+            : "General — no role";
+        return new HarnessSection("Instructions", value)
+        {
+            Note = roles.Count > 0 ? "A new session reads the rules, then the roles, then the brief" : "No specialist text goes with the rules",
+            Links = links
+        };
     }
 
-    private static HarnessSection Memory(string? workspace)
+    // What the agent knows of the project before it looks: the map, Claude's notes and the project's skills.
+    private static HarnessSection Knowledge(HarnessInput input)
     {
-        if (workspace is null) return new HarnessSection("Project memory", "No workspace chosen");
+        if (input.Workspace is not { } workspace) return new HarnessSection("Project knowledge", "No workspace chosen");
+        var links = new List<HarnessLink>();
+        var notes = new List<string>();
+        var parts = new List<string>();
         if (ProjectMap.Shared(workspace) is { } shared)
         {
-            return new HarnessSection("Project memory", $"{ProjectMap.Relative(workspace, shared)} · the repository's own map")
-            {
-                FilePath = shared,
-                Note = "The team keeps it in git: agents read it first, and Link's own map is not used"
-            };
+            parts.Add("the repository's map");
+            links.Add(new HarnessLink(ProjectMap.Relative(workspace, shared)) { Path = shared, Note = "the team keeps it in git: Link's own map is not used" });
+        }
+        else if (ProjectMap.PathIn(workspace) is var map && File.Exists(map))
+        {
+            var lines = Lines(map);
+            parts.Add("the map");
+            links.Add(new HarnessLink(ProjectMap.RelativePath) { Path = map, Note = Plural(lines, "line") });
+            if (lines > MapLines) notes.Add($"Past ~{MapLines} lines every new session pays for the map: a Light task \"condense {ProjectMap.RelativePath}\" keeps it lean");
+        }
+        else
+        {
+            parts.Add("no map");
+            notes.Add("Without a map the agent searches the folders itself; the Map button of the project's column has it written");
         }
 
-        var map = ProjectMap.PathIn(workspace);
-        var lines = File.Exists(map) ? Lines(map) : 0;
-        return File.Exists(map)
-            ? new HarnessSection("Project memory", $"{ProjectMap.RelativePath} · {Plural(lines, "line")}")
-            {
-                FilePath = map,
-                Note = lines > MapLines ? $"Past ~{MapLines} lines every new session pays for it: a Light task \"condense {ProjectMap.RelativePath}\" keeps it lean" : null
-            }
-            : new HarnessSection("Project memory", $"{ProjectMap.RelativePath} · missing")
-            {
-                Note = "Without it the agent searches the folders itself; the Map button of the project's column has it written"
-            };
-    }
+        var memory = ProjectMemory.Notes(workspace);
+        if (memory.Count > 0)
+        {
+            parts.Add(Plural(memory.Count, "note"));
+            links.Add(new HarnessLink("Claude's notes") { Path = Path.GetDirectoryName(memory[0]), Note = "what it keeps between tasks" });
+        }
 
-    // The state is made from the record alone: the files are those of the record, without git's lines added and removed.
-    private static HarnessSection State(HarnessInput input) =>
-        input.Task is { } task
-            ? new HarnessSection("Task state", "What Compact would start a fresh session from")
-            {
-                Detail = TaskState.Build(task, null, task.Workspace, input.AgentName)
-            }
-            : new HarnessSection("Task state", "No task yet");
-
-    private static HarnessSection Skills(HarnessInput input)
-    {
-        var skills = ProjectSkills.In(input.Workspace);
-        if (skills.Count == 0) return new HarnessSection("Skills", $"None in {ProjectSkills.RelativeFolder}");
+        var skills = ProjectSkills.In(workspace);
         var first = input.Task?.Skills ?? [];
         bool ReadFirst(ProjectSkill skill) => first.Contains(skill.Name, StringComparer.OrdinalIgnoreCase);
-        var marked = skills.Count(ReadFirst);
+        parts.Add(skills.Count == 0 ? "no skills" : Plural(skills.Count, "skill"));
+        links.AddRange(skills.OrderBy(skill => !ReadFirst(skill)).Select(skill => new HarnessLink(skill.Name)
+        {
+            Path = skill.FilePath,
+            Note = string.Join(" · ", new[] { ReadFirst(skill) ? "read first" : null, skill.Description.Length > 0 ? Shortened(skill.Description, DescriptionShown) : null }.OfType<string>()) is { Length: > 0 } note ? note : null
+        }));
         // The project's own skills grow with each task; a pack's are the tool's and changed in a copy (see the rules).
         var grown = skills.Where(skill => skill.Pack is null && Lines(skill.FilePath) > SkillLines).Select(skill => skill.Name).ToArray();
-        return new HarnessSection("Skills", Plural(skills.Count, "skill") + (marked > 0 ? $" · {marked} to read first" : string.Empty))
+        if (grown.Length > 0) notes.Add($"Past ~{SkillLines} lines, read in every session that needs them: {string.Join(", ", grown)}; a Light task \"condense\" each keeps them lean");
+        if (skills.Count == 0) notes.Add($"No skills in {ProjectSkills.RelativeFolder}: the agents write them as they learn the project");
+
+        var value = string.Join(" · ", parts);
+        return new HarnessSection("Project knowledge", char.ToUpperInvariant(value[0]) + value[1..])
         {
-            Note = grown.Length > 0 ? $"Past ~{SkillLines} lines, read in every session that needs them: {string.Join(", ", grown)}; a Light task \"condense\" each keeps them lean" : null,
-            Detail = string.Join('\n', skills.Select(skill =>
-                skill.Name + (ReadFirst(skill) ? " (read first)" : string.Empty) +
-                (skill.Description.Length > 0 ? ": " + Shortened(skill.Description, DescriptionShown) : string.Empty)))
+            Note = notes.Count > 0 ? string.Join('\n', notes) : null,
+            Links = links
         };
     }
 
-    /// <summary>The task's brief and hand-overs.</summary>
-    private static HarnessSection Injected(HarnessInput input)
-    {
-        if (input.Task is not { Brief.Length: > 0 } task) return new HarnessSection("Injected context", "Nothing yet");
-        var text = task.BriefText;
-        var length = text.Length.ToString("N0", CultureInfo.InvariantCulture);
-        return new HarnessSection("Injected context", $"The brief Link gave: {length} characters")
-        {
-            Note = "The rules and the role go before it in a new session",
-            Detail = text
-        };
-    }
-
-    private static HarnessSection Tools(HarnessInput input)
+    private static HarnessSection Access(HarnessInput input)
     {
         var servers = input.Workspace is null ? [] : CliAgentProvider.McpServerNames(input.Workspace);
-        var access = input.PlanOnly ? "plan first, then the plan runs"
-            : input.AutoApprove ? "auto: edits and commands without asking"
-            : "edits: other commands ask you";
-        return new HarnessSection("Tools and MCP", servers.Count == 0 ? "No MCP servers" : "MCP: " + string.Join(", ", servers))
+        var access = input.PlanOnly ? "Plan first, then the plan runs"
+            : input.AutoApprove ? "Auto: edits and commands without asking"
+            : "Edits: other commands ask you";
+        var links = new List<HarnessLink>();
+        if (input.Workspace is not null && CliAgentProvider.McpConfigIn(input.Workspace) is { } config && File.Exists(config))
+            links.Add(new HarnessLink(Path.GetFileName(config)) { Path = config, Note = "the tools' servers" });
+        if (input.ToolRules.Count > 0)
+            links.Add(new HarnessLink("Tools the project allows") { Text = string.Join('\n', input.ToolRules.Select(rule => $"- `{rule}`")), Note = Plural(input.ToolRules.Count, "rule") });
+        return new HarnessSection("What it may do", access)
         {
-            Note = $"Access: {access}\nTool rules the project allows: {input.ToolRules.Count}",
-            Detail = input.ToolRules.Count == 0 ? null : string.Join('\n', input.ToolRules),
-            FilePath = input.Workspace is null ? null : CliAgentProvider.McpConfigIn(input.Workspace)
+            Note = servers.Count == 0 ? "No MCP servers" : "MCP: " + string.Join(", ", servers),
+            Links = links
         };
     }
 
@@ -269,26 +274,23 @@ public sealed record HarnessView(IReadOnlyList<HarnessSection> Sections)
     {
         var last = input.Task?.LastCheck;
         var lines = last?.Split('\n') ?? [];
-        return new HarnessSection("Verification", input.CheckCommand ?? "None — you check the result")
+        return new HarnessSection("Check", input.CheckCommand ?? "None — you check the result")
         {
             Note = lines.Length > 0 ? $"Last: {lines[0]}"
                 : input.CheckCommand is null ? "A check command in the project's column runs after the agent's edits and sends a failure back" : null,
-            Detail = lines.Length > 1 ? last : null
+            Links = lines.Length > 1 ? [new HarnessLink("The last check") { Text = $"```\n{last}\n```", Note = Plural(lines.Length, "line") }] : []
         };
     }
 
-    private static HarnessSection Stats(HarnessInput input) =>
-        input.Stats.Count == 0
-            ? new HarnessSection("Stats", "No runs yet")
-            : new HarnessSection("Stats", Plural(input.Stats.Sum(row => row.Runs), "run") + " in this project")
-            {
-                Note = string.Join('\n', input.Stats.Take(StatsShown).Select(Line))
-            };
-
-    private static HarnessSection Reflect(HarnessInput input) =>
-        input.Reflection.Count == 0
-            ? new HarnessSection("Reflect", $"No runs in {Services.Reflection.Period.TotalDays:0} days")
-            : new HarnessSection("Reflect", input.Reflection[0]) { Note = input.Reflection.Count > 1 ? string.Join('\n', input.Reflection.Skip(1)) : null };
+    // The project's runs by role and agent, then its last two weeks looked back on.
+    private static HarnessSection History(HarnessInput input)
+    {
+        var lines = input.Stats.Take(StatsShown).Select(Line).Concat(input.Reflection).ToArray();
+        return new HarnessSection("How it went", input.Stats.Count == 0 ? "No runs yet" : Plural(input.Stats.Sum(row => row.Runs), "run") + " in this project")
+        {
+            Note = lines.Length > 0 ? string.Join('\n', lines) : $"No runs in {Services.Reflection.Period.TotalDays:0} days"
+        };
+    }
 
     /// <summary>"Rigger · Claude Code · opus — 3 tasks, 1 done, 3 failed, 2:30 a run, 127k tokens a run, 3 steers".</summary>
     private static string Line(StatsRow row) =>

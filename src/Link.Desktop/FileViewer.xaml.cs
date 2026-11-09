@@ -104,6 +104,8 @@ public partial class FileViewer : UserControl
     {
         _files = files;
         _root = root;
+        CommentBar.Visibility = _target is null ? Visibility.Collapsed : Visibility.Visible;
+        ExplorerButton.Visibility = Visibility.Visible;
         FilesColumn.Width = files.Count > 1 ? new GridLength(240) : new GridLength(0);
         if (first is null)
         {
@@ -116,6 +118,24 @@ public partial class FileViewer : UserControl
         }
 
         Show(first);
+    }
+
+    /// <summary>Text Link made rather than a file (a brief, what Compact keeps, a check's output), shown as Markdown.</summary>
+    public void OpenText(string title, string where, string markdown)
+    {
+        _loading?.Cancel();
+        _files = [];
+        _root = null;
+        _file = null;
+        _drawMarks = null;
+        // Nothing to comment on or to find in Explorer: it is not a file.
+        CommentBar.Visibility = Visibility.Collapsed;
+        ExplorerButton.Visibility = Visibility.Collapsed;
+        FilesColumn.Width = new GridLength(0);
+        FilesList.ItemsSource = null;
+        TitleText.Text = title;
+        WhereText.Text = where;
+        Body.Child = MarkdownView(markdown);
     }
 
     private static bool IsMain(string file) =>
@@ -190,10 +210,7 @@ public partial class FileViewer : UserControl
         {
             case ViewKind.Markdown:
                 var markdown = await File.ReadAllTextAsync(file, cancellation);
-                var box = new RichTextBox { Style = (Style)FindResource("ReadRichTextStyle"), FontSize = 14 };
-                MarkdownText.SetSource(box, markdown);
-                box.SelectionChanged += (_, _) => AimAt(box.Selection.Text, markdown, null);
-                return Scrolled(new Border { MaxWidth = 860, Margin = new Thickness(28, 20, 28, 28), Child = box });
+                return MarkdownView(markdown, box => box.SelectionChanged += (_, _) => AimAt(box.Selection.Text, markdown, null));
             case ViewKind.Picture:
                 var now = await Task.Run(() => Picture(File.ReadAllBytes(file)), cancellation);
                 var before = await AgentChanges.CommittedAsync(file, cancellation) is { } bytes ? await Task.Run(() => Picture(bytes), cancellation) : null;
@@ -206,8 +223,8 @@ public partial class FileViewer : UserControl
                 if (text is null) return Note("Link does not show this kind of file: Show in Explorer opens its folder");
                 var lines = new TextBox
                 {
-                        Style = (Style)FindResource("BareTextBoxStyle"),
-                        IsReadOnly = true,
+                    Style = (Style)FindResource("BareTextBoxStyle"),
+                    IsReadOnly = true,
                     Text = text,
                     FontFamily = new FontFamily("Consolas"),
                     FontSize = 12.5,
@@ -415,6 +432,14 @@ public partial class FileViewer : UserControl
         panel.Children.Add(caption);
         panel.Children.Add(surface);
         return panel;
+    }
+
+    private ScrollViewer MarkdownView(string markdown, Action<RichTextBox>? wire = null)
+    {
+        var box = new RichTextBox { Style = (Style)FindResource("ReadRichTextStyle"), FontSize = 14 };
+        MarkdownText.SetSource(box, markdown);
+        wire?.Invoke(box);
+        return Scrolled(new Border { MaxWidth = 860, Margin = new Thickness(28, 20, 28, 28), Child = box });
     }
 
     private static ScrollViewer Scrolled(UIElement content) =>

@@ -176,30 +176,35 @@
   <text x="724" y="86" font-size="14" font-weight="600" fill="#F2F5F8">Harness</text>
   <text x="948" y="86" font-size="11" fill="#BAC5D0" text-anchor="end">what the agent gets</text>
   <g font-size="10.5" font-weight="600" letter-spacing="1.2" fill="#BAC5D0">
-    <text x="724" y="120">SETUP</text>
-    <text x="724" y="196">CONTEXT</text>
-    <text x="724" y="250">RULES</text>
-    <text x="724" y="292">PROJECT MEMORY</text>
-    <text x="724" y="334">SKILLS</text>
-    <text x="724" y="394">HELPERS</text>
-    <text x="724" y="436">VERIFICATION</text>
-    <text x="724" y="478">STATS</text>
+    <text x="724" y="120">THE AGENT</text>
+    <text x="724" y="184">CONTEXT</text>
+    <text x="724" y="246">INSTRUCTIONS</text>
+    <text x="724" y="312">PROJECT KNOWLEDGE</text>
+    <text x="724" y="378">WHAT IT MAY DO</text>
+    <text x="724" y="426">CHECK</text>
+    <text x="724" y="474">HOW IT WENT</text>
   </g>
   <g font-size="12" fill="#F2F5F8">
-    <text x="724" y="138">Gameplay Developer + Technical Designer</text>
-    <text x="724" y="155">Claude Code · Opus 5.5 · high</text>
-    <text x="724" y="172" fill="#FFB066" font-size="11">Auto: a bug, its cause unclear</text>
-    <rect x="724" y="206" width="224" height="6" rx="3" fill="#FFFFFF" fill-opacity="0.10"/>
-    <rect x="724" y="206" width="163" height="6" rx="3" fill="#FF9F4A"/>
-    <text x="724" y="230" font-size="11.5" fill="#BAC5D0">182k of 250k · cache warm</text>
-    <text x="724" y="268">agent-rules.md · guard on</text>
-    <text x="724" y="310">docs/map.md · 74 lines</text>
-    <text x="724" y="352">browser-check · export-fbx</text>
-    <text x="724" y="369">unity-verify</text>
-    <text x="724" y="412">mechanic on Haiku · Codex</text>
-    <text x="724" y="454" font-family="Consolas, monospace" font-size="11.5">dotnet build &amp;&amp; dotnet test</text>
-    <text x="724" y="496">38 runs in this project</text>
-    <text x="724" y="513" font-size="11" fill="#BAC5D0">Gameplay Developer · Claude Code — 12 tasks</text>
+    <text x="724" y="138">Claude Code · Opus 5.5 · high</text>
+    <text x="724" y="155" fill="#FFB066" font-size="11">Auto: a bug, its cause unclear</text>
+    <rect x="724" y="194" width="224" height="6" rx="3" fill="#FFFFFF" fill-opacity="0.10"/>
+    <rect x="724" y="194" width="163" height="6" rx="3" fill="#FF9F4A"/>
+    <text x="724" y="218" font-size="11.5" fill="#BAC5D0">182k of 250k · cache warm</text>
+    <text x="724" y="264">Gameplay Developer + Technical Designer</text>
+    <g font-size="11.5" fill="#FFB066">
+      <text x="724" y="282">Rules</text>
+      <circle cx="764" cy="278" r="3.5" fill="#60A5FA"/>
+      <text x="771" y="282">Gameplay</text>
+      <circle cx="831" cy="278" r="3.5" fill="#34D399"/>
+      <text x="838" y="282">Designer</text>
+      <text x="898" y="282">Brief</text>
+    </g>
+    <text x="724" y="330">The map · 3 skills · 12 notes</text>
+    <text x="724" y="348" font-size="11.5" fill="#FFB066">docs/map.md · browser-check · +2</text>
+    <text x="724" y="396">Edits: other commands ask you</text>
+    <text x="724" y="444" font-family="Consolas, monospace" font-size="11.5">dotnet build &amp;&amp; dotnet test</text>
+    <text x="724" y="492">38 runs in this project</text>
+    <text x="724" y="509" font-size="11" fill="#BAC5D0">Gameplay Developer · Claude Code — 12 tasks</text>
   </g>
   </g>
 </svg>

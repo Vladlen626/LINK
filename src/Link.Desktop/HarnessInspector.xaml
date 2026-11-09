@@ -6,7 +6,7 @@
         <Style x:Key="SectionNoteStyle" TargetType="TextBlock" BasedOn="{StaticResource CardNoteStyle}">
             <Setter Property="Margin" Value="0,4,0,0" />
         </Style>
-        <!-- Open, View and the team pack's two: text that looks like what it is, a link. -->
+        <!-- Share's buttons: text that looks like what it is, a link. -->
         <Style x:Key="SectionButtonStyle" TargetType="Button" BasedOn="{StaticResource GhostButtonStyle}">
             <Setter Property="Margin" Value="2,-3,-6,-3" />
             <Setter Property="Padding" Value="6,2" />
@@ -25,43 +25,44 @@
             </Style.Triggers>
         </Style>
 
-        <!-- A part of the harness: what it is, a note or two, and a longer text behind a toggle. -->
+        <!-- A file or a text a card names: a click opens it in Link's viewer; a role's jellyfish in its colour before it.
+             A line with nothing to open only says. -->
+        <DataTemplate x:Key="LinkTemplate" DataType="{x:Type local:HarnessLinkRow}">
+            <Button Margin="0" Padding="6,4" Style="{StaticResource SidebarRowStyle}" Click="Link_OnClick"
+                    IsHitTestVisible="{Binding Opens}" Focusable="{Binding Opens}" ToolTip="{Binding Tip}">
+                <Grid>
+                    <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
+                    <Control Width="13" Height="13" Margin="0,2,6,0" VerticalAlignment="Top" Focusable="False"
+                             Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" Visibility="{Binding RoleVisibility}" />
+                    <TextBlock Grid.Column="1" FontSize="12.5" TextWrapping="Wrap">
+                        <Run Text="{Binding Label, Mode=OneWay}">
+                            <Run.Style>
+                                <Style TargetType="Run">
+                                    <Setter Property="Foreground" Value="{StaticResource LinkTextBrush}" />
+                                    <Style.Triggers>
+                                        <DataTrigger Binding="{Binding Opens}" Value="False">
+                                            <Setter Property="Foreground" Value="{StaticResource TextBrush}" />
+                                        </DataTrigger>
+                                    </Style.Triggers>
+                                </Style>
+                            </Run.Style>
+                        </Run><Run Foreground="{StaticResource MutedBrush}" Text="{Binding NoteText, Mode=OneWay}" />
+                    </TextBlock>
+                </Grid>
+            </Button>
+        </DataTemplate>
+
+        <!-- A part of the harness: what it is, a note or two, and what opens in the viewer. -->
         <DataTemplate x:Key="SectionTemplate" DataType="{x:Type local:HarnessRow}">
             <Border Style="{StaticResource CardStyle}">
                 <StackPanel>
-                    <Grid>
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
-                        <TextBlock VerticalAlignment="Center" Style="{StaticResource CardHeadingStyle}" Text="{Binding Heading}" />
-                        <StackPanel Grid.Column="1" Orientation="Horizontal">
-                            <Button Style="{StaticResource SectionButtonStyle}" Click="Open_OnClick" Visibility="{Binding OpenVisibility}"
-                                    ToolTip="Show the file in Explorer">
-                                <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="Open" />
-                            </Button>
-                            <Button Style="{StaticResource SectionButtonStyle}" Click="Detail_OnClick" Visibility="{Binding DetailToggleVisibility}"
-                                    ToolTip="The whole text">
-                                <TextBlock Style="{StaticResource SectionLinkTextStyle}" Text="{Binding DetailLabel}" />
-                            </Button>
-                        </StackPanel>
-                    </Grid>
-                    <!-- The value; a role's jellyfish in its colour stands before it. -->
-                    <Grid Margin="0,5,0,0">
-                        <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                        <Control Width="15" Height="15" Margin="0,1,8,0" VerticalAlignment="Top" Focusable="False"
-                                 Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" Visibility="{Binding RoleVisibility}" />
-                        <TextBlock Grid.Column="1" FontSize="13" Foreground="{StaticResource TextBrush}" Text="{Binding Value}" TextWrapping="Wrap" />
-                    </Grid>
+                    <TextBlock Style="{StaticResource CardHeadingStyle}" Text="{Binding Heading}" />
+                    <TextBlock Margin="0,5,0,0" FontSize="13" Foreground="{StaticResource TextBrush}" Text="{Binding Value}" TextWrapping="Wrap" />
                     <ProgressBar Style="{StaticResource ContextMeterStyle}" Value="{Binding MeterPercent, Mode=OneWay}"
                                  Visibility="{Binding MeterVisibility}" />
                     <TextBlock Style="{StaticResource SectionNoteStyle}" Text="{Binding Note}" Visibility="{Binding NoteVisibility}" />
-                    <Border Margin="0,8,0,0" CornerRadius="8" Background="{StaticResource InnerGlassBrush}" Visibility="{Binding DetailVisibility}">
-                        <Grid>
-                            <Grid.ColumnDefinitions><ColumnDefinition Width="2" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
-                            <Border Margin="0,6" Background="{StaticResource HairlineBrush}" CornerRadius="1" />
-                            <TextBox Grid.Column="1" Margin="10,8" Padding="0" Style="{StaticResource BareTextBoxStyle}" FontFamily="Consolas" FontSize="12"
-                                     IsReadOnly="True" MaxHeight="220" Text="{Binding Detail, Mode=OneWay}" TextWrapping="Wrap"
-                                     VerticalScrollBarVisibility="Auto" />
-                        </Grid>
-                    </Border>
+                    <ItemsControl Margin="-6,6,-6,0" Focusable="False" ItemsSource="{Binding Links}" ItemTemplate="{StaticResource LinkTemplate}"
+                                  Visibility="{Binding LinksVisibility}" />
                 </StackPanel>
             </Border>
         </DataTemplate>

@@ -69,7 +69,7 @@ public partial class MainWindow
 
         if (Place.Maximized) WindowState = WindowState.Maximized;
         WirePanels();
-        Inspector.OpenFileRequested += ShowFile;
+        Inspector.LinkOpened += OpenHarnessLink;
         WireViewer();
         WireShare();
         Spend.Start(Place.SpendDays, Place.SpendAllProjects);

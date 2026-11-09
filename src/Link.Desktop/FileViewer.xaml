@@ -22,7 +22,7 @@
                     <TextBlock x:Name="TitleText" FontSize="14" FontWeight="SemiBold" TextTrimming="CharacterEllipsis" />
                     <TextBlock x:Name="WhereText" Style="{StaticResource SecondaryTextStyle}" FontSize="11" TextTrimming="CharacterEllipsis" />
                 </StackPanel>
-                <Button Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" Content="Show in Explorer" Click="Explorer_OnClick"
+                <Button x:Name="ExplorerButton" Grid.Column="2" Style="{StaticResource ChipButtonStyle}" Height="26" Content="Show in Explorer" Click="Explorer_OnClick"
                         ToolTip="The file in its folder: open it with its own app from there" />
             </Grid>
         </Border>

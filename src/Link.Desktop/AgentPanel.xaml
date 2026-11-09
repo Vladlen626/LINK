@@ -5,7 +5,7 @@
              AllowDrop="True" PreviewDragOver="Panel_OnPreviewDragOver" PreviewDrop="Panel_OnPreviewDrop"
              PreviewKeyDown="Panel_OnPreviewKeyDown">
     <UserControl.Resources>
-        <!-- A card that wants an answer or a decision: the agent's question, a limit, a choice, a start over. -->
+        <!-- A card that wants an answer or a decision: the agent's question, a limit, a choice. -->
         <Style x:Key="NoticeCardStyle" TargetType="Border">
             <Setter Property="Margin" Value="0,14,0,0" />
             <Setter Property="Padding" Value="14,12" />
@@ -660,7 +660,10 @@
                                         <Grid>
                                             <Grid.ColumnDefinitions><ColumnDefinition Width="*" /><ColumnDefinition Width="Auto" /></Grid.ColumnDefinitions>
                                             <StackPanel VerticalAlignment="Center">
-                                                <TextBlock FontSize="13" Text="{Binding Words}" TextTrimming="CharacterEllipsis" ToolTip="{Binding Words}" />
+                                                <!-- The words in full, as they will be sent: a long message scrolls in its row. -->
+                                                <ScrollViewer MaxHeight="160" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                                                    <TextBlock FontSize="13" Text="{Binding Words}" TextWrapping="Wrap" />
+                                                </ScrollViewer>
                                                 <TextBlock Style="{StaticResource SecondaryTextStyle}" FontSize="12" Text="{Binding State}" />
                                             </StackPanel>
                                             <Button Grid.Column="1" Margin="8,0,0,0" VerticalAlignment="Center" Style="{StaticResource GhostChipStyle}"
