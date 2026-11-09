@@ -33,7 +33,8 @@
                 <Grid>
                     <Grid.ColumnDefinitions><ColumnDefinition Width="Auto" /><ColumnDefinition Width="*" /></Grid.ColumnDefinitions>
                     <Control Width="13" Height="13" Margin="0,2,6,0" VerticalAlignment="Top" Focusable="False"
-                             Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" Visibility="{Binding RoleVisibility}" />
+                             Foreground="{Binding RoleBrush}" Template="{StaticResource LinkGlyphTemplate}" Visibility="{Binding RoleVisibility}"
+                             ToolTip="{Binding Label}" />
                     <TextBlock Grid.Column="1" FontSize="12.5" TextWrapping="Wrap">
                         <Run Text="{Binding Label, Mode=OneWay}">
                             <Run.Style>

@@ -430,11 +430,11 @@ public sealed record PanelToggle(string Label, string Hint, bool On, Action<bool
 
 /// <summary>
 /// A task in the Studio's sidebar: its goal, how it stands and its last words; no record: Link's own run (the map).
-/// <see cref="RoleColors"/> are the colours of its specialists' jellyfish, the lead first; <see cref="IsOpen"/> lights the row of the task the
+/// <see cref="Roles"/> are its specialists' jellyfish, the lead first; <see cref="IsOpen"/> lights the row of the task the
 /// Studio shows; <see cref="Group"/> is the sidebar's group it is listed under; <see cref="Spend"/> is where its tokens
 /// went, drawn as a thin bar <see cref="SpendScale"/> of the costliest listed task's long.
 /// </summary>
-public sealed record TaskRow(string Title, string Preview, string Time, string Status, Brush StatusBrush, IReadOnlyList<Brush> RoleColors, AgentTaskRecord? Record)
+public sealed record TaskRow(string Title, string Preview, string Time, string Status, Brush StatusBrush, IReadOnlyList<RoleMark> Roles, AgentTaskRecord? Record)
 {
     public bool IsOpen { get; init; }
     public TaskGroup Group { get; init; } = TaskGroup.Recent;
@@ -473,6 +473,9 @@ public static class RoleBrushes
     /// <summary>Link's own orange: General, the work with no specialist.</summary>
     public static Brush Link => Of(ProjectRoles.LinkColor);
 
+    /// <summary>General's jellyfish.</summary>
+    public static RoleMark General => new("General", Link);
+
     /// <summary>The brush of a "#RRGGBB" colour, as <see cref="ProjectRoles.ColorOf"/> gives it.</summary>
     public static Brush Of(string hex) => Cache.GetOrAdd(hex, text =>
     {
@@ -482,14 +485,17 @@ public static class RoleBrushes
     });
 
     /// <summary>
-    /// The brushes of the specialists <paramref name="roleIds"/>, the lead first, found among <paramref name="roles"/>, which
-    /// are read only when there is one to find; Link's orange alone for General and for roles whose files are gone.
+    /// The jellyfish of the specialists <paramref name="roleIds"/>, the lead first, found among <paramref name="roles"/>, which
+    /// are read only when there is one to find; General alone when there is none and for roles whose files are gone.
     /// </summary>
-    public static IReadOnlyList<Brush> For(IReadOnlyList<string> roleIds, Lazy<IReadOnlyList<AgentRole>> roles) =>
+    public static IReadOnlyList<RoleMark> For(IReadOnlyList<string> roleIds, Lazy<IReadOnlyList<AgentRole>> roles) =>
         roleIds.Count == 0 || ProjectRoles.Of(roleIds, roles.Value) is not { Count: > 0 } found
-            ? [Link]
-            : [.. found.Select(role => Of(ProjectRoles.ColorOf(role, roles.Value)))];
+            ? [General]
+            : [.. found.Select(role => new RoleMark(role.Name, Of(ProjectRoles.ColorOf(role, roles.Value))))];
 }
+
+/// <summary>A role's jellyfish on a task's row: its colour, and its name for the hover.</summary>
+public sealed record RoleMark(string Name, Brush Brush);
 
 /// <summary>
 /// Words that wait for the agent above the composer: told while it works and not read yet, or kept for after the run

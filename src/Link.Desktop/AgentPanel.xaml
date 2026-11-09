@@ -321,7 +321,7 @@
                                             <!-- The specialists' jellyfish, the lead in front, with the task's standing as a dot on its corner. -->
                                             <Grid Width="26" Height="20" Margin="0,0,9,0" VerticalAlignment="Top">
                                                 <ItemsControl HorizontalAlignment="Left" VerticalAlignment="Top" Focusable="False" AlternationCount="3"
-                                                              ItemsSource="{Binding RoleColors}">
+                                                              ItemsSource="{Binding Roles}">
                                                     <ItemsControl.ItemsPanel>
                                                         <ItemsPanelTemplate><StackPanel Orientation="Horizontal" /></ItemsPanelTemplate>
                                                     </ItemsControl.ItemsPanel>
@@ -340,8 +340,9 @@
                                                         </Style>
                                                     </ItemsControl.ItemContainerStyle>
                                                     <ItemsControl.ItemTemplate>
-                                                        <DataTemplate>
-                                                            <Control Width="14" Height="14" Focusable="False" Foreground="{Binding}" Template="{StaticResource LinkGlyphTemplate}" />
+                                                        <DataTemplate DataType="{x:Type local:RoleMark}">
+                                                            <Control Width="14" Height="14" Focusable="False" Foreground="{Binding Brush}" ToolTip="{Binding Name}"
+                                                                     Template="{StaticResource LinkGlyphTemplate}" />
                                                         </DataTemplate>
                                                     </ItemsControl.ItemTemplate>
                                                 </ItemsControl>

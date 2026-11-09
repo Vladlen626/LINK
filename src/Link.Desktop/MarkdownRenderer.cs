@@ -130,8 +130,16 @@ public sealed class MarkdownRenderer(FrameworkElement resources, Action<Uri> ope
             if (TryGetListItem(lines[index], numbered: false, out _) || TryGetListItem(lines[index], numbered: true, out _))
             {
                 var numbered = !TryGetListItem(lines[index], numbered: false, out _);
-                while (index < lines.Length && TryGetListItem(lines[index], numbered, out _)) index++;
-                var items = lines[start..index];
+                var items = new List<string>();
+                while (index < lines.Length)
+                {
+                    if (TryGetListItem(lines[index], numbered, out var item)) items.Add(item);
+                    // A wrapped item goes on in the lines under it that start nothing of their own.
+                    else if (!string.IsNullOrWhiteSpace(lines[index]) && !StartsBlock(lines[index])) items[^1] += " " + lines[index].Trim();
+                    else break;
+                    index++;
+                }
+
                 add(source(), () => CreateList(items, numbered));
                 continue;
             }
@@ -158,7 +166,7 @@ public sealed class MarkdownRenderer(FrameworkElement resources, Action<Uri> ope
 
     private Brush Brush(string key) => (Brush)resources.FindResource(key);
 
-    private System.Windows.Documents.List CreateList(IEnumerable<string> lines, bool numbered)
+    private System.Windows.Documents.List CreateList(IEnumerable<string> items, bool numbered)
     {
         var list = new System.Windows.Documents.List
         {
@@ -167,9 +175,8 @@ public sealed class MarkdownRenderer(FrameworkElement resources, Action<Uri> ope
             Padding = new Thickness(0)
         };
 
-        foreach (var line in lines)
+        foreach (var itemText in items)
         {
-            TryGetListItem(line, numbered, out var itemText);
             var paragraph = new Paragraph { Margin = new Thickness(0, 0, 0, 3) };
             AddInlineContent(paragraph.Inlines, itemText);
             list.ListItems.Add(new ListItem(paragraph));

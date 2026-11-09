@@ -194,13 +194,29 @@ public partial class FileViewer : UserControl
         }
     }
 
+    // A pack lists many SKILL.md files: a main file below the opened folder goes by its folder's name, with the file's
+    // name beside where it is; a Markdown file goes without its extension.
     private ViewerFile Row(string path, bool open)
     {
         var folder = Path.GetDirectoryName(path) ?? string.Empty;
+        var name = Path.GetFileName(path);
+        if (IsMain(path) && !(_root is not null && Path.TrimEndingDirectorySeparator(folder).Equals(Path.TrimEndingDirectorySeparator(_root), StringComparison.OrdinalIgnoreCase)))
+        {
+            var where = Shown(Path.GetDirectoryName(folder) ?? string.Empty);
+            return new ViewerFile(path, Path.GetFileName(folder), where.Length > 0 ? $"{where} · {name}" : name, open);
+        }
+
+        if (Path.GetExtension(name).Equals(".md", StringComparison.OrdinalIgnoreCase)) name = Path.GetFileNameWithoutExtension(name);
+        return new ViewerFile(path, name, Shown(folder), open);
+    }
+
+    // A folder as the list shows it: within the opened folder, else by its own name; the opened folder itself shows nothing.
+    private string Shown(string folder)
+    {
         var shown = _root is not null && folder.StartsWith(_root, StringComparison.OrdinalIgnoreCase)
             ? Path.GetRelativePath(_root, folder).Replace('\\', '/')
             : Path.GetFileName(folder);
-        return new ViewerFile(path, Path.GetFileName(path), shown == "." ? string.Empty : shown, open);
+        return shown == "." ? string.Empty : shown;
     }
 
     private async Task<UIElement> ViewAsync(string file, CancellationToken cancellation)
