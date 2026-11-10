@@ -219,6 +219,7 @@ public sealed class TelegramBot : IDisposable
     {
         long offset = 0;
         var ready = false;
+        var outage = new Outage();
         while (!token.IsCancellationRequested)
         {
             try
@@ -231,6 +232,7 @@ public sealed class TelegramBot : IDisposable
                     continue;
                 }
 
+                if (outage.Over() is { } back) _log(back);
                 foreach (var update in list.EnumerateArray())
                 {
                     offset = update.GetProperty("update_id").GetInt64() + 1;
@@ -244,7 +246,7 @@ public sealed class TelegramBot : IDisposable
             catch (Exception exception) when (exception is HttpRequestException or JsonException or OperationCanceledException or InvalidOperationException
                                                   or IOException or UnauthorizedAccessException)
             {
-                _log($"[Telegram] {exception.GetType().Name}: {exception.Message}");
+                if (outage.Failed(exception) is { } problem) _log(problem);
                 try
                 {
                     await Task.Delay(Retry, token);
@@ -254,6 +256,35 @@ public sealed class TelegramBot : IDisposable
                     return;
                 }
             }
+        }
+    }
+
+    /// <summary>
+    /// What the log hears of the poll's failures. Without the network the poll fails every <see cref="Retry"/>, for hours
+    /// overnight: the log gets the failure once, then how many tries it took once Telegram answers again.
+    /// </summary>
+    internal sealed class Outage
+    {
+        private string? _problem;
+        private int _tries;
+
+        /// <summary>A failed try: its line for the log, or null when it repeats the one before.</summary>
+        public string? Failed(Exception exception)
+        {
+            _tries++;
+            var problem = $"[Telegram] {exception.GetType().Name}: {exception.Message}";
+            if (problem == _problem) return null;
+            _problem = problem;
+            return problem;
+        }
+
+        /// <summary>Telegram answered: the line for the log when it had not, else null.</summary>
+        public string? Over()
+        {
+            if (_tries == 0) return null;
+            var line = $"[Telegram] Answers again after {_tries} failed {(_tries == 1 ? "try" : "tries")}";
+            (_problem, _tries) = (null, 0);
+            return line;
         }
     }
 

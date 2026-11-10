@@ -224,7 +224,8 @@ public partial class App : System.Windows.Application
             lock (_logLock)
             {
                 var log = new FileInfo(_logPath);
-                if (log.Exists && log.Length > MaxLogBytes) log.Delete();
+                // A full log starts again; the one before stays beside it, as what filled it is often the cause.
+                if (log.Exists && log.Length > MaxLogBytes) log.MoveTo(_logPath + ".old", overwrite: true);
                 File.AppendAllText(_logPath, $"[{DateTimeOffset.Now:O}] {text}{Environment.NewLine}{Environment.NewLine}");
             }
         }

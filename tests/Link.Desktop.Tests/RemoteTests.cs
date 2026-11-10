@@ -21,8 +21,25 @@ internal static class RemoteTests
     {
         Spent();
         Html();
+        Outage();
         await ServerAsync();
         await TelegramAsync();
+    }
+
+    /// <summary>A night without the network is one line in the log, and one more when Telegram answers again.</summary>
+    private static void Outage()
+    {
+        var outage = new TelegramBot.Outage();
+        var down = new HttpRequestException("No such host is known. (api.telegram.org:443)");
+        Program.Equal("Telegram log: an outage is named once, however often the poll fails",
+            (outage.Failed(down), outage.Failed(down), outage.Failed(down)),
+            ("[Telegram] HttpRequestException: No such host is known. (api.telegram.org:443)", (string?)null, (string?)null));
+        Program.Equal("Telegram log: another failure in the same outage is named too",
+            outage.Failed(new IOException("The connection was reset")), "[Telegram] IOException: The connection was reset");
+        Program.Equal("Telegram log: the answer after it says how many tries failed, once",
+            (outage.Over(), outage.Over()), ("[Telegram] Answers again after 4 failed tries", (string?)null));
+        Program.Equal("Telegram log: the next outage is named again",
+            (outage.Failed(down) is not null, outage.Over()), (true, "[Telegram] Answers again after 1 failed try"));
     }
 
     /// <summary>An agent's Markdown as Telegram's HTML: its lines kept, its tags closed, cut without breaking one.</summary>
